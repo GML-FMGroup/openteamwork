@@ -1,0 +1,9 @@
+node_modules
+dist
+dist-electron
+coverage
+.DS_Store
+
+task_plan.md
+findings.md
+progress.md
