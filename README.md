@@ -23,11 +23,24 @@ Renderer (React)
 
 The current repository includes a local mock adapter so the desktop workflow is runnable before the real openppx local HTTP/SSE coordinator is connected.
 
+The app now also includes a first real local bridge path:
+
+- real agent discovery from `~/.openpipixia/global_config.json`
+- real local execution through a Python bridge script
+- local session/message persistence in Electron user data
+- automatic fallback to mock mode when openppx is unavailable
+
 ## Development
 
 ```bash
 pnpm install
 pnpm dev
+```
+
+If `openppx_root` is not located beside `ppx-client`, set:
+
+```bash
+export OPENPPX_ROOT=/path/to/openppx_root
 ```
 
 ## Notes

@@ -1,17 +1,11 @@
 import { app, BrowserWindow, ipcMain } from "electron";
 import path from "node:path";
-import {
-  bootstrap,
-  createSession,
-  loadSession,
-  runRuntimeCommand,
-  sendMessage,
-  subscribe,
-} from "../../app/src/lib/mock-client";
 import type { RuntimeCommand, SendMessageInput } from "../../app/src/types";
+import { OpenPpxLocalAdapter } from "./openppx-local-adapter";
 
 let mainWindow: BrowserWindow | null = null;
 let unsubscribeRunEvents: (() => void) | null = null;
+let adapter: OpenPpxLocalAdapter | null = null;
 
 function createWindow(): void {
   mainWindow = new BrowserWindow({
@@ -28,7 +22,8 @@ function createWindow(): void {
     },
   });
 
-  unsubscribeRunEvents = subscribe((event) => {
+  adapter = new OpenPpxLocalAdapter();
+  unsubscribeRunEvents = adapter.onRunEvent((event) => {
     mainWindow?.webContents.send("ppx-client:run-event", event);
   });
 
@@ -40,13 +35,13 @@ function createWindow(): void {
 }
 
 app.whenReady().then(() => {
-  ipcMain.handle("ppx-client:bootstrap", async () => bootstrap());
+  ipcMain.handle("ppx-client:bootstrap", async () => adapter!.bootstrap());
   ipcMain.handle("ppx-client:runtime-command", async (_event, command: RuntimeCommand) =>
-    runRuntimeCommand(command),
+    adapter!.runRuntimeCommand(command),
   );
-  ipcMain.handle("ppx-client:create-session", async (_event, agentId: string) => createSession(agentId));
-  ipcMain.handle("ppx-client:load-session", async (_event, sessionId: string) => loadSession(sessionId));
-  ipcMain.handle("ppx-client:send-message", async (_event, input: SendMessageInput) => sendMessage(input));
+  ipcMain.handle("ppx-client:create-session", async (_event, agentId: string) => adapter!.createSession(agentId));
+  ipcMain.handle("ppx-client:load-session", async (_event, sessionId: string) => adapter!.loadSession(sessionId));
+  ipcMain.handle("ppx-client:send-message", async (_event, input: SendMessageInput) => adapter!.sendMessage(input));
 
   createWindow();
 
@@ -60,6 +55,8 @@ app.whenReady().then(() => {
 app.on("window-all-closed", () => {
   unsubscribeRunEvents?.();
   unsubscribeRunEvents = null;
+  adapter?.dispose();
+  adapter = null;
   if (process.platform !== "darwin") {
     app.quit();
   }
