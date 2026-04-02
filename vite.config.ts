@@ -9,9 +9,31 @@ export default defineConfig({
     electron([
       {
         entry: "electron/main/index.ts",
+        vite: {
+          build: {
+            outDir: "dist-electron/main",
+            emptyOutDir: false,
+            rollupOptions: {
+              output: {
+                entryFileNames: "index.js",
+              },
+            },
+          },
+        },
       },
       {
         entry: "electron/preload/index.ts",
+        vite: {
+          build: {
+            outDir: "dist-electron/preload",
+            emptyOutDir: false,
+            rollupOptions: {
+              output: {
+                entryFileNames: "index.js",
+              },
+            },
+          },
+        },
         onstart(options) {
           options.reload();
         },
