@@ -27,13 +27,15 @@ export interface RuntimeStatus {
 }
 
 export interface ClientDiagnostics {
-  mode: "local" | "mock";
+  mode: "local" | "remote" | "mock";
+  target: ConnectionTarget;
   openppxRoot: string;
   openppxRootExists: boolean;
   pythonBin: string;
   globalConfigPath: string;
   globalConfigExists: boolean;
   clientApiBaseUrl: string;
+  clientApiManagedByClient: boolean;
   clientApiHealthy: boolean;
   clientApiProcessRunning: boolean;
   bridgeScriptPath: string;

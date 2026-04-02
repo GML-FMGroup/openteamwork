@@ -373,7 +373,7 @@ export function App() {
           <section className="settings-card">
             <div className="eyebrow">settings</div>
             <h2>第一版设置</h2>
-            <p>当前只支持本地模式。设置页现在会直接展示本地 runtime 和 transport 的真实诊断信息。</p>
+            <p>当前以本地模式为主，但已经补了远程 target 的接入准备。这里会直接展示当前 gateway 和 transport 的真实诊断信息。</p>
             <div className="runtime-actions">
               <button onClick={() => void refreshDiagnostics()}>刷新诊断</button>
             </div>
@@ -387,6 +387,10 @@ export function App() {
             <h3>Connection</h3>
             <dl className="diagnostics-grid">
               <div>
+                <dt>Target</dt>
+                <dd>{diagnostics ? `${diagnostics.target.name} (${diagnostics.target.type})` : "-"}</dd>
+              </div>
+              <div>
                 <dt>Mode</dt>
                 <dd>{diagnostics?.mode ?? "-"}</dd>
               </div>
@@ -397,6 +401,10 @@ export function App() {
               <div>
                 <dt>Process</dt>
                 <dd>{diagnostics?.clientApiProcessRunning ? "running" : "not managed"}</dd>
+              </div>
+              <div>
+                <dt>Gateway control</dt>
+                <dd>{diagnostics?.clientApiManagedByClient ? "managed by client" : "external / remote"}</dd>
               </div>
               <div>
                 <dt>Agents</dt>

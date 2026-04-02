@@ -28,6 +28,7 @@ import type {
   BootstrapPayload,
   ChatMessage,
   ClientDiagnostics,
+  ConnectionTarget,
   MessagePart,
   PpxClientApi,
   RunEvent,
@@ -136,11 +137,15 @@ export class OpenPpxLocalAdapter implements PpxClientApi {
 
   private readonly pythonBin = resolvePythonBin(this.openppxRoot);
 
+  private readonly configuredClientApiBaseUrl = process.env.OPENPPX_CLIENT_API_BASE_URL?.trim() || "";
+
   private readonly clientApiHost = process.env.OPENPPX_CLIENT_API_HOST?.trim() || "127.0.0.1";
 
   private readonly clientApiPort = Number(process.env.OPENPPX_CLIENT_API_PORT?.trim() || "8765");
 
-  private readonly clientApiBaseUrl = `http://${this.clientApiHost}:${this.clientApiPort}`;
+  private readonly target = this.buildTarget();
+
+  private readonly clientApiBaseUrl = this.configuredClientApiBaseUrl || `http://${this.clientApiHost}:${this.clientApiPort}`;
 
   private clientApiProcess: ReturnType<typeof spawn> | null = null;
 
@@ -157,6 +162,30 @@ export class OpenPpxLocalAdapter implements PpxClientApi {
       this.emit(event);
     }
   });
+
+  private buildTarget(): ConnectionTarget {
+    const rawType = (process.env.OPENPPX_TARGET_TYPE?.trim().toLowerCase() || "local") as "local" | "remote";
+    if (rawType === "remote") {
+      return {
+        id: process.env.OPENPPX_TARGET_ID?.trim() || "remote-default",
+        type: "remote",
+        name: process.env.OPENPPX_TARGET_NAME?.trim() || "Remote Gateway",
+      };
+    }
+    return {
+      id: process.env.OPENPPX_TARGET_ID?.trim() || "local-default",
+      type: "local",
+      name: process.env.OPENPPX_TARGET_NAME?.trim() || "This Mac",
+    };
+  }
+
+  private isRemoteTarget(): boolean {
+    return this.target.type === "remote";
+  }
+
+  private canUseLegacyLocalFallback(): boolean {
+    return !this.isRemoteTarget();
+  }
 
   private emit(event: RunEvent): void {
     this.applyEventToCache(event);
@@ -299,6 +328,14 @@ export class OpenPpxLocalAdapter implements PpxClientApi {
       });
       return true;
     }
+    if (this.isRemoteTarget()) {
+      clientDebugLog("client-api.health", {
+        baseUrl: this.clientApiBaseUrl,
+        status: "remote-unreachable",
+        target: this.target,
+      });
+      return false;
+    }
     if (!fs.existsSync(this.openppxRoot)) {
       clientDebugLog("client-api.health", {
         baseUrl: this.clientApiBaseUrl,
@@ -422,10 +459,16 @@ export class OpenPpxLocalAdapter implements PpxClientApi {
   }
 
   private shouldUseMock(): boolean {
+    if (this.isRemoteTarget()) {
+      return false;
+    }
     return !fs.existsSync(this.openppxRoot) || this.listRealAgents().length === 0;
   }
 
   private listRealAgents(): AgentProfile[] {
+    if (this.isRemoteTarget()) {
+      return [];
+    }
     const raw = readJsonFile<GlobalAgentConfig>(globalConfigPath());
     if (!raw) {
       return [];
@@ -457,9 +500,18 @@ export class OpenPpxLocalAdapter implements PpxClientApi {
   }
 
   private getFallbackRuntimeStatus(): RuntimeStatus {
+    if (this.isRemoteTarget()) {
+      return {
+        target: this.target,
+        state: "error",
+        summary: "Remote client-api gateway is unavailable.",
+        detail: `Check the remote gateway at ${this.clientApiBaseUrl}. The desktop client is not yet starting remote runtimes on demand.`,
+        lastError: "REMOTE_GATEWAY_UNAVAILABLE",
+      };
+    }
     if (!fs.existsSync(this.openppxRoot)) {
       return {
-        target: { id: "local-default", type: "local", name: "This Mac" },
+        target: this.target,
         state: "error",
         summary: "openppx root was not found.",
         detail: "Set OPENPPX_ROOT or keep ppx-client beside openppx_root.",
@@ -468,14 +520,14 @@ export class OpenPpxLocalAdapter implements PpxClientApi {
     }
     if (!fs.existsSync(globalConfigPath())) {
       return {
-        target: { id: "local-default", type: "local", name: "This Mac" },
+        target: this.target,
         state: "starting",
         summary: "openppx config is not initialized yet.",
         detail: "Run the openppx setup first so ~/.openpipixia/global_config.json exists.",
       };
     }
     return {
-      target: { id: "local-default", type: "local", name: "This Mac" },
+      target: this.target,
       state: "healthy",
       summary: "Local openppx runtime is available.",
       detail: "The client will prefer the local client-api gateway and fall back to the legacy bridge when needed.",
@@ -529,13 +581,15 @@ export class OpenPpxLocalAdapter implements PpxClientApi {
   public async getDiagnostics(): Promise<ClientDiagnostics> {
     const realAgents = this.listRealAgents();
     return {
-      mode: this.shouldUseMock() ? "mock" : "local",
+      mode: this.shouldUseMock() ? "mock" : this.isRemoteTarget() ? "remote" : "local",
+      target: this.target,
       openppxRoot: this.openppxRoot,
       openppxRootExists: fs.existsSync(this.openppxRoot),
       pythonBin: this.pythonBin,
       globalConfigPath: globalConfigPath(),
       globalConfigExists: fs.existsSync(globalConfigPath()),
       clientApiBaseUrl: this.clientApiBaseUrl,
+      clientApiManagedByClient: !this.isRemoteTarget(),
       clientApiHealthy: await this.isClientApiHealthy(),
       clientApiProcessRunning: !!this.clientApiProcess && this.clientApiProcess.exitCode === null,
       bridgeScriptPath: this.bridgeScriptPath,
@@ -550,6 +604,13 @@ export class OpenPpxLocalAdapter implements PpxClientApi {
   public async runRuntimeCommand(command: RuntimeCommand): Promise<RuntimeStatus> {
     if (this.shouldUseMock()) {
       return mockRunRuntimeCommand(command);
+    }
+    if (this.isRemoteTarget()) {
+      return {
+        ...this.getFallbackRuntimeStatus(),
+        summary: "Remote gateway control is not supported from the desktop client yet.",
+        detail: `This target is configured as remote. Manage the gateway directly at ${this.clientApiBaseUrl}.`,
+      };
     }
     if (command === "stop") {
       if (this.clientApiProcess && this.clientApiProcess.exitCode === null) {
@@ -599,6 +660,9 @@ export class OpenPpxLocalAdapter implements PpxClientApi {
         // Fall back to the legacy bridge path below.
       }
     }
+    if (!this.canUseLegacyLocalFallback()) {
+      return { sessions: [] };
+    }
     const sessions = await this.listSessionsForAgent(agentId);
     this.writeSessionsCache(agentId, sessions);
     return { sessions };
@@ -622,6 +686,9 @@ export class OpenPpxLocalAdapter implements PpxClientApi {
       } catch {
         // Fall through to the legacy bridge path.
       }
+    }
+    if (!this.canUseLegacyLocalFallback()) {
+      throw new Error(`Remote gateway is unavailable for target ${this.target.name}.`);
     }
     const response = (await this.callBridge(
       this.bridgeArgs("create_session", agentId, ["--session-id", `${agentId}-${crypto.randomUUID()}`]),
@@ -657,6 +724,9 @@ export class OpenPpxLocalAdapter implements PpxClientApi {
       } catch {
         // Fall through to the legacy bridge path.
       }
+    }
+    if (!this.canUseLegacyLocalFallback()) {
+      return { messages: [] };
     }
     const sessions = await Promise.all(this.listRealAgents().map((agent) => this.listSessionsForAgent(agent.id)));
     const flat = sessions.flat();
@@ -697,6 +767,9 @@ export class OpenPpxLocalAdapter implements PpxClientApi {
         });
         // Fall back to the bridge path if the service flow fails.
       }
+    }
+    if (!this.canUseLegacyLocalFallback()) {
+      throw new Error(`Remote gateway is unavailable for target ${this.target.name}.`);
     }
     clientDebugLog("send.bridge.fallback", {
       agentId: input.agentId,

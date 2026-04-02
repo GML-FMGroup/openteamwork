@@ -236,12 +236,14 @@ export async function loadSession(sessionId: string): Promise<{ messages: ChatMe
 export async function getDiagnostics(): Promise<ClientDiagnostics> {
   return {
     mode: "mock",
+    target: { id: "mock-default", type: "local", name: "Mock Runtime" },
     openppxRoot: "",
     openppxRootExists: false,
     pythonBin: "",
     globalConfigPath: "",
     globalConfigExists: false,
     clientApiBaseUrl: "http://127.0.0.1:8765",
+    clientApiManagedByClient: false,
     clientApiHealthy: false,
     clientApiProcessRunning: false,
     bridgeScriptPath: "",

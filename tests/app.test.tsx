@@ -56,12 +56,14 @@ function buildBootstrapPayload(): BootstrapPayload {
 function buildDiagnostics(): ClientDiagnostics {
   return {
     mode: "local",
+    target: { id: "local-default", type: "local", name: "This Mac" },
     openppxRoot: "/tmp/openppx_root",
     openppxRootExists: true,
     pythonBin: "/tmp/openppx_root/.venv/bin/python",
     globalConfigPath: "/tmp/.openpipixia/global_config.json",
     globalConfigExists: true,
     clientApiBaseUrl: "http://127.0.0.1:8765",
+    clientApiManagedByClient: true,
     clientApiHealthy: true,
     clientApiProcessRunning: true,
     bridgeScriptPath: "/tmp/ppx-client/scripts/openppx_bridge.py",
@@ -208,5 +210,27 @@ describe("App sending state", () => {
     await screen.findByText("Connection");
     expect(screen.getByText("http://127.0.0.1:8765")).toBeInTheDocument();
     expect(screen.getByText("/tmp/openppx_root")).toBeInTheDocument();
+    expect(screen.getByText("This Mac (local)")).toBeInTheDocument();
+  });
+
+  it("renders remote target diagnostics when provided", async () => {
+    installClient({
+      getDiagnostics: async () => ({
+        ...buildDiagnostics(),
+        mode: "remote",
+        target: { id: "remote-default", type: "remote", name: "Ops Gateway" },
+        clientApiManagedByClient: false,
+        clientApiBaseUrl: "http://10.0.0.8:8765",
+        clientApiProcessRunning: false,
+      }),
+    });
+
+    render(<App />);
+
+    await screen.findByText("openppx workbench");
+    fireEvent.click(screen.getByRole("button", { name: "设置" }));
+
+    await screen.findByText("Ops Gateway (remote)");
+    expect(screen.getByText("external / remote")).toBeInTheDocument();
   });
 });
