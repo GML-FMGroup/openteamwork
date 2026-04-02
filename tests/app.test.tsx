@@ -1,6 +1,6 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { App } from "../app/src/App";
-import type { BootstrapPayload, PpxClientApi, RunEvent, RuntimeStatus, SessionSummary } from "../app/src/types";
+import type { BootstrapPayload, ClientDiagnostics, PpxClientApi, RunEvent, RuntimeStatus, SessionSummary } from "../app/src/types";
 
 function buildBootstrapPayload(): BootstrapPayload {
   const runtime: RuntimeStatus = {
@@ -53,10 +53,31 @@ function buildBootstrapPayload(): BootstrapPayload {
   };
 }
 
+function buildDiagnostics(): ClientDiagnostics {
+  return {
+    mode: "local",
+    openppxRoot: "/tmp/openppx_root",
+    openppxRootExists: true,
+    pythonBin: "/tmp/openppx_root/.venv/bin/python",
+    globalConfigPath: "/tmp/.openpipixia/global_config.json",
+    globalConfigExists: true,
+    clientApiBaseUrl: "http://127.0.0.1:8765",
+    clientApiHealthy: true,
+    clientApiProcessRunning: true,
+    bridgeScriptPath: "/tmp/ppx-client/scripts/openppx_bridge.py",
+    bridgeScriptExists: true,
+    agentCount: 1,
+    sessionCacheEntries: 1,
+    messageCacheEntries: 1,
+    debugEnabled: false,
+  };
+}
+
 function installClient(overrides: Partial<PpxClientApi> = {}): { client: PpxClientApi; emit: (event: RunEvent) => void } {
   let listener: ((event: RunEvent) => void) | null = null;
   const client: PpxClientApi = {
     bootstrap: async () => buildBootstrapPayload(),
+    getDiagnostics: async () => buildDiagnostics(),
     runRuntimeCommand: async () => buildBootstrapPayload().runtime,
     listSessions: async () => ({ sessions: buildBootstrapPayload().sessions }),
     createSession: async () => ({ session: buildBootstrapPayload().sessions[0] }),
@@ -173,5 +194,19 @@ describe("App sending state", () => {
     });
 
     await screen.findByText("Loaded Session B");
+  });
+
+  it("renders live diagnostics in settings view", async () => {
+    installClient();
+
+    render(<App />);
+
+    await screen.findByText("openppx workbench");
+
+    fireEvent.click(screen.getByRole("button", { name: "设置" }));
+
+    await screen.findByText("Connection");
+    expect(screen.getByText("http://127.0.0.1:8765")).toBeInTheDocument();
+    expect(screen.getByText("/tmp/openppx_root")).toBeInTheDocument();
   });
 });

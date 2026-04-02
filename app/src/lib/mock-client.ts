@@ -2,6 +2,7 @@ import type {
   AgentProfile,
   BootstrapPayload,
   ChatMessage,
+  ClientDiagnostics,
   MessagePart,
   RuntimeCommand,
   RuntimeStatus,
@@ -230,6 +231,26 @@ export async function createSession(agentId: string): Promise<{ session: Session
 
 export async function loadSession(sessionId: string): Promise<{ messages: ChatMessage[] }> {
   return { messages: getMessages(sessionId) };
+}
+
+export async function getDiagnostics(): Promise<ClientDiagnostics> {
+  return {
+    mode: "mock",
+    openppxRoot: "",
+    openppxRootExists: false,
+    pythonBin: "",
+    globalConfigPath: "",
+    globalConfigExists: false,
+    clientApiBaseUrl: "http://127.0.0.1:8765",
+    clientApiHealthy: false,
+    clientApiProcessRunning: false,
+    bridgeScriptPath: "",
+    bridgeScriptExists: false,
+    agentCount: state.agents.length,
+    sessionCacheEntries: 0,
+    messageCacheEntries: 0,
+    debugEnabled: false,
+  };
 }
 
 export function subscribe(listener: EventSink): () => void {

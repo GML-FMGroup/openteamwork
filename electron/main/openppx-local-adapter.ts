@@ -27,6 +27,7 @@ import type {
   AgentProfile,
   BootstrapPayload,
   ChatMessage,
+  ClientDiagnostics,
   MessagePart,
   PpxClientApi,
   RunEvent,
@@ -522,6 +523,27 @@ export class OpenPpxLocalAdapter implements PpxClientApi {
       messages,
       selectedAgentId,
       selectedSessionId,
+    };
+  }
+
+  public async getDiagnostics(): Promise<ClientDiagnostics> {
+    const realAgents = this.listRealAgents();
+    return {
+      mode: this.shouldUseMock() ? "mock" : "local",
+      openppxRoot: this.openppxRoot,
+      openppxRootExists: fs.existsSync(this.openppxRoot),
+      pythonBin: this.pythonBin,
+      globalConfigPath: globalConfigPath(),
+      globalConfigExists: fs.existsSync(globalConfigPath()),
+      clientApiBaseUrl: this.clientApiBaseUrl,
+      clientApiHealthy: await this.isClientApiHealthy(),
+      clientApiProcessRunning: !!this.clientApiProcess && this.clientApiProcess.exitCode === null,
+      bridgeScriptPath: this.bridgeScriptPath,
+      bridgeScriptExists: fs.existsSync(this.bridgeScriptPath),
+      agentCount: realAgents.length,
+      sessionCacheEntries: this.sessionsCache.size,
+      messageCacheEntries: this.messagesCache.size,
+      debugEnabled: clientDebugEnabled(),
     };
   }
 

@@ -26,6 +26,24 @@ export interface RuntimeStatus {
   lastError?: string;
 }
 
+export interface ClientDiagnostics {
+  mode: "local" | "mock";
+  openppxRoot: string;
+  openppxRootExists: boolean;
+  pythonBin: string;
+  globalConfigPath: string;
+  globalConfigExists: boolean;
+  clientApiBaseUrl: string;
+  clientApiHealthy: boolean;
+  clientApiProcessRunning: boolean;
+  bridgeScriptPath: string;
+  bridgeScriptExists: boolean;
+  agentCount: number;
+  sessionCacheEntries: number;
+  messageCacheEntries: number;
+  debugEnabled: boolean;
+}
+
 export interface AgentProfile {
   id: string;
   name: string;
@@ -98,6 +116,7 @@ export interface SendMessageInput {
 
 export interface PpxClientApi {
   bootstrap(): Promise<BootstrapPayload>;
+  getDiagnostics(): Promise<ClientDiagnostics>;
   runRuntimeCommand(command: RuntimeCommand): Promise<RuntimeStatus>;
   listSessions(agentId: string): Promise<{ sessions: SessionSummary[] }>;
   createSession(agentId: string): Promise<{ session: SessionSummary }>;

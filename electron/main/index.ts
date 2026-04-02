@@ -44,6 +44,7 @@ function createWindow(): void {
 
 app.whenReady().then(() => {
   ipcMain.handle("ppx-client:bootstrap", async () => adapter!.bootstrap());
+  ipcMain.handle("ppx-client:get-diagnostics", async () => adapter!.getDiagnostics());
   ipcMain.handle("ppx-client:runtime-command", async (_event, command: RuntimeCommand) =>
     adapter!.runRuntimeCommand(command),
   );

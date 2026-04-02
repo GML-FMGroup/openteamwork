@@ -3,6 +3,7 @@ import type {
   AgentProfile,
   BootstrapPayload,
   ChatMessage,
+  ClientDiagnostics,
   RuntimeState,
   RuntimeStatus,
   SessionSummary,
@@ -42,6 +43,7 @@ export function App() {
   const [ready, setReady] = useState(false);
   const [bootstrapError, setBootstrapError] = useState<string | null>(null);
   const [runtime, setRuntime] = useState<RuntimeStatus | null>(null);
+  const [diagnostics, setDiagnostics] = useState<ClientDiagnostics | null>(null);
   const [agents, setAgents] = useState<AgentProfile[]>([]);
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -96,6 +98,7 @@ export function App() {
         setSelectedSessionId(payload.selectedSessionId);
         setReady(true);
         setBootstrapError(null);
+        void window.ppxClient.getDiagnostics().then(setDiagnostics).catch(() => undefined);
       })
       .catch((error: unknown) => {
         if (!mounted) {
@@ -167,6 +170,13 @@ export function App() {
     const command = runtime.state === "stopped" ? "start" : "restart";
     const next = await window.ppxClient.runRuntimeCommand(command);
     setRuntime(next);
+    const nextDiagnostics = await window.ppxClient.getDiagnostics();
+    setDiagnostics(nextDiagnostics);
+  }
+
+  async function refreshDiagnostics(): Promise<void> {
+    const nextDiagnostics = await window.ppxClient.getDiagnostics();
+    setDiagnostics(nextDiagnostics);
   }
 
   async function handleNewSession(): Promise<void> {
@@ -363,16 +373,90 @@ export function App() {
           <section className="settings-card">
             <div className="eyebrow">settings</div>
             <h2>第一版设置</h2>
-            <ul>
-              <li>当前只支持本地模式。</li>
-              <li>Renderer 通过 preload 暴露的 host API 访问本地运行时。</li>
-              <li>下一步将把 mock adapter 替换为真实的 openppx client-api。</li>
-            </ul>
+            <p>当前只支持本地模式。设置页现在会直接展示本地 runtime 和 transport 的真实诊断信息。</p>
+            <div className="runtime-actions">
+              <button onClick={() => void refreshDiagnostics()}>刷新诊断</button>
+            </div>
           </section>
           <section className="settings-card">
             <h3>Runtime status</h3>
             <p>{runtime.summary}</p>
             <small>{runtime.detail}</small>
+          </section>
+          <section className="settings-card">
+            <h3>Connection</h3>
+            <dl className="diagnostics-grid">
+              <div>
+                <dt>Mode</dt>
+                <dd>{diagnostics?.mode ?? "-"}</dd>
+              </div>
+              <div>
+                <dt>Client API</dt>
+                <dd>{diagnostics?.clientApiHealthy ? "healthy" : "offline"}</dd>
+              </div>
+              <div>
+                <dt>Process</dt>
+                <dd>{diagnostics?.clientApiProcessRunning ? "running" : "not managed"}</dd>
+              </div>
+              <div>
+                <dt>Agents</dt>
+                <dd>{diagnostics?.agentCount ?? 0}</dd>
+              </div>
+            </dl>
+          </section>
+          <section className="settings-card">
+            <h3>Paths</h3>
+            <dl className="diagnostics-stack">
+              <div>
+                <dt>openppx root</dt>
+                <dd>{diagnostics?.openppxRoot || "-"}</dd>
+              </div>
+              <div>
+                <dt>Python</dt>
+                <dd>{diagnostics?.pythonBin || "-"}</dd>
+              </div>
+              <div>
+                <dt>Global config</dt>
+                <dd>{diagnostics?.globalConfigPath || "-"}</dd>
+              </div>
+              <div>
+                <dt>Bridge script</dt>
+                <dd>{diagnostics?.bridgeScriptPath || "-"}</dd>
+              </div>
+            </dl>
+          </section>
+          <section className="settings-card">
+            <h3>Diagnostics</h3>
+            <dl className="diagnostics-grid">
+              <div>
+                <dt>Root exists</dt>
+                <dd>{diagnostics?.openppxRootExists ? "yes" : "no"}</dd>
+              </div>
+              <div>
+                <dt>Config exists</dt>
+                <dd>{diagnostics?.globalConfigExists ? "yes" : "no"}</dd>
+              </div>
+              <div>
+                <dt>Bridge exists</dt>
+                <dd>{diagnostics?.bridgeScriptExists ? "yes" : "no"}</dd>
+              </div>
+              <div>
+                <dt>Debug</dt>
+                <dd>{diagnostics?.debugEnabled ? "enabled" : "off"}</dd>
+              </div>
+              <div>
+                <dt>Session cache</dt>
+                <dd>{diagnostics?.sessionCacheEntries ?? 0}</dd>
+              </div>
+              <div>
+                <dt>Message cache</dt>
+                <dd>{diagnostics?.messageCacheEntries ?? 0}</dd>
+              </div>
+              <div>
+                <dt>Client API URL</dt>
+                <dd>{diagnostics?.clientApiBaseUrl || "-"}</dd>
+              </div>
+            </dl>
           </section>
         </main>
       )}

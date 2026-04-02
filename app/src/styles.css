@@ -429,6 +429,45 @@ button.small {
   padding: 24px;
 }
 
+.diagnostics-grid,
+.diagnostics-stack {
+  margin: 0;
+}
+
+.diagnostics-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.diagnostics-grid div,
+.diagnostics-stack div {
+  padding: 12px 14px;
+  border-radius: 18px;
+  background: rgba(255, 250, 244, 0.7);
+  border: 1px solid var(--border-soft);
+}
+
+.diagnostics-stack {
+  display: grid;
+  gap: 12px;
+}
+
+.diagnostics-grid dt,
+.diagnostics-stack dt {
+  font-size: 0.78rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-subtle);
+  margin-bottom: 6px;
+}
+
+.diagnostics-grid dd,
+.diagnostics-stack dd {
+  margin: 0;
+  word-break: break-word;
+}
+
 @media (max-width: 1200px) {
   .app-shell {
     grid-template-columns: 72px minmax(280px, 320px) minmax(0, 1fr);
@@ -466,6 +505,10 @@ button.small {
 
   .settings-page {
     grid-column: auto;
+    grid-template-columns: 1fr;
+  }
+
+  .diagnostics-grid {
     grid-template-columns: 1fr;
   }
 

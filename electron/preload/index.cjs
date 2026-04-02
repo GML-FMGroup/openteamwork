@@ -2,6 +2,7 @@ const { contextBridge, ipcRenderer } = require("electron");
 
 const api = {
   bootstrap: () => ipcRenderer.invoke("ppx-client:bootstrap"),
+  getDiagnostics: () => ipcRenderer.invoke("ppx-client:get-diagnostics"),
   runRuntimeCommand: (command) => ipcRenderer.invoke("ppx-client:runtime-command", command),
   listSessions: (agentId) => ipcRenderer.invoke("ppx-client:list-sessions", agentId),
   createSession: (agentId) => ipcRenderer.invoke("ppx-client:create-session", agentId),
