@@ -22,7 +22,6 @@ import type {
   SendMessageInput,
   SessionSummary,
 } from "../../app/src/types";
-import { SessionStore } from "./session-store";
 
 type EventSink = (event: RunEvent) => void;
 
@@ -85,8 +84,6 @@ function resolvePythonBin(openppxRoot: string): string {
 export class OpenPpxLocalAdapter implements PpxClientApi {
   private readonly listeners = new Set<EventSink>();
 
-  private readonly sessionStore = new SessionStore();
-
   private readonly openppxRoot = detectOpenPpxRoot();
 
   private readonly bridgeScriptPath = path.resolve(process.cwd(), "scripts/openppx_bridge.py");
@@ -101,6 +98,111 @@ export class OpenPpxLocalAdapter implements PpxClientApi {
 
   private emit(event: RunEvent): void {
     this.listeners.forEach((listener) => listener(event));
+  }
+
+  private async callBridge(args: string[]): Promise<unknown> {
+    return new Promise((resolve, reject) => {
+      const child = spawn(this.pythonBin, [this.bridgeScriptPath, ...args], {
+        cwd: this.openppxRoot,
+        stdio: ["ignore", "pipe", "pipe"],
+      });
+
+      let stdout = "";
+      let stderr = "";
+
+      child.stdout.on("data", (chunk: Buffer | string) => {
+        stdout += chunk.toString();
+      });
+      child.stderr.on("data", (chunk: Buffer | string) => {
+        stderr += chunk.toString();
+      });
+      child.on("close", (code) => {
+        if (code !== 0) {
+          reject(new Error(stderr.trim() || stdout.trim() || `Bridge exited with code ${code}`));
+          return;
+        }
+        const lines = stdout
+          .split("\n")
+          .map((line) => line.trim())
+          .filter(Boolean);
+        if (!lines.length) {
+          resolve(null);
+          return;
+        }
+        try {
+          resolve(JSON.parse(lines.at(-1)!));
+        } catch (error) {
+          reject(error);
+        }
+      });
+    });
+  }
+
+  private bridgeArgs(action: string, agentId: string, extra: string[] = []): string[] {
+    return ["--openppx-root", this.openppxRoot, action, "--agent", agentId, ...extra];
+  }
+
+  private formatSessionSummary(agentId: string, payload: Record<string, unknown>): SessionSummary {
+    const updatedAt = typeof payload.last_update_time === "number" ? new Date(payload.last_update_time * 1000).toISOString() : now();
+    return {
+      id: String(payload.id ?? ""),
+      agentId,
+      title: `Session ${String(payload.id ?? "").slice(0, 8)}`,
+      updatedAt,
+      lastMessagePreview: typeof payload.last_preview === "string" ? payload.last_preview : "Openppx session",
+    };
+  }
+
+  private buildMessagePartsFromEvent(event: Record<string, unknown>): MessagePart[] {
+    const content = event.content as Record<string, unknown> | undefined;
+    const parts = Array.isArray(content?.parts) ? (content?.parts as Array<Record<string, unknown>>) : [];
+    const messageParts: MessagePart[] = [];
+    for (const part of parts) {
+      if (typeof part.text === "string" && part.text.trim()) {
+        messageParts.push({ type: "markdown", text: part.text });
+      }
+      const functionCall = part.function_call as Record<string, unknown> | undefined;
+      if (functionCall) {
+        messageParts.push({
+          type: "step_ref",
+          stepId: String(functionCall.id ?? crypto.randomUUID()),
+          title: String(functionCall.name ?? "Tool call"),
+          status: "completed",
+          detail: typeof functionCall.args === "string" ? functionCall.args : JSON.stringify(functionCall.args ?? {}, null, 2),
+        });
+      }
+      const functionResponse = part.function_response as Record<string, unknown> | undefined;
+      if (functionResponse) {
+        messageParts.push({
+          type: "code",
+          language: "json",
+          text: JSON.stringify(functionResponse.response ?? {}, null, 2),
+        });
+      }
+    }
+    if (!messageParts.length) {
+      messageParts.push({
+        type: "markdown",
+        text: "(event without renderable text)",
+      });
+    }
+    return messageParts;
+  }
+
+  private buildMessagesFromSession(sessionId: string, payload: Record<string, unknown>): ChatMessage[] {
+    const events = Array.isArray(payload.events) ? (payload.events as Array<Record<string, unknown>>) : [];
+    return events.map((event) => {
+      const author = String(event.author ?? "");
+      const timestamp = typeof event.timestamp === "number" ? new Date(event.timestamp * 1000).toISOString() : now();
+      return {
+        id: String(event.id ?? crypto.randomUUID()),
+        sessionId,
+        role: author === "user" ? "user" : "assistant",
+        status: "completed",
+        createdAt: timestamp,
+        parts: this.buildMessagePartsFromEvent(event),
+      };
+    });
   }
 
   private shouldUseMock(): boolean {
@@ -171,9 +273,9 @@ export class OpenPpxLocalAdapter implements PpxClientApi {
 
     const agents = this.listRealAgents();
     const selectedAgentId = agents[0]?.id ?? "";
-    const sessions = selectedAgentId ? this.sessionStore.listSessions(selectedAgentId) : [];
+    const sessions = selectedAgentId ? await this.listSessionsForAgent(selectedAgentId) : [];
     const selectedSessionId = sessions[0]?.id ?? "";
-    const messages = selectedSessionId ? this.sessionStore.getMessages(selectedSessionId) : [];
+    const messages = selectedSessionId ? (await this.loadSession(selectedSessionId)).messages : [];
     return {
       runtime: this.getRealRuntimeStatus(),
       agents,
@@ -198,18 +300,26 @@ export class OpenPpxLocalAdapter implements PpxClientApi {
     return this.getRealRuntimeStatus();
   }
 
+  public async listSessions(agentId: string): Promise<{ sessions: SessionSummary[] }> {
+    if (this.shouldUseMock()) {
+      const payload = await mockBootstrap();
+      return {
+        sessions: payload.selectedAgentId === agentId ? payload.sessions : [],
+      };
+    }
+    return {
+      sessions: await this.listSessionsForAgent(agentId),
+    };
+  }
+
   public async createSession(agentId: string): Promise<{ session: SessionSummary }> {
     if (this.shouldUseMock()) {
       return mockCreateSession(agentId);
     }
-    const session: SessionSummary = {
-      id: `${agentId}-${crypto.randomUUID()}`,
-      agentId,
-      title: "New local session",
-      updatedAt: now(),
-      lastMessagePreview: "Start a task for this agent.",
-    };
-    this.sessionStore.upsertSession(session);
+    const response = (await this.callBridge(
+      this.bridgeArgs("create_session", agentId, ["--session-id", `${agentId}-${crypto.randomUUID()}`]),
+    )) as { session?: Record<string, unknown> } | null;
+    const session = this.formatSessionSummary(agentId, response?.session ?? {});
     return { session };
   }
 
@@ -217,8 +327,20 @@ export class OpenPpxLocalAdapter implements PpxClientApi {
     if (this.shouldUseMock()) {
       return mockLoadSession(sessionId);
     }
+    const sessions = await Promise.all(this.listRealAgents().map((agent) => this.listSessionsForAgent(agent.id)));
+    const flat = sessions.flat();
+    const session = flat.find((item) => item.id === sessionId);
+    if (!session) {
+      return { messages: [] };
+    }
+    const response = (await this.callBridge(
+      this.bridgeArgs("get_session", session.agentId, ["--session-id", sessionId]),
+    )) as { session?: Record<string, unknown> | null } | null;
+    if (!response?.session) {
+      return { messages: [] };
+    }
     return {
-      messages: this.sessionStore.getMessages(sessionId),
+      messages: this.buildMessagesFromSession(sessionId, response.session),
     };
   }
 
@@ -236,8 +358,6 @@ export class OpenPpxLocalAdapter implements PpxClientApi {
       createdAt: now(),
       parts: [{ type: "markdown", text: input.text }],
     };
-    this.sessionStore.appendMessage(input.sessionId, userMessage);
-
     const assistantMessage: ChatMessage = {
       id: `assistant-${crypto.randomUUID()}`,
       sessionId: input.sessionId,
@@ -254,16 +374,14 @@ export class OpenPpxLocalAdapter implements PpxClientApi {
         },
       ],
     };
-    this.sessionStore.appendMessage(input.sessionId, assistantMessage);
     this.emit({
       type: "message.created",
       runId,
       message: assistantMessage,
     });
 
-    const session = this.sessionStore
-      .listSessions(input.agentId)
-      .find((item) => item.id === input.sessionId) ?? {
+    const sessions = await this.listSessionsForAgent(input.agentId);
+    const session = sessions.find((item) => item.id === input.sessionId) ?? {
       id: input.sessionId,
       agentId: input.agentId,
       title: "Local session",
@@ -274,17 +392,7 @@ export class OpenPpxLocalAdapter implements PpxClientApi {
     await new Promise<void>((resolve) => {
       const child = spawn(
         this.pythonBin,
-        [
-          this.bridgeScriptPath,
-          "--openppx-root",
-          this.openppxRoot,
-          "--agent",
-          input.agentId,
-          "--session-id",
-          input.sessionId,
-          "--message",
-          input.text,
-        ],
+        this.bridgeArgs("run", input.agentId, ["--session-id", input.sessionId, "--message", input.text]),
         {
           cwd: this.openppxRoot,
           stdio: ["ignore", "pipe", "pipe"],
@@ -295,18 +403,17 @@ export class OpenPpxLocalAdapter implements PpxClientApi {
       let finalText = "";
       let stderrText = "";
 
-      const applyAssistantParts = (parts: MessagePart[], status: ChatMessage["status"]): void => {
-        const updated: ChatMessage = {
-          ...assistantMessage,
-          status,
-          parts,
-        };
-        assistantMessage.status = status;
-        assistantMessage.parts = parts;
-        this.sessionStore.replaceMessage(input.sessionId, updated);
-        this.emit({
-          type: "message.updated",
-          runId,
+        const applyAssistantParts = (parts: MessagePart[], status: ChatMessage["status"]): void => {
+          const updated: ChatMessage = {
+            ...assistantMessage,
+            status,
+            parts,
+          };
+          assistantMessage.status = status;
+          assistantMessage.parts = parts;
+          this.emit({
+            type: "message.updated",
+            runId,
           messageId: assistantMessage.id,
           replaceParts: parts,
           status,
@@ -371,7 +478,6 @@ export class OpenPpxLocalAdapter implements PpxClientApi {
 
         session.updatedAt = now();
         session.lastMessagePreview = finalText || input.text;
-        this.sessionStore.upsertSession(session);
         this.emit({
           type: "session.updated",
           runId,
@@ -397,5 +503,15 @@ export class OpenPpxLocalAdapter implements PpxClientApi {
 
   public dispose(): void {
     this.mockUnsubscribe();
+  }
+
+  private async listSessionsForAgent(agentId: string): Promise<SessionSummary[]> {
+    const response = (await this.callBridge(this.bridgeArgs("list_sessions", agentId))) as
+      | { sessions?: Array<Record<string, unknown>> }
+      | null;
+    const sessions = Array.isArray(response?.sessions) ? response.sessions : [];
+    return sessions
+      .map((payload) => this.formatSessionSummary(agentId, payload))
+      .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
   }
 }

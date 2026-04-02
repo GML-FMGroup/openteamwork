@@ -103,9 +103,15 @@ export function App() {
 
   async function switchAgent(agentId: string): Promise<void> {
     setSelectedAgentId(agentId);
-    const created = await window.ppxClient.createSession(agentId);
-    setSessions((current) => [created.session, ...current.filter((item) => item.id !== created.session.id)]);
-    setSelectedSessionId(created.session.id);
+    const listed = await window.ppxClient.listSessions(agentId);
+    setSessions(listed.sessions);
+    if (listed.sessions[0]) {
+      setSelectedSessionId(listed.sessions[0].id);
+      const loaded = await window.ppxClient.loadSession(listed.sessions[0].id);
+      setMessages(loaded.messages);
+      return;
+    }
+    setSelectedSessionId("");
     setMessages([]);
   }
 
@@ -130,7 +136,7 @@ export function App() {
       return;
     }
     const created = await window.ppxClient.createSession(selectedAgentId);
-    setSessions((current) => [created.session, ...current]);
+    setSessions((current) => [created.session, ...current.filter((item) => item.id !== created.session.id)]);
     setSelectedSessionId(created.session.id);
     setMessages([]);
   }

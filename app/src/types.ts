@@ -96,6 +96,7 @@ export interface SendMessageInput {
 export interface PpxClientApi {
   bootstrap(): Promise<BootstrapPayload>;
   runRuntimeCommand(command: RuntimeCommand): Promise<RuntimeStatus>;
+  listSessions(agentId: string): Promise<{ sessions: SessionSummary[] }>;
   createSession(agentId: string): Promise<{ session: SessionSummary }>;
   loadSession(sessionId: string): Promise<{ messages: ChatMessage[] }>;
   sendMessage(input: SendMessageInput): Promise<{ runId: string }>;
