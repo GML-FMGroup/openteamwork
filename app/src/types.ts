@@ -67,11 +67,13 @@ export type RunEvent =
   | {
       type: "message.created";
       runId: string;
+      sessionId: string;
       message: ChatMessage;
     }
   | {
       type: "message.updated";
       runId: string;
+      sessionId: string;
       messageId: string;
       status?: MessageStatus;
       appendParts?: MessagePart[];
@@ -85,6 +87,7 @@ export type RunEvent =
   | {
       type: "run.finished";
       runId: string;
+      sessionId: string;
     };
 
 export interface SendMessageInput {

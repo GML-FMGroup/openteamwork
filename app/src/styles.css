@@ -29,11 +29,13 @@ html,
 body,
 #root {
   margin: 0;
+  height: 100%;
   min-height: 100%;
 }
 
 body {
   min-height: 100vh;
+  overflow: hidden;
 }
 
 button,
@@ -56,16 +58,18 @@ button {
 .app-shell {
   display: grid;
   grid-template-columns: 72px 340px minmax(0, 1fr);
-  min-height: 100vh;
+  height: 100vh;
   gap: 18px;
   padding: 18px;
+  overflow: hidden;
 }
 
 .nav-rail,
 .sidebar,
 .workspace,
 .settings-page {
-  min-height: calc(100vh - 36px);
+  min-height: 0;
+  height: calc(100vh - 36px);
 }
 
 .nav-rail {
@@ -98,6 +102,8 @@ button {
   display: flex;
   flex-direction: column;
   gap: 14px;
+  overflow: auto;
+  padding-right: 4px;
 }
 
 .panel,
@@ -256,6 +262,7 @@ button.small {
   display: grid;
   grid-template-rows: auto minmax(0, 1fr) auto;
   gap: 18px;
+  overflow: hidden;
 }
 
 .session-meta {
@@ -414,6 +421,7 @@ button.small {
   display: grid;
   grid-template-columns: repeat(2, minmax(280px, 1fr));
   gap: 18px;
+  overflow: auto;
 }
 
 .settings-card {
@@ -428,8 +436,14 @@ button.small {
 }
 
 @media (max-width: 960px) {
+  body {
+    overflow: auto;
+  }
+
   .app-shell {
     grid-template-columns: 1fr;
+    height: auto;
+    overflow: visible;
   }
 
   .nav-rail {
@@ -447,6 +461,7 @@ button.small {
   .workspace,
   .settings-page {
     min-height: auto;
+    height: auto;
   }
 
   .settings-page {

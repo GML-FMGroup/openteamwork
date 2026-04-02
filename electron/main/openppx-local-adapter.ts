@@ -53,6 +53,18 @@ function now(): string {
   return new Date().toISOString();
 }
 
+function clientDebugEnabled(): boolean {
+  const raw = process.env.OPENPPX_CLIENT_DEBUG ?? process.env.PPX_CLIENT_DEBUG ?? "";
+  return ["1", "true", "yes", "on"].includes(raw.trim().toLowerCase());
+}
+
+function clientDebugLog(tag: string, payload: unknown): void {
+  if (!clientDebugEnabled()) {
+    return;
+  }
+  console.log(`[ppx-client][debug] ${tag}`, payload);
+}
+
 function normalizeAgentName(input: string): string {
   return input
     .trim()
@@ -165,30 +177,60 @@ export class OpenPpxLocalAdapter implements PpxClientApi {
 
   private async ensureClientApiAvailable(): Promise<boolean> {
     if (await this.isClientApiHealthy()) {
+      clientDebugLog("client-api.health", {
+        baseUrl: this.clientApiBaseUrl,
+        status: "healthy",
+      });
       return true;
     }
     if (!fs.existsSync(this.openppxRoot)) {
+      clientDebugLog("client-api.health", {
+        baseUrl: this.clientApiBaseUrl,
+        status: "openppx-root-missing",
+        openppxRoot: this.openppxRoot,
+      });
       return false;
     }
     if (!this.clientApiProcess) {
+      clientDebugLog("client-api.spawn", {
+        baseUrl: this.clientApiBaseUrl,
+        pythonBin: this.pythonBin,
+        openppxRoot: this.openppxRoot,
+      });
       this.clientApiProcess = spawn(
         this.pythonBin,
         ["-m", "openpipixia.app.cli", "client-api", "serve", "--host", this.clientApiHost, "--port", String(this.clientApiPort)],
         {
           cwd: this.openppxRoot,
-          stdio: "ignore",
+          stdio: ["ignore", "pipe", "pipe"],
         },
       );
+      this.clientApiProcess.stdout?.on("data", (chunk: Buffer | string) => {
+        clientDebugLog("client-api.stdout", chunk.toString().trim());
+      });
+      this.clientApiProcess.stderr?.on("data", (chunk: Buffer | string) => {
+        clientDebugLog("client-api.stderr", chunk.toString().trim());
+      });
       this.clientApiProcess.on("close", () => {
+        clientDebugLog("client-api.close", { baseUrl: this.clientApiBaseUrl });
         this.clientApiProcess = null;
       });
     }
     for (let attempt = 0; attempt < 12; attempt += 1) {
       await delay(250);
       if (await this.isClientApiHealthy()) {
+        clientDebugLog("client-api.health", {
+          baseUrl: this.clientApiBaseUrl,
+          status: "healthy-after-spawn",
+          attempt: attempt + 1,
+        });
         return true;
       }
     }
+    clientDebugLog("client-api.health", {
+      baseUrl: this.clientApiBaseUrl,
+      status: "unreachable",
+    });
     return false;
   }
 
@@ -478,16 +520,31 @@ export class OpenPpxLocalAdapter implements PpxClientApi {
   }
 
   public async sendMessage(input: SendMessageInput): Promise<{ runId: string }> {
+    clientDebugLog("send.start", {
+      agentId: input.agentId,
+      sessionId: input.sessionId,
+      textPreview: input.text.slice(0, 240),
+      mode: this.shouldUseMock() ? "mock" : "local",
+    });
     if (this.shouldUseMock()) {
       return mockSendMessage(input);
     }
     if (await this.ensureClientApiAvailable()) {
       try {
         return await this.sendMessageViaClientApi(input);
-      } catch {
+      } catch (error) {
+        clientDebugLog("send.client-api.failed", {
+          agentId: input.agentId,
+          sessionId: input.sessionId,
+          error: error instanceof Error ? error.message : String(error),
+        });
         // Fall back to the bridge path if the service flow fails.
       }
     }
+    clientDebugLog("send.bridge.fallback", {
+      agentId: input.agentId,
+      sessionId: input.sessionId,
+    });
     return this.sendMessageViaBridge(input);
   }
 
@@ -498,6 +555,11 @@ export class OpenPpxLocalAdapter implements PpxClientApi {
     });
     const run = ((payload.data as Record<string, unknown> | undefined)?.run ?? {}) as Record<string, unknown>;
     const runId = String(run.id ?? `run-${crypto.randomUUID()}`);
+    clientDebugLog("send.client-api.run-created", {
+      runId,
+      agentId: input.agentId,
+      sessionId: input.sessionId,
+    });
     const sessionPayload = await this.listSessions(input.agentId);
     const session = sessionPayload.sessions.find((item) => item.id === input.sessionId) ?? {
       id: input.sessionId,
@@ -511,6 +573,10 @@ export class OpenPpxLocalAdapter implements PpxClientApi {
     if (!response.ok || !response.body) {
       throw new Error(`Failed opening run event stream for ${runId}`);
     }
+    clientDebugLog("send.client-api.stream-open", {
+      runId,
+      url: `${this.clientApiBaseUrl}/api/v1/runs/${runId}/events`,
+    });
 
     await new Promise<void>(async (resolve, reject) => {
       const reader = response.body!.getReader();
@@ -526,16 +592,22 @@ export class OpenPpxLocalAdapter implements PpxClientApi {
         }
         assistantMessage.status = status;
         assistantMessage.parts = mergeAssistantParts(stepParts, finalText);
-        this.emit({
-          type: "message.updated",
-          runId,
-          messageId: assistantMessage.id,
-          replaceParts: assistantMessage.parts,
-          status,
-        });
+          this.emit({
+            type: "message.updated",
+            runId,
+            sessionId: assistantMessage.sessionId,
+            messageId: assistantMessage.id,
+            replaceParts: assistantMessage.parts,
+            status,
+          });
       };
 
       const handleClientApiEvent = (eventName: string, data: Record<string, unknown>): void => {
+        clientDebugLog("send.client-api.event", {
+          runId,
+          eventName,
+          keys: Object.keys(data),
+        });
         if (eventName === "message.created") {
           const message = normalizeClientApiMessage(data.message);
           if (!message) {
@@ -543,7 +615,7 @@ export class OpenPpxLocalAdapter implements PpxClientApi {
           }
           assistantMessage = message;
           stepParts = message.parts.filter((part): part is StepPart => part.type === "step_ref");
-          this.emit({ type: "message.created", runId, message });
+          this.emit({ type: "message.created", runId, sessionId: message.sessionId, message });
           return;
         }
         if (eventName === "step.updated" && assistantMessage) {
@@ -597,6 +669,7 @@ export class OpenPpxLocalAdapter implements PpxClientApi {
             this.emit({
               type: "message.updated",
               runId,
+              sessionId: assistantMessage.sessionId,
               messageId: assistantMessage.id,
               replaceParts: [errorPart],
               status: "failed",
@@ -608,7 +681,12 @@ export class OpenPpxLocalAdapter implements PpxClientApi {
           session.updatedAt = now();
           session.lastMessagePreview = finalText || input.text;
           this.emit({ type: "session.updated", runId, session });
-          this.emit({ type: "run.finished", runId });
+          this.emit({ type: "run.finished", runId, sessionId: input.sessionId });
+          clientDebugLog("send.client-api.finished", {
+            runId,
+            status: "completed",
+            finalTextLength: finalText.length,
+          });
         }
       };
 
@@ -616,6 +694,7 @@ export class OpenPpxLocalAdapter implements PpxClientApi {
         while (true) {
           const { done, value } = await reader.read();
           if (done) {
+            clientDebugLog("send.client-api.stream-closed", { runId });
             break;
           }
           buffer += decoder.decode(value, { stream: true });
@@ -640,6 +719,10 @@ export class OpenPpxLocalAdapter implements PpxClientApi {
         }
         resolve();
       } catch (error) {
+        clientDebugLog("send.client-api.stream-error", {
+          runId,
+          error: error instanceof Error ? error.message : String(error),
+        });
         reject(error);
       }
     });
@@ -649,6 +732,11 @@ export class OpenPpxLocalAdapter implements PpxClientApi {
 
   private async sendMessageViaBridge(input: SendMessageInput): Promise<{ runId: string }> {
     const runId = `run-${crypto.randomUUID()}`;
+    clientDebugLog("send.bridge.start", {
+      runId,
+      agentId: input.agentId,
+      sessionId: input.sessionId,
+    });
     const assistantMessage: ChatMessage = {
       id: `assistant-${crypto.randomUUID()}`,
       sessionId: input.sessionId,
@@ -668,6 +756,7 @@ export class OpenPpxLocalAdapter implements PpxClientApi {
     this.emit({
       type: "message.created",
       runId,
+      sessionId: input.sessionId,
       message: assistantMessage,
     });
 
@@ -702,6 +791,7 @@ export class OpenPpxLocalAdapter implements PpxClientApi {
         this.emit({
           type: "message.updated",
           runId,
+          sessionId: assistantMessage.sessionId,
           messageId: assistantMessage.id,
           replaceParts: parts,
           status,
@@ -718,6 +808,10 @@ export class OpenPpxLocalAdapter implements PpxClientApi {
         }
         try {
           const payload = JSON.parse(line) as { type: string; text?: string; message?: string; event?: Record<string, unknown> };
+          clientDebugLog("send.bridge.payload", {
+            runId,
+            type: payload.type,
+          });
           if (payload.type === "event" && payload.event) {
             hasStructuredEvent = true;
             stepParts = projectBridgeEventToStepParts(payload.event, stepParts).filter(
@@ -779,9 +873,18 @@ export class OpenPpxLocalAdapter implements PpxClientApi {
 
       child.stderr.on("data", (chunk: Buffer | string) => {
         stderrText += chunk.toString();
+        clientDebugLog("send.bridge.stderr", {
+          runId,
+          text: chunk.toString().trim(),
+        });
       });
 
       child.on("close", (code) => {
+        clientDebugLog("send.bridge.close", {
+          runId,
+          code,
+          assistantStatus: assistantMessage.status,
+        });
         if (stdoutBuffer.trim()) {
           handleLine(stdoutBuffer.trim());
         }
@@ -808,6 +911,7 @@ export class OpenPpxLocalAdapter implements PpxClientApi {
         this.emit({
           type: "run.finished",
           runId,
+          sessionId: input.sessionId,
         });
         resolve();
       });

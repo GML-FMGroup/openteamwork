@@ -261,6 +261,7 @@ export async function sendMessage(input: SendMessageInput): Promise<{ runId: str
   emit({
     type: "message.created",
     runId,
+    sessionId: input.sessionId,
     message: assistant,
   });
 
@@ -270,6 +271,7 @@ export async function sendMessage(input: SendMessageInput): Promise<{ runId: str
       emit({
         type: "message.updated",
         runId,
+        sessionId: input.sessionId,
         messageId: assistant.id,
         appendParts: [part],
         status: index === parts.length - 1 ? "completed" : "streaming",
@@ -285,6 +287,7 @@ export async function sendMessage(input: SendMessageInput): Promise<{ runId: str
         emit({
           type: "run.finished",
           runId,
+          sessionId: input.sessionId,
         });
       }
     }, 250 * (index + 1));

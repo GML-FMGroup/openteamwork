@@ -23,6 +23,10 @@ function updateMessage(
   return current.map((message) => (message.id === messageId ? updater(message) : message));
 }
 
+function removeSendingSession(current: string[], sessionId: string): string[] {
+  return current.filter((item) => item !== sessionId);
+}
+
 function runtimeActionLabel(state: RuntimeState): string {
   if (state === "stopped") {
     return "启动";
@@ -44,7 +48,7 @@ export function App() {
   const [selectedAgentId, setSelectedAgentId] = useState("");
   const [selectedSessionId, setSelectedSessionId] = useState("");
   const [composer, setComposer] = useState("");
-  const [sending, setSending] = useState(false);
+  const [sendingSessionIds, setSendingSessionIds] = useState<string[]>([]);
 
   useEffect(() => {
     if (!window.ppxClient) {
@@ -63,8 +67,8 @@ export function App() {
             parts: event.replaceParts ?? [...message.parts, ...(event.appendParts ?? [])],
           })),
         );
-        if (event.status === "completed") {
-          setSending(false);
+        if (event.status === "completed" || event.status === "failed" || event.status === "cancelled") {
+          setSendingSessionIds((current) => removeSendingSession(current, event.sessionId));
         }
       } else if (event.type === "session.updated") {
         setSessions((current) =>
@@ -73,7 +77,7 @@ export function App() {
           ),
         );
       } else if (event.type === "run.finished") {
-        setSending(false);
+        setSendingSessionIds((current) => removeSendingSession(current, event.sessionId));
       }
     });
 
@@ -113,6 +117,11 @@ export function App() {
   const selectedSession = useMemo(
     () => sessions.find((session) => session.id === selectedSessionId) ?? null,
     [sessions, selectedSessionId],
+  );
+
+  const currentSessionSending = useMemo(
+    () => (selectedSessionId ? sendingSessionIds.includes(selectedSessionId) : false),
+    [selectedSessionId, sendingSessionIds],
   );
 
   async function switchAgent(agentId: string): Promise<void> {
@@ -160,22 +169,29 @@ export function App() {
     if (!text || !selectedAgentId || !selectedSessionId) {
       return;
     }
-    setSending(true);
+    const sessionId = selectedSessionId;
+    setSendingSessionIds((current) => (current.includes(sessionId) ? current : [...current, sessionId]));
     setComposer("");
     const optimisticMessage: ChatMessage = {
       id: `local-user-${crypto.randomUUID()}`,
-      sessionId: selectedSessionId,
+      sessionId,
       role: "user",
       status: "completed",
       createdAt: new Date().toISOString(),
       parts: [{ type: "markdown", text }],
     };
     setMessages((current) => [...current, optimisticMessage]);
-    await window.ppxClient.sendMessage({
-      agentId: selectedAgentId,
-      sessionId: selectedSessionId,
-      text,
-    });
+    try {
+      await window.ppxClient.sendMessage({
+        agentId: selectedAgentId,
+        sessionId,
+        text,
+      });
+    } catch (error) {
+      console.error("Failed to send message", error);
+    } finally {
+      setSendingSessionIds((current) => current.filter((item) => item !== sessionId));
+    }
   }
 
   if (bootstrapError) {
@@ -319,9 +335,9 @@ export function App() {
                 rows={4}
               />
               <div className="composer-actions">
-                <span>{sending ? "正在流式返回..." : "本地模式 / Electron host API / mock runtime seam"}</span>
-                <button disabled={sending || !composer.trim()} onClick={() => void handleSend()}>
-                  {sending ? "运行中" : "发送"}
+                <span>{currentSessionSending ? "当前会话正在流式返回..." : "本地模式 / Electron host API / mock runtime seam"}</span>
+                <button disabled={currentSessionSending || !composer.trim()} onClick={() => void handleSend()}>
+                  {currentSessionSending ? "运行中" : "发送"}
                 </button>
               </div>
             </footer>
