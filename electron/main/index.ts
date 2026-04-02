@@ -1,13 +1,20 @@
 import { app, BrowserWindow, ipcMain } from "electron";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import type { RuntimeCommand, SendMessageInput } from "../../app/src/types";
 import { OpenPpxLocalAdapter } from "./openppx-local-adapter";
 
 let mainWindow: BrowserWindow | null = null;
 let unsubscribeRunEvents: (() => void) | null = null;
 let adapter: OpenPpxLocalAdapter | null = null;
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 function createWindow(): void {
+  const preloadPath = process.env.VITE_DEV_SERVER_URL
+    ? path.resolve(process.cwd(), "electron/preload/index.cjs")
+    : path.join(__dirname, "../preload/index.cjs");
+
   mainWindow = new BrowserWindow({
     width: 1440,
     height: 920,
@@ -16,9 +23,10 @@ function createWindow(): void {
     backgroundColor: "#f4efe5",
     title: "ppx-client",
     webPreferences: {
-      preload: path.join(__dirname, "../preload/index.js"),
+      preload: preloadPath,
       contextIsolation: true,
       nodeIntegration: false,
+      sandbox: false,
     },
   });
 

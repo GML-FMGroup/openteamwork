@@ -36,6 +36,7 @@ function runtimeActionLabel(state: RuntimeState): string {
 export function App() {
   const [view, setView] = useState<NavView>("chat");
   const [ready, setReady] = useState(false);
+  const [bootstrapError, setBootstrapError] = useState<string | null>(null);
   const [runtime, setRuntime] = useState<RuntimeStatus | null>(null);
   const [agents, setAgents] = useState<AgentProfile[]>([]);
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
@@ -46,6 +47,10 @@ export function App() {
   const [sending, setSending] = useState(false);
 
   useEffect(() => {
+    if (!window.ppxClient) {
+      setBootstrapError("Preload host API was not injected. Check Electron preload output and restart dev.");
+      return;
+    }
     let mounted = true;
     const off = window.ppxClient.onRunEvent((event) => {
       if (event.type === "message.created") {
@@ -72,18 +77,27 @@ export function App() {
       }
     });
 
-    window.ppxClient.bootstrap().then((payload: BootstrapPayload) => {
-      if (!mounted) {
-        return;
-      }
-      setRuntime(payload.runtime);
-      setAgents(payload.agents);
-      setSessions(payload.sessions);
-      setMessages(payload.messages);
-      setSelectedAgentId(payload.selectedAgentId);
-      setSelectedSessionId(payload.selectedSessionId);
-      setReady(true);
-    });
+    window.ppxClient
+      .bootstrap()
+      .then((payload: BootstrapPayload) => {
+        if (!mounted) {
+          return;
+        }
+        setRuntime(payload.runtime);
+        setAgents(payload.agents);
+        setSessions(payload.sessions);
+        setMessages(payload.messages);
+        setSelectedAgentId(payload.selectedAgentId);
+        setSelectedSessionId(payload.selectedSessionId);
+        setReady(true);
+        setBootstrapError(null);
+      })
+      .catch((error: unknown) => {
+        if (!mounted) {
+          return;
+        }
+        setBootstrapError(error instanceof Error ? error.message : String(error));
+      });
 
     return () => {
       mounted = false;
@@ -162,6 +176,17 @@ export function App() {
       sessionId: selectedSessionId,
       text,
     });
+  }
+
+  if (bootstrapError) {
+    return (
+      <div className="loading-shell">
+        <div>
+          <strong>ppx-client failed to initialize</strong>
+          <p>{bootstrapError}</p>
+        </div>
+      </div>
+    );
   }
 
   if (!ready || !runtime) {
