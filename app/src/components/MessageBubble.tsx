@@ -2,6 +2,29 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type { ChatMessage, MessagePart } from "../types";
 
+function roleLabel(role: ChatMessage["role"]): string {
+  if (role === "user") {
+    return "你";
+  }
+  if (role === "assistant") {
+    return "Agent";
+  }
+  if (role === "tool") {
+    return "Tool";
+  }
+  return "System";
+}
+
+function stepStatusLabel(status: Extract<MessagePart, { type: "step_ref" }>["status"]): string {
+  if (status === "running") {
+    return "执行中";
+  }
+  if (status === "failed") {
+    return "失败";
+  }
+  return "完成";
+}
+
 function renderPart(part: MessagePart) {
   if (part.type === "markdown") {
     return (
@@ -50,13 +73,26 @@ function renderPart(part: MessagePart) {
       </div>
     );
   }
+  const detailLines = part.detail
+    .split("\n")
+    .map((line) => line.trimEnd())
+    .filter((line, index, all) => line || (index > 0 && index < all.length - 1));
   return (
     <div className={`step-card ${part.status}`}>
       <div className="step-card-header">
-        <strong>{part.title}</strong>
-        <span>{part.status}</span>
+        <div className="step-card-title">
+          <span className={`step-status-dot ${part.status}`} />
+          <strong>{part.title}</strong>
+        </div>
+        <span className={`step-status-badge ${part.status}`}>{stepStatusLabel(part.status)}</span>
       </div>
-      <pre className="step-card-detail">{part.detail}</pre>
+      <div className="step-card-body">
+        {detailLines.map((line, index) => (
+          <pre key={`${part.stepId}-${index}`} className="step-card-detail">
+            {line}
+          </pre>
+        ))}
+      </div>
     </div>
   );
 }
@@ -65,14 +101,14 @@ export function MessageBubble({ message }: { message: ChatMessage }) {
   return (
     <article className={`message-bubble ${message.role}`}>
       <div className="message-meta">
-        <span>{message.role}</span>
+        <span>{roleLabel(message.role)}</span>
         <span>{new Date(message.createdAt).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })}</span>
       </div>
       <div className="message-body">
         {message.parts.map((part, index) => (
           <div key={`${message.id}-${index}`}>{renderPart(part)}</div>
         ))}
-        {message.status === "streaming" ? <div className="streaming-indicator">streaming...</div> : null}
+        {message.status === "streaming" ? <div className="streaming-indicator">Agent 正在整理结果...</div> : null}
       </div>
     </article>
   );

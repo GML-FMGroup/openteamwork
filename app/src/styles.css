@@ -379,8 +379,92 @@ button.small {
   border: 1px solid var(--border-soft);
 }
 
+.step-card {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(249, 250, 251, 0.96));
+}
+
+.step-card.running {
+  border-color: rgba(107, 114, 128, 0.2);
+}
+
+.step-card.completed {
+  border-color: rgba(79, 107, 91, 0.18);
+}
+
+.step-card.failed {
+  border-color: rgba(138, 100, 100, 0.24);
+}
+
+.step-card-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.step-card-title strong {
+  color: #111827;
+}
+
+.step-status-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  background: rgba(107, 114, 128, 0.5);
+  flex: 0 0 auto;
+}
+
+.step-status-dot.running {
+  background: rgba(107, 114, 128, 0.82);
+}
+
+.step-status-dot.completed {
+  background: rgba(79, 107, 91, 0.85);
+}
+
+.step-status-dot.failed {
+  background: rgba(138, 100, 100, 0.9);
+}
+
+.step-status-badge {
+  border-radius: 999px;
+  padding: 4px 10px;
+  font-size: 0.72rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  background: rgba(243, 244, 246, 0.96);
+  color: var(--text-subtle);
+  white-space: nowrap;
+}
+
+.step-status-badge.running {
+  background: rgba(229, 231, 235, 0.96);
+  color: #4b5563;
+}
+
+.step-status-badge.completed {
+  background: rgba(79, 107, 91, 0.12);
+  color: var(--success);
+}
+
+.step-status-badge.failed {
+  background: rgba(138, 100, 100, 0.14);
+  color: var(--danger);
+}
+
+.step-card-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 10px;
+}
+
 .step-card-detail {
-  margin: 10px 0 0;
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.88);
+  border: 1px solid rgba(229, 231, 235, 0.9);
   white-space: pre-wrap;
   word-break: break-word;
   font: inherit;
@@ -394,8 +478,7 @@ button.small {
 .streaming-indicator {
   color: var(--accent);
   font-size: 0.82rem;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
+  letter-spacing: 0.02em;
 }
 
 .composer-shell {
