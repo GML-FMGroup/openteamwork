@@ -776,32 +776,14 @@ export class OpenPpxLocalAdapter implements PpxClientApi {
           return;
         }
         if (eventName === "step.updated" && assistantMessage) {
-          const rawStep = (data.step as Record<string, unknown> | undefined) ?? {};
-          const status = String(rawStep.status ?? "running");
-          stepParts = projectBridgeEventToStepParts(
-            {
-              content: {
-                parts: [
-                  status === "running"
-                    ? {
-                        function_call: {
-                          id: rawStep.step_id,
-                          name: rawStep.title,
-                          args: rawStep.detail,
-                        },
-                      }
-                    : {
-                        function_response: {
-                          id: rawStep.step_id,
-                          name: rawStep.title,
-                          response: rawStep.detail,
-                        },
-                      },
-                ],
-              },
-            },
-            stepParts,
-          );
+          const stepPart = normalizeClientApiPart(data.step);
+          if (stepPart?.type !== "step_ref") {
+            return;
+          }
+          stepParts = [
+            ...stepParts.filter((part) => part.stepId !== stepPart.stepId),
+            stepPart,
+          ];
           syncAssistant("streaming");
           return;
         }
@@ -834,6 +816,20 @@ export class OpenPpxLocalAdapter implements PpxClientApi {
           }
           return;
         }
+        if (eventName === "message.cancelled" && assistantMessage) {
+          this.emit({
+            type: "message.updated",
+            runId,
+            sessionId: assistantMessage.sessionId,
+            messageId: assistantMessage.id,
+            replaceParts: mergeAssistantParts(
+              stepParts.map((part) => (part.status === "running" ? { ...part, status: "failed" } : part)),
+              finalText,
+            ),
+            status: "cancelled",
+          });
+          return;
+        }
         if (eventName === "run.finished") {
           session.updatedAt = now();
           session.lastMessagePreview = finalText || input.text;
@@ -844,6 +840,10 @@ export class OpenPpxLocalAdapter implements PpxClientApi {
             status: "completed",
             finalTextLength: finalText.length,
           });
+          return;
+        }
+        if (eventName === "run.cancelled") {
+          this.emit({ type: "run.finished", runId, sessionId: input.sessionId });
         }
       };
 
