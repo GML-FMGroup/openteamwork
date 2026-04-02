@@ -73,6 +73,20 @@ function normalizeConnectionSettings(settings: ConnectionSettings): ConnectionSe
   };
 }
 
+function resizeComposer(textarea: HTMLTextAreaElement | null): void {
+  if (!textarea) {
+    return;
+  }
+  const computedStyle = window.getComputedStyle(textarea);
+  const lineHeight = Number.parseFloat(computedStyle.lineHeight) || 24;
+  const minHeight = lineHeight * 2;
+  const maxHeight = lineHeight * 12;
+  textarea.style.height = "auto";
+  const nextHeight = Math.min(Math.max(textarea.scrollHeight, minHeight), maxHeight);
+  textarea.style.height = `${nextHeight}px`;
+  textarea.style.overflowY = textarea.scrollHeight > maxHeight ? "auto" : "hidden";
+}
+
 export function App() {
   const [view, setView] = useState<NavView>("chat");
   const [ready, setReady] = useState(false);
@@ -89,6 +103,7 @@ export function App() {
   const [connectionForm, setConnectionForm] = useState<ConnectionSettings>(buildConnectionSettings(null));
   const [savingConnection, setSavingConnection] = useState(false);
   const switchRequestIdRef = useRef(0);
+  const composerRef = useRef<HTMLTextAreaElement | null>(null);
 
   useEffect(() => {
     if (!window.ppxClient) {
@@ -159,6 +174,10 @@ export function App() {
   useEffect(() => {
     setConnectionForm(buildConnectionSettings(diagnostics));
   }, [diagnostics]);
+
+  useEffect(() => {
+    resizeComposer(composerRef.current);
+  }, [composer]);
 
   const selectedAgent = useMemo(
     () => agents.find((agent) => agent.id === selectedAgentId) ?? null,
@@ -291,6 +310,17 @@ export function App() {
     } finally {
       setSendingSessionIds((current) => current.filter((item) => item !== sessionId));
     }
+  }
+
+  function handleComposerKeyDown(event: React.KeyboardEvent<HTMLTextAreaElement>): void {
+    if (event.key !== "Enter" || event.shiftKey) {
+      return;
+    }
+    event.preventDefault();
+    if (currentSessionSending || !composer.trim()) {
+      return;
+    }
+    void handleSend();
   }
 
   if (bootstrapError) {
@@ -428,10 +458,12 @@ export function App() {
 
             <footer className="composer-shell">
               <textarea
+                ref={composerRef}
                 value={composer}
                 onChange={(event) => setComposer(event.target.value)}
+                onKeyDown={handleComposerKeyDown}
                 placeholder="向本地 agent 发送任务..."
-                rows={4}
+                rows={2}
               />
               <div className="composer-actions">
                 <span>{currentSessionSending ? "当前会话正在流式返回..." : "本地模式 / Electron host API / mock runtime seam"}</span>

@@ -3,8 +3,8 @@
   background:
     radial-gradient(circle at top left, rgba(229, 231, 235, 0.85), transparent 34%),
     linear-gradient(135deg, #f7f7f8 0%, #f4f5f6 48%, #f6f7f8 100%);
-  font-family: "Iowan Old Style", "Palatino Linotype", "Book Antiqua", Georgia, serif;
-  line-height: 1.5;
+  font-family: "SF Pro Text", "PingFang SC", "Helvetica Neue", "Hiragino Sans GB", sans-serif;
+  line-height: 1.45;
   font-weight: 400;
   color-scheme: light;
   --surface-strong: rgba(255, 255, 255, 0.96);
@@ -35,6 +35,7 @@ body,
 body {
   min-height: 100vh;
   overflow: hidden;
+  background: #f7f7f8;
 }
 
 button,
@@ -63,8 +64,8 @@ button {
   display: grid;
   grid-template-columns: 72px 340px minmax(0, 1fr);
   height: 100vh;
-  gap: 18px;
-  padding: 18px;
+  gap: 12px;
+  padding: 8px;
   overflow: hidden;
 }
 
@@ -73,18 +74,18 @@ button {
 .workspace,
 .settings-page {
   min-height: 0;
-  height: calc(100vh - 36px);
+  height: calc(100vh - 16px);
 }
 
 .nav-rail {
   background: rgba(247, 247, 248, 0.98);
-  border: 1px solid var(--border-soft);
-  border-radius: 28px;
-  padding: 18px 10px;
+  border: 1px solid rgba(229, 231, 235, 0.68);
+  border-radius: 24px;
+  padding: 14px 8px;
   display: flex;
   flex-direction: column;
   gap: 12px;
-  box-shadow: var(--shadow);
+  box-shadow: 0 4px 14px rgba(15, 23, 42, 0.025);
 }
 
 .nav-item {
@@ -116,27 +117,29 @@ button {
 .workspace,
 .settings-card {
   background: var(--surface-strong);
-  border: 1px solid var(--border-soft);
-  box-shadow: var(--shadow);
+  border: 1px solid rgba(229, 231, 235, 0.7);
+  box-shadow: 0 6px 18px rgba(15, 23, 42, 0.025);
   backdrop-filter: blur(18px);
 }
 
 .panel {
   border-radius: 28px;
-  padding: 18px;
+  padding: 16px;
 }
 
 .search-panel h1,
 .workspace-header h2,
 .settings-card h2 {
   margin: 4px 0 0;
-  font-size: 1.65rem;
+  font-size: 1.14rem;
+  font-weight: 600;
+  letter-spacing: -0.02em;
 }
 
 .eyebrow {
   text-transform: uppercase;
   letter-spacing: 0.18em;
-  font-size: 0.72rem;
+  font-size: 0.66rem;
   color: var(--text-subtle);
 }
 
@@ -159,6 +162,7 @@ button {
 .asset-card span,
 .step-card-detail {
   color: var(--text-subtle);
+  font-size: 0.84rem;
 }
 
 .runtime-panel small,
@@ -181,9 +185,11 @@ button,
   background: #2f3137;
   color: #f9fafb;
   border-radius: 16px;
-  padding: 10px 14px;
+  padding: 9px 13px;
+  font-size: 0.8rem;
+  font-weight: 500;
   transition: transform 160ms ease, box-shadow 160ms ease, opacity 160ms ease;
-  box-shadow: 0 6px 18px rgba(15, 23, 42, 0.08);
+  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.06);
 }
 
 button:hover,
@@ -199,14 +205,15 @@ button.secondary {
 }
 
 button.small {
-  padding: 8px 12px;
+  padding: 6px 10px;
+  font-size: 0.74rem;
 }
 
 .list-stack {
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  margin-top: 12px;
+  gap: 8px;
+  margin-top: 10px;
 }
 
 .list-item {
@@ -219,28 +226,32 @@ button.small {
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
-  gap: 10px;
+  gap: 8px;
+  padding: 10px 12px;
 }
 
 .list-item.active {
   border-color: rgba(209, 213, 219, 0.95);
   background: rgba(255, 255, 255, 0.98);
-  box-shadow: 0 2px 12px rgba(15, 23, 42, 0.04);
+  box-shadow: 0 1px 8px rgba(15, 23, 42, 0.035);
 }
 
 .list-item strong {
   display: block;
-  margin-bottom: 4px;
+  margin-bottom: 3px;
+  font-size: 0.93rem;
+  font-weight: 600;
 }
 
 .list-item p {
   margin: 0;
-  font-size: 0.92rem;
+  font-size: 0.8rem;
+  line-height: 1.34;
 }
 
 .list-item time {
   color: var(--text-subtle);
-  font-size: 0.82rem;
+  font-size: 0.74rem;
 }
 
 .tag,
@@ -248,7 +259,7 @@ button.small {
 .runtime-dot {
   border-radius: 999px;
   padding: 4px 10px;
-  font-size: 0.75rem;
+  font-size: 0.71rem;
   background: rgba(243, 244, 246, 0.96);
 }
 
@@ -265,13 +276,13 @@ button.small {
 }
 
 .workspace {
-  border-radius: 34px;
-  padding: 24px;
+  border-radius: 28px;
+  padding: 20px 22px;
   display: grid;
   grid-template-rows: auto minmax(0, 1fr) auto;
-  gap: 18px;
+  gap: 16px;
   overflow: hidden;
-  box-shadow: 0 6px 20px rgba(15, 23, 42, 0.03);
+  box-shadow: 0 6px 18px rgba(15, 23, 42, 0.02);
 }
 
 .session-meta {
@@ -279,13 +290,14 @@ button.small {
   align-items: center;
   gap: 10px;
   color: var(--text-subtle);
+  font-size: 0.78rem;
 }
 
 .message-stream {
   overflow: auto;
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 12px;
   padding-right: 6px;
 }
 
@@ -298,7 +310,9 @@ button.small {
 
 .empty-state h3 {
   margin: 0;
-  font-size: 2rem;
+  font-size: 1.34rem;
+  font-weight: 600;
+  letter-spacing: -0.02em;
 }
 
 .suggestion-grid {
@@ -314,8 +328,8 @@ button.small {
 
 .message-bubble {
   max-width: min(860px, 90%);
-  border-radius: 24px;
-  padding: 16px 18px;
+  border-radius: 22px;
+  padding: 13px 15px;
   border: 1px solid var(--border-soft);
 }
 
@@ -341,14 +355,30 @@ button.small {
 
 .message-meta {
   color: var(--text-subtle);
-  font-size: 0.82rem;
-  margin-bottom: 10px;
+  font-size: 0.71rem;
+  margin-bottom: 7px;
 }
 
 .message-body {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 9px;
+  font-size: 0.9rem;
+  line-height: 1.58;
+}
+
+.rich-markdown {
+  font-size: 0.9rem;
+  line-height: 1.64;
+}
+
+.rich-markdown p,
+.rich-markdown li {
+  margin: 0 0 0.62em;
+}
+
+.rich-markdown li::marker {
+  color: rgba(107, 114, 128, 0.9);
 }
 
 .rich-markdown > :first-child {
@@ -362,10 +392,12 @@ button.small {
 .rich-markdown pre,
 .code-card pre {
   overflow: auto;
-  padding: 14px;
-  border-radius: 18px;
+  padding: 13px 14px;
+  border-radius: 16px;
   background: #1f2937;
   color: #e5e7eb;
+  font-size: 0.84rem;
+  line-height: 1.5;
 }
 
 .code-card {
@@ -378,7 +410,7 @@ button.small {
   background: rgba(243, 244, 246, 0.95);
   color: var(--text-subtle);
   padding: 8px 12px;
-  font-size: 0.78rem;
+  font-size: 0.7rem;
   text-transform: uppercase;
   letter-spacing: 0.08em;
 }
@@ -388,7 +420,7 @@ button.small {
 .step-card,
 .error-card {
   border-radius: 18px;
-  padding: 14px;
+  padding: 12px 13px;
   background: rgba(250, 250, 250, 0.98);
   border: 1px solid var(--border-soft);
 }
@@ -405,11 +437,14 @@ button.small {
 .tool-result-header strong {
   display: block;
   color: #111827;
+  font-size: 0.86rem;
+  font-weight: 600;
 }
 
 .asset-card-header span,
 .tool-result-header span {
   color: var(--text-subtle);
+  font-size: 0.72rem;
 }
 
 .asset-badge {
@@ -417,7 +452,7 @@ button.small {
   padding: 4px 10px;
   background: rgba(243, 244, 246, 0.96);
   color: #4b5563;
-  font-size: 0.72rem;
+  font-size: 0.64rem;
   white-space: nowrap;
 }
 
@@ -452,6 +487,8 @@ button.small {
 .tool-result-card p {
   margin: 12px 0 0;
   color: #111827;
+  font-size: 0.86rem;
+  line-height: 1.52;
 }
 
 .tool-result-raw {
@@ -461,6 +498,7 @@ button.small {
 .tool-result-raw summary {
   cursor: pointer;
   color: #374151;
+  font-size: 0.76rem;
 }
 
 .tool-result-raw pre {
@@ -468,8 +506,11 @@ button.small {
   overflow: auto;
   padding: 12px;
   border-radius: 14px;
-  background: #1f2937;
-  color: #e5e7eb;
+  background: rgba(248, 250, 252, 0.96);
+  color: #475569;
+  border: 1px solid rgba(226, 232, 240, 0.95);
+  font-size: 0.82rem;
+  line-height: 1.5;
 }
 
 .step-card {
@@ -498,6 +539,8 @@ button.small {
 
 .step-card-title strong {
   color: #111827;
+  font-size: 0.83rem;
+  font-weight: 600;
 }
 
 .step-status-dot {
@@ -522,8 +565,8 @@ button.small {
 
 .step-status-badge {
   border-radius: 999px;
-  padding: 4px 10px;
-  font-size: 0.72rem;
+  padding: 3px 9px;
+  font-size: 0.61rem;
   letter-spacing: 0.06em;
   text-transform: uppercase;
   background: rgba(243, 244, 246, 0.96);
@@ -550,7 +593,7 @@ button.small {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  margin-top: 10px;
+  margin-top: 8px;
 }
 
 .step-progress-bar {
@@ -572,13 +615,16 @@ button.small {
 
 .step-card-detail {
   margin: 0;
-  padding: 10px 12px;
-  border-radius: 14px;
-  background: rgba(255, 255, 255, 0.88);
+  padding: 10px 11px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.82);
   border: 1px solid rgba(229, 231, 235, 0.9);
   white-space: pre-wrap;
   word-break: break-word;
-  font: inherit;
+  color: #4b5563;
+  font-family: "SF Mono", "SFMono-Regular", "JetBrains Mono", "Menlo", monospace;
+  font-size: 0.72rem;
+  line-height: 1.48;
 }
 
 .error-card {
@@ -603,14 +649,14 @@ button.small {
 
 .streaming-indicator {
   color: var(--accent);
-  font-size: 0.82rem;
+  font-size: 0.72rem;
   letter-spacing: 0.02em;
 }
 
 .message-status-banner {
   border-radius: 14px;
-  padding: 10px 12px;
-  font-size: 0.84rem;
+  padding: 9px 11px;
+  font-size: 0.74rem;
   border: 1px solid var(--border-soft);
   background: rgba(249, 250, 251, 0.96);
   color: var(--text-subtle);
@@ -638,21 +684,25 @@ button.small {
 }
 
 .composer-shell {
-  border-radius: 28px;
-  border: 1px solid var(--border-soft);
+  border-radius: 24px;
+  border: 1px solid rgba(229, 231, 235, 0.76);
   background: rgba(255, 255, 255, 0.96);
-  padding: 14px;
-  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.03);
+  padding: 12px 13px;
+  box-shadow: 0 6px 16px rgba(15, 23, 42, 0.02);
 }
 
 .composer-shell textarea {
   width: 100%;
   border: 0;
   resize: none;
-  min-height: 116px;
+  min-height: calc(1.56em * 2);
+  max-height: calc(1.56em * 12);
   background: transparent;
   color: inherit;
   outline: none;
+  font-size: 0.9rem;
+  line-height: 1.56;
+  overflow-y: hidden;
 }
 
 .composer-shell textarea::placeholder {
@@ -660,47 +710,65 @@ button.small {
 }
 
 .composer-actions {
-  margin-top: 8px;
+  margin-top: 6px;
   color: var(--text-subtle);
+  font-size: 0.76rem;
 }
 
 .settings-page {
   grid-column: 2 / 4;
   display: grid;
   grid-template-columns: repeat(2, minmax(280px, 1fr));
-  gap: 18px;
+  gap: 14px;
   overflow: auto;
 }
 
 .settings-card {
-  border-radius: 30px;
-  padding: 24px;
+  border-radius: 24px;
+  padding: 18px 20px;
+}
+
+.settings-card h3 {
+  margin: 2px 0 0;
+  font-size: 0.95rem;
+  font-weight: 600;
+}
+
+.settings-card p,
+.settings-card li {
+  font-size: 0.8rem;
+  line-height: 1.48;
+}
+
+.settings-card small {
+  font-size: 0.74rem;
 }
 
 .settings-form {
   display: grid;
-  gap: 14px;
-  margin-top: 12px;
+  gap: 12px;
+  margin-top: 10px;
 }
 
 .settings-field {
   display: grid;
-  gap: 8px;
+  gap: 6px;
 }
 
 .settings-field span {
-  font-size: 0.82rem;
+  font-size: 0.74rem;
   color: var(--text-subtle);
 }
 
 .settings-field input,
 .settings-field select {
   width: 100%;
-  border-radius: 14px;
+  border-radius: 12px;
   border: 1px solid var(--border-soft);
   background: rgba(250, 250, 250, 0.98);
   color: #111827;
-  padding: 11px 12px;
+  padding: 9px 11px;
+  font-size: 0.8rem;
   outline: none;
 }
 
@@ -717,35 +785,37 @@ button.small {
 .diagnostics-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 14px;
+  gap: 10px;
 }
 
 .diagnostics-grid div,
 .diagnostics-stack div {
-  padding: 12px 14px;
-  border-radius: 18px;
+  padding: 10px 12px;
+  border-radius: 14px;
   background: rgba(250, 250, 250, 0.98);
   border: 1px solid var(--border-soft);
 }
 
 .diagnostics-stack {
   display: grid;
-  gap: 12px;
+  gap: 10px;
 }
 
 .diagnostics-grid dt,
 .diagnostics-stack dt {
-  font-size: 0.78rem;
+  font-size: 0.68rem;
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--text-subtle);
-  margin-bottom: 6px;
+  margin-bottom: 5px;
 }
 
 .diagnostics-grid dd,
 .diagnostics-stack dd {
   margin: 0;
   word-break: break-word;
+  font-size: 0.8rem;
+  line-height: 1.45;
 }
 
 @media (max-width: 1200px) {

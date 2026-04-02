@@ -24,13 +24,14 @@ function buildMessage(overrides: Partial<ChatMessage> = {}): ChatMessage {
 
 describe("MessageBubble", () => {
   it("renders localized role, step status, and streaming hint", () => {
-    render(<MessageBubble message={buildMessage()} />);
+    const { container } = render(<MessageBubble message={buildMessage()} />);
 
     expect(screen.getByText("Agent")).toBeInTheDocument();
     expect(screen.getByText("执行中")).toBeInTheDocument();
     expect(screen.getByText("Agent 正在整理结果...")).toBeInTheDocument();
-    expect(screen.getByText("path: README.md")).toBeInTheDocument();
-    expect(screen.getByText("line: 12")).toBeInTheDocument();
+    const detailBlock = container.querySelector(".step-card-detail");
+    expect(detailBlock?.textContent).toContain("path: README.md");
+    expect(detailBlock?.textContent).toContain("line: 12");
   });
 
   it("renders tool result and attachment cards", () => {
@@ -90,6 +91,30 @@ describe("MessageBubble", () => {
 
     expect(screen.getByText("完成")).toBeInTheDocument();
     expect(screen.queryByText("Agent 正在整理结果...")).not.toBeInTheDocument();
+  });
+
+  it("renders exec detail as one continuous block", () => {
+    const { container } = render(
+      <MessageBubble
+        message={buildMessage({
+          status: "completed",
+          parts: [
+            {
+              type: "step_ref",
+              stepId: "step-4",
+              title: "exec",
+              status: "completed",
+              detail: '{\n  "command": "ls -la",\n  "cwd": "/workspace"\n}',
+            },
+          ],
+        })}
+      />,
+    );
+
+    const detailBlocks = container.querySelectorAll(".step-card-detail");
+    expect(detailBlocks).toHaveLength(1);
+    expect(detailBlocks[0]?.textContent).toContain('"command": "ls -la"');
+    expect(detailBlocks[0]?.textContent).toContain('"cwd": "/workspace"');
   });
 
   it("renders explicit failed and cancelled status banners", () => {

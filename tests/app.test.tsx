@@ -163,6 +163,33 @@ describe("App sending state", () => {
     });
   });
 
+  it("sends on Enter and keeps Shift+Enter for newline", async () => {
+    const sendMessage = vi.fn(async () => ({ runId: "run-1" }));
+    installClient({ sendMessage });
+
+    render(<App />);
+
+    await screen.findByText("openppx workbench");
+
+    const composer = screen.getByPlaceholderText("向本地 agent 发送任务...");
+
+    fireEvent.change(composer, { target: { value: "first line" } });
+    fireEvent.keyDown(composer, { key: "Enter", code: "Enter", charCode: 13 });
+
+    await waitFor(() => {
+      expect(sendMessage).toHaveBeenCalledWith({
+        agentId: "agent-1",
+        sessionId: "session-a",
+        text: "first line",
+      });
+    });
+
+    fireEvent.change(composer, { target: { value: "hello" } });
+    fireEvent.keyDown(composer, { key: "Enter", code: "Enter", charCode: 13, shiftKey: true });
+
+    expect(sendMessage).toHaveBeenCalledTimes(1);
+  });
+
   it("clears previous messages immediately when switching sessions", async () => {
     let resolveLoad: ((value: { messages: BootstrapPayload["messages"] }) => void) | null = null;
     installClient({

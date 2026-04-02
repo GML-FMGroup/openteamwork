@@ -141,10 +141,11 @@ function renderPart(part: MessagePart) {
       </div>
     );
   }
-  const detailLines = part.detail
+  const detailText = part.detail
     .split("\n")
     .map((line) => line.trimEnd())
-    .filter((line, index, all) => line || (index > 0 && index < all.length - 1));
+    .filter((line, index, all) => line || (index > 0 && index < all.length - 1))
+    .join("\n");
   return (
     <div className={`step-card ${part.status}`}>
       <div className="step-card-header">
@@ -160,11 +161,7 @@ function renderPart(part: MessagePart) {
             <span />
           </div>
         ) : null}
-        {detailLines.map((line, index) => (
-          <pre key={`${part.stepId}-${index}`} className="step-card-detail">
-            {line}
-          </pre>
-        ))}
+        {detailText ? <pre className="step-card-detail">{detailText}</pre> : null}
       </div>
     </div>
   );
