@@ -56,7 +56,7 @@ function renderPart(part: MessagePart) {
         <strong>{part.title}</strong>
         <span>{part.status}</span>
       </div>
-      <p>{part.detail}</p>
+      <pre className="step-card-detail">{part.detail}</pre>
     </div>
   );
 }

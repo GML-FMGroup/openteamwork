@@ -145,7 +145,7 @@ button {
 .settings-card li,
 .list-item p,
 .asset-card span,
-.step-card p {
+.step-card-detail {
   color: var(--text-subtle);
 }
 
@@ -366,6 +366,13 @@ button.small {
   padding: 14px;
   background: rgba(255, 250, 244, 0.85);
   border: 1px solid var(--border-soft);
+}
+
+.step-card-detail {
+  margin: 10px 0 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font: inherit;
 }
 
 .error-card {
