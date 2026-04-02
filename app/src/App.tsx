@@ -4,6 +4,7 @@ import type {
   BootstrapPayload,
   ChatMessage,
   ClientDiagnostics,
+  ConnectionSettings,
   RuntimeState,
   RuntimeStatus,
   SessionSummary,
@@ -38,6 +39,40 @@ function runtimeActionLabel(state: RuntimeState): string {
   return "重试";
 }
 
+function buildConnectionSettings(diagnostics: ClientDiagnostics | null): ConnectionSettings {
+  return {
+    targetType: diagnostics?.target.type ?? "local",
+    targetId: diagnostics?.target.id ?? "local-default",
+    targetName: diagnostics?.target.name ?? "This Mac",
+    clientApiBaseUrl: diagnostics?.clientApiBaseUrl ?? "http://127.0.0.1:8765",
+  };
+}
+
+function normalizeConnectionSettings(settings: ConnectionSettings): ConnectionSettings {
+  const targetType = settings.targetType;
+  const targetName = settings.targetName.trim() || (targetType === "remote" ? "Remote Gateway" : "This Mac");
+  const normalizedName =
+    targetName
+      .toLowerCase()
+      .replace(/[^a-z0-9_-]+/g, "-")
+      .replace(/^-+|-+$/g, "") || "default";
+  const existingId = settings.targetId.trim();
+  const targetId =
+    !existingId ||
+    existingId === "local-default" ||
+    existingId === "remote-default" ||
+    !existingId.startsWith(`${targetType}-`)
+      ? `${targetType}-${normalizedName}`
+      : existingId;
+  const clientApiBaseUrl = settings.clientApiBaseUrl.trim() || "http://127.0.0.1:8765";
+  return {
+    targetType,
+    targetId,
+    targetName,
+    clientApiBaseUrl,
+  };
+}
+
 export function App() {
   const [view, setView] = useState<NavView>("chat");
   const [ready, setReady] = useState(false);
@@ -51,6 +86,8 @@ export function App() {
   const [selectedSessionId, setSelectedSessionId] = useState("");
   const [composer, setComposer] = useState("");
   const [sendingSessionIds, setSendingSessionIds] = useState<string[]>([]);
+  const [connectionForm, setConnectionForm] = useState<ConnectionSettings>(buildConnectionSettings(null));
+  const [savingConnection, setSavingConnection] = useState(false);
   const switchRequestIdRef = useRef(0);
 
   useEffect(() => {
@@ -98,7 +135,13 @@ export function App() {
         setSelectedSessionId(payload.selectedSessionId);
         setReady(true);
         setBootstrapError(null);
-        void window.ppxClient.getDiagnostics().then(setDiagnostics).catch(() => undefined);
+        void window.ppxClient
+          .getDiagnostics()
+          .then((nextDiagnostics) => {
+            setDiagnostics(nextDiagnostics);
+            setConnectionForm(buildConnectionSettings(nextDiagnostics));
+          })
+          .catch(() => undefined);
       })
       .catch((error: unknown) => {
         if (!mounted) {
@@ -112,6 +155,10 @@ export function App() {
       off();
     };
   }, []);
+
+  useEffect(() => {
+    setConnectionForm(buildConnectionSettings(diagnostics));
+  }, [diagnostics]);
 
   const selectedAgent = useMemo(
     () => agents.find((agent) => agent.id === selectedAgentId) ?? null,
@@ -177,6 +224,33 @@ export function App() {
   async function refreshDiagnostics(): Promise<void> {
     const nextDiagnostics = await window.ppxClient.getDiagnostics();
     setDiagnostics(nextDiagnostics);
+  }
+
+  async function handleConnectionSave(): Promise<void> {
+    const nextSettings = normalizeConnectionSettings(connectionForm);
+    setSavingConnection(true);
+    try {
+      const nextDiagnostics = await window.ppxClient.saveConnectionSettings(nextSettings);
+      setDiagnostics(nextDiagnostics);
+      const nextRuntime = await window.ppxClient.runRuntimeCommand("restart");
+      setRuntime(nextRuntime);
+      try {
+        const payload = await window.ppxClient.bootstrap();
+        setAgents(payload.agents);
+        setSessions(payload.sessions);
+        setMessages(payload.messages);
+        setSelectedAgentId(payload.selectedAgentId);
+        setSelectedSessionId(payload.selectedSessionId);
+      } catch {
+        setAgents([]);
+        setSessions([]);
+        setMessages([]);
+        setSelectedAgentId("");
+        setSelectedSessionId("");
+      }
+    } finally {
+      setSavingConnection(false);
+    }
   }
 
   async function handleNewSession(): Promise<void> {
@@ -376,6 +450,49 @@ export function App() {
             <p>当前以本地模式为主，但已经补了远程 target 的接入准备。这里会直接展示当前 gateway 和 transport 的真实诊断信息。</p>
             <div className="runtime-actions">
               <button onClick={() => void refreshDiagnostics()}>刷新诊断</button>
+            </div>
+          </section>
+          <section className="settings-card">
+            <h3>Connection config</h3>
+            <div className="settings-form">
+              <label className="settings-field">
+                <span>Target type</span>
+                <select
+                  value={connectionForm.targetType}
+                  onChange={(event) =>
+                    setConnectionForm((current) => ({
+                      ...current,
+                      targetType: event.target.value === "remote" ? "remote" : "local",
+                    }))
+                  }
+                >
+                  <option value="local">local</option>
+                  <option value="remote">remote</option>
+                </select>
+              </label>
+              <label className="settings-field">
+                <span>Target name</span>
+                <input
+                  value={connectionForm.targetName}
+                  onChange={(event) => setConnectionForm((current) => ({ ...current, targetName: event.target.value }))}
+                  placeholder="This Mac"
+                />
+              </label>
+              <label className="settings-field">
+                <span>Gateway URL</span>
+                <input
+                  value={connectionForm.clientApiBaseUrl}
+                  onChange={(event) =>
+                    setConnectionForm((current) => ({ ...current, clientApiBaseUrl: event.target.value }))
+                  }
+                  placeholder="http://127.0.0.1:8765"
+                />
+              </label>
+            </div>
+            <div className="runtime-actions">
+              <button onClick={() => void handleConnectionSave()} disabled={savingConnection}>
+                {savingConnection ? "保存中" : "保存并应用"}
+              </button>
             </div>
           </section>
           <section className="settings-card">

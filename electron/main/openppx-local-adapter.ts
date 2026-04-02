@@ -28,6 +28,7 @@ import type {
   BootstrapPayload,
   ChatMessage,
   ClientDiagnostics,
+  ConnectionSettings,
   ConnectionTarget,
   MessagePart,
   PpxClientApi,
@@ -143,9 +144,9 @@ export class OpenPpxLocalAdapter implements PpxClientApi {
 
   private readonly clientApiPort = Number(process.env.OPENPPX_CLIENT_API_PORT?.trim() || "8765");
 
-  private readonly target = this.buildTarget();
+  private target: ConnectionTarget;
 
-  private readonly clientApiBaseUrl = this.configuredClientApiBaseUrl || `http://${this.clientApiHost}:${this.clientApiPort}`;
+  private clientApiBaseUrl: string;
 
   private clientApiProcess: ReturnType<typeof spawn> | null = null;
 
@@ -162,6 +163,14 @@ export class OpenPpxLocalAdapter implements PpxClientApi {
       this.emit(event);
     }
   });
+
+  public constructor(initialSettings?: ConnectionSettings) {
+    this.target = this.buildTarget();
+    this.clientApiBaseUrl = this.configuredClientApiBaseUrl || `http://${this.clientApiHost}:${this.clientApiPort}`;
+    if (initialSettings) {
+      this.applyConnectionSettings(initialSettings);
+    }
+  }
 
   private buildTarget(): ConnectionTarget {
     const rawType = (process.env.OPENPPX_TARGET_TYPE?.trim().toLowerCase() || "local") as "local" | "remote";
@@ -181,6 +190,22 @@ export class OpenPpxLocalAdapter implements PpxClientApi {
 
   private isRemoteTarget(): boolean {
     return this.target.type === "remote";
+  }
+
+  public applyConnectionSettings(settings: ConnectionSettings): void {
+    this.target = {
+      id: settings.targetId.trim() || (settings.targetType === "remote" ? "remote-default" : "local-default"),
+      type: settings.targetType,
+      name: settings.targetName.trim() || (settings.targetType === "remote" ? "Remote Gateway" : "This Mac"),
+    };
+    this.clientApiBaseUrl = settings.clientApiBaseUrl.trim() || `http://${this.clientApiHost}:${this.clientApiPort}`;
+    this.healthyUntil = 0;
+    this.sessionsCache.clear();
+    this.messagesCache.clear();
+    if (this.clientApiProcess && this.clientApiProcess.exitCode === null) {
+      this.clientApiProcess.kill();
+    }
+    this.clientApiProcess = null;
   }
 
   private canUseLegacyLocalFallback(): boolean {
@@ -599,6 +624,11 @@ export class OpenPpxLocalAdapter implements PpxClientApi {
       messageCacheEntries: this.messagesCache.size,
       debugEnabled: clientDebugEnabled(),
     };
+  }
+
+  public async saveConnectionSettings(settings: ConnectionSettings): Promise<ClientDiagnostics> {
+    this.applyConnectionSettings(settings);
+    return this.getDiagnostics();
   }
 
   public async runRuntimeCommand(command: RuntimeCommand): Promise<RuntimeStatus> {

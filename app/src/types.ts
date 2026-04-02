@@ -46,6 +46,13 @@ export interface ClientDiagnostics {
   debugEnabled: boolean;
 }
 
+export interface ConnectionSettings {
+  targetType: "local" | "remote";
+  targetId: string;
+  targetName: string;
+  clientApiBaseUrl: string;
+}
+
 export interface AgentProfile {
   id: string;
   name: string;
@@ -119,6 +126,7 @@ export interface SendMessageInput {
 export interface PpxClientApi {
   bootstrap(): Promise<BootstrapPayload>;
   getDiagnostics(): Promise<ClientDiagnostics>;
+  saveConnectionSettings(settings: ConnectionSettings): Promise<ClientDiagnostics>;
   runRuntimeCommand(command: RuntimeCommand): Promise<RuntimeStatus>;
   listSessions(agentId: string): Promise<{ sessions: SessionSummary[] }>;
   createSession(agentId: string): Promise<{ session: SessionSummary }>;

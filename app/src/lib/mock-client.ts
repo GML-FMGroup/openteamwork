@@ -3,6 +3,7 @@ import type {
   BootstrapPayload,
   ChatMessage,
   ClientDiagnostics,
+  ConnectionSettings,
   MessagePart,
   RuntimeCommand,
   RuntimeStatus,
@@ -253,6 +254,10 @@ export async function getDiagnostics(): Promise<ClientDiagnostics> {
     messageCacheEntries: 0,
     debugEnabled: false,
   };
+}
+
+export async function saveConnectionSettings(_settings: ConnectionSettings): Promise<ClientDiagnostics> {
+  return getDiagnostics();
 }
 
 export function subscribe(listener: EventSink): () => void {

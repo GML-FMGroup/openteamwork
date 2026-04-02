@@ -1,9 +1,10 @@
 import { contextBridge, ipcRenderer } from "electron";
-import type { PpxClientApi, RunEvent, RuntimeCommand, SendMessageInput } from "../../app/src/types";
+import type { ConnectionSettings, PpxClientApi, RunEvent, RuntimeCommand, SendMessageInput } from "../../app/src/types";
 
 const api: PpxClientApi = {
   bootstrap: () => ipcRenderer.invoke("ppx-client:bootstrap"),
   getDiagnostics: () => ipcRenderer.invoke("ppx-client:get-diagnostics"),
+  saveConnectionSettings: (settings: ConnectionSettings) => ipcRenderer.invoke("ppx-client:save-connection-settings", settings),
   runRuntimeCommand: (command: RuntimeCommand) => ipcRenderer.invoke("ppx-client:runtime-command", command),
   listSessions: (agentId: string) => ipcRenderer.invoke("ppx-client:list-sessions", agentId),
   createSession: (agentId: string) => ipcRenderer.invoke("ppx-client:create-session", agentId),

@@ -1,4 +1,5 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { vi } from "vitest";
 import { App } from "../app/src/App";
 import type { BootstrapPayload, ClientDiagnostics, PpxClientApi, RunEvent, RuntimeStatus, SessionSummary } from "../app/src/types";
 
@@ -80,6 +81,7 @@ function installClient(overrides: Partial<PpxClientApi> = {}): { client: PpxClie
   const client: PpxClientApi = {
     bootstrap: async () => buildBootstrapPayload(),
     getDiagnostics: async () => buildDiagnostics(),
+    saveConnectionSettings: async () => buildDiagnostics(),
     runRuntimeCommand: async () => buildBootstrapPayload().runtime,
     listSessions: async () => ({ sessions: buildBootstrapPayload().sessions }),
     createSession: async () => ({ session: buildBootstrapPayload().sessions[0] }),
@@ -232,5 +234,52 @@ describe("App sending state", () => {
 
     await screen.findByText("Ops Gateway (remote)");
     expect(screen.getByText("external / remote")).toBeInTheDocument();
+  });
+
+  it("saves connection settings from the settings form", async () => {
+    const saveConnectionSettings = vi.fn(async () => ({
+      ...buildDiagnostics(),
+      mode: "remote" as const,
+      target: { id: "remote-ops-gateway", type: "remote" as const, name: "Ops Gateway" },
+      clientApiManagedByClient: false,
+      clientApiBaseUrl: "http://10.0.0.8:8765",
+    }));
+
+    installClient({
+      saveConnectionSettings,
+      getDiagnostics: async () => buildDiagnostics(),
+      bootstrap: async () => ({
+        ...buildBootstrapPayload(),
+        runtime: {
+          ...buildBootstrapPayload().runtime,
+          target: { id: "remote-ops-gateway", type: "remote", name: "Ops Gateway" },
+        },
+      }),
+    });
+
+    render(<App />);
+
+    await screen.findByText("openppx workbench");
+    fireEvent.click(screen.getByRole("button", { name: "设置" }));
+
+    fireEvent.change(screen.getByDisplayValue("This Mac"), {
+      target: { value: "Ops Gateway" },
+    });
+    fireEvent.change(screen.getByDisplayValue("http://127.0.0.1:8765"), {
+      target: { value: "http://10.0.0.8:8765" },
+    });
+    fireEvent.change(screen.getByDisplayValue("local"), {
+      target: { value: "remote" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "保存并应用" }));
+
+    await waitFor(() => {
+      expect(saveConnectionSettings).toHaveBeenCalledWith({
+        targetType: "remote",
+        targetId: "remote-ops-gateway",
+        targetName: "Ops Gateway",
+        clientApiBaseUrl: "http://10.0.0.8:8765",
+      });
+    });
   });
 });

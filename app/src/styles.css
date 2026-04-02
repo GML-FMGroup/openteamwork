@@ -42,6 +42,11 @@ textarea {
   font: inherit;
 }
 
+input,
+select {
+  font: inherit;
+}
+
 button {
   border: 0;
   cursor: pointer;
@@ -548,6 +553,38 @@ button.small {
 .settings-card {
   border-radius: 30px;
   padding: 24px;
+}
+
+.settings-form {
+  display: grid;
+  gap: 14px;
+  margin-top: 12px;
+}
+
+.settings-field {
+  display: grid;
+  gap: 8px;
+}
+
+.settings-field span {
+  font-size: 0.82rem;
+  color: var(--text-subtle);
+}
+
+.settings-field input,
+.settings-field select {
+  width: 100%;
+  border-radius: 14px;
+  border: 1px solid var(--border-soft);
+  background: rgba(250, 250, 250, 0.98);
+  color: #111827;
+  padding: 11px 12px;
+  outline: none;
+}
+
+.settings-field input:focus,
+.settings-field select:focus {
+  border-color: rgba(107, 114, 128, 0.42);
 }
 
 .diagnostics-grid,
