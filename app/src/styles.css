@@ -326,6 +326,14 @@ button.small {
   background: rgba(255, 255, 255, 0.96);
 }
 
+.message-bubble.failed {
+  border-color: rgba(138, 100, 100, 0.22);
+}
+
+.message-bubble.cancelled {
+  border-color: rgba(148, 163, 184, 0.28);
+}
+
 .message-meta {
   color: var(--text-subtle);
   font-size: 0.82rem;
@@ -479,6 +487,27 @@ button.small {
   color: var(--accent);
   font-size: 0.82rem;
   letter-spacing: 0.02em;
+}
+
+.message-status-banner {
+  border-radius: 14px;
+  padding: 10px 12px;
+  font-size: 0.84rem;
+  border: 1px solid var(--border-soft);
+  background: rgba(249, 250, 251, 0.96);
+  color: var(--text-subtle);
+}
+
+.message-status-banner.failed {
+  border-color: rgba(138, 100, 100, 0.24);
+  background: rgba(138, 100, 100, 0.08);
+  color: var(--danger);
+}
+
+.message-status-banner.cancelled {
+  border-color: rgba(148, 163, 184, 0.24);
+  background: rgba(243, 244, 246, 0.96);
+  color: #4b5563;
 }
 
 .composer-shell {

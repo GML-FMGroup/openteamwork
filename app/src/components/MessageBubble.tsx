@@ -25,6 +25,16 @@ function stepStatusLabel(status: Extract<MessagePart, { type: "step_ref" }>["sta
   return "完成";
 }
 
+function messageStatusLabel(status: ChatMessage["status"]): string | null {
+  if (status === "failed") {
+    return "本次运行失败";
+  }
+  if (status === "cancelled") {
+    return "本次运行已取消";
+  }
+  return null;
+}
+
 function renderPart(part: MessagePart) {
   if (part.type === "markdown") {
     return (
@@ -98,8 +108,9 @@ function renderPart(part: MessagePart) {
 }
 
 export function MessageBubble({ message }: { message: ChatMessage }) {
+  const statusLabel = messageStatusLabel(message.status);
   return (
-    <article className={`message-bubble ${message.role}`}>
+    <article className={`message-bubble ${message.role} ${message.status}`}>
       <div className="message-meta">
         <span>{roleLabel(message.role)}</span>
         <span>{new Date(message.createdAt).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })}</span>
@@ -109,6 +120,7 @@ export function MessageBubble({ message }: { message: ChatMessage }) {
           <div key={`${message.id}-${index}`}>{renderPart(part)}</div>
         ))}
         {message.status === "streaming" ? <div className="streaming-indicator">Agent 正在整理结果...</div> : null}
+        {statusLabel ? <div className={`message-status-banner ${message.status}`}>{statusLabel}</div> : null}
       </div>
     </article>
   );

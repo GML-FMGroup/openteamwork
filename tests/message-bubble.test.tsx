@@ -54,4 +54,37 @@ describe("MessageBubble", () => {
     expect(screen.getByText("完成")).toBeInTheDocument();
     expect(screen.queryByText("Agent 正在整理结果...")).not.toBeInTheDocument();
   });
+
+  it("renders explicit failed and cancelled status banners", () => {
+    const { rerender } = render(
+      <MessageBubble
+        message={buildMessage({
+          status: "failed",
+          parts: [{ type: "error", text: "Provider timeout", errorCode: "RUN_FAILED" }],
+        })}
+      />,
+    );
+
+    expect(screen.getByText("本次运行失败")).toBeInTheDocument();
+    expect(screen.getByText("Provider timeout")).toBeInTheDocument();
+
+    rerender(
+      <MessageBubble
+        message={buildMessage({
+          status: "cancelled",
+          parts: [
+            {
+              type: "step_ref",
+              stepId: "step-3",
+              title: "exec",
+              status: "failed",
+              detail: "cancelled by user",
+            },
+          ],
+        })}
+      />,
+    );
+
+    expect(screen.getByText("本次运行已取消")).toBeInTheDocument();
+  });
 });
