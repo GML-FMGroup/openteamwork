@@ -79,4 +79,22 @@ describe("client api projection helpers", () => {
     });
     expect(message?.parts).toHaveLength(2);
   });
+
+  it("normalizes tool result parts", () => {
+    const part = normalizeClientApiPart({
+      type: "tool_result",
+      tool_name: "inspect_repo",
+      summary: "inspect_repo returned successfully.",
+      detail: "2 files changed",
+      raw_text: "{\n  \"ok\": true\n}",
+    });
+
+    expect(part).toMatchObject({
+      type: "tool_result",
+      toolName: "inspect_repo",
+      summary: "inspect_repo returned successfully.",
+      detail: "2 files changed",
+      rawText: "{\n  \"ok\": true\n}",
+    });
+  });
 });

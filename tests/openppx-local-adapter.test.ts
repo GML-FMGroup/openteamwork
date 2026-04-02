@@ -41,8 +41,8 @@ describe("openppx local adapter projections", () => {
       status: "completed",
     });
     expect(parts[3]).toMatchObject({
-      type: "code",
-      language: "json",
+      type: "tool_result",
+      toolName: "inspect_workspace",
     });
   });
 

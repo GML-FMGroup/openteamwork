@@ -162,9 +162,11 @@ function formatReplyParts(text: string): MessagePart[] {
       detail: "Parsed the request and selected the local-only execution path.",
     },
     {
-      type: "code",
-      language: "bash",
-      text: "ppx client-api serve --mode local",
+      type: "tool_result",
+      toolName: "client_api_hint",
+      summary: "本地 client-api 启动命令已经准备好了。",
+      detail: "这只是一个 mock 示例，用来预览 tool response 卡片的展示效果。",
+      rawText: JSON.stringify({ command: "ppx client-api serve --host 127.0.0.1 --port 8765" }, null, 2),
     },
     {
       type: "file",
@@ -172,6 +174,13 @@ function formatReplyParts(text: string): MessagePart[] {
       fileName: "client_session_notes.md",
       mimeType: "text/markdown",
       sizeBytes: 2048,
+    },
+    {
+      type: "image",
+      text: "Runtime architecture preview",
+      url:
+        "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='640' height='360'><rect width='100%25' height='100%25' rx='28' fill='%23f3f4f6'/><rect x='28' y='28' width='180' height='64' rx='18' fill='%23ffffff' stroke='%23d1d5db'/><text x='48' y='68' font-size='22' fill='%23111827'>Client</text><rect x='230' y='120' width='180' height='64' rx='18' fill='%23ffffff' stroke='%23d1d5db'/><text x='250' y='160' font-size='22' fill='%23111827'>Gateway</text><rect x='432' y='212' width='180' height='64' rx='18' fill='%23ffffff' stroke='%23d1d5db'/><text x='452' y='252' font-size='22' fill='%23111827'>Agent</text><path d='M208 60 C250 80 250 120 230 152' stroke='%236b7280' stroke-width='4' fill='none'/><path d='M410 152 C452 174 452 212 432 244' stroke='%236b7280' stroke-width='4' fill='none'/></svg>",
+      mimeType: "image/svg+xml",
     },
   ];
 }

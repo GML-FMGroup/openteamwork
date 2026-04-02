@@ -35,6 +35,31 @@ function messageStatusLabel(status: ChatMessage["status"]): string | null {
   return null;
 }
 
+function explainError(errorCode: string | undefined, text: string): { title: string; hint?: string } {
+  const normalized = `${errorCode ?? ""} ${text}`.toLowerCase();
+  if (normalized.includes("provider list") || normalized.includes("litellm")) {
+    return {
+      title: "模型提供方配置异常",
+      hint: "通常是 provider 名称、模型名，或对应的密钥配置不匹配。",
+    };
+  }
+  if (normalized.includes("timeout") || normalized.includes("timed out")) {
+    return {
+      title: "请求超时",
+      hint: "可以稍后重试，或者检查当前模型和网络状态。",
+    };
+  }
+  if (normalized.includes("network") || normalized.includes("connection") || normalized.includes("unreachable")) {
+    return {
+      title: "连接失败",
+      hint: "请检查 gateway 地址、网络连通性，或本地 client-api 是否正在运行。",
+    };
+  }
+  return {
+    title: errorCode === "RUN_FAILED" ? "运行失败" : errorCode ?? "Error",
+  };
+}
+
 function renderPart(part: MessagePart) {
   if (part.type === "markdown") {
     return (
@@ -55,31 +80,64 @@ function renderPart(part: MessagePart) {
   }
   if (part.type === "file") {
     return (
-      <div className="asset-card">
-        <strong>{part.fileName}</strong>
-        <span>{part.text}</span>
-        <small>
-          {part.mimeType ?? "file"}
-          {part.sizeBytes ? ` · ${Math.round(part.sizeBytes / 1024)} KB` : ""}
-        </small>
+      <div className="asset-card file-card">
+        <div className="asset-card-header">
+          <div>
+            <strong>{part.fileName}</strong>
+            <span>{part.text}</span>
+          </div>
+          <span className="asset-badge">{part.mimeType ?? "file"}</span>
+        </div>
+        <small>{part.sizeBytes ? `${Math.max(1, Math.round(part.sizeBytes / 1024))} KB` : "size unavailable"}</small>
       </div>
     );
   }
   if (part.type === "image") {
     return (
-      <div className="asset-card">
-        <strong>{part.text}</strong>
-        <a href={part.url} target="_blank" rel="noreferrer">
-          Open image
-        </a>
+      <div className="asset-card image-card">
+        <img src={part.url} alt={part.text} className="image-preview" />
+        <div className="asset-card-header">
+          <div>
+            <strong>{part.text}</strong>
+            <span>{part.mimeType ?? "image"}</span>
+          </div>
+          <a href={part.url} target="_blank" rel="noreferrer">
+            打开原图
+          </a>
+        </div>
       </div>
     );
   }
   if (part.type === "error") {
+    const explained = explainError(part.errorCode, part.text);
     return (
       <div className="error-card">
-        <strong>{part.errorCode ?? "Error"}</strong>
+        <strong>{explained.title}</strong>
+        {explained.hint ? <small>{explained.hint}</small> : null}
         <span>{part.text}</span>
+      </div>
+    );
+  }
+  if (part.type === "tool_result") {
+    return (
+      <div className="tool-result-card">
+        <div className="tool-result-header">
+          <div>
+            <strong>{part.toolName}</strong>
+            <span>Tool result</span>
+          </div>
+          <span className="asset-badge">completed</span>
+        </div>
+        <p>{part.summary}</p>
+        {part.detail ? <small>{part.detail}</small> : null}
+        {part.rawText ? (
+          <details className="tool-result-raw">
+            <summary>查看原始结果</summary>
+            <pre>
+              <code>{part.rawText}</code>
+            </pre>
+          </details>
+        ) : null}
       </div>
     );
   }
@@ -97,6 +155,11 @@ function renderPart(part: MessagePart) {
         <span className={`step-status-badge ${part.status}`}>{stepStatusLabel(part.status)}</span>
       </div>
       <div className="step-card-body">
+        {part.status === "running" ? (
+          <div className="step-progress-bar" aria-hidden="true">
+            <span />
+          </div>
+        ) : null}
         {detailLines.map((line, index) => (
           <pre key={`${part.stepId}-${index}`} className="step-card-detail">
             {line}

@@ -33,6 +33,43 @@ describe("MessageBubble", () => {
     expect(screen.getByText("line: 12")).toBeInTheDocument();
   });
 
+  it("renders tool result and attachment cards", () => {
+    render(
+      <MessageBubble
+        message={buildMessage({
+          status: "completed",
+          parts: [
+            {
+              type: "tool_result",
+              toolName: "inspect_repo",
+              summary: "inspect_repo 返回了 2 个字段。",
+              detail: "2 files changed",
+              rawText: "{\n  \"ok\": true\n}",
+            },
+            {
+              type: "file",
+              text: "Planned artifact",
+              fileName: "client_session_notes.md",
+              mimeType: "text/markdown",
+              sizeBytes: 2048,
+            },
+            {
+              type: "image",
+              text: "Runtime architecture preview",
+              url: "https://example.com/runtime.png",
+              mimeType: "image/png",
+            },
+          ],
+        })}
+      />,
+    );
+
+    expect(screen.getByText("inspect_repo")).toBeInTheDocument();
+    expect(screen.getByText("查看原始结果")).toBeInTheDocument();
+    expect(screen.getByText("client_session_notes.md")).toBeInTheDocument();
+    expect(screen.getByText("打开原图")).toBeInTheDocument();
+  });
+
   it("renders completed status for finished steps", () => {
     render(
       <MessageBubble
@@ -86,5 +123,25 @@ describe("MessageBubble", () => {
     );
 
     expect(screen.getByText("本次运行已取消")).toBeInTheDocument();
+  });
+
+  it("renders readable provider error guidance", () => {
+    render(
+      <MessageBubble
+        message={buildMessage({
+          status: "failed",
+          parts: [
+            {
+              type: "error",
+              text: "Provider List: https://docs.litellm.ai/docs/providers",
+              errorCode: "RUN_FAILED",
+            },
+          ],
+        })}
+      />,
+    );
+
+    expect(screen.getByText("模型提供方配置异常")).toBeInTheDocument();
+    expect(screen.getByText("通常是 provider 名称、模型名，或对应的密钥配置不匹配。")).toBeInTheDocument();
   });
 });

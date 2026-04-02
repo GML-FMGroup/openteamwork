@@ -32,6 +32,29 @@ function previewValue(value: unknown, fallback: string): string {
   return detail.length > 320 ? `${detail.slice(0, 317)}...` : detail;
 }
 
+function summarizeToolResponse(toolName: string, response: unknown): string {
+  const record = asRecord(response);
+  if (record) {
+    if (typeof record.message === "string" && record.message.trim()) {
+      return record.message.trim();
+    }
+    if (typeof record.summary === "string" && record.summary.trim()) {
+      return record.summary.trim();
+    }
+    if (typeof record.ok === "boolean") {
+      return record.ok ? `${toolName} 已成功返回结果。` : `${toolName} 返回了失败结果。`;
+    }
+    const keys = Object.keys(record);
+    if (keys.length) {
+      return `${toolName} 返回了 ${keys.length} 个字段。`;
+    }
+  }
+  if (typeof response === "string" && response.trim()) {
+    return response.trim().slice(0, 140);
+  }
+  return `${toolName} 已返回结果。`;
+}
+
 function upsertStepPart(parts: StepPart[], nextPart: StepPart): StepPart[] {
   const existingIndex = parts.findIndex((part) => part.stepId === nextPart.stepId);
   if (existingIndex === -1) {
@@ -107,9 +130,11 @@ export function buildMessagePartsFromSessionEvent(event: Record<string, unknown>
         detail: previewValue(response, "Tool returned without a payload"),
       });
       messageParts.push({
-        type: "code",
-        language: "json",
-        text: stringifyDetail(response),
+        type: "tool_result",
+        toolName,
+        summary: summarizeToolResponse(toolName, response),
+        detail: previewValue(response, "Tool returned without a payload"),
+        rawText: stringifyDetail(response),
       });
     }
   }

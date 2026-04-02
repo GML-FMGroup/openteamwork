@@ -10,6 +10,7 @@ export type MessagePart =
   | { type: "file"; text: string; fileName: string; sizeBytes?: number; mimeType?: string }
   | { type: "image"; text: string; url: string; mimeType?: string }
   | { type: "error"; text: string; errorCode?: string }
+  | { type: "tool_result"; toolName: string; summary: string; detail?: string; rawText?: string }
   | { type: "step_ref"; stepId: string; title: string; status: "running" | "completed" | "failed"; detail: string };
 
 export interface ConnectionTarget {

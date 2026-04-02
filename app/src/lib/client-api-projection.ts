@@ -79,6 +79,15 @@ export function normalizeClientApiPart(payload: unknown): MessagePart | null {
       errorCode: asString(part.error_code) || undefined,
     };
   }
+  if (type === "tool_result") {
+    return {
+      type,
+      toolName: asString(part.tool_name ?? part.toolName, "tool"),
+      summary: asString(part.summary, "Tool returned without a payload"),
+      detail: asString(part.detail) || undefined,
+      rawText: asString(part.raw_text ?? part.rawText) || undefined,
+    };
+  }
   if (type === "step_ref") {
     const status = asString(part.status, "running");
     return {
