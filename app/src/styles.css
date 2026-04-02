@@ -1,24 +1,23 @@
 :root {
-  color: #1c1712;
+  color: #202124;
   background:
-    radial-gradient(circle at top left, rgba(182, 134, 74, 0.18), transparent 30%),
-    radial-gradient(circle at bottom right, rgba(73, 106, 124, 0.2), transparent 28%),
-    linear-gradient(135deg, #f5efe3 0%, #efe4d2 48%, #ece7df 100%);
+    radial-gradient(circle at top left, rgba(229, 231, 235, 0.85), transparent 34%),
+    linear-gradient(135deg, #f7f7f8 0%, #f4f5f6 48%, #f6f7f8 100%);
   font-family: "Iowan Old Style", "Palatino Linotype", "Book Antiqua", Georgia, serif;
   line-height: 1.5;
   font-weight: 400;
   color-scheme: light;
-  --surface-strong: rgba(250, 244, 235, 0.9);
-  --surface-soft: rgba(255, 251, 246, 0.7);
-  --surface-muted: rgba(83, 67, 53, 0.08);
-  --border-soft: rgba(83, 67, 53, 0.12);
-  --text-subtle: rgba(28, 23, 18, 0.65);
-  --accent: #8c4f21;
-  --accent-deep: #5b3316;
-  --sage: #58727d;
-  --success: #40634c;
-  --danger: #9d433e;
-  --shadow: 0 18px 48px rgba(73, 52, 34, 0.12);
+  --surface-strong: rgba(255, 255, 255, 0.96);
+  --surface-soft: rgba(249, 250, 251, 0.96);
+  --surface-muted: rgba(229, 231, 235, 0.75);
+  --border-soft: rgba(229, 231, 235, 0.95);
+  --text-subtle: rgba(107, 114, 128, 0.9);
+  --accent: #2f3137;
+  --accent-deep: #1f2937;
+  --sage: #6b7280;
+  --success: #4f6b5b;
+  --danger: #8a6464;
+  --shadow: 0 8px 24px rgba(15, 23, 42, 0.04);
 }
 
 * {
@@ -73,7 +72,8 @@ button {
 }
 
 .nav-rail {
-  background: rgba(40, 31, 22, 0.88);
+  background: rgba(247, 247, 248, 0.98);
+  border: 1px solid var(--border-soft);
   border-radius: 28px;
   padding: 18px 10px;
   display: flex;
@@ -88,14 +88,15 @@ button {
   border-radius: 20px;
   min-height: 128px;
   background: transparent;
-  color: rgba(255, 248, 239, 0.8);
+  color: rgba(107, 114, 128, 0.88);
   letter-spacing: 0.2em;
   padding: 14px 0;
 }
 
 .nav-item.active {
-  background: linear-gradient(180deg, rgba(214, 171, 121, 0.3), rgba(124, 155, 171, 0.22));
-  color: #fff8f0;
+  background: rgba(255, 255, 255, 0.96);
+  color: #111827;
+  box-shadow: inset 0 0 0 1px rgba(229, 231, 235, 0.95);
 }
 
 .sidebar {
@@ -172,12 +173,12 @@ button {
 
 button,
 .suggestion-card {
-  background: linear-gradient(180deg, #9a5b2a, #74401a);
-  color: #fff8f2;
+  background: #2f3137;
+  color: #f9fafb;
   border-radius: 16px;
   padding: 10px 14px;
   transition: transform 160ms ease, box-shadow 160ms ease, opacity 160ms ease;
-  box-shadow: 0 12px 30px rgba(116, 64, 26, 0.18);
+  box-shadow: 0 6px 18px rgba(15, 23, 42, 0.08);
 }
 
 button:hover,
@@ -186,8 +187,9 @@ button:hover,
 }
 
 button.secondary {
-  background: rgba(83, 67, 53, 0.08);
-  color: #2b221b;
+  background: rgba(249, 250, 251, 0.95);
+  color: #4b5563;
+  border: 1px solid var(--border-soft);
   box-shadow: none;
 }
 
@@ -205,7 +207,7 @@ button.small {
 .list-item {
   width: 100%;
   text-align: left;
-  background: var(--surface-soft);
+  background: rgba(250, 250, 250, 0.96);
   color: inherit;
   box-shadow: none;
   border: 1px solid transparent;
@@ -216,8 +218,9 @@ button.small {
 }
 
 .list-item.active {
-  border-color: rgba(140, 79, 33, 0.28);
-  background: rgba(255, 250, 244, 0.95);
+  border-color: rgba(209, 213, 219, 0.95);
+  background: rgba(255, 255, 255, 0.98);
+  box-shadow: 0 2px 12px rgba(15, 23, 42, 0.04);
 }
 
 .list-item strong {
@@ -241,7 +244,7 @@ button.small {
   border-radius: 999px;
   padding: 4px 10px;
   font-size: 0.75rem;
-  background: rgba(83, 67, 53, 0.08);
+  background: rgba(243, 244, 246, 0.96);
 }
 
 .status-healthy,
@@ -252,7 +255,7 @@ button.small {
 }
 
 .status-idle {
-  background: rgba(88, 114, 125, 0.12);
+  background: rgba(100, 116, 139, 0.12);
   color: var(--sage);
 }
 
@@ -263,6 +266,7 @@ button.small {
   grid-template-rows: auto minmax(0, 1fr) auto;
   gap: 18px;
   overflow: hidden;
+  box-shadow: 0 6px 20px rgba(15, 23, 42, 0.03);
 }
 
 .session-meta {
@@ -297,8 +301,8 @@ button.small {
 }
 
 .suggestion-card {
-  background: rgba(255, 250, 245, 0.92);
-  color: #34281f;
+  background: rgba(250, 250, 250, 0.98);
+  color: #1f2933;
   border: 1px solid var(--border-soft);
   box-shadow: none;
 }
@@ -312,14 +316,14 @@ button.small {
 
 .message-bubble.user {
   align-self: flex-end;
-  background: linear-gradient(180deg, rgba(140, 79, 33, 0.12), rgba(140, 79, 33, 0.08));
+  background: rgba(243, 244, 246, 0.98);
 }
 
 .message-bubble.assistant,
 .message-bubble.system,
 .message-bubble.tool {
   align-self: flex-start;
-  background: rgba(255, 251, 246, 0.95);
+  background: rgba(255, 255, 255, 0.96);
 }
 
 .message-meta {
@@ -347,18 +351,18 @@ button.small {
   overflow: auto;
   padding: 14px;
   border-radius: 18px;
-  background: #1d1a17;
-  color: #f6efe2;
+  background: #1f2937;
+  color: #e5e7eb;
 }
 
 .code-card {
   border-radius: 18px;
   overflow: hidden;
-  border: 1px solid rgba(29, 26, 23, 0.12);
+  border: 1px solid rgba(148, 163, 184, 0.2);
 }
 
 .code-card-header {
-  background: rgba(29, 26, 23, 0.06);
+  background: rgba(243, 244, 246, 0.95);
   color: var(--text-subtle);
   padding: 8px 12px;
   font-size: 0.78rem;
@@ -371,7 +375,7 @@ button.small {
 .error-card {
   border-radius: 18px;
   padding: 14px;
-  background: rgba(255, 250, 244, 0.85);
+  background: rgba(250, 250, 250, 0.98);
   border: 1px solid var(--border-soft);
 }
 
@@ -383,8 +387,8 @@ button.small {
 }
 
 .error-card {
-  border-color: rgba(157, 67, 62, 0.28);
-  background: rgba(157, 67, 62, 0.08);
+  border-color: rgba(139, 94, 94, 0.22);
+  background: rgba(248, 250, 252, 0.88);
 }
 
 .streaming-indicator {
@@ -397,8 +401,9 @@ button.small {
 .composer-shell {
   border-radius: 28px;
   border: 1px solid var(--border-soft);
-  background: rgba(255, 251, 246, 0.92);
+  background: rgba(255, 255, 255, 0.96);
   padding: 14px;
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.03);
 }
 
 .composer-shell textarea {
@@ -409,6 +414,10 @@ button.small {
   background: transparent;
   color: inherit;
   outline: none;
+}
+
+.composer-shell textarea::placeholder {
+  color: rgba(156, 163, 175, 0.95);
 }
 
 .composer-actions {
@@ -444,7 +453,7 @@ button.small {
 .diagnostics-stack div {
   padding: 12px 14px;
   border-radius: 18px;
-  background: rgba(255, 250, 244, 0.7);
+  background: rgba(250, 250, 250, 0.98);
   border: 1px solid var(--border-soft);
 }
 
