@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type {
   AgentProfile,
   BootstrapPayload,
@@ -49,6 +49,7 @@ export function App() {
   const [selectedSessionId, setSelectedSessionId] = useState("");
   const [composer, setComposer] = useState("");
   const [sendingSessionIds, setSendingSessionIds] = useState<string[]>([]);
+  const switchRequestIdRef = useRef(0);
 
   useEffect(() => {
     if (!window.ppxClient) {
@@ -125,23 +126,37 @@ export function App() {
   );
 
   async function switchAgent(agentId: string): Promise<void> {
+    const requestId = ++switchRequestIdRef.current;
     setSelectedAgentId(agentId);
+    setSelectedSessionId("");
+    setSessions([]);
+    setMessages([]);
     const listed = await window.ppxClient.listSessions(agentId);
+    if (requestId !== switchRequestIdRef.current) {
+      return;
+    }
     setSessions(listed.sessions);
     if (listed.sessions[0]) {
-      setSelectedSessionId(listed.sessions[0].id);
-      const loaded = await window.ppxClient.loadSession(listed.sessions[0].id);
+      const nextSessionId = listed.sessions[0].id;
+      setSelectedSessionId(nextSessionId);
+      const loaded = await window.ppxClient.loadSession(nextSessionId);
+      if (requestId !== switchRequestIdRef.current) {
+        return;
+      }
       setMessages(loaded.messages);
       return;
     }
-    setSelectedSessionId("");
-    setMessages([]);
   }
 
   async function switchSession(session: SessionSummary): Promise<void> {
+    const requestId = ++switchRequestIdRef.current;
     setSelectedAgentId(session.agentId);
     setSelectedSessionId(session.id);
+    setMessages([]);
     const loaded = await window.ppxClient.loadSession(session.id);
+    if (requestId !== switchRequestIdRef.current) {
+      return;
+    }
     setMessages(loaded.messages);
   }
 

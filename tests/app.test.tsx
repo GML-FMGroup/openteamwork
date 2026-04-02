@@ -38,7 +38,16 @@ function buildBootstrapPayload(): BootstrapPayload {
       },
     ],
     sessions,
-    messages: [],
+    messages: [
+      {
+        id: "message-a",
+        sessionId: "session-a",
+        role: "assistant",
+        status: "completed",
+        createdAt: "2026-04-02T10:00:01.000Z",
+        parts: [{ type: "markdown", text: "Loaded Session A" }],
+      },
+    ],
     selectedAgentId: "agent-1",
     selectedSessionId: "session-a",
   };
@@ -127,5 +136,42 @@ describe("App sending state", () => {
     await waitFor(() => {
       expect(screen.getByRole("button", { name: "发送" })).toBeEnabled();
     });
+  });
+
+  it("clears previous messages immediately when switching sessions", async () => {
+    let resolveLoad: ((value: { messages: BootstrapPayload["messages"] }) => void) | null = null;
+    installClient({
+      loadSession: async () =>
+        await new Promise<{ messages: BootstrapPayload["messages"] }>((resolve) => {
+          resolveLoad = resolve;
+        }),
+    });
+
+    render(<App />);
+
+    await screen.findByText("Loaded Session A");
+
+    fireEvent.click(screen.getByRole("button", { name: /Session B/ }));
+
+    await waitFor(() => {
+      expect(screen.queryByText("Loaded Session A")).not.toBeInTheDocument();
+    });
+
+    await act(async () => {
+      resolveLoad?.({
+        messages: [
+          {
+            id: "message-b",
+            sessionId: "session-b",
+            role: "assistant",
+            status: "completed",
+            createdAt: "2026-04-02T10:00:02.000Z",
+            parts: [{ type: "markdown", text: "Loaded Session B" }],
+          },
+        ],
+      });
+    });
+
+    await screen.findByText("Loaded Session B");
   });
 });

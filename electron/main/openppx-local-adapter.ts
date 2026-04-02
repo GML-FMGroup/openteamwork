@@ -38,6 +38,8 @@ import type {
 
 type EventSink = (event: RunEvent) => void;
 type StepPart = Extract<MessagePart, { type: "step_ref" }>;
+type SessionCacheEntry = { sessions: SessionSummary[]; expiresAt: number };
+type MessageCacheEntry = { messages: ChatMessage[]; expiresAt: number };
 
 interface GlobalAgentConfigEntry {
   name?: string;
@@ -119,6 +121,12 @@ function normalizeAgentProfile(payload: Record<string, unknown>): AgentProfile {
 }
 
 export class OpenPpxLocalAdapter implements PpxClientApi {
+  private static readonly SESSION_CACHE_TTL_MS = 5_000;
+
+  private static readonly MESSAGE_CACHE_TTL_MS = 5_000;
+
+  private static readonly HEALTH_CACHE_TTL_MS = 1_500;
+
   private readonly listeners = new Set<EventSink>();
 
   private readonly openppxRoot = detectOpenPpxRoot();
@@ -135,6 +143,14 @@ export class OpenPpxLocalAdapter implements PpxClientApi {
 
   private clientApiProcess: ReturnType<typeof spawn> | null = null;
 
+  private readonly sessionsCache = new Map<string, SessionCacheEntry>();
+
+  private readonly messagesCache = new Map<string, MessageCacheEntry>();
+
+  private healthyUntil = 0;
+
+  private inflightHealthCheck: Promise<boolean> | null = null;
+
   private readonly mockUnsubscribe = subscribeMock((event) => {
     if (this.shouldUseMock()) {
       this.emit(event);
@@ -142,7 +158,85 @@ export class OpenPpxLocalAdapter implements PpxClientApi {
   });
 
   private emit(event: RunEvent): void {
+    this.applyEventToCache(event);
     this.listeners.forEach((listener) => listener(event));
+  }
+
+  private readSessionsCache(agentId: string): SessionSummary[] | null {
+    const cached = this.sessionsCache.get(agentId);
+    if (!cached || cached.expiresAt < Date.now()) {
+      return null;
+    }
+    return cached.sessions.map((session) => ({ ...session }));
+  }
+
+  private writeSessionsCache(agentId: string, sessions: SessionSummary[]): void {
+    this.sessionsCache.set(agentId, {
+      sessions: sessions.map((session) => ({ ...session })),
+      expiresAt: Date.now() + OpenPpxLocalAdapter.SESSION_CACHE_TTL_MS,
+    });
+  }
+
+  private readMessagesCache(sessionId: string): ChatMessage[] | null {
+    const cached = this.messagesCache.get(sessionId);
+    if (!cached || cached.expiresAt < Date.now()) {
+      return null;
+    }
+    return cached.messages.map((message) => ({
+      ...message,
+      parts: [...message.parts],
+    }));
+  }
+
+  private writeMessagesCache(sessionId: string, messages: ChatMessage[]): void {
+    this.messagesCache.set(sessionId, {
+      messages: messages.map((message) => ({
+        ...message,
+        parts: [...message.parts],
+      })),
+      expiresAt: Date.now() + OpenPpxLocalAdapter.MESSAGE_CACHE_TTL_MS,
+    });
+  }
+
+  private invalidateSessionCaches(agentId: string, sessionId?: string): void {
+    this.sessionsCache.delete(agentId);
+    if (sessionId) {
+      this.messagesCache.delete(sessionId);
+    }
+  }
+
+  private applyEventToCache(event: RunEvent): void {
+    if (event.type === "message.created") {
+      const cached = this.readMessagesCache(event.sessionId) ?? [];
+      if (!cached.some((message) => message.id === event.message.id)) {
+        this.writeMessagesCache(event.sessionId, [...cached, event.message]);
+      }
+      return;
+    }
+    if (event.type === "message.updated") {
+      const cached = this.readMessagesCache(event.sessionId);
+      if (!cached) {
+        return;
+      }
+      const next = cached.map((message) =>
+        message.id === event.messageId
+          ? {
+              ...message,
+              status: event.status ?? message.status,
+              parts: event.replaceParts ?? [...message.parts, ...(event.appendParts ?? [])],
+            }
+          : message,
+      );
+      this.writeMessagesCache(event.sessionId, next);
+      return;
+    }
+    if (event.type === "session.updated") {
+      const cached = this.readSessionsCache(event.session.agentId) ?? [];
+      const next = [event.session, ...cached.filter((session) => session.id !== event.session.id)].sort((left, right) =>
+        right.updatedAt.localeCompare(left.updatedAt),
+      );
+      this.writeSessionsCache(event.session.agentId, next);
+    }
   }
 
   private async fetchClientApiJson(pathname: string, init?: RequestInit): Promise<Record<string, unknown>> {
@@ -162,6 +256,9 @@ export class OpenPpxLocalAdapter implements PpxClientApi {
   }
 
   private async isClientApiHealthy(): Promise<boolean> {
+    if (Date.now() < this.healthyUntil) {
+      return true;
+    }
     try {
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), 500);
@@ -169,6 +266,9 @@ export class OpenPpxLocalAdapter implements PpxClientApi {
         signal: controller.signal,
       });
       clearTimeout(timeout);
+      if (response.ok) {
+        this.healthyUntil = Date.now() + OpenPpxLocalAdapter.HEALTH_CACHE_TTL_MS;
+      }
       return response.ok;
     } catch {
       return false;
@@ -176,6 +276,21 @@ export class OpenPpxLocalAdapter implements PpxClientApi {
   }
 
   private async ensureClientApiAvailable(): Promise<boolean> {
+    if (Date.now() < this.healthyUntil) {
+      return true;
+    }
+    if (this.inflightHealthCheck) {
+      return this.inflightHealthCheck;
+    }
+    this.inflightHealthCheck = this.ensureClientApiAvailableImpl();
+    try {
+      return await this.inflightHealthCheck;
+    } finally {
+      this.inflightHealthCheck = null;
+    }
+  }
+
+  private async ensureClientApiAvailableImpl(): Promise<boolean> {
     if (await this.isClientApiHealthy()) {
       clientDebugLog("client-api.health", {
         baseUrl: this.clientApiBaseUrl,
@@ -214,6 +329,7 @@ export class OpenPpxLocalAdapter implements PpxClientApi {
       this.clientApiProcess.on("close", () => {
         clientDebugLog("client-api.close", { baseUrl: this.clientApiBaseUrl });
         this.clientApiProcess = null;
+        this.healthyUntil = 0;
       });
     }
     for (let attempt = 0; attempt < 12; attempt += 1) {
@@ -438,24 +554,32 @@ export class OpenPpxLocalAdapter implements PpxClientApi {
         sessions: payload.selectedAgentId === agentId ? payload.sessions : [],
       };
     }
+    const cached = this.readSessionsCache(agentId);
+    if (cached) {
+      clientDebugLog("sessions.cache.hit", {
+        agentId,
+        count: cached.length,
+      });
+      return { sessions: cached };
+    }
     if (await this.ensureClientApiAvailable()) {
       try {
         const payload = await this.fetchClientApiJson(`/api/v1/agents/${agentId}/sessions`);
         const items = Array.isArray((payload.data as Record<string, unknown> | undefined)?.items)
           ? ((payload.data as Record<string, unknown>).items as unknown[])
           : [];
-        return {
-          sessions: items
-            .map((item) => normalizeClientApiSession(item))
-            .filter((item): item is SessionSummary => item !== null),
-        };
+        const sessions = items
+          .map((item) => normalizeClientApiSession(item))
+          .filter((item): item is SessionSummary => item !== null);
+        this.writeSessionsCache(agentId, sessions);
+        return { sessions };
       } catch {
         // Fall back to the legacy bridge path below.
       }
     }
-    return {
-      sessions: await this.listSessionsForAgent(agentId),
-    };
+    const sessions = await this.listSessionsForAgent(agentId);
+    this.writeSessionsCache(agentId, sessions);
+    return { sessions };
   }
 
   public async createSession(agentId: string): Promise<{ session: SessionSummary }> {
@@ -470,6 +594,7 @@ export class OpenPpxLocalAdapter implements PpxClientApi {
         });
         const session = normalizeClientApiSession((payload.data as Record<string, unknown> | undefined)?.session);
         if (session) {
+          this.invalidateSessionCaches(agentId);
           return { session };
         }
       } catch {
@@ -480,6 +605,7 @@ export class OpenPpxLocalAdapter implements PpxClientApi {
       this.bridgeArgs("create_session", agentId, ["--session-id", `${agentId}-${crypto.randomUUID()}`]),
     )) as { session?: Record<string, unknown> } | null;
     const session = this.formatSessionSummary(agentId, response?.session ?? {});
+    this.invalidateSessionCaches(agentId);
     return { session };
   }
 
@@ -487,17 +613,25 @@ export class OpenPpxLocalAdapter implements PpxClientApi {
     if (this.shouldUseMock()) {
       return mockLoadSession(sessionId);
     }
+    const cached = this.readMessagesCache(sessionId);
+    if (cached) {
+      clientDebugLog("messages.cache.hit", {
+        sessionId,
+        count: cached.length,
+      });
+      return { messages: cached };
+    }
     if (await this.ensureClientApiAvailable()) {
       try {
         const payload = await this.fetchClientApiJson(`/api/v1/sessions/${sessionId}/messages`);
         const items = Array.isArray((payload.data as Record<string, unknown> | undefined)?.items)
           ? ((payload.data as Record<string, unknown>).items as unknown[])
           : [];
-        return {
-          messages: items
-            .map((item) => normalizeClientApiMessage(item))
-            .filter((item): item is ChatMessage => item !== null),
-        };
+        const messages = items
+          .map((item) => normalizeClientApiMessage(item))
+          .filter((item): item is ChatMessage => item !== null);
+        this.writeMessagesCache(sessionId, messages);
+        return { messages };
       } catch {
         // Fall through to the legacy bridge path.
       }
@@ -514,9 +648,9 @@ export class OpenPpxLocalAdapter implements PpxClientApi {
     if (!response?.session) {
       return { messages: [] };
     }
-    return {
-      messages: this.buildMessagesFromSession(sessionId, response.session),
-    };
+    const messages = this.buildMessagesFromSession(sessionId, response.session);
+    this.writeMessagesCache(sessionId, messages);
+    return { messages };
   }
 
   public async sendMessage(input: SendMessageInput): Promise<{ runId: string }> {
@@ -529,6 +663,7 @@ export class OpenPpxLocalAdapter implements PpxClientApi {
     if (this.shouldUseMock()) {
       return mockSendMessage(input);
     }
+    this.invalidateSessionCaches(input.agentId, input.sessionId);
     if (await this.ensureClientApiAvailable()) {
       try {
         return await this.sendMessageViaClientApi(input);
