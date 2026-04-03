@@ -454,70 +454,67 @@ export function App() {
 
           <div className="workspace-frame">
             <main className="workspace">
-            <header className="workspace-header">
-              <div>
-                <div className="eyebrow">{selectedAgent?.description ?? "Select an agent"}</div>
-                <h2>{selectedAgent?.name ?? "No agent selected"}</h2>
-              </div>
-              <div className="session-meta">
-                <span>{selectedSession?.title ?? "No session"}</span>
-                <span className={`runtime-chip ${runtime.state}`}>{runtime.state}</span>
-              </div>
-            </header>
-
-            <section ref={messageStreamRef} className="message-stream">
-              {messages.length === 0 ? (
-                <div className="empty-state">
-                  <h3>{selectedAgent?.name ?? "Agent"} is ready</h3>
-                  <p>从一个本地任务开始。比如：帮我规划一个 client-api，或为当前仓库总结结构。</p>
-                  <div className="suggestion-grid">
-                    {[
-                      "为 ppx-client 设计本地 runtime 对接层",
-                      "帮我列出当前 agent 机器的会话模型",
-                      "把聊天消息渲染做成接近飞书的风格",
-                    ].map((suggestion) => (
-                      <button key={suggestion} className="suggestion-card" onClick={() => setComposer(suggestion)}>
-                        {suggestion}
-                      </button>
-                    ))}
-                  </div>
+              <header className="workspace-header">
+                <div>
+                  <div className="eyebrow">{selectedAgent?.description ?? "Select an agent"}</div>
+                  <h2>{selectedAgent?.name ?? "No agent selected"}</h2>
                 </div>
-              ) : (
-                messages.map((message, index) => {
-                  const previousMessage = index > 0 ? messages[index - 1] : null;
-                  const showIdentity = !(
-                    message.role === "assistant" &&
-                    previousMessage?.role === "assistant"
-                  );
-                  return <MessageBubble key={message.id} message={message} showIdentity={showIdentity} />;
-                })
-              )}
-            </section>
+                <div className="session-meta">
+                  <span>{selectedSession?.title ?? "No session"}</span>
+                  <span className={`runtime-chip ${runtime.state}`}>{runtime.state}</span>
+                </div>
+              </header>
 
-            <footer className="composer-shell">
-              <textarea
-                ref={composerRef}
-                value={composer}
-                onChange={(event) => setComposer(event.target.value)}
-                onKeyDown={handleComposerKeyDown}
-                placeholder="向本地 agent 发送任务..."
-                rows={2}
-              />
-              <div className="composer-actions">
-                <span>{selectedAgentBusy ? "当前 agent 正在流式返回..." : "本地模式 / Electron host API / mock runtime seam"}</span>
-                <button
-                  className={canSend ? "icon-button send-button ready" : "icon-button send-button"}
-                  disabled={!canSend}
-                  onClick={() => void handleSend()}
-                  aria-label={selectedAgentBusy ? "运行中" : "发送"}
-                  title={selectedAgentBusy ? "运行中" : "发送"}
-                >
-                  <svg viewBox="0 0 20 20" aria-hidden="true">
-                    <path d="M3.5 10.8 15.6 4.9c.8-.4 1.5.3 1.1 1.1l-5.9 12.1c-.4.9-1.7.8-2-.1L7.2 12.6a1 1 0 0 0-.6-.6L3.6 10.3c-.9-.3-.9-1.6-.1-2Z" />
-                  </svg>
-                </button>
-              </div>
-            </footer>
+              <section ref={messageStreamRef} className="message-stream">
+                {messages.length === 0 ? (
+                  <div className="empty-state">
+                    <h3>{selectedAgent?.name ?? "Agent"} is ready</h3>
+                    <p>从一个本地任务开始。比如：帮我规划一个 client-api，或为当前仓库总结结构。</p>
+                    <div className="suggestion-grid">
+                      {[
+                        "为 ppx-client 设计本地 runtime 对接层",
+                        "帮我列出当前 agent 机器的会话模型",
+                        "把聊天消息渲染做成接近飞书的风格",
+                      ].map((suggestion) => (
+                        <button key={suggestion} className="suggestion-card" onClick={() => setComposer(suggestion)}>
+                          {suggestion}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                ) : (
+                  messages.map((message, index) => {
+                    const previousMessage = index > 0 ? messages[index - 1] : null;
+                    const showIdentity = !(message.role === "assistant" && previousMessage?.role === "assistant");
+                    return <MessageBubble key={message.id} message={message} showIdentity={showIdentity} />;
+                  })
+                )}
+              </section>
+
+              <footer className="composer-shell">
+                <textarea
+                  ref={composerRef}
+                  value={composer}
+                  onChange={(event) => setComposer(event.target.value)}
+                  onKeyDown={handleComposerKeyDown}
+                  placeholder="向本地 agent 发送任务..."
+                  rows={2}
+                />
+                <div className="composer-actions">
+                  <span>{selectedAgentBusy ? "当前 agent 正在流式返回..." : "本地模式 / Electron host API / mock runtime seam"}</span>
+                  <button
+                    className={canSend ? "icon-button send-button ready" : "icon-button send-button"}
+                    disabled={!canSend}
+                    onClick={() => void handleSend()}
+                    aria-label={selectedAgentBusy ? "运行中" : "发送"}
+                    title={selectedAgentBusy ? "运行中" : "发送"}
+                  >
+                    <svg viewBox="0 0 20 20" aria-hidden="true">
+                      <path d="M3.5 10.8 15.6 4.9c.8-.4 1.5.3 1.1 1.1l-5.9 12.1c-.4.9-1.7.8-2-.1L7.2 12.6a1 1 0 0 0-.6-.6L3.6 10.3c-.9-.3-.9-1.6-.1-2Z" />
+                    </svg>
+                  </button>
+                </div>
+              </footer>
             </main>
           </div>
         </>
