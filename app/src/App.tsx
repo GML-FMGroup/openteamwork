@@ -220,6 +220,9 @@ export function App() {
     [selectedAgentId, sendingSessionIds, sessions],
   );
   const canSend = Boolean(composer.trim()) && !selectedAgentBusy;
+  const titlebarTitle =
+    view === "chat" ? selectedSession?.title ?? selectedAgent?.name ?? "No session" : "Settings";
+  const titlebarSubtitle = view === "chat" ? selectedAgent?.name ?? "No agent selected" : "ppx-client";
 
   async function switchAgent(agentId: string): Promise<void> {
     const requestId = ++switchRequestIdRef.current;
@@ -369,296 +372,343 @@ export function App() {
 
   return (
     <div className="app-shell">
-      <div className="window-drag-strip" aria-hidden="true" />
-      <aside className="nav-rail">
-        <button className={view === "chat" ? "nav-item active" : "nav-item"} onClick={() => setView("chat")}>
-          对话
-        </button>
-        <button className={view === "settings" ? "nav-item active" : "nav-item"} onClick={() => setView("settings")}>
-          设置
-        </button>
-      </aside>
+      <section className="nav-shell">
+        <header className="column-topbar nav-topbar" aria-hidden="true" />
+        <aside className="nav-rail">
+          <button className={view === "chat" ? "nav-item active" : "nav-item"} onClick={() => setView("chat")}>
+            对话
+          </button>
+          <button className={view === "settings" ? "nav-item active" : "nav-item"} onClick={() => setView("settings")}>
+            设置
+          </button>
+        </aside>
+      </section>
 
       {view === "chat" ? (
         <>
-          <section className="sidebar">
-            <div className="panel search-panel">
-              <div className="eyebrow">local machine</div>
-              <h1>openppx workbench</h1>
-              <p>本地优先的 agent 工作台。第一版只聚焦 runtime、agent 和对话主路径。</p>
-            </div>
+          <section className="sidebar-shell">
+            <header className="column-topbar sidebar-topbar">
+              <div className="topbar-copy">
+                <strong>openppx</strong>
+                <span>local workspace</span>
+              </div>
+            </header>
+            <section className="sidebar">
+              <div className="panel search-panel">
+                <div className="eyebrow">local machine</div>
+                <h1>openppx workbench</h1>
+                <p>本地优先的 agent 工作台。第一版只聚焦 runtime、agent 和对话主路径。</p>
+              </div>
 
-            <div className="panel runtime-panel">
-              <div className="panel-header">
-                <span>本地 runtime</span>
-                <span className={`runtime-dot ${runtime.state}`}>{runtime.state}</span>
-              </div>
-              <p>{runtime.summary}</p>
-              <small>{runtime.detail}</small>
-              <div className="runtime-actions">
-                <button onClick={handleRuntimeAction}>{runtimeActionLabel(runtime.state)}</button>
-                <button
-                  className="secondary"
-                  onClick={() => window.ppxClient.runRuntimeCommand("stop").then(setRuntime)}
-                >
-                  停止
-                </button>
-              </div>
-            </div>
-
-            <div className="panel">
-              <div className="panel-header">
-                <span>Agents</span>
-              </div>
-              <div className="list-stack">
-                {agents.map((agent) => (
+              <div className="panel runtime-panel">
+                <div className="panel-header">
+                  <span>本地 runtime</span>
+                  <span className={`runtime-dot ${runtime.state}`}>{runtime.state}</span>
+                </div>
+                <p>{runtime.summary}</p>
+                <small>{runtime.detail}</small>
+                <div className="runtime-actions">
+                  <button onClick={handleRuntimeAction}>{runtimeActionLabel(runtime.state)}</button>
                   <button
-                    key={agent.id}
-                    className={agent.id === selectedAgentId ? "list-item active" : "list-item"}
-                    onClick={() => void switchAgent(agent.id)}
+                    className="secondary"
+                    onClick={() => window.ppxClient.runRuntimeCommand("stop").then(setRuntime)}
                   >
-                    <div>
-                      <strong>{agent.name}</strong>
-                      <p>{agent.description}</p>
-                    </div>
-                    <span className={`tag status-${agent.status}`}>{agent.status}</span>
+                    停止
                   </button>
-                ))}
+                </div>
               </div>
-            </div>
 
-            <div className="panel">
-              <div className="panel-header">
-                <span>Sessions</span>
-                <button className="secondary small" onClick={() => void handleNewSession()}>
-                  新建
-                </button>
+              <div className="panel">
+                <div className="panel-header">
+                  <span>Agents</span>
+                </div>
+                <div className="list-stack">
+                  {agents.map((agent) => (
+                    <button
+                      key={agent.id}
+                      className={agent.id === selectedAgentId ? "list-item active" : "list-item"}
+                      onClick={() => void switchAgent(agent.id)}
+                    >
+                      <div>
+                        <strong>{agent.name}</strong>
+                        <p>{agent.description}</p>
+                      </div>
+                      <span className={`tag status-${agent.status}`}>{agent.status}</span>
+                    </button>
+                  ))}
+                </div>
               </div>
-              <div className="list-stack">
-                {sessions.map((session) => (
-                  <button
-                    key={session.id}
-                    className={session.id === selectedSessionId ? "list-item active" : "list-item"}
-                    onClick={() => void switchSession(session)}
-                  >
-                    <div>
-                      <strong>{session.title}</strong>
-                      <p>{session.lastMessagePreview}</p>
-                    </div>
-                    <time>{new Date(session.updatedAt).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })}</time>
+
+              <div className="panel">
+                <div className="panel-header">
+                  <span>Sessions</span>
+                  <button className="secondary small" onClick={() => void handleNewSession()}>
+                    新建
                   </button>
-                ))}
+                </div>
+                <div className="list-stack">
+                  {sessions.map((session) => (
+                    <button
+                      key={session.id}
+                      className={session.id === selectedSessionId ? "list-item active" : "list-item"}
+                      onClick={() => void switchSession(session)}
+                    >
+                      <div>
+                        <strong>{session.title}</strong>
+                        <p>{session.lastMessagePreview}</p>
+                      </div>
+                      <time>{new Date(session.updatedAt).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })}</time>
+                    </button>
+                  ))}
+                </div>
               </div>
-            </div>
+            </section>
           </section>
 
-          <div className="workspace-frame">
-            <main className="workspace">
-              <header className="workspace-header">
-                <h2>{selectedAgent?.name ?? "No agent selected"}</h2>
-                <div className="session-meta">
-                  <span>{selectedSession?.title ?? "No session"}</span>
-                  <span className={`runtime-chip ${runtime.state}`}>{runtime.state}</span>
-                </div>
-              </header>
-
-              <section ref={messageStreamRef} className="message-stream">
-                {messages.length === 0 ? (
-                  <div className="empty-state">
-                    <h3>{selectedAgent?.name ?? "Agent"} is ready</h3>
-                    <p>从一个本地任务开始。比如：帮我规划一个 client-api，或为当前仓库总结结构。</p>
-                    <div className="suggestion-grid">
-                      {[
-                        "为 ppx-client 设计本地 runtime 对接层",
-                        "帮我列出当前 agent 机器的会话模型",
-                        "把聊天消息渲染做成接近飞书的风格",
-                      ].map((suggestion) => (
-                        <button key={suggestion} className="suggestion-card" onClick={() => setComposer(suggestion)}>
-                          {suggestion}
-                        </button>
-                      ))}
+          <section className="workspace-shell">
+            <header className="column-topbar workspace-topbar">
+              <div className="topbar-copy">
+                <strong>{titlebarTitle}</strong>
+                <span>{titlebarSubtitle}</span>
+              </div>
+              <div className="topbar-actions">
+                <span className="topbar-pill">{runtime.state}</span>
+                <button className="topbar-menu" type="button" aria-label="更多选项">
+                  ...
+                </button>
+              </div>
+            </header>
+            <div className="workspace-frame">
+              <main className="workspace">
+                <section ref={messageStreamRef} className="message-stream">
+                  {messages.length === 0 ? (
+                    <div className="empty-state">
+                      <h3>{selectedAgent?.name ?? "Agent"} is ready</h3>
+                      <p>从一个本地任务开始。比如：帮我规划一个 client-api，或为当前仓库总结结构。</p>
+                      <div className="suggestion-grid">
+                        {[
+                          "为 ppx-client 设计本地 runtime 对接层",
+                          "帮我列出当前 agent 机器的会话模型",
+                          "把聊天消息渲染做成接近飞书的风格",
+                        ].map((suggestion) => (
+                          <button key={suggestion} className="suggestion-card" onClick={() => setComposer(suggestion)}>
+                            {suggestion}
+                          </button>
+                        ))}
+                      </div>
                     </div>
-                  </div>
-                ) : (
-                  messages.map((message, index) => {
-                    const previousMessage = index > 0 ? messages[index - 1] : null;
-                    const showIdentity = !(message.role === "assistant" && previousMessage?.role === "assistant");
-                    return <MessageBubble key={message.id} message={message} showIdentity={showIdentity} />;
-                  })
-                )}
-              </section>
+                  ) : (
+                    messages.map((message, index) => {
+                      const previousMessage = index > 0 ? messages[index - 1] : null;
+                      const showIdentity = !(message.role === "assistant" && previousMessage?.role === "assistant");
+                      return <MessageBubble key={message.id} message={message} showIdentity={showIdentity} />;
+                    })
+                  )}
+                </section>
 
-              <footer className="composer-shell">
-                <textarea
-                  ref={composerRef}
-                  value={composer}
-                  onChange={(event) => setComposer(event.target.value)}
-                  onKeyDown={handleComposerKeyDown}
-                  placeholder="向本地 agent 发送任务..."
-                  rows={2}
-                />
-                <div className="composer-actions">
-                  <span>{selectedAgentBusy ? "当前 agent 正在流式返回..." : "本地模式 / Electron host API / mock runtime seam"}</span>
-                  <button
-                    className={canSend ? "icon-button send-button ready" : "icon-button send-button"}
-                    disabled={!canSend}
-                    onClick={() => void handleSend()}
-                    aria-label={selectedAgentBusy ? "运行中" : "发送"}
-                    title={selectedAgentBusy ? "运行中" : "发送"}
-                  >
-                    <svg viewBox="0 0 20 20" aria-hidden="true">
-                      <path d="M3.5 10.8 15.6 4.9c.8-.4 1.5.3 1.1 1.1l-5.9 12.1c-.4.9-1.7.8-2-.1L7.2 12.6a1 1 0 0 0-.6-.6L3.6 10.3c-.9-.3-.9-1.6-.1-2Z" />
-                    </svg>
-                  </button>
-                </div>
-              </footer>
-            </main>
-          </div>
+                <footer className="composer-shell">
+                  <textarea
+                    ref={composerRef}
+                    value={composer}
+                    onChange={(event) => setComposer(event.target.value)}
+                    onKeyDown={handleComposerKeyDown}
+                    placeholder="向本地 agent 发送任务..."
+                    rows={2}
+                  />
+                  <div className="composer-actions">
+                    <span>{selectedAgentBusy ? "当前 agent 正在流式返回..." : "本地模式 / Electron host API / mock runtime seam"}</span>
+                    <button
+                      className={canSend ? "icon-button send-button ready" : "icon-button send-button"}
+                      disabled={!canSend}
+                      onClick={() => void handleSend()}
+                      aria-label={selectedAgentBusy ? "运行中" : "发送"}
+                      title={selectedAgentBusy ? "运行中" : "发送"}
+                    >
+                      <svg viewBox="0 0 20 20" aria-hidden="true">
+                        <path d="M3.5 10.8 15.6 4.9c.8-.4 1.5.3 1.1 1.1l-5.9 12.1c-.4.9-1.7.8-2-.1L7.2 12.6a1 1 0 0 0-.6-.6L3.6 10.3c-.9-.3-.9-1.6-.1-2Z" />
+                      </svg>
+                    </button>
+                  </div>
+                </footer>
+              </main>
+            </div>
+          </section>
         </>
       ) : (
-        <div className="workspace-frame settings-frame">
-          <main className="settings-page">
-          <section className="settings-card">
-            <div className="eyebrow">settings</div>
-            <h2>第一版设置</h2>
-            <p>当前以本地模式为主，但已经补了远程 target 的接入准备。这里会直接展示当前 gateway 和 transport 的真实诊断信息。</p>
-            <div className="runtime-actions">
-              <button onClick={() => void refreshDiagnostics()}>刷新诊断</button>
+        <>
+          <section className="sidebar-shell">
+            <header className="column-topbar sidebar-topbar">
+              <div className="topbar-copy">
+                <strong>openppx</strong>
+                <span>settings</span>
+              </div>
+            </header>
+            <section className="sidebar">
+              <div className="panel search-panel">
+                <div className="eyebrow">local machine</div>
+                <h1>openppx workbench</h1>
+                <p>本地优先的 agent 工作台。第一版只聚焦 runtime、agent 和对话主路径。</p>
+              </div>
+            </section>
+          </section>
+          <section className="workspace-shell settings-shell">
+            <header className="column-topbar workspace-topbar">
+              <div className="topbar-copy">
+                <strong>{titlebarTitle}</strong>
+                <span>{titlebarSubtitle}</span>
+              </div>
+              <div className="topbar-actions">
+                <span className="topbar-pill">settings</span>
+                <button className="topbar-menu" type="button" aria-label="更多选项">
+                  ...
+                </button>
+              </div>
+            </header>
+            <div className="workspace-frame settings-frame">
+              <main className="settings-page">
+                <section className="settings-card">
+                  <div className="eyebrow">settings</div>
+                  <h2>第一版设置</h2>
+                  <p>当前以本地模式为主，但已经补了远程 target 的接入准备。这里会直接展示当前 gateway 和 transport 的真实诊断信息。</p>
+                  <div className="runtime-actions">
+                    <button onClick={() => void refreshDiagnostics()}>刷新诊断</button>
+                  </div>
+                </section>
+                <section className="settings-card">
+                  <h3>Connection config</h3>
+                  <div className="settings-form">
+                    <label className="settings-field">
+                      <span>Target type</span>
+                      <select
+                        value={connectionForm.targetType}
+                        onChange={(event) =>
+                          setConnectionForm((current) => ({
+                            ...current,
+                            targetType: event.target.value === "remote" ? "remote" : "local",
+                          }))
+                        }
+                      >
+                        <option value="local">local</option>
+                        <option value="remote">remote</option>
+                      </select>
+                    </label>
+                    <label className="settings-field">
+                      <span>Target name</span>
+                      <input
+                        value={connectionForm.targetName}
+                        onChange={(event) => setConnectionForm((current) => ({ ...current, targetName: event.target.value }))}
+                        placeholder="This Mac"
+                      />
+                    </label>
+                    <label className="settings-field">
+                      <span>Gateway URL</span>
+                      <input
+                        value={connectionForm.clientApiBaseUrl}
+                        onChange={(event) =>
+                          setConnectionForm((current) => ({ ...current, clientApiBaseUrl: event.target.value }))
+                        }
+                        placeholder="http://127.0.0.1:8765"
+                      />
+                    </label>
+                  </div>
+                  <div className="runtime-actions">
+                    <button onClick={() => void handleConnectionSave()} disabled={savingConnection}>
+                      {savingConnection ? "保存中" : "保存并应用"}
+                    </button>
+                  </div>
+                </section>
+                <section className="settings-card">
+                  <h3>Runtime status</h3>
+                  <p>{runtime.summary}</p>
+                  <small>{runtime.detail}</small>
+                </section>
+                <section className="settings-card">
+                  <h3>Connection</h3>
+                  <dl className="diagnostics-grid">
+                    <div>
+                      <dt>Target</dt>
+                      <dd>{diagnostics ? `${diagnostics.target.name} (${diagnostics.target.type})` : "-"}</dd>
+                    </div>
+                    <div>
+                      <dt>Mode</dt>
+                      <dd>{diagnostics?.mode ?? "-"}</dd>
+                    </div>
+                    <div>
+                      <dt>Client API</dt>
+                      <dd>{diagnostics?.clientApiHealthy ? "healthy" : "offline"}</dd>
+                    </div>
+                    <div>
+                      <dt>Process</dt>
+                      <dd>{diagnostics?.clientApiProcessRunning ? "running" : "not managed"}</dd>
+                    </div>
+                    <div>
+                      <dt>Gateway control</dt>
+                      <dd>{diagnostics?.clientApiManagedByClient ? "managed by client" : "external / remote"}</dd>
+                    </div>
+                    <div>
+                      <dt>Agents</dt>
+                      <dd>{diagnostics?.agentCount ?? 0}</dd>
+                    </div>
+                  </dl>
+                </section>
+                <section className="settings-card">
+                  <h3>Paths</h3>
+                  <dl className="diagnostics-stack">
+                    <div>
+                      <dt>openppx root</dt>
+                      <dd>{diagnostics?.openppxRoot || "-"}</dd>
+                    </div>
+                    <div>
+                      <dt>Python</dt>
+                      <dd>{diagnostics?.pythonBin || "-"}</dd>
+                    </div>
+                    <div>
+                      <dt>Global config</dt>
+                      <dd>{diagnostics?.globalConfigPath || "-"}</dd>
+                    </div>
+                    <div>
+                      <dt>Bridge script</dt>
+                      <dd>{diagnostics?.bridgeScriptPath || "-"}</dd>
+                    </div>
+                  </dl>
+                </section>
+                <section className="settings-card">
+                  <h3>Diagnostics</h3>
+                  <dl className="diagnostics-grid">
+                    <div>
+                      <dt>Root exists</dt>
+                      <dd>{diagnostics?.openppxRootExists ? "yes" : "no"}</dd>
+                    </div>
+                    <div>
+                      <dt>Config exists</dt>
+                      <dd>{diagnostics?.globalConfigExists ? "yes" : "no"}</dd>
+                    </div>
+                    <div>
+                      <dt>Bridge exists</dt>
+                      <dd>{diagnostics?.bridgeScriptExists ? "yes" : "no"}</dd>
+                    </div>
+                    <div>
+                      <dt>Debug</dt>
+                      <dd>{diagnostics?.debugEnabled ? "enabled" : "off"}</dd>
+                    </div>
+                    <div>
+                      <dt>Session cache</dt>
+                      <dd>{diagnostics?.sessionCacheEntries ?? 0}</dd>
+                    </div>
+                    <div>
+                      <dt>Message cache</dt>
+                      <dd>{diagnostics?.messageCacheEntries ?? 0}</dd>
+                    </div>
+                    <div>
+                      <dt>Client API URL</dt>
+                      <dd>{diagnostics?.clientApiBaseUrl || "-"}</dd>
+                    </div>
+                  </dl>
+                </section>
+              </main>
             </div>
           </section>
-          <section className="settings-card">
-            <h3>Connection config</h3>
-            <div className="settings-form">
-              <label className="settings-field">
-                <span>Target type</span>
-                <select
-                  value={connectionForm.targetType}
-                  onChange={(event) =>
-                    setConnectionForm((current) => ({
-                      ...current,
-                      targetType: event.target.value === "remote" ? "remote" : "local",
-                    }))
-                  }
-                >
-                  <option value="local">local</option>
-                  <option value="remote">remote</option>
-                </select>
-              </label>
-              <label className="settings-field">
-                <span>Target name</span>
-                <input
-                  value={connectionForm.targetName}
-                  onChange={(event) => setConnectionForm((current) => ({ ...current, targetName: event.target.value }))}
-                  placeholder="This Mac"
-                />
-              </label>
-              <label className="settings-field">
-                <span>Gateway URL</span>
-                <input
-                  value={connectionForm.clientApiBaseUrl}
-                  onChange={(event) =>
-                    setConnectionForm((current) => ({ ...current, clientApiBaseUrl: event.target.value }))
-                  }
-                  placeholder="http://127.0.0.1:8765"
-                />
-              </label>
-            </div>
-            <div className="runtime-actions">
-              <button onClick={() => void handleConnectionSave()} disabled={savingConnection}>
-                {savingConnection ? "保存中" : "保存并应用"}
-              </button>
-            </div>
-          </section>
-          <section className="settings-card">
-            <h3>Runtime status</h3>
-            <p>{runtime.summary}</p>
-            <small>{runtime.detail}</small>
-          </section>
-          <section className="settings-card">
-            <h3>Connection</h3>
-            <dl className="diagnostics-grid">
-              <div>
-                <dt>Target</dt>
-                <dd>{diagnostics ? `${diagnostics.target.name} (${diagnostics.target.type})` : "-"}</dd>
-              </div>
-              <div>
-                <dt>Mode</dt>
-                <dd>{diagnostics?.mode ?? "-"}</dd>
-              </div>
-              <div>
-                <dt>Client API</dt>
-                <dd>{diagnostics?.clientApiHealthy ? "healthy" : "offline"}</dd>
-              </div>
-              <div>
-                <dt>Process</dt>
-                <dd>{diagnostics?.clientApiProcessRunning ? "running" : "not managed"}</dd>
-              </div>
-              <div>
-                <dt>Gateway control</dt>
-                <dd>{diagnostics?.clientApiManagedByClient ? "managed by client" : "external / remote"}</dd>
-              </div>
-              <div>
-                <dt>Agents</dt>
-                <dd>{diagnostics?.agentCount ?? 0}</dd>
-              </div>
-            </dl>
-          </section>
-          <section className="settings-card">
-            <h3>Paths</h3>
-            <dl className="diagnostics-stack">
-              <div>
-                <dt>openppx root</dt>
-                <dd>{diagnostics?.openppxRoot || "-"}</dd>
-              </div>
-              <div>
-                <dt>Python</dt>
-                <dd>{diagnostics?.pythonBin || "-"}</dd>
-              </div>
-              <div>
-                <dt>Global config</dt>
-                <dd>{diagnostics?.globalConfigPath || "-"}</dd>
-              </div>
-              <div>
-                <dt>Bridge script</dt>
-                <dd>{diagnostics?.bridgeScriptPath || "-"}</dd>
-              </div>
-            </dl>
-          </section>
-          <section className="settings-card">
-            <h3>Diagnostics</h3>
-            <dl className="diagnostics-grid">
-              <div>
-                <dt>Root exists</dt>
-                <dd>{diagnostics?.openppxRootExists ? "yes" : "no"}</dd>
-              </div>
-              <div>
-                <dt>Config exists</dt>
-                <dd>{diagnostics?.globalConfigExists ? "yes" : "no"}</dd>
-              </div>
-              <div>
-                <dt>Bridge exists</dt>
-                <dd>{diagnostics?.bridgeScriptExists ? "yes" : "no"}</dd>
-              </div>
-              <div>
-                <dt>Debug</dt>
-                <dd>{diagnostics?.debugEnabled ? "enabled" : "off"}</dd>
-              </div>
-              <div>
-                <dt>Session cache</dt>
-                <dd>{diagnostics?.sessionCacheEntries ?? 0}</dd>
-              </div>
-              <div>
-                <dt>Message cache</dt>
-                <dd>{diagnostics?.messageCacheEntries ?? 0}</dd>
-              </div>
-              <div>
-                <dt>Client API URL</dt>
-                <dd>{diagnostics?.clientApiBaseUrl || "-"}</dd>
-              </div>
-            </dl>
-          </section>
-          </main>
-        </div>
+        </>
       )}
     </div>
   );

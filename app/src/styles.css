@@ -63,46 +63,153 @@ button {
 .app-shell {
   display: grid;
   grid-template-columns: 72px 340px minmax(0, 1fr);
-  grid-template-rows: 22px minmax(0, 1fr);
   height: 100vh;
   gap: 12px;
   padding: 8px;
   overflow: hidden;
 }
 
-.window-drag-strip {
-  grid-column: 1 / -1;
-  grid-row: 1;
-  -webkit-app-region: drag;
-}
-
+.nav-shell,
+.sidebar-shell,
+.workspace-shell,
 .nav-rail,
 .sidebar,
 .workspace,
 .settings-page,
 .workspace-frame {
   min-height: 0;
-  grid-row: 2;
+}
+
+.nav-shell,
+.sidebar-shell,
+.workspace-shell {
+  display: grid;
+  grid-template-rows: 44px minmax(0, 1fr);
+  gap: 8px;
+}
+
+.nav-shell {
+  grid-column: 1;
+}
+
+.sidebar-shell {
+  grid-column: 2;
+}
+
+.workspace-shell {
+  grid-column: 3;
+}
+
+.settings-shell {
+  grid-column: 3;
+}
+
+.column-topbar {
+  -webkit-app-region: drag;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 6px 4px 10px;
+  border-radius: 0;
+  border: 0;
+  border-bottom: 1px solid rgba(229, 231, 235, 0.72);
+  background: transparent;
+  box-shadow: none;
+}
+
+.nav-topbar {
+  min-height: 44px;
+}
+
+.sidebar-topbar {
+  margin-right: 8px;
+}
+
+.workspace-topbar {
+  margin: 0 0 0 2px;
 }
 
 .workspace-frame {
   display: grid;
   align-items: stretch;
   justify-items: center;
-  padding: 2px 0 8px;
+  padding: 0 0 8px;
   background: rgba(248, 249, 250, 0.98);
   border-radius: 24px;
 }
 
 .workspace-frame.settings-frame {
-  grid-column: 2 / 4;
+  justify-items: stretch;
+}
+
+.topbar-copy {
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+}
+
+.topbar-copy strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.98rem;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  color: #111827;
+}
+
+.topbar-copy span {
+  color: var(--text-subtle);
+  font-size: 0.82rem;
+  white-space: nowrap;
+}
+
+.topbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.topbar-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 30px;
+  padding: 0 11px;
+  border-radius: 999px;
+  background: rgba(243, 244, 246, 0.96);
+  color: #4b5563;
+  font-size: 0.74rem;
+  border: 1px solid rgba(229, 231, 235, 0.96);
+}
+
+.topbar-menu {
+  -webkit-app-region: no-drag;
+  min-width: 34px;
+  height: 30px;
+  padding: 0 10px;
+  border-radius: 999px;
+  background: rgba(249, 250, 251, 0.96);
+  color: #4b5563;
+  border: 1px solid rgba(229, 231, 235, 0.96);
+  box-shadow: none;
+  font-size: 0.88rem;
+  line-height: 1;
+}
+
+.topbar-menu:hover {
+  transform: none;
+  background: rgba(243, 244, 246, 0.98);
 }
 
 .nav-rail {
   background: rgba(232, 235, 239, 0.98);
   border: 1px solid rgba(209, 213, 219, 0.72);
   border-radius: 24px;
-  padding: 60px 8px 14px;
+  padding: 8px 8px 14px;
   display: flex;
   flex-direction: column;
   gap: 12px;
@@ -131,7 +238,7 @@ button {
   flex-direction: column;
   gap: 14px;
   overflow: auto;
-  padding: 10px 8px 10px 0;
+  padding: 0 8px 10px 0;
   background: rgba(241, 243, 245, 0.96);
   border-radius: 24px;
 }
@@ -151,7 +258,6 @@ button {
 }
 
 .search-panel h1,
-.workspace-header h2,
 .settings-card h2 {
   margin: 4px 0 0;
   font-size: 1.14rem;
@@ -167,7 +273,6 @@ button {
 }
 
 .panel-header,
-.workspace-header,
 .composer-actions,
 .message-meta,
 .step-card-header {
@@ -301,27 +406,14 @@ button.small {
 .workspace {
   width: min(980px, 100%);
   border-radius: 0;
-  padding: 4px 22px 20px;
+  padding: 0 22px 20px;
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr) auto;
+  grid-template-rows: minmax(0, 1fr) auto;
   gap: 14px;
   overflow: hidden;
   background: transparent;
   border: 0;
   box-shadow: none;
-}
-
-.workspace-header {
-  align-items: flex-start;
-  gap: 8px;
-}
-
-.session-meta {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  color: var(--text-subtle);
-  font-size: 0.78rem;
 }
 
 .message-stream {
@@ -960,12 +1052,22 @@ button.small {
 
   .app-shell {
     grid-template-columns: 1fr;
-    grid-template-rows: auto;
     height: auto;
     overflow: visible;
   }
 
-  .window-drag-strip {
+  .nav-shell,
+  .sidebar-shell,
+  .workspace-shell,
+  .settings-shell {
+    grid-column: 1;
+  }
+
+  .topbar-copy {
+    align-items: center;
+  }
+
+  .topbar-copy span {
     display: none;
   }
 
@@ -986,15 +1088,10 @@ button.small {
   .workspace-frame {
     min-height: auto;
     height: auto;
-    grid-row: auto;
   }
 
   .settings-page {
     grid-template-columns: 1fr;
-  }
-
-  .workspace-frame.settings-frame {
-    grid-column: auto;
   }
 
   .diagnostics-grid {
