@@ -104,6 +104,8 @@ export function App() {
   const [savingConnection, setSavingConnection] = useState(false);
   const switchRequestIdRef = useRef(0);
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
+  const messageStreamRef = useRef<HTMLElement | null>(null);
+  const nextScrollBehaviorRef = useRef<ScrollBehavior>("auto");
 
   useEffect(() => {
     if (!window.ppxClient) {
@@ -145,6 +147,7 @@ export function App() {
         setRuntime(payload.runtime);
         setAgents(payload.agents);
         setSessions(payload.sessions);
+        nextScrollBehaviorRef.current = "auto";
         setMessages(payload.messages);
         setSelectedAgentId(payload.selectedAgentId);
         setSelectedSessionId(payload.selectedSessionId);
@@ -179,6 +182,23 @@ export function App() {
     resizeComposer(composerRef.current);
   }, [composer]);
 
+  useEffect(() => {
+    const stream = messageStreamRef.current;
+    if (!stream) {
+      return;
+    }
+    const behavior = nextScrollBehaviorRef.current;
+    nextScrollBehaviorRef.current = "smooth";
+    if (typeof stream.scrollTo === "function") {
+      stream.scrollTo({
+        top: stream.scrollHeight,
+        behavior,
+      });
+      return;
+    }
+    stream.scrollTop = stream.scrollHeight;
+  }, [messages]);
+
   const selectedAgent = useMemo(
     () => agents.find((agent) => agent.id === selectedAgentId) ?? null,
     [agents, selectedAgentId],
@@ -193,6 +213,13 @@ export function App() {
     () => (selectedSessionId ? sendingSessionIds.includes(selectedSessionId) : false),
     [selectedSessionId, sendingSessionIds],
   );
+  const selectedAgentBusy = useMemo(
+    () =>
+      Boolean(selectedAgentId) &&
+      sessions.some((session) => session.agentId === selectedAgentId && sendingSessionIds.includes(session.id)),
+    [selectedAgentId, sendingSessionIds, sessions],
+  );
+  const canSend = Boolean(composer.trim()) && !selectedAgentBusy;
 
   async function switchAgent(agentId: string): Promise<void> {
     const requestId = ++switchRequestIdRef.current;
@@ -212,6 +239,7 @@ export function App() {
       if (requestId !== switchRequestIdRef.current) {
         return;
       }
+      nextScrollBehaviorRef.current = "auto";
       setMessages(loaded.messages);
       return;
     }
@@ -226,6 +254,7 @@ export function App() {
     if (requestId !== switchRequestIdRef.current) {
       return;
     }
+    nextScrollBehaviorRef.current = "auto";
     setMessages(loaded.messages);
   }
 
@@ -317,7 +346,7 @@ export function App() {
       return;
     }
     event.preventDefault();
-    if (currentSessionSending || !composer.trim()) {
+    if (selectedAgentBusy || !composer.trim()) {
       return;
     }
     void handleSend();
@@ -340,6 +369,7 @@ export function App() {
 
   return (
     <div className="app-shell">
+      <div className="window-drag-strip" aria-hidden="true" />
       <aside className="nav-rail">
         <button className={view === "chat" ? "nav-item active" : "nav-item"} onClick={() => setView("chat")}>
           对话
@@ -422,7 +452,8 @@ export function App() {
             </div>
           </section>
 
-          <main className="workspace">
+          <div className="workspace-frame">
+            <main className="workspace">
             <header className="workspace-header">
               <div>
                 <div className="eyebrow">{selectedAgent?.description ?? "Select an agent"}</div>
@@ -434,7 +465,7 @@ export function App() {
               </div>
             </header>
 
-            <section className="message-stream">
+            <section ref={messageStreamRef} className="message-stream">
               {messages.length === 0 ? (
                 <div className="empty-state">
                   <h3>{selectedAgent?.name ?? "Agent"} is ready</h3>
@@ -452,7 +483,14 @@ export function App() {
                   </div>
                 </div>
               ) : (
-                messages.map((message) => <MessageBubble key={message.id} message={message} />)
+                messages.map((message, index) => {
+                  const previousMessage = index > 0 ? messages[index - 1] : null;
+                  const showIdentity = !(
+                    message.role === "assistant" &&
+                    previousMessage?.role === "assistant"
+                  );
+                  return <MessageBubble key={message.id} message={message} showIdentity={showIdentity} />;
+                })
               )}
             </section>
 
@@ -466,16 +504,26 @@ export function App() {
                 rows={2}
               />
               <div className="composer-actions">
-                <span>{currentSessionSending ? "当前会话正在流式返回..." : "本地模式 / Electron host API / mock runtime seam"}</span>
-                <button disabled={currentSessionSending || !composer.trim()} onClick={() => void handleSend()}>
-                  {currentSessionSending ? "运行中" : "发送"}
+                <span>{selectedAgentBusy ? "当前 agent 正在流式返回..." : "本地模式 / Electron host API / mock runtime seam"}</span>
+                <button
+                  className={canSend ? "icon-button send-button ready" : "icon-button send-button"}
+                  disabled={!canSend}
+                  onClick={() => void handleSend()}
+                  aria-label={selectedAgentBusy ? "运行中" : "发送"}
+                  title={selectedAgentBusy ? "运行中" : "发送"}
+                >
+                  <svg viewBox="0 0 20 20" aria-hidden="true">
+                    <path d="M3.5 10.8 15.6 4.9c.8-.4 1.5.3 1.1 1.1l-5.9 12.1c-.4.9-1.7.8-2-.1L7.2 12.6a1 1 0 0 0-.6-.6L3.6 10.3c-.9-.3-.9-1.6-.1-2Z" />
+                  </svg>
                 </button>
               </div>
             </footer>
-          </main>
+            </main>
+          </div>
         </>
       ) : (
-        <main className="settings-page">
+        <div className="workspace-frame settings-frame">
+          <main className="settings-page">
           <section className="settings-card">
             <div className="eyebrow">settings</div>
             <h2>第一版设置</h2>
@@ -615,7 +663,8 @@ export function App() {
               </div>
             </dl>
           </section>
-        </main>
+          </main>
+        </div>
       )}
     </div>
   );

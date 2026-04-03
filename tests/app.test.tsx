@@ -105,7 +105,38 @@ function installClient(overrides: Partial<PpxClientApi> = {}): { client: PpxClie
 }
 
 describe("App sending state", () => {
-  it("only marks the active session as running", async () => {
+  it("jumps to the latest reply when loading a session", async () => {
+    const scrollTo = vi.fn();
+    Object.defineProperty(HTMLElement.prototype, "scrollTo", {
+      configurable: true,
+      value: scrollTo,
+    });
+
+    installClient({
+      loadSession: async () => ({
+        messages: [
+          {
+            id: "message-b",
+            sessionId: "session-b",
+            role: "assistant",
+            status: "completed",
+            createdAt: "2026-04-02T10:00:02.000Z",
+            parts: [{ type: "markdown", text: "Loaded Session B" }],
+          },
+        ],
+      }),
+    });
+
+    render(<App />);
+
+    await screen.findByText("Loaded Session A");
+    fireEvent.click(screen.getByRole("button", { name: /Session B/ }));
+    await screen.findByText("Loaded Session B");
+
+    expect(scrollTo).toHaveBeenCalledWith(expect.objectContaining({ behavior: "auto" }));
+  });
+
+  it("keeps send disabled while the current agent still has a running reply", async () => {
     installClient();
 
     render(<App />);
@@ -125,7 +156,7 @@ describe("App sending state", () => {
     });
 
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: "发送" })).toBeEnabled();
+      expect(screen.getByRole("button", { name: "运行中" })).toBeDisabled();
     });
   });
 
@@ -188,6 +219,57 @@ describe("App sending state", () => {
     fireEvent.keyDown(composer, { key: "Enter", code: "Enter", charCode: 13, shiftKey: true });
 
     expect(sendMessage).toHaveBeenCalledTimes(1);
+  });
+
+  it("renders an icon send button that activates when composer has text", async () => {
+    installClient();
+
+    render(<App />);
+
+    await screen.findByText("openppx workbench");
+
+    const sendButton = screen.getByRole("button", { name: "发送" });
+    expect(sendButton).toBeDisabled();
+
+    fireEvent.change(screen.getByPlaceholderText("向本地 agent 发送任务..."), {
+      target: { value: "hello world" },
+    });
+
+    await waitFor(() => {
+      expect(sendButton).toBeEnabled();
+      expect(sendButton.className).toContain("ready");
+    });
+  });
+
+  it("shows assistant identity only once across consecutive assistant replies", async () => {
+    installClient({
+      bootstrap: async () => ({
+        ...buildBootstrapPayload(),
+        messages: [
+          {
+            id: "message-a",
+            sessionId: "session-a",
+            role: "assistant",
+            status: "completed",
+            createdAt: "2026-04-02T10:00:01.000Z",
+            parts: [{ type: "markdown", text: "First chunk" }],
+          },
+          {
+            id: "message-b",
+            sessionId: "session-a",
+            role: "assistant",
+            status: "streaming",
+            createdAt: "2026-04-02T10:00:02.000Z",
+            parts: [{ type: "step_ref", stepId: "step-1", title: "exec", status: "running", detail: "command: pwd" }],
+          },
+        ],
+      }),
+    });
+
+    render(<App />);
+
+    await screen.findByText("First chunk");
+    expect(screen.getAllByText("Agent")).toHaveLength(1);
   });
 
   it("clears previous messages immediately when switching sessions", async () => {

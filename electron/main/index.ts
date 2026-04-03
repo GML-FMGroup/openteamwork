@@ -37,6 +37,7 @@ function createWindow(): void {
   const preloadPath = process.env.VITE_DEV_SERVER_URL
     ? path.resolve(process.cwd(), "electron/preload/index.cjs")
     : path.join(__dirname, "../preload/index.cjs");
+  const isMac = process.platform === "darwin";
 
   mainWindow = new BrowserWindow({
     width: 1440,
@@ -45,6 +46,8 @@ function createWindow(): void {
     minHeight: 760,
     backgroundColor: "#f4efe5",
     title: "ppx-client",
+    titleBarStyle: isMac ? "hiddenInset" : "default",
+    trafficLightPosition: isMac ? { x: 22, y: 22 } : undefined,
     webPreferences: {
       preload: preloadPath,
       contextIsolation: true,

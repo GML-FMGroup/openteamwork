@@ -13,6 +13,22 @@ function asRecordList(value: unknown): Array<Record<string, unknown>> {
   return Array.isArray(value) ? value.map((item) => asRecord(item)).filter((item): item is Record<string, unknown> => item !== null) : [];
 }
 
+function stripRequestTimePrefix(text: string): string {
+  const stripped = text.trim();
+  if (!stripped.startsWith("Current request time: ")) {
+    return text;
+  }
+  const lines = stripped.split(/\r?\n/);
+  if (lines.length < 2 || !lines[1]?.includes("Use this as the reference 'now' for relative time expressions")) {
+    return text;
+  }
+  const bodyLines = lines.slice(2);
+  while (bodyLines.length && !bodyLines[0]?.trim()) {
+    bodyLines.shift();
+  }
+  return bodyLines.join("\n").trim();
+}
+
 function stringifyDetail(value: unknown): string {
   if (typeof value === "string") {
     return value.trim() || "(empty)";
@@ -102,7 +118,10 @@ export function buildMessagePartsFromSessionEvent(event: Record<string, unknown>
 
   for (const part of parts) {
     if (typeof part.text === "string" && part.text.trim()) {
-      messageParts.push({ type: "markdown", text: part.text });
+      const normalizedText = stripRequestTimePrefix(part.text);
+      if (normalizedText.trim()) {
+        messageParts.push({ type: "markdown", text: normalizedText });
+      }
     }
 
     const functionCall = asRecord(part.function_call);

@@ -98,4 +98,21 @@ describe("openppx local adapter projections", () => {
       status: "completed",
     });
   });
+
+  it("strips request-time guidance from reloaded user history", () => {
+    const parts = buildMessagePartsFromSessionEvent({
+      content: {
+        parts: [
+          {
+            text:
+              "Current request time: 2026-04-03T12:32:17+08:00 (CST)\n" +
+              "Use this as the reference 'now' for relative time expressions in this message.\n\n" +
+              "今天日期给我一下",
+          },
+        ],
+      },
+    });
+
+    expect(parts).toEqual([{ type: "markdown", text: "今天日期给我一下" }]);
+  });
 });

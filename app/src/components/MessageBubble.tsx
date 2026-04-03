@@ -126,7 +126,7 @@ function renderPart(part: MessagePart) {
             <strong>{part.toolName}</strong>
             <span>Tool result</span>
           </div>
-          <span className="asset-badge">completed</span>
+          <span className="asset-badge">完成</span>
         </div>
         <p>{part.summary}</p>
         {part.detail ? <small>{part.detail}</small> : null}
@@ -167,19 +167,22 @@ function renderPart(part: MessagePart) {
   );
 }
 
-export function MessageBubble({ message }: { message: ChatMessage }) {
+export function MessageBubble({ message, showIdentity = true }: { message: ChatMessage; showIdentity?: boolean }) {
   const statusLabel = messageStatusLabel(message.status);
+  const isAssistant = message.role === "assistant";
   return (
-    <article className={`message-bubble ${message.role} ${message.status}`}>
-      <div className="message-meta">
-        <span>{roleLabel(message.role)}</span>
-        <span>{new Date(message.createdAt).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })}</span>
-      </div>
+    <article className={`message-bubble ${message.role} ${message.status} ${isAssistant ? "agent-thread" : ""}`}>
+      {showIdentity ? (
+        <div className={`message-meta ${isAssistant ? "agent-meta" : ""}`}>
+          <span className={isAssistant ? "agent-name" : ""}>{roleLabel(message.role)}</span>
+          <span>{new Date(message.createdAt).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })}</span>
+        </div>
+      ) : null}
       <div className="message-body">
         {message.parts.map((part, index) => (
           <div key={`${message.id}-${index}`}>{renderPart(part)}</div>
         ))}
-        {message.status === "streaming" ? <div className="streaming-indicator">Agent 正在整理结果...</div> : null}
+        {message.status === "streaming" ? <div className="streaming-indicator">正在整理结果...</div> : null}
         {statusLabel ? <div className={`message-status-banner ${message.status}`}>{statusLabel}</div> : null}
       </div>
     </article>

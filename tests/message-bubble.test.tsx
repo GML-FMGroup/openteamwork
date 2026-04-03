@@ -26,12 +26,19 @@ describe("MessageBubble", () => {
   it("renders localized role, step status, and streaming hint", () => {
     const { container } = render(<MessageBubble message={buildMessage()} />);
 
-    expect(screen.getByText("Agent")).toBeInTheDocument();
+    expect(screen.getAllByText("Agent")).toHaveLength(1);
     expect(screen.getByText("执行中")).toBeInTheDocument();
-    expect(screen.getByText("Agent 正在整理结果...")).toBeInTheDocument();
+    expect(screen.getByText("正在整理结果...")).toBeInTheDocument();
     const detailBlock = container.querySelector(".step-card-detail");
     expect(detailBlock?.textContent).toContain("path: README.md");
     expect(detailBlock?.textContent).toContain("line: 12");
+  });
+
+  it("can hide repeated assistant identity for continued replies", () => {
+    render(<MessageBubble message={buildMessage()} showIdentity={false} />);
+
+    expect(screen.queryByText("Agent")).not.toBeInTheDocument();
+    expect(screen.getByText("执行中")).toBeInTheDocument();
   });
 
   it("renders tool result and attachment cards", () => {
@@ -90,7 +97,7 @@ describe("MessageBubble", () => {
     );
 
     expect(screen.getByText("完成")).toBeInTheDocument();
-    expect(screen.queryByText("Agent 正在整理结果...")).not.toBeInTheDocument();
+    expect(screen.queryByText("正在整理结果...")).not.toBeInTheDocument();
   });
 
   it("renders exec detail as one continuous block", () => {
