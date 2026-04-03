@@ -63,7 +63,7 @@ button {
 .app-shell {
   display: grid;
   grid-template-columns: 72px 340px minmax(0, 1fr);
-  grid-template-rows: 34px minmax(0, 1fr);
+  grid-template-rows: 22px minmax(0, 1fr);
   height: 100vh;
   gap: 12px;
   padding: 8px;
@@ -73,7 +73,6 @@ button {
 .window-drag-strip {
   grid-column: 1 / -1;
   grid-row: 1;
-  border-radius: 16px 16px 0 0;
   -webkit-app-region: drag;
 }
 
@@ -90,7 +89,7 @@ button {
   display: grid;
   align-items: stretch;
   justify-items: center;
-  padding: 10px 0;
+  padding: 2px 0 8px;
   background: rgba(248, 249, 250, 0.98);
   border-radius: 24px;
 }
@@ -135,11 +134,6 @@ button {
   padding: 10px 8px 10px 0;
   background: rgba(241, 243, 245, 0.96);
   border-radius: 24px;
-}
-
-.nav-rail,
-.sidebar {
-  grid-row: 2;
 }
 
 .panel,
@@ -307,14 +301,19 @@ button.small {
 .workspace {
   width: min(980px, 100%);
   border-radius: 0;
-  padding: 20px 22px;
+  padding: 4px 22px 20px;
   display: grid;
   grid-template-rows: auto minmax(0, 1fr) auto;
-  gap: 16px;
+  gap: 14px;
   overflow: hidden;
   background: transparent;
   border: 0;
   box-shadow: none;
+}
+
+.workspace-header {
+  align-items: flex-start;
+  gap: 8px;
 }
 
 .session-meta {

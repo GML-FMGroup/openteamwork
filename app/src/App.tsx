@@ -455,10 +455,7 @@ export function App() {
           <div className="workspace-frame">
             <main className="workspace">
               <header className="workspace-header">
-                <div>
-                  <div className="eyebrow">{selectedAgent?.description ?? "Select an agent"}</div>
-                  <h2>{selectedAgent?.name ?? "No agent selected"}</h2>
-                </div>
+                <h2>{selectedAgent?.name ?? "No agent selected"}</h2>
                 <div className="session-meta">
                   <span>{selectedSession?.title ?? "No session"}</span>
                   <span className={`runtime-chip ${runtime.state}`}>{runtime.state}</span>
