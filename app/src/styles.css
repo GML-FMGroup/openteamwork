@@ -887,6 +887,10 @@ button.small {
   font-size: 0.76rem;
 }
 
+.composer-error {
+  color: var(--danger);
+}
+
 .icon-button {
   display: inline-flex;
   align-items: center;

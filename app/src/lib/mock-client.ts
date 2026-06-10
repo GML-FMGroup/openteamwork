@@ -25,6 +25,25 @@ type EventSink = (event: RunEvent) => void;
 
 const now = () => new Date().toISOString();
 
+function compactSessionTitle(text: string): string {
+  const normalized = text.replace(/\s+/g, " ").trim();
+  if (normalized.length <= 64) {
+    return normalized;
+  }
+  return `${normalized.slice(0, 61).trimEnd()}...`;
+}
+
+function isGenericSessionTitle(title: string): boolean {
+  const normalized = title.trim();
+  return (
+    !normalized ||
+    normalized === "New local session" ||
+    normalized === "New chat" ||
+    normalized === "新对话" ||
+    normalized.startsWith("Session ")
+  );
+}
+
 const firstAgentId = "builder";
 const firstSessionId = "builder-session-1";
 
@@ -228,9 +247,9 @@ export async function createSession(agentId: string): Promise<{ session: Session
   const session: SessionSummary = {
     id: `${agentId}-${crypto.randomUUID()}`,
     agentId,
-    title: "New local session",
+    title: "新对话",
     updatedAt: now(),
-    lastMessagePreview: "Start a task for this agent.",
+    lastMessagePreview: "",
   };
   state.sessionsByAgent[agentId] = [session, ...(state.sessionsByAgent[agentId] ?? [])];
   state.messagesBySession[session.id] = [];
@@ -290,6 +309,9 @@ export async function sendMessage(input: SendMessageInput): Promise<{ runId: str
   const session = sessionList.find((item) => item.id === input.sessionId);
   if (session) {
     session.updatedAt = now();
+    if (isGenericSessionTitle(session.title)) {
+      session.title = compactSessionTitle(input.text);
+    }
     session.lastMessagePreview = input.text.trim() || "Empty message";
   }
   state.messagesBySession[input.sessionId] = [...getMessages(input.sessionId), userMessage];

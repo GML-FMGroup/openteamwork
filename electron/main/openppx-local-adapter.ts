@@ -96,12 +96,24 @@ function detectOpenPpxRoot(): string {
   return path.resolve(process.cwd(), "../openppx_root");
 }
 
+function dataRootPath(): string {
+  const configured = process.env.OPENPPX_DATA_DIR?.trim() || process.env.OPENPIPIXIA_DATA_DIR?.trim();
+  if (configured) {
+    return path.resolve(configured);
+  }
+  const openppxDataRoot = path.join(os.homedir(), ".openppx");
+  if (fs.existsSync(openppxDataRoot)) {
+    return openppxDataRoot;
+  }
+  return path.join(os.homedir(), ".openpipixia");
+}
+
 function globalConfigPath(): string {
-  return path.join(os.homedir(), ".openpipixia", "global_config.json");
+  return path.join(dataRootPath(), "global_config.json");
 }
 
 function agentConfigPath(agentId: string): string {
-  return path.join(os.homedir(), ".openpipixia", agentId, "config.json");
+  return path.join(dataRootPath(), agentId, "config.json");
 }
 
 function resolvePythonBin(openppxRoot: string): string {
@@ -377,7 +389,7 @@ export class OpenPpxLocalAdapter implements PpxClientApi {
       });
       this.clientApiProcess = spawn(
         this.pythonBin,
-        ["-m", "openpipixia.app.cli", "client-api", "serve", "--host", this.clientApiHost, "--port", String(this.clientApiPort)],
+        ["-m", "openppx.cli", "client-api", "serve", "--host", this.clientApiHost, "--port", String(this.clientApiPort)],
         {
           cwd: this.openppxRoot,
           stdio: ["ignore", "pipe", "pipe"],
@@ -548,7 +560,7 @@ export class OpenPpxLocalAdapter implements PpxClientApi {
         target: this.target,
         state: "starting",
         summary: "openppx config is not initialized yet.",
-        detail: "Run the openppx setup first so ~/.openpipixia/global_config.json exists.",
+        detail: "Run the openppx setup first so ~/.openppx/global_config.json exists.",
       };
     }
     return {

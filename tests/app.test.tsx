@@ -16,14 +16,14 @@ function buildBootstrapPayload(): BootstrapPayload {
       agentId: "agent-1",
       title: "Session A",
       updatedAt: "2026-04-02T10:00:00.000Z",
-      lastMessagePreview: "A",
+      lastMessagePreview: "Preview A should stay hidden",
     },
     {
       id: "session-b",
       agentId: "agent-1",
       title: "Session B",
       updatedAt: "2026-04-02T09:00:00.000Z",
-      lastMessagePreview: "B",
+      lastMessagePreview: "Preview B should stay hidden",
     },
   ];
   return {
@@ -61,7 +61,7 @@ function buildDiagnostics(): ClientDiagnostics {
     openppxRoot: "/tmp/openppx_root",
     openppxRootExists: true,
     pythonBin: "/tmp/openppx_root/.venv/bin/python",
-    globalConfigPath: "/tmp/.openpipixia/global_config.json",
+    globalConfigPath: "/tmp/.openppx/global_config.json",
     globalConfigExists: true,
     clientApiBaseUrl: "http://127.0.0.1:8765",
     clientApiManagedByClient: true,
@@ -221,6 +221,114 @@ describe("App sending state", () => {
     expect(sendMessage).toHaveBeenCalledTimes(1);
   });
 
+  it("creates a session on startup when the selected agent has none", async () => {
+    const createdSession: SessionSummary = {
+      id: "session-created",
+      agentId: "agent-1",
+      title: "New local session",
+      updatedAt: "2026-04-02T10:01:00.000Z",
+      lastMessagePreview: "Start a task",
+    };
+    const createSession = vi.fn(async () => ({ session: createdSession }));
+    const sendMessage = vi.fn(async () => ({ runId: "run-1" }));
+    installClient({
+      bootstrap: async () => ({
+        ...buildBootstrapPayload(),
+        sessions: [],
+        messages: [],
+        selectedSessionId: "",
+      }),
+      createSession,
+      sendMessage,
+    });
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(screen.getAllByText("New local session").length).toBeGreaterThan(0);
+    });
+
+    expect(createSession).toHaveBeenCalledWith("agent-1");
+
+    fireEvent.change(screen.getByPlaceholderText("向本地 agent 发送任务..."), {
+      target: { value: "first task" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "发送" }));
+
+    await waitFor(() => {
+      expect(sendMessage).toHaveBeenCalledWith({
+        agentId: "agent-1",
+        sessionId: "session-created",
+        text: "first task",
+      });
+    });
+  });
+
+  it("creates a session before sending if the active session was not selected yet", async () => {
+    const createdSession: SessionSummary = {
+      id: "session-on-send",
+      agentId: "agent-1",
+      title: "New local session",
+      updatedAt: "2026-04-02T10:01:00.000Z",
+      lastMessagePreview: "Start a task",
+    };
+    const createSession = vi.fn(async () => ({ session: createdSession }));
+    const sendMessage = vi.fn(async () => ({ runId: "run-1" }));
+    installClient({
+      bootstrap: async () => ({
+        ...buildBootstrapPayload(),
+        sessions: [],
+        messages: [],
+        selectedSessionId: "stale-session",
+      }),
+      listSessions: async () => ({ sessions: [] }),
+      createSession,
+      sendMessage,
+    });
+
+    render(<App />);
+
+    await screen.findByText("Agent 1 is ready");
+
+    fireEvent.change(screen.getByPlaceholderText("向本地 agent 发送任务..."), {
+      target: { value: "recover session" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "发送" }));
+
+    await waitFor(() => {
+      expect(createSession).toHaveBeenCalledWith("agent-1");
+      expect(sendMessage).toHaveBeenCalledWith({
+        agentId: "agent-1",
+        sessionId: "session-on-send",
+        text: "recover session",
+      });
+    });
+  });
+
+  it("shows a send error instead of failing silently", async () => {
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    try {
+      installClient({
+        sendMessage: async () => {
+          throw new Error("gateway refused the run");
+        },
+      });
+
+      render(<App />);
+
+      await screen.findByText("openppx workbench");
+
+      fireEvent.change(screen.getByPlaceholderText("向本地 agent 发送任务..."), {
+        target: { value: "will fail" },
+      });
+      fireEvent.click(screen.getByRole("button", { name: "发送" }));
+
+      await screen.findByText("gateway refused the run");
+    } finally {
+      consoleError.mockRestore();
+    }
+  });
+
   it("renders an icon send button that activates when composer has text", async () => {
     installClient();
 
@@ -238,6 +346,60 @@ describe("App sending state", () => {
     await waitFor(() => {
       expect(sendButton).toBeEnabled();
       expect(sendButton.className).toContain("ready");
+    });
+  });
+
+  it("does not render session preview subtitles in the session list", async () => {
+    installClient();
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(screen.getAllByText("Session A").length).toBeGreaterThan(0);
+    });
+
+    expect(screen.queryByText("Preview A should stay hidden")).not.toBeInTheDocument();
+    expect(screen.queryByText("Preview B should stay hidden")).not.toBeInTheDocument();
+  });
+
+  it("uses the first user message as the visible session title", async () => {
+    const createdSession: SessionSummary = {
+      id: "session-created",
+      agentId: "agent-1",
+      title: "新对话",
+      updatedAt: "2026-04-02T10:01:00.000Z",
+      lastMessagePreview: "",
+    };
+    const sendMessage = vi.fn(async () => ({ runId: "run-1" }));
+    installClient({
+      bootstrap: async () => ({
+        ...buildBootstrapPayload(),
+        sessions: [],
+        messages: [],
+        selectedSessionId: "",
+      }),
+      createSession: async () => ({ session: createdSession }),
+      sendMessage,
+    });
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(screen.getAllByText("新对话").length).toBeGreaterThan(0);
+    });
+
+    fireEvent.change(screen.getByPlaceholderText("向本地 agent 发送任务..."), {
+      target: { value: "帮我查一下深圳到青岛的火车和费用" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "发送" }));
+
+    await waitFor(() => {
+      expect(screen.getAllByText("帮我查一下深圳到青岛的火车和费用").length).toBeGreaterThan(0);
+    });
+    expect(sendMessage).toHaveBeenCalledWith({
+      agentId: "agent-1",
+      sessionId: "session-created",
+      text: "帮我查一下深圳到青岛的火车和费用",
     });
   });
 

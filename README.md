@@ -37,7 +37,7 @@ Renderer (React)
 
 如果你要跑真实本地模式，通常还需要：
 
-- `~/.openpipixia/global_config.json`
+- `~/.openppx/global_config.json`
 - 至少一个 enabled agent
 - `openppx_root/.venv`
 
@@ -214,7 +214,7 @@ pnpm dev
 
 - `OPENPPX_ROOT` 是否正确
 - `openppx_root/.venv` 是否存在
-- `~/.openpipixia/global_config.json` 是否存在
+- `~/.openppx/global_config.json` 是否存在
 - 是否至少有一个 enabled agent
 
 ### 4. 本地模式下发送消息失败

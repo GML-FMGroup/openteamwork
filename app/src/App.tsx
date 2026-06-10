@@ -29,6 +29,35 @@ function removeSendingSession(current: string[], sessionId: string): string[] {
   return current.filter((item) => item !== sessionId);
 }
 
+function compactSessionTitle(text: string): string {
+  const normalized = text.replace(/\s+/g, " ").trim();
+  if (normalized.length <= 64) {
+    return normalized;
+  }
+  return `${normalized.slice(0, 61).trimEnd()}...`;
+}
+
+function isGenericSessionTitle(title: string): boolean {
+  const normalized = title.trim();
+  return (
+    !normalized ||
+    normalized === "New local session" ||
+    normalized === "New chat" ||
+    normalized === "新对话" ||
+    normalized.startsWith("Session ")
+  );
+}
+
+function mergeSessionSummary(existing: SessionSummary | undefined, incoming: SessionSummary): SessionSummary {
+  if (!existing) {
+    return incoming;
+  }
+  if (isGenericSessionTitle(incoming.title) && !isGenericSessionTitle(existing.title)) {
+    return { ...incoming, title: existing.title };
+  }
+  return incoming;
+}
+
 function runtimeActionLabel(state: RuntimeState): string {
   if (state === "stopped") {
     return "启动";
@@ -99,6 +128,7 @@ export function App() {
   const [selectedAgentId, setSelectedAgentId] = useState("");
   const [selectedSessionId, setSelectedSessionId] = useState("");
   const [composer, setComposer] = useState("");
+  const [sendError, setSendError] = useState<string | null>(null);
   const [sendingSessionIds, setSendingSessionIds] = useState<string[]>([]);
   const [connectionForm, setConnectionForm] = useState<ConnectionSettings>(buildConnectionSettings(null));
   const [savingConnection, setSavingConnection] = useState(false);
@@ -129,9 +159,13 @@ export function App() {
         }
       } else if (event.type === "session.updated") {
         setSessions((current) =>
-          [event.session, ...current.filter((item) => item.id !== event.session.id)].sort((left, right) =>
-            right.updatedAt.localeCompare(left.updatedAt),
-          ),
+          [
+            mergeSessionSummary(
+              current.find((item) => item.id === event.session.id),
+              event.session,
+            ),
+            ...current.filter((item) => item.id !== event.session.id),
+          ].sort((left, right) => right.updatedAt.localeCompare(left.updatedAt)),
         );
       } else if (event.type === "run.finished") {
         setSendingSessionIds((current) => removeSendingSession(current, event.sessionId));
@@ -140,17 +174,29 @@ export function App() {
 
     window.ppxClient
       .bootstrap()
-      .then((payload: BootstrapPayload) => {
+      .then(async (payload: BootstrapPayload) => {
+        if (!mounted) {
+          return;
+        }
+        let nextSessions = payload.sessions;
+        let nextSelectedSessionId = payload.selectedSessionId;
+        let nextMessages = payload.messages;
+        if (payload.selectedAgentId && !nextSelectedSessionId) {
+          const created = await window.ppxClient.createSession(payload.selectedAgentId);
+          nextSessions = [created.session, ...nextSessions.filter((session) => session.id !== created.session.id)];
+          nextSelectedSessionId = created.session.id;
+          nextMessages = [];
+        }
         if (!mounted) {
           return;
         }
         setRuntime(payload.runtime);
         setAgents(payload.agents);
-        setSessions(payload.sessions);
+        setSessions(nextSessions);
         nextScrollBehaviorRef.current = "auto";
-        setMessages(payload.messages);
+        setMessages(nextMessages);
         setSelectedAgentId(payload.selectedAgentId);
-        setSelectedSessionId(payload.selectedSessionId);
+        setSelectedSessionId(nextSelectedSessionId);
         setReady(true);
         setBootstrapError(null);
         void window.ppxClient
@@ -216,16 +262,18 @@ export function App() {
   const selectedAgentBusy = useMemo(
     () =>
       Boolean(selectedAgentId) &&
-      sessions.some((session) => session.agentId === selectedAgentId && sendingSessionIds.includes(session.id)),
-    [selectedAgentId, sendingSessionIds, sessions],
+      ((selectedSessionId && sendingSessionIds.includes(selectedSessionId)) ||
+        sessions.some((session) => session.agentId === selectedAgentId && sendingSessionIds.includes(session.id))),
+    [selectedAgentId, selectedSessionId, sendingSessionIds, sessions],
   );
-  const canSend = Boolean(composer.trim()) && !selectedAgentBusy;
+  const canSend = Boolean(composer.trim()) && Boolean(selectedAgentId) && !selectedAgentBusy;
   const titlebarTitle =
     view === "chat" ? selectedSession?.title ?? selectedAgent?.name ?? "No session" : "Settings";
   const titlebarSubtitle = view === "chat" ? selectedAgent?.name ?? "No agent selected" : "ppx-client";
 
   async function switchAgent(agentId: string): Promise<void> {
     const requestId = ++switchRequestIdRef.current;
+    setSendError(null);
     setSelectedAgentId(agentId);
     setSelectedSessionId("");
     setSessions([]);
@@ -246,10 +294,18 @@ export function App() {
       setMessages(loaded.messages);
       return;
     }
+    const created = await window.ppxClient.createSession(agentId);
+    if (requestId !== switchRequestIdRef.current) {
+      return;
+    }
+    setSessions([created.session]);
+    setSelectedSessionId(created.session.id);
+    setMessages([]);
   }
 
   async function switchSession(session: SessionSummary): Promise<void> {
     const requestId = ++switchRequestIdRef.current;
+    setSendError(null);
     setSelectedAgentId(session.agentId);
     setSelectedSessionId(session.id);
     setMessages([]);
@@ -308,18 +364,69 @@ export function App() {
     if (!selectedAgentId) {
       return;
     }
+    setSendError(null);
     const created = await window.ppxClient.createSession(selectedAgentId);
     setSessions((current) => [created.session, ...current.filter((item) => item.id !== created.session.id)]);
     setSelectedSessionId(created.session.id);
     setMessages([]);
   }
 
-  async function handleSend(): Promise<void> {
-    const text = composer.trim();
-    if (!text || !selectedAgentId || !selectedSessionId) {
+  async function ensureActiveSession(agentId: string, preferredSessionId: string): Promise<SessionSummary> {
+    const existing = sessions.find((session) => session.id === preferredSessionId && session.agentId === agentId);
+    if (existing) {
+      return existing;
+    }
+    const listed = await window.ppxClient.listSessions(agentId);
+    const firstSession = listed.sessions[0];
+    if (firstSession) {
+      setSessions(listed.sessions);
+      setSelectedSessionId(firstSession.id);
+      if (firstSession.id !== preferredSessionId) {
+        const loaded = await window.ppxClient.loadSession(firstSession.id);
+        nextScrollBehaviorRef.current = "auto";
+        setMessages(loaded.messages);
+      }
+      return firstSession;
+    }
+    const created = await window.ppxClient.createSession(agentId);
+    setSessions((current) => [created.session, ...current.filter((item) => item.id !== created.session.id)]);
+    setSelectedSessionId(created.session.id);
+    setMessages([]);
+    return created.session;
+  }
+
+  function applyFirstUserTitle(sessionId: string, text: string, timestamp: string): void {
+    const title = compactSessionTitle(text);
+    if (!title) {
       return;
     }
-    const sessionId = selectedSessionId;
+    setSessions((current) =>
+      current.map((session) =>
+        session.id === sessionId && isGenericSessionTitle(session.title)
+          ? {
+              ...session,
+              title,
+              updatedAt: timestamp,
+            }
+          : session,
+      ),
+    );
+  }
+
+  async function handleSend(): Promise<void> {
+    const text = composer.trim();
+    if (!text || !selectedAgentId) {
+      return;
+    }
+    setSendError(null);
+    let session: SessionSummary;
+    try {
+      session = await ensureActiveSession(selectedAgentId, selectedSessionId);
+    } catch (error) {
+      setSendError(error instanceof Error ? error.message : String(error));
+      return;
+    }
+    const sessionId = session.id;
     setSendingSessionIds((current) => (current.includes(sessionId) ? current : [...current, sessionId]));
     setComposer("");
     const optimisticMessage: ChatMessage = {
@@ -330,6 +437,7 @@ export function App() {
       createdAt: new Date().toISOString(),
       parts: [{ type: "markdown", text }],
     };
+    applyFirstUserTitle(sessionId, text, optimisticMessage.createdAt);
     setMessages((current) => [...current, optimisticMessage]);
     try {
       await window.ppxClient.sendMessage({
@@ -339,6 +447,7 @@ export function App() {
       });
     } catch (error) {
       console.error("Failed to send message", error);
+      setSendError(error instanceof Error ? error.message : String(error));
     } finally {
       setSendingSessionIds((current) => current.filter((item) => item !== sessionId));
     }
@@ -455,7 +564,6 @@ export function App() {
                     >
                       <div>
                         <strong>{session.title}</strong>
-                        <p>{session.lastMessagePreview}</p>
                       </div>
                       <time>{new Date(session.updatedAt).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })}</time>
                     </button>
@@ -516,7 +624,9 @@ export function App() {
                     rows={2}
                   />
                   <div className="composer-actions">
-                    <span>{selectedAgentBusy ? "当前 agent 正在流式返回..." : "本地模式 / Electron host API / mock runtime seam"}</span>
+                    <span className={sendError ? "composer-error" : undefined}>
+                      {sendError ?? (selectedAgentBusy ? "当前 agent 正在流式返回..." : "本地模式 / Electron host API / mock runtime seam")}
+                    </span>
                     <button
                       className={canSend ? "icon-button send-button ready" : "icon-button send-button"}
                       disabled={!canSend}
