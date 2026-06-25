@@ -6,6 +6,7 @@ import { setTimeout as delay } from "node:timers/promises";
 import {
   bootstrap as mockBootstrap,
   createSession as mockCreateSession,
+  listSessions as mockListSessions,
   loadSession as mockLoadSession,
   runRuntimeCommand as mockRunRuntimeCommand,
   sendMessage as mockSendMessage,
@@ -674,10 +675,7 @@ export class OpenPpxLocalAdapter implements PpxClientApi {
 
   public async listSessions(agentId: string): Promise<{ sessions: SessionSummary[] }> {
     if (this.shouldUseMock()) {
-      const payload = await mockBootstrap();
-      return {
-        sessions: payload.selectedAgentId === agentId ? payload.sessions : [],
-      };
+      return mockListSessions(agentId);
     }
     const cached = this.readSessionsCache(agentId);
     if (cached) {

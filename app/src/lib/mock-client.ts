@@ -258,6 +258,10 @@ export async function createSession(agentId: string): Promise<{ session: Session
   return { session };
 }
 
+export async function listSessions(agentId: string): Promise<{ sessions: SessionSummary[] }> {
+  return { sessions: getSessions(agentId) };
+}
+
 export async function loadSession(sessionId: string): Promise<{ messages: ChatMessage[] }> {
   return { messages: getMessages(sessionId) };
 }

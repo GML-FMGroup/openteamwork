@@ -482,13 +482,19 @@ export function App() {
   return (
     <div className="app-shell">
       <section className="nav-shell">
-        <header className="column-topbar nav-topbar" aria-hidden="true" />
         <aside className="nav-rail">
-          <button className={view === "chat" ? "nav-item active" : "nav-item"} onClick={() => setView("chat")}>
-            对话
+          <button className={view === "chat" ? "nav-item active" : "nav-item"} onClick={() => setView("chat")} title="对话">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z" />
+            </svg>
+            <span className="nav-label">对话</span>
           </button>
-          <button className={view === "settings" ? "nav-item active" : "nav-item"} onClick={() => setView("settings")}>
-            设置
+          <button className={view === "settings" ? "nav-item active" : "nav-item"} onClick={() => setView("settings")} title="设置">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <circle cx="12" cy="12" r="3" />
+              <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
+            </svg>
+            <span className="nav-label">设置</span>
           </button>
         </aside>
       </section>
@@ -496,39 +502,9 @@ export function App() {
       {view === "chat" ? (
         <>
           <section className="sidebar-shell">
-            <header className="column-topbar sidebar-topbar">
-              <div className="topbar-copy">
-                <strong>openppx</strong>
-                <span>local workspace</span>
-              </div>
-            </header>
             <section className="sidebar">
-              <div className="panel search-panel">
-                <div className="eyebrow">local machine</div>
-                <h1>openppx workbench</h1>
-                <p>本地优先的 agent 工作台。第一版只聚焦 runtime、agent 和对话主路径。</p>
-              </div>
-
-              <div className="panel runtime-panel">
-                <div className="panel-header">
-                  <span>本地 runtime</span>
-                  <span className={`runtime-dot ${runtime.state}`}>{runtime.state}</span>
-                </div>
-                <p>{runtime.summary}</p>
-                <small>{runtime.detail}</small>
-                <div className="runtime-actions">
-                  <button onClick={handleRuntimeAction}>{runtimeActionLabel(runtime.state)}</button>
-                  <button
-                    className="secondary"
-                    onClick={() => window.ppxClient.runRuntimeCommand("stop").then(setRuntime)}
-                  >
-                    停止
-                  </button>
-                </div>
-              </div>
-
-              <div className="panel">
-                <div className="panel-header">
+              <div className="sidebar-section">
+                <div className="sidebar-section-header">
                   <span>Agents</span>
                 </div>
                 <div className="list-stack">
@@ -540,7 +516,7 @@ export function App() {
                     >
                       <div>
                         <strong>{agent.name}</strong>
-                        <p>{agent.description}</p>
+                        {/* <p>{agent.description}</p> */}
                       </div>
                       <span className={`tag status-${agent.status}`}>{agent.status}</span>
                     </button>
@@ -548,12 +524,16 @@ export function App() {
                 </div>
               </div>
 
-              <div className="panel">
-                <div className="panel-header">
+              <div className="sidebar-divider" />
+
+              <div className="sidebar-section">
+                <div className="sidebar-section-header">
                   <span>Sessions</span>
-                  <button className="secondary small" onClick={() => void handleNewSession()}>
-                    新建
-                  </button>
+                  {selectedAgentId ? (
+                    <button className="secondary small" onClick={() => void handleNewSession()}>
+                      新建
+                    </button>
+                  ) : null}
                 </div>
                 <div className="list-stack">
                   {sessions.map((session) => (
@@ -580,9 +560,9 @@ export function App() {
                 <span>{titlebarSubtitle}</span>
               </div>
               <div className="topbar-actions">
-                <span className="topbar-pill">{runtime.state}</span>
-                <button className="topbar-menu" type="button" aria-label="更多选项">
-                  ...
+                <button className="topbar-pill" onClick={() => setView("settings")} title="查看 runtime 状态">
+                  <span className={`runtime-dot ${runtime.state}`} />
+                  {runtime.state}
                 </button>
               </div>
             </header>
@@ -645,32 +625,15 @@ export function App() {
           </section>
         </>
       ) : (
-        <>
-          <section className="sidebar-shell">
-            <header className="column-topbar sidebar-topbar">
-              <div className="topbar-copy">
-                <strong>openppx</strong>
-                <span>settings</span>
-              </div>
-            </header>
-            <section className="sidebar">
-              <div className="panel search-panel">
-                <div className="eyebrow">local machine</div>
-                <h1>openppx workbench</h1>
-                <p>本地优先的 agent 工作台。第一版只聚焦 runtime、agent 和对话主路径。</p>
-              </div>
-            </section>
-          </section>
           <section className="workspace-shell settings-shell">
             <header className="column-topbar workspace-topbar">
               <div className="topbar-copy">
                 <strong>{titlebarTitle}</strong>
-                <span>{titlebarSubtitle}</span>
               </div>
               <div className="topbar-actions">
-                <span className="topbar-pill">settings</span>
-                <button className="topbar-menu" type="button" aria-label="更多选项">
-                  ...
+                <button className="topbar-pill" onClick={() => setView("chat")} title="返回对话">
+                  <span className={`runtime-dot ${runtime.state}`} />
+                  {runtime.state}
                 </button>
               </div>
             </header>
@@ -731,6 +694,15 @@ export function App() {
                   <h3>Runtime status</h3>
                   <p>{runtime.summary}</p>
                   <small>{runtime.detail}</small>
+                  <div className="runtime-actions">
+                    <button onClick={handleRuntimeAction}>{runtimeActionLabel(runtime.state)}</button>
+                    <button
+                      className="secondary"
+                      onClick={() => window.ppxClient.runRuntimeCommand("stop").then(setRuntime)}
+                    >
+                      停止
+                    </button>
+                  </div>
                 </section>
                 <section className="settings-card">
                   <h3>Connection</h3>
@@ -818,7 +790,6 @@ export function App() {
               </main>
             </div>
           </section>
-        </>
       )}
     </div>
   );
