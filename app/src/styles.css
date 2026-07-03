@@ -59,7 +59,7 @@ button {
 
 .app-shell {
   display: grid;
-  grid-template-columns: 52px 300px minmax(0, 1fr);
+  grid-template-columns: 72px 300px minmax(0, 1fr);
   height: 100vh;
   gap: 0;
   padding: 0;
@@ -77,7 +77,7 @@ button {
   grid-column: 1;
   display: flex;
   align-items: stretch;
-  padding: 10px 0 10px 10px;
+  padding: 10px 0 10px 22px;
 }
 
 .sidebar-shell {
@@ -201,7 +201,7 @@ button {
   flex-direction: column;
   align-items: center;
   gap: 2px;
-  padding: 6px 4px;
+  padding: 32px 0;
   width: 42px;
   overflow: hidden;
   background: transparent;
@@ -221,8 +221,7 @@ button {
   align-items: center;
   gap: 10px;
   width: 100%;
-  min-height: 36px;
-  padding: 6px 8px;
+  min-height: 42px;
   border-radius: 10px;
   background: transparent;
   color: var(--text-subtle);
@@ -232,6 +231,7 @@ button {
   font-weight: 500;
   box-shadow: none;
   transition: background 140ms ease, color 140ms ease;
+  padding: 10px !important;
 }
 
 .nav-item svg {
@@ -376,6 +376,7 @@ button.secondary {
   color: var(--accent);
   border: 1px solid var(--border-soft);
   box-shadow: none;
+  font-weight: 600;
 }
 
 button.secondary:hover {
@@ -385,6 +386,15 @@ button.secondary:hover {
 button.small {
   padding: 6px 10px;
   font-size: 0.74rem;
+}
+
+.agents-container {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  overflow: visible;
+  z-index: 2;
 }
 
 .list-stack {
@@ -403,12 +413,13 @@ button.small {
   border: 0;
   display: flex;
   justify-content: space-between;
-  align-items: flex-start;
+  align-items: center;
   gap: 8px;
   padding: 9px 12px;
   border-radius: 12px;
   transition: background 140ms ease;
 }
+
 
 .list-item:hover {
   background: rgba(0, 0, 0, 0.035);
@@ -430,10 +441,13 @@ button.small {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  margin-bottom: 2px;
   font-size: 0.88rem;
-  font-weight: 600;
+  font-weight: 400;
   color: var(--accent);
+}
+
+.list-item.active strong {
+  font-weight: 600;
 }
 
 .list-item p {
@@ -502,12 +516,177 @@ button.small {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 10px 4px 6px;
+  padding: 10px 4px 6px 12px;
   font-size: 0.7rem;
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.06em;
   color: var(--text-subtle);
+}
+
+.agents-dropdown-trigger {
+  align-items: center;
+  background: rgba(255, 255, 255, 0.88);
+  border: 1px solid rgba(15, 23, 42, 0.05);
+  box-shadow: 0 8px 18px rgba(15, 23, 42, 0.04);
+  transition: background 140ms ease, border-color 140ms ease, box-shadow 160ms ease;
+}
+
+.agents-dropdown-trigger:hover,
+.agents-dropdown-trigger.active,
+.agents-dropdown-trigger.active:hover {
+  background: rgba(255, 255, 255, 0.96);
+}
+
+.agents-container.open .agents-dropdown-trigger {
+  border-color: rgba(15, 23, 42, 0.08);
+  box-shadow: 0 10px 20px rgba(15, 23, 42, 0.06);
+}
+
+.agent-trigger-copy {
+  min-width: 0;
+  flex: 1;
+}
+
+.agent-trigger-name-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+}
+
+.agent-trigger-name-row strong {
+  font-weight: 700; 
+}
+
+.agent-status-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 999px;
+  flex: 0 0 auto;
+  background: rgba(107, 114, 128, 0.5);
+  box-shadow: 0 0 0 3px rgba(107, 114, 128, 0.08);
+}
+
+.agent-status-dot.healthy {
+  background: var(--success);
+  box-shadow: 0 0 0 3px rgba(79, 107, 91, 0.14);
+}
+
+.agent-status-dot.idle {
+  background: rgba(100, 116, 139, 0.85);
+  box-shadow: 0 0 0 3px rgba(100, 116, 139, 0.12);
+}
+
+.agent-status-dot.starting {
+  background: rgba(180, 150, 50, 0.9);
+  box-shadow: 0 0 0 3px rgba(180, 150, 50, 0.12);
+}
+
+.agent-status-dot.disabled {
+  background: rgba(138, 100, 100, 0.85);
+  box-shadow: 0 0 0 3px rgba(138, 100, 100, 0.12);
+}
+
+.agents-chevron {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 auto;
+  color: var(--text-subtle);
+  transition: transform 180ms ease, color 180ms ease;
+}
+
+.agents-chevron svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  stroke: currentColor;
+  stroke-width: 1.9;
+  fill: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.agents-chevron.expanded {
+  transform: rotate(180deg);
+  color: var(--accent);
+}
+
+.agents-dropdown-list {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  right: 0;
+  margin-top: 0;
+  padding: 5px;
+  gap: 0;
+  border: 1px solid rgba(15, 23, 42, 0.05);
+  border-radius: 14px;
+  background: #fff;
+  box-shadow: 0 14px 30px rgba(27, 68, 163, 0.08);
+  /* border: 1px solid rgba(15, 23, 42, 0.06);
+  border-radius: 14px;
+  background: linear-gradient(180deg, rgba(246, 246, 248, 0.98), rgba(238, 239, 243, 0.97));
+  box-shadow: 0 14px 30px rgba(15, 23, 42, 0.06); */
+  z-index: 8;
+  max-height: calc(3 * 40px + 2 * 2px + 12px);
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+}
+
+.agents-dropdown-list .list-item {
+  border-radius: 10px;
+  min-height: 40px;
+}
+
+.agents-dropdown-list .list-item strong {
+  font-weight: 400;
+}
+
+.agents-dropdown-list .list-item.active {
+  background: rgba(0, 0, 0, 0.045);
+}
+
+.agents-dropdown-list .list-item.active strong {
+  font-weight: 600;
+}
+
+.agents-dropdown-list .list-item.active:hover {
+  background: rgba(0, 0, 0, 0.055);
+}
+
+.agents-dropdown-list .list-item + .list-item {
+  margin-top: 2px;
+}
+
+.agent-status-text {
+  flex: 0 0 auto;
+  align-self: center;
+  font-size: 0.71rem;
+  font-weight: 400;
+  letter-spacing: 0.01em;
+  text-transform: lowercase;
+  background: transparent;
+}
+
+.agents-dropdown-list .list-item.active .agent-status-text {
+  font-weight: 600;
+}
+
+.agent-status-text.healthy {
+  color: var(--success);
+}
+
+.agent-status-text.idle {
+  color: var(--sage);
+}
+
+.agent-status-text.starting {
+  color: #8d7418;
+}
+
+.agent-status-text.disabled {
+  color: #8a6464;
 }
 
 .sidebar-divider {
@@ -1217,7 +1396,7 @@ button.small {
 
 @media (max-width: 1200px) {
   .app-shell {
-    grid-template-columns: 52px minmax(260px, 300px) minmax(0, 1fr);
+    grid-template-columns: 72px minmax(260px, 300px) minmax(0, 1fr);
   }
 
   .workspace,
@@ -1255,7 +1434,6 @@ button.small {
   .nav-rail {
     flex-direction: row;
     width: 100%;
-    padding: 6px 8px;
     gap: 4px;
     background: transparent;
   }
@@ -1268,7 +1446,7 @@ button.small {
   .nav-item {
     flex: 1;
     justify-content: center;
-    min-height: 36px;
+    min-height: 42px;
   }
 
   .nav-rail:hover .nav-item .nav-label {

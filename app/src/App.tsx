@@ -127,12 +127,14 @@ export function App() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [selectedAgentId, setSelectedAgentId] = useState("");
   const [selectedSessionId, setSelectedSessionId] = useState("");
+  const [agentsOpen, setAgentsOpen] = useState(false);
   const [composer, setComposer] = useState("");
   const [sendError, setSendError] = useState<string | null>(null);
   const [sendingSessionIds, setSendingSessionIds] = useState<string[]>([]);
   const [connectionForm, setConnectionForm] = useState<ConnectionSettings>(buildConnectionSettings(null));
   const [savingConnection, setSavingConnection] = useState(false);
   const switchRequestIdRef = useRef(0);
+  const agentsDropdownRef = useRef<HTMLDivElement | null>(null);
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
   const messageStreamRef = useRef<HTMLElement | null>(null);
   const nextScrollBehaviorRef = useRef<ScrollBehavior>("auto");
@@ -229,6 +231,23 @@ export function App() {
   }, [composer]);
 
   useEffect(() => {
+    if (!agentsOpen) {
+      return;
+    }
+    function handlePointerDown(event: PointerEvent): void {
+      const dropdown = agentsDropdownRef.current;
+      if (!dropdown || dropdown.contains(event.target as Node)) {
+        return;
+      }
+      setAgentsOpen(false);
+    }
+    document.addEventListener("pointerdown", handlePointerDown);
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown);
+    };
+  }, [agentsOpen]);
+
+  useEffect(() => {
     const stream = messageStreamRef.current;
     if (!stream) {
       return;
@@ -301,6 +320,18 @@ export function App() {
     setSessions([created.session]);
     setSelectedSessionId(created.session.id);
     setMessages([]);
+  }
+
+  function handleAgentToggle(): void {
+    setAgentsOpen((current) => !current);
+  }
+
+  function handleAgentSelect(agentId: string): void {
+    setAgentsOpen(false);
+    if (agentId === selectedAgentId) {
+      return;
+    }
+    void switchAgent(agentId);
   }
 
   async function switchSession(session: SessionSummary): Promise<void> {
@@ -487,14 +518,14 @@ export function App() {
             <svg viewBox="0 0 24 24" aria-hidden="true">
               <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z" />
             </svg>
-            <span className="nav-label">对话</span>
+            {/* <span className="nav-label">对话</span> */}
           </button>
           <button className={view === "settings" ? "nav-item active" : "nav-item"} onClick={() => setView("settings")} title="设置">
             <svg viewBox="0 0 24 24" aria-hidden="true">
               <circle cx="12" cy="12" r="3" />
               <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
             </svg>
-            <span className="nav-label">设置</span>
+            {/* <span className="nav-label">设置</span> */}
           </button>
         </aside>
       </section>
@@ -507,20 +538,44 @@ export function App() {
                 <div className="sidebar-section-header">
                   <span>Agents</span>
                 </div>
-                <div className="list-stack">
-                  {agents.map((agent) => (
-                    <button
-                      key={agent.id}
-                      className={agent.id === selectedAgentId ? "list-item active" : "list-item"}
-                      onClick={() => void switchAgent(agent.id)}
-                    >
-                      <div>
-                        <strong>{agent.name}</strong>
-                        {/* <p>{agent.description}</p> */}
-                      </div>
-                      <span className={`tag status-${agent.status}`}>{agent.status}</span>
-                    </button>
-                  ))}
+                <div ref={agentsDropdownRef} className={agentsOpen ? "agents-container open" : "agents-container"}>
+                  <button
+                    type="button"
+                    className={agentsOpen ? "list-item active agents-dropdown-trigger" : "list-item agents-dropdown-trigger"}
+                    aria-expanded={agentsOpen}
+                    aria-controls="agents-dropdown-list"
+                    aria-label="Toggle agents list"
+                    onClick={handleAgentToggle}
+                  >
+                    <div className="agent-trigger-copy">
+                      <span className="agent-trigger-name-row">
+                        <strong>{selectedAgent?.name ?? "No agent selected"}</strong>
+                        {selectedAgent ? <span className={`agent-status-dot ${selectedAgent.status}`} aria-hidden="true" /> : null}
+                      </span>
+                    </div>
+                    <span className={agentsOpen ? "agents-chevron expanded" : "agents-chevron"} aria-hidden="true">
+                      <svg viewBox="0 0 20 20">
+                        <path d="M5.25 7.5 10 12.25 14.75 7.5" />
+                      </svg>
+                    </span>
+                  </button>
+                  {agentsOpen ? (
+                    <div id="agents-dropdown-list" className="list-stack agents-dropdown-list">
+                      {agents.map((agent) => (
+                        <button
+                          key={agent.id}
+                          className={agent.id === selectedAgentId ? "list-item active" : "list-item"}
+                          onClick={() => handleAgentSelect(agent.id)}
+                        >
+                          <div>
+                            <strong>{agent.name}</strong>
+                            {/* <p>{agent.description}</p> */}
+                          </div>
+                          <span className={`agent-status-text ${agent.status}`}>{agent.status}</span>
+                        </button>
+                      ))}
+                    </div>
+                  ) : null}
                 </div>
               </div>
 
