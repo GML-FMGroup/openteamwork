@@ -279,6 +279,8 @@ export async function getDiagnostics(): Promise<ClientDiagnostics> {
     clientApiManagedByClient: false,
     clientApiHealthy: false,
     clientApiCompatibility: "unknown",
+    clientApiAuthState: "unknown",
+    clientApiCredentialConfigured: false,
     clientApiProcessRunning: false,
     bridgeScriptPath: "",
     bridgeScriptExists: false,
@@ -292,6 +294,10 @@ export async function getDiagnostics(): Promise<ClientDiagnostics> {
 }
 
 export async function saveConnectionSettings(_settings: ConnectionSettings): Promise<ClientDiagnostics> {
+  return getDiagnostics();
+}
+
+export async function testConnectionSettings(_settings: ConnectionSettings): Promise<ClientDiagnostics> {
   return getDiagnostics();
 }
 

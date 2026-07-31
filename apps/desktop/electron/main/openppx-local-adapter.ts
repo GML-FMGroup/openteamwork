@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import { randomBytes } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -21,8 +22,12 @@ import {
 import {
   CLIENT_API_PROTOCOL_VERSION,
   parseClientApiHandshake,
+  parseClientApiNodeInfo,
   type ClientApiHandshake,
+  type ClientApiNodeInfo,
 } from "../../app/src/lib/client-api-contract";
+import { buildClientApiAuthorizationHeaders } from "../../app/src/lib/client-api-auth";
+import { isLoopbackClientApiHostname } from "../../app/src/lib/connection-profile";
 import {
   buildMessagePartsFromSessionEvent,
   mergeAssistantParts,
@@ -63,6 +68,17 @@ interface GlobalAgentConfigEntry {
 
 interface GlobalAgentConfig {
   agents?: GlobalAgentConfigEntry[] | { list?: GlobalAgentConfigEntry[] };
+}
+
+class ClientApiRequestError extends Error {
+  public constructor(
+    message: string,
+    public readonly status: number,
+    public readonly code: string,
+  ) {
+    super(message);
+    this.name = "ClientApiRequestError";
+  }
 }
 
 function now(): string {
@@ -174,6 +190,10 @@ export class OpenPpxLocalAdapter implements PpxClientApi {
 
   private readonly configuredClientApiBaseUrl = process.env.OPENPPX_CLIENT_API_BASE_URL?.trim() || "";
 
+  private readonly configuredClientApiAccessToken = process.env.OPENPPX_CLIENT_API_TOKEN?.trim() || "";
+
+  private readonly managedLocalAccessToken = randomBytes(32).toString("base64url");
+
   private readonly developmentModes = resolveDesktopDevelopmentModes();
 
   private readonly clientApiHost = process.env.OPENPPX_CLIENT_API_HOST?.trim() || "127.0.0.1";
@@ -186,6 +206,8 @@ export class OpenPpxLocalAdapter implements PpxClientApi {
 
   private clientApiProcess: ReturnType<typeof spawn> | null = null;
 
+  private managedClientApiEnabled = true;
+
   private readonly sessionsCache = new Map<string, SessionCacheEntry>();
 
   private readonly messagesCache = new Map<string, MessageCacheEntry>();
@@ -195,6 +217,12 @@ export class OpenPpxLocalAdapter implements PpxClientApi {
   private inflightHealthCheck: Promise<boolean> | null = null;
 
   private clientApiHandshake: ClientApiHandshake | null = null;
+
+  private clientApiNodeInfo: ClientApiNodeInfo | null = null;
+
+  private clientApiAccessToken = "";
+
+  private clientApiAuthState: NonNullable<ClientDiagnostics["clientApiAuthState"]> = "unknown";
 
   private clientApiLastError = "";
 
@@ -209,14 +237,16 @@ export class OpenPpxLocalAdapter implements PpxClientApi {
   public constructor(initialSettings?: ConnectionSettings) {
     this.target = this.buildTarget();
     this.clientApiBaseUrl = this.configuredClientApiBaseUrl || `http://${this.clientApiHost}:${this.clientApiPort}`;
+    this.clientApiAccessToken =
+      this.configuredClientApiAccessToken || (this.target.type === "local" ? this.managedLocalAccessToken : "");
     if (initialSettings) {
       this.applyConnectionSettings(initialSettings);
     }
   }
 
   private buildTarget(): ConnectionTarget {
-    const rawType = (process.env.OPENPPX_TARGET_TYPE?.trim().toLowerCase() || "local") as "local" | "remote";
-    if (rawType === "remote") {
+    const rawType = process.env.OPENPPX_TARGET_TYPE?.trim().toLowerCase() || "local";
+    if (rawType === "remote" || rawType === "lan") {
       return {
         id: process.env.OPENPPX_TARGET_ID?.trim() || "remote-default",
         type: "remote",
@@ -235,22 +265,30 @@ export class OpenPpxLocalAdapter implements PpxClientApi {
   }
 
   public applyConnectionSettings(settings: ConnectionSettings): void {
+    const isLan = settings.targetType === "lan";
+    const nextBaseUrl = settings.clientApiBaseUrl.trim() || `http://${this.clientApiHost}:${this.clientApiPort}`;
+    const shouldStopManagedProcess =
+      this.target.type === "local" && (isLan || nextBaseUrl !== this.clientApiBaseUrl);
     this.target = {
-      id: settings.targetId.trim() || (settings.targetType === "remote" ? "remote-default" : "local-default"),
-      type: settings.targetType,
-      name: settings.targetName.trim() || (settings.targetType === "remote" ? "Remote Gateway" : "This Mac"),
+      id: settings.targetId.trim() || (isLan ? "lan-default" : "local-default"),
+      type: isLan ? "remote" : "local",
+      name: settings.targetName.trim() || (isLan ? "LAN OpenPPX Node" : "This Mac"),
     };
-    this.clientApiBaseUrl = settings.clientApiBaseUrl.trim() || `http://${this.clientApiHost}:${this.clientApiPort}`;
+    this.clientApiBaseUrl = nextBaseUrl;
+    this.clientApiAccessToken = isLan
+      ? settings.accessToken?.trim() || this.configuredClientApiAccessToken
+      : this.configuredClientApiAccessToken || this.managedLocalAccessToken;
     this.healthyUntil = 0;
     this.clientApiHandshake = null;
+    this.clientApiNodeInfo = null;
     this.clientApiLastError = "";
+    this.clientApiAuthState = "unknown";
     this.clientApiReachable = false;
     this.sessionsCache.clear();
     this.messagesCache.clear();
-    if (this.clientApiProcess && this.clientApiProcess.exitCode === null) {
-      this.clientApiProcess.kill();
+    if (shouldStopManagedProcess) {
+      this.stopManagedClientApiImmediately();
     }
-    this.clientApiProcess = null;
   }
 
   private canUseLegacyLocalFallback(): boolean {
@@ -345,14 +383,74 @@ export class OpenPpxLocalAdapter implements PpxClientApi {
       headers: {
         "Content-Type": "application/json",
         ...(init?.headers ?? {}),
+        ...this.authorizationHeaders(),
       },
     });
     const payload = (await response.json()) as Record<string, unknown>;
     if (!response.ok || payload.ok === false) {
       const error = (payload.error as Record<string, unknown> | undefined) ?? {};
-      throw new Error(String(error.message ?? `Client API request failed: ${response.status}`));
+      throw new ClientApiRequestError(
+        String(error.message ?? `Client API request failed: ${response.status}`),
+        response.status,
+        String(error.code ?? "CLIENT_API_REQUEST_FAILED"),
+      );
     }
     return payload;
+  }
+
+  private authorizationHeaders(): Record<string, string> {
+    return buildClientApiAuthorizationHeaders(this.clientApiAccessToken);
+  }
+
+  private stopManagedClientApiImmediately(): void {
+    const child = this.clientApiProcess;
+    this.clientApiProcess = null;
+    this.healthyUntil = 0;
+    if (child && child.exitCode === null) {
+      child.kill();
+    }
+  }
+
+  private async stopManagedClientApi(): Promise<void> {
+    const child = this.clientApiProcess;
+    this.clientApiProcess = null;
+    this.healthyUntil = 0;
+    if (!child || child.exitCode !== null) {
+      return;
+    }
+    await new Promise<void>((resolve) => {
+      let settled = false;
+      const finish = (): void => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        clearTimeout(timeout);
+        resolve();
+      };
+      const timeout = setTimeout(finish, 1_500);
+      timeout.unref();
+      child.once("close", finish);
+      child.kill();
+    });
+  }
+
+  private managedClientApiBindAddress(): { host: string; port: number } | null {
+    if (!this.managedClientApiEnabled || this.isRemoteTarget()) {
+      return null;
+    }
+    try {
+      const endpoint = new URL(this.clientApiBaseUrl);
+      if (endpoint.protocol !== "http:" || !isLoopbackClientApiHostname(endpoint.hostname)) {
+        return null;
+      }
+      return {
+        host: endpoint.hostname.replace(/^\[|\]$/g, ""),
+        port: Number(endpoint.port || "80"),
+      };
+    } catch {
+      return null;
+    }
   }
 
   private rememberClientApiError(error: unknown): void {
@@ -369,11 +467,14 @@ export class OpenPpxLocalAdapter implements PpxClientApi {
       return true;
     }
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 500);
+    const timeout = setTimeout(() => controller.abort(), this.isRemoteTarget() ? 2_000 : 500);
     this.clientApiReachable = false;
+    this.clientApiNodeInfo = null;
+    this.clientApiAuthState = "unknown";
     try {
       const response = await fetch(`${this.clientApiBaseUrl}/api/v1/health`, {
         signal: controller.signal,
+        headers: this.authorizationHeaders(),
       });
       this.clientApiReachable = true;
       if (!response.ok) {
@@ -389,10 +490,22 @@ export class OpenPpxLocalAdapter implements PpxClientApi {
       if (!handshake.ready) {
         throw new Error("Client API reported that it is not ready.");
       }
+      const nodePayload = await this.fetchClientApiJson("/api/v1/node", { signal: controller.signal });
+      const nodeInfo = parseClientApiNodeInfo(nodePayload);
+      this.clientApiNodeInfo = nodeInfo;
+      if (nodeInfo.compatibility !== "compatible") {
+        throw new Error(
+          `Node protocol range ${nodeInfo.protocolMin}-${nodeInfo.protocolMax} does not include ${CLIENT_API_PROTOCOL_VERSION}.`,
+        );
+      }
+      this.clientApiAuthState = nodeInfo.authenticationRequired ? "authenticated" : "not-required";
       this.clientApiLastError = "";
       this.healthyUntil = Date.now() + OpenPpxLocalAdapter.HEALTH_CACHE_TTL_MS;
       return true;
     } catch (error) {
+      if (error instanceof ClientApiRequestError && error.code === "UNAUTHORIZED") {
+        this.clientApiAuthState = this.clientApiAccessToken ? "unauthorized" : "missing";
+      }
       this.rememberClientApiError(error);
       return false;
     } finally {
@@ -424,7 +537,9 @@ export class OpenPpxLocalAdapter implements PpxClientApi {
       return true;
     }
     const openppxRootExists = fs.existsSync(this.openppxRoot);
+    const managedBindAddress = this.managedClientApiBindAddress();
     if (
+      !managedBindAddress ||
       !shouldStartManagedClientApi({
         targetType: this.target.type,
         endpointReachable: this.clientApiReachable,
@@ -432,10 +547,12 @@ export class OpenPpxLocalAdapter implements PpxClientApi {
       })
     ) {
       const status = this.clientApiReachable
-        ? "reachable-but-incompatible"
+        ? `reachable-${this.clientApiAuthState}`
         : this.isRemoteTarget()
           ? "remote-unreachable"
-          : "openppx-root-missing";
+          : !openppxRootExists
+            ? "openppx-root-missing"
+            : "local-endpoint-not-managed";
       clientDebugLog("client-api.health", {
         baseUrl: this.clientApiBaseUrl,
         status,
@@ -451,24 +568,41 @@ export class OpenPpxLocalAdapter implements PpxClientApi {
         pythonBin: this.pythonBin,
         openppxRoot: this.openppxRoot,
       });
-      this.clientApiProcess = spawn(
+      const child = spawn(
         this.pythonBin,
-        ["-m", "openppx.cli", "client-api", "serve", "--host", this.clientApiHost, "--port", String(this.clientApiPort)],
+        [
+          "-m",
+          "openppx.cli",
+          "client-api",
+          "serve",
+          "--host",
+          managedBindAddress.host,
+          "--port",
+          String(managedBindAddress.port),
+        ],
         {
           cwd: this.openppxRoot,
+          env: {
+            ...process.env,
+            OPENPPX_CLIENT_API_TOKEN: this.clientApiAccessToken,
+          },
           stdio: ["ignore", "pipe", "pipe"],
         },
       );
-      this.clientApiProcess.stdout?.on("data", (chunk: Buffer | string) => {
+      this.clientApiProcess = child;
+      const processBaseUrl = this.clientApiBaseUrl;
+      child.stdout?.on("data", (chunk: Buffer | string) => {
         clientDebugLog("client-api.stdout", chunk.toString().trim());
       });
-      this.clientApiProcess.stderr?.on("data", (chunk: Buffer | string) => {
+      child.stderr?.on("data", (chunk: Buffer | string) => {
         clientDebugLog("client-api.stderr", chunk.toString().trim());
       });
-      this.clientApiProcess.on("close", () => {
-        clientDebugLog("client-api.close", { baseUrl: this.clientApiBaseUrl });
-        this.clientApiProcess = null;
-        this.healthyUntil = 0;
+      child.on("close", () => {
+        clientDebugLog("client-api.close", { baseUrl: processBaseUrl });
+        if (this.clientApiProcess === child) {
+          this.clientApiProcess = null;
+          this.healthyUntil = 0;
+        }
       });
     }
     for (let attempt = 0; attempt < 12; attempt += 1) {
@@ -708,7 +842,7 @@ export class OpenPpxLocalAdapter implements PpxClientApi {
     const realAgents = this.listRealAgents();
     const clientApiHealthy = this.shouldUseMock() ? false : await this.isClientApiHealthy();
     return {
-      mode: this.shouldUseMock() ? "mock" : this.isRemoteTarget() ? "remote" : "local",
+      mode: this.shouldUseMock() ? "mock" : this.isRemoteTarget() ? "lan" : "local",
       target: this.target,
       openppxRoot: this.openppxRoot,
       openppxRootExists: fs.existsSync(this.openppxRoot),
@@ -716,16 +850,20 @@ export class OpenPpxLocalAdapter implements PpxClientApi {
       globalConfigPath: globalConfigPath(),
       globalConfigExists: fs.existsSync(globalConfigPath()),
       clientApiBaseUrl: this.clientApiBaseUrl,
-      clientApiManagedByClient: !this.shouldUseMock() && !this.isRemoteTarget(),
+      clientApiManagedByClient: !this.shouldUseMock() && Boolean(this.managedClientApiBindAddress()),
       clientApiHealthy,
-      clientApiProductVersion: this.clientApiHandshake?.productVersion,
+      clientApiProductVersion: this.clientApiNodeInfo?.productVersion ?? this.clientApiHandshake?.productVersion,
       clientApiProtocolVersion: this.clientApiHandshake?.protocolVersion,
-      clientApiCompatibility: this.clientApiHandshake?.compatibility ?? "unknown",
+      clientApiCompatibility: this.clientApiNodeInfo?.compatibility ?? this.clientApiHandshake?.compatibility ?? "unknown",
       clientApiLastError: this.clientApiLastError || undefined,
+      clientApiAuthState: this.clientApiAuthState,
+      clientApiCredentialConfigured: Boolean(this.clientApiAccessToken),
+      nodeId: this.clientApiNodeInfo?.nodeId,
+      nodeName: this.clientApiNodeInfo?.displayName,
       clientApiProcessRunning: !!this.clientApiProcess && this.clientApiProcess.exitCode === null,
       bridgeScriptPath: this.bridgeScriptPath,
       bridgeScriptExists: fs.existsSync(this.bridgeScriptPath),
-      agentCount: realAgents.length,
+      agentCount: this.clientApiNodeInfo?.agents ?? realAgents.length,
       sessionCacheEntries: this.sessionsCache.size,
       messageCacheEntries: this.messagesCache.size,
       debugEnabled: clientDebugEnabled(),
@@ -737,6 +875,32 @@ export class OpenPpxLocalAdapter implements PpxClientApi {
   public async saveConnectionSettings(settings: ConnectionSettings): Promise<ClientDiagnostics> {
     this.applyConnectionSettings(settings);
     return this.getDiagnostics();
+  }
+
+  public async testConnectionSettings(settings: ConnectionSettings): Promise<ClientDiagnostics> {
+    if (settings.targetType === "local" && settings.clientApiBaseUrl === this.clientApiBaseUrl) {
+      await this.ensureClientApiAvailable();
+      const diagnostics = await this.getDiagnostics();
+      if (!diagnostics.clientApiHealthy) {
+        throw this.clientApiUnavailableError("Testing the local connection");
+      }
+      return diagnostics;
+    }
+
+    const candidate = new OpenPpxLocalAdapter(settings);
+    // A changed local endpoint may be probed, but a temporary test must not own its process lifecycle.
+    candidate.managedClientApiEnabled = false;
+    try {
+      await candidate.ensureClientApiAvailable();
+      const diagnostics = await candidate.getDiagnostics();
+      if (!diagnostics.clientApiHealthy) {
+        const mode = settings.targetType === "local" ? "local" : "LAN";
+        throw candidate.clientApiUnavailableError(`Testing the ${mode} connection`);
+      }
+      return diagnostics;
+    } finally {
+      candidate.dispose();
+    }
   }
 
   public async runRuntimeCommand(command: RuntimeCommand): Promise<RuntimeStatus> {
@@ -751,16 +915,16 @@ export class OpenPpxLocalAdapter implements PpxClientApi {
       };
     }
     if (command === "stop") {
-      if (this.clientApiProcess && this.clientApiProcess.exitCode === null) {
-        this.clientApiProcess.kill();
-      }
-      this.clientApiProcess = null;
+      await this.stopManagedClientApi();
       return {
         ...this.getFallbackRuntimeStatus(),
         state: "stopped",
         summary: "Local client-api process was stopped.",
         detail: "The next request can start it again on demand.",
       };
+    }
+    if (command === "restart") {
+      await this.stopManagedClientApi();
     }
     if (command === "start" || command === "restart") {
       await this.ensureClientApiAvailable();
@@ -934,7 +1098,9 @@ export class OpenPpxLocalAdapter implements PpxClientApi {
       lastMessagePreview: input.text,
     };
 
-    const response = await fetch(`${this.clientApiBaseUrl}/api/v1/runs/${runId}/events`);
+    const response = await fetch(`${this.clientApiBaseUrl}/api/v1/runs/${runId}/events`, {
+      headers: this.authorizationHeaders(),
+    });
     if (!response.ok || !response.body) {
       throw new Error(`Failed opening run event stream for ${runId}`);
     }
@@ -957,7 +1123,7 @@ export class OpenPpxLocalAdapter implements PpxClientApi {
         }
         assistantMessage.status = status;
         assistantMessage.parts = mergeAssistantParts(stepParts, finalText);
-          this.emit({
+        this.emit({
             type: "message.updated",
             runId,
             sessionId: assistantMessage.sessionId,
@@ -1294,10 +1460,7 @@ export class OpenPpxLocalAdapter implements PpxClientApi {
 
   public dispose(): void {
     this.mockUnsubscribe();
-    if (this.clientApiProcess && this.clientApiProcess.exitCode === null) {
-      this.clientApiProcess.kill();
-    }
-    this.clientApiProcess = null;
+    this.stopManagedClientApiImmediately();
   }
 
   private async listSessionsForAgent(agentId: string): Promise<SessionSummary[]> {

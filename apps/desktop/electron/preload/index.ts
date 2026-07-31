@@ -4,6 +4,7 @@ import type { ConnectionSettings, PpxClientApi, RunEvent, RuntimeCommand, SendMe
 const api: PpxClientApi = {
   bootstrap: () => ipcRenderer.invoke("ppx-client:bootstrap"),
   getDiagnostics: () => ipcRenderer.invoke("ppx-client:get-diagnostics"),
+  testConnectionSettings: (settings: ConnectionSettings) => ipcRenderer.invoke("ppx-client:test-connection-settings", settings),
   saveConnectionSettings: (settings: ConnectionSettings) => ipcRenderer.invoke("ppx-client:save-connection-settings", settings),
   runRuntimeCommand: (command: RuntimeCommand) => ipcRenderer.invoke("ppx-client:runtime-command", command),
   listSessions: (agentId: string) => ipcRenderer.invoke("ppx-client:list-sessions", agentId),

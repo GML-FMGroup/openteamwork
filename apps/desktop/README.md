@@ -1,6 +1,6 @@
 # OpenPPX Desktop
 
-OpenPPX Desktop 是 OpenPPX monorepo 中的桌面客户端，当前以本地模式为主，同时已经补了远程 gateway 的初步接入准备。
+OpenPPX Desktop 是 OpenPPX monorepo 中的桌面客户端，支持管理本机 OpenPPX Node，也支持连接可信局域网中另一台机器上的 Node。
 
 当前版本聚焦这几条主路径：
 
@@ -10,7 +10,7 @@ OpenPPX Desktop 是 OpenPPX monorepo 中的桌面客户端，当前以本地模�
 - 对话工作区
 - 富文本消息渲染
 - 本地 `client-api` + SSE 事件流
-- 远程 target 的基础连接配置
+- 带 Token 认证的局域网 Node 连接
 
 ## 架构
 
@@ -26,7 +26,8 @@ Renderer (React)
 
 1. 使用 `openppx client-api` HTTP + SSE
 2. 通过 `/api/v1/health` 验证 Client API v1 兼容性
-3. gateway 不可用或协议不兼容时显式显示错误
+3. 通过受保护的 `/api/v1/node` 验证认证、Node 身份和 capability
+4. gateway 不可用、未授权或协议不兼容时显式显示错误
 
 客户端不会再自动展示 mock 数据，也不会静默回退到 legacy Python bridge。两者只保留为显式的开发调试模式。
 
@@ -119,36 +120,51 @@ export OPENPPX_ROOT=/path/to/openppx_root
 pnpm desktop:dev
 ```
 
-### 2. 远程模式初版
+### 2. 局域网模式
 
-当前已经支持一个“可改的初版”远程连接方式。
-
-你可以在设置页里直接配置：
-
-- `Target type`: `remote`
-- `Target name`
-- `Gateway URL`
-
-也可以用环境变量先指定：
+在远端机器生成随机 Token，并启动局域网监听：
 
 ```bash
-export OPENPPX_TARGET_TYPE=remote
-export OPENPPX_TARGET_NAME="Ops Gateway"
+export OPENPPX_CLIENT_API_TOKEN="$(python -c 'import secrets; print(secrets.token_urlsafe(32))')"
+printf 'Copy this Token into Desktop: %s\n' "$OPENPPX_CLIENT_API_TOKEN"
+ppx client-api serve --host 0.0.0.0 --port 8765
+```
+
+没有 `OPENPPX_CLIENT_API_TOKEN` 时，非回环监听会拒绝启动。
+
+然后在 Desktop 设置页配置：
+
+- 运行位置：`连接局域网 OpenPPX Node`
+- Node 名称
+- Gateway URL，例如 `http://192.168.1.20:8765`
+- Access Token
+
+先点击“测试连接”，确认 Node 身份、版本和认证状态，再保存。Token 由 Electron Main 使用 `safeStorage` 加密保存；普通 `connection-settings.json` 中的凭证位置只保存 `secretRef`，不会保存明文 Token。
+
+开发时也可以完全使用环境变量：
+
+```bash
+export OPENPPX_TARGET_TYPE=lan
+export OPENPPX_TARGET_NAME="Studio Node"
 export OPENPPX_CLIENT_API_BASE_URL=http://10.0.0.8:8765
+export OPENPPX_CLIENT_API_TOKEN="<same-random-secret>"
 pnpm desktop:dev
 ```
 
-当前远程模式的范围是：
+当前局域网模式：
 
-- 可以连接远程 gateway
+- 普通 HTTP 和 SSE 使用同一 Bearer Token
 - 不会再尝试本地拉起 `client-api`
 - 不会再 fallback 到本地 bridge
+- 不会把 Token 返回给 Renderer diagnostics 或写入普通 JSON
 
-当前还没完成的远程能力：
+当前还没完成：
 
 - 多 target 管理
-- 认证 token / api key
-- 完整远端部署指引
+- 自动发现与配对
+- TLS 自动配置、SSH tunnel、Tailnet 和公网 Relay
+
+> 当前模式只适用于可信局域网。不要把 Client API 端口直接转发到公网。
 
 ## 设置页当前能做什么
 
@@ -157,9 +173,10 @@ pnpm desktop:dev
 - 查看 runtime diagnostics
 - 查看当前 target
 - 查看 gateway URL 和连接状态
-- 切换 `local / remote`
+- 切换 `local / lan`
 - 编辑 target 名称
 - 编辑 gateway URL
+- 测试 Token、协议版本和 Node 身份
 - 保存并应用连接配置
 
 连接配置会持久化到 Electron 用户目录，下次打开客户端会继续使用。
@@ -180,7 +197,7 @@ OPENPPX_DESKTOP_MOCK=1 pnpm desktop:dev
 OPENPPX_DESKTOP_LEGACY_BRIDGE=1 pnpm desktop:dev
 ```
 
-legacy bridge 只允许本地 target；远程 target 永远不会使用它。正式使用和发布构建不应设置这两个变量。
+legacy bridge 只允许本地 target；LAN target 永远不会使用它。正式使用和发布构建不应设置这两个变量。
 
 客户端调试日志：
 

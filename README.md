@@ -279,6 +279,8 @@ pnpm desktop:build
 
 The Electron/React desktop source lives in [`apps/desktop/`](./apps/desktop/). It remains separated from the Python/Google ADK backend through the versioned [Client API contract](./contracts/client-api/README.md). Mock data and the legacy bridge are explicit development modes rather than automatic production fallbacks.
 
+For a trusted-LAN Node, set `OPENPPX_CLIENT_API_TOKEN` before binding the Client API to `0.0.0.0`. Non-loopback binds without a token are rejected. See the [Desktop LAN setup](./apps/desktop/README.md#2-局域网模式) for the end-to-end flow; direct public-internet exposure is not supported.
+
 Developer smoke checks:
 
 ```bash

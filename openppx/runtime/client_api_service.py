@@ -22,11 +22,21 @@ from .access_policy import AccessPolicy
 from .agent_access_runtime import ensure_access_principal
 from .agent_access_runtime import ensure_agent_access_record
 from .agent_access_store import AgentAccessStore, AgentMembership, AgentRecord
-from .client_api_contract import build_client_api_health_data
+from .client_api_auth import (
+    ClientApiAuthPolicy,
+    resolve_client_api_access_token,
+    validate_client_api_bind,
+)
+from .client_api_contract import (
+    build_client_api_health_data,
+    build_client_api_node_data,
+    build_public_client_api_health_data,
+)
 from .identity_models import ResolvedPrincipal
 from .identity_store import IdentityStore
 from .memory_query_service import MemoryQueryService
 from .memory_shared import memory_entry_text
+from .node_identity import load_or_create_node_identity
 from .session_service import SessionConfig, create_session_service
 from .sqlite_memory_service import SQLiteMemoryService
 
@@ -609,6 +619,7 @@ class ClientApiCoordinator:
         self._lock = threading.Lock()
         self._sessions_cache: dict[tuple[str, str], _TimedCacheEntry] = {}
         self._messages_cache: dict[tuple[str, str], _TimedCacheEntry] = {}
+        self._node_identity = load_or_create_node_identity(self.data_dir)
 
     def _ensure_requester_principal(self, user_id: str) -> ResolvedPrincipal:
         """Return a persisted requester principal for client-api operations."""
@@ -970,14 +981,28 @@ class ClientApiCoordinator:
                 return candidate, owner_principal_id
         return _error("SESSION_NOT_FOUND", f"Session '{session_id}' was not found.")
 
-    def health(self) -> dict[str, Any]:
+    def health(self, *, public: bool = False) -> dict[str, Any]:
         """Return the versioned Client API readiness handshake."""
 
+        if public:
+            return _ok(build_public_client_api_health_data(timestamp=_iso_now()))
         return _ok(
             build_client_api_health_data(
                 data_dir=self.data_dir,
                 agents=len(list_enabled_agent_names(self.data_dir)),
                 timestamp=_iso_now(),
+            )
+        )
+
+    def node_info(self, *, authentication_required: bool) -> dict[str, Any]:
+        """Return authenticated Node identity and capability metadata."""
+
+        return _ok(
+            build_client_api_node_data(
+                node_id=self._node_identity.node_id,
+                display_name=self._node_identity.display_name,
+                agents=len(list_enabled_agent_names(self.data_dir)),
+                authentication_required=authentication_required,
             )
         )
 
@@ -2222,13 +2247,45 @@ class _ClientApiHandler(BaseHTTPRequestHandler):
     def coordinator(self) -> ClientApiCoordinator:
         return self.server.coordinator  # type: ignore[attr-defined]
 
-    def _send_json(self, status: int, payload: dict[str, Any]) -> None:
+    @property
+    def auth_policy(self) -> ClientApiAuthPolicy:
+        return self.server.auth_policy  # type: ignore[attr-defined]
+
+    def _send_json(
+        self,
+        status: int,
+        payload: dict[str, Any],
+        *,
+        extra_headers: dict[str, str] | None = None,
+    ) -> None:
         body = _json_bytes(payload)
         self.send_response(status)
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
+        for name, value in (extra_headers or {}).items():
+            self.send_header(name, value)
         self.end_headers()
         self.wfile.write(body)
+
+    def _require_authorization(self) -> bool:
+        """Authorize one protected request or emit a standard 401 response."""
+
+        if self.auth_policy.authorizes(self.headers.get("Authorization")):
+            return True
+        _debug(
+            "client_api.auth_failed",
+            {
+                "remote_address": str(self.client_address[0]),
+                "path": urllib.parse.urlparse(self.path).path,
+                "timestamp": _iso_now(),
+            },
+        )
+        self._send_json(
+            401,
+            _error("UNAUTHORIZED", "A valid Client API bearer token is required."),
+            extra_headers={"WWW-Authenticate": 'Bearer realm="openppx-client-api"'},
+        )
+        return False
 
     def _read_json_body(self) -> dict[str, Any]:
         length = int(self.headers.get("Content-Length", "0") or 0)
@@ -2250,7 +2307,13 @@ class _ClientApiHandler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:  # noqa: N802
         path, segments, query = self._parse()
         if path == "/api/v1/health":
-            self._send_json(200, self.coordinator.health())
+            authenticated = self.auth_policy.authorizes(self.headers.get("Authorization"))
+            self._send_json(200, self.coordinator.health(public=self.auth_policy.required and not authenticated))
+            return
+        if not self._require_authorization():
+            return
+        if path == "/api/v1/node":
+            self._send_json(200, self.coordinator.node_info(authentication_required=self.auth_policy.required))
             return
         if path == "/api/v1/agents":
             self._send_json(200, self.coordinator.list_agents())
@@ -2339,6 +2402,8 @@ class _ClientApiHandler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:  # noqa: N802
         path, segments, _query = self._parse()
+        if not self._require_authorization():
+            return
         body = self._read_json_body()
         if len(segments) == 6 and segments[:3] == ["api", "v1", "agents"] and segments[4] == "access" and segments[5] == "owner":
             user_id = str(body.get("user_id") or "ppx-client-user")
@@ -2426,6 +2491,8 @@ class _ClientApiHandler(BaseHTTPRequestHandler):
 
     def do_DELETE(self) -> None:  # noqa: N802
         path, segments, query = self._parse()
+        if not self._require_authorization():
+            return
         if len(segments) == 7 and segments[:3] == ["api", "v1", "agents"] and segments[4] == "access" and segments[5] == "memberships":
             user_id = str(query.get("user_id") or "ppx-client-user")
             payload = self.coordinator.delete_agent_membership(
@@ -2444,17 +2511,32 @@ class _ClientApiHandler(BaseHTTPRequestHandler):
 class ClientApiHttpServer(ThreadingHTTPServer):
     """Threading HTTP server bound to one `ClientApiCoordinator`."""
 
-    def __init__(self, server_address: tuple[str, int], coordinator: ClientApiCoordinator) -> None:
+    def __init__(
+        self,
+        server_address: tuple[str, int],
+        coordinator: ClientApiCoordinator,
+        *,
+        access_token: str = "",
+    ) -> None:
         super().__init__(server_address, _ClientApiHandler)
         self.coordinator = coordinator
+        self.auth_policy = ClientApiAuthPolicy(access_token=access_token)
 
 
-def serve_client_api(*, host: str = "127.0.0.1", port: int = 8765) -> None:
-    """Start the local client API HTTP server."""
+def serve_client_api(
+    *,
+    host: str = "127.0.0.1",
+    port: int = 8765,
+    access_token: str | None = None,
+) -> None:
+    """Start the Client API, refusing unauthenticated non-loopback binds."""
 
+    resolved_token = resolve_client_api_access_token(access_token)
+    validate_client_api_bind(host=host, access_token=resolved_token)
     coordinator = ClientApiCoordinator()
-    server = ClientApiHttpServer((host, port), coordinator)
-    print(f"openppx client-api listening on http://{host}:{port}", flush=True)
+    server = ClientApiHttpServer((host, port), coordinator, access_token=resolved_token)
+    auth_status = "required" if resolved_token else "disabled (loopback development only)"
+    print(f"openppx client-api listening on http://{host}:{port} (authentication: {auth_status})", flush=True)
     try:
         server.serve_forever()
     except KeyboardInterrupt:

@@ -4663,8 +4663,12 @@ def main(argv: list[str] | None = None) -> None:
         help="Run the local HTTP + SSE client API service.",
     )
     client_api_subparsers = client_api_parser.add_subparsers(dest="client_api_command", required=True)
-    client_api_serve_parser = client_api_subparsers.add_parser("serve", help="Start the local client API server.")
-    client_api_serve_parser.add_argument("--host", default="127.0.0.1", help="Bind host (default: 127.0.0.1).")
+    client_api_serve_parser = client_api_subparsers.add_parser("serve", help="Start the OpenPPX Client API server.")
+    client_api_serve_parser.add_argument(
+        "--host",
+        default="127.0.0.1",
+        help="Bind host; non-loopback values require OPENPPX_CLIENT_API_TOKEN.",
+    )
     client_api_serve_parser.add_argument("--port", type=int, default=8765, help="Bind port (default: 8765).")
     client_api_access_parser = client_api_subparsers.add_parser(
         "access",
@@ -5064,8 +5068,13 @@ def main(argv: list[str] | None = None) -> None:
         if args.client_api_command == "serve":
             from ..runtime.client_api_service import serve_client_api
 
-            serve_client_api(host=args.host, port=args.port)
-            code = 0
+            try:
+                serve_client_api(host=args.host, port=args.port)
+            except ValueError as exc:
+                print(f"Error: {exc}", file=sys.stderr)
+                code = 2
+            else:
+                code = 0
         elif args.client_api_command == "access":
             if args.client_api_access_command == "get":
                 code = _cmd_client_api_access_get(

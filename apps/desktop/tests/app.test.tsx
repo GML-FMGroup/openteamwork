@@ -69,6 +69,10 @@ function buildDiagnostics(): ClientDiagnostics {
     clientApiProductVersion: "0.4",
     clientApiProtocolVersion: 1,
     clientApiCompatibility: "compatible",
+    clientApiAuthState: "authenticated",
+    clientApiCredentialConfigured: true,
+    nodeId: "node_test",
+    nodeName: "This Mac",
     clientApiProcessRunning: true,
     bridgeScriptPath: "/tmp/ppx-client/scripts/openppx_bridge.py",
     bridgeScriptExists: true,
@@ -86,6 +90,7 @@ function installClient(overrides: Partial<PpxClientApi> = {}): { client: PpxClie
   const client: PpxClientApi = {
     bootstrap: async () => buildBootstrapPayload(),
     getDiagnostics: async () => buildDiagnostics(),
+    testConnectionSettings: async () => buildDiagnostics(),
     saveConnectionSettings: async () => buildDiagnostics(),
     runRuntimeCommand: async () => buildBootstrapPayload().runtime,
     listSessions: async () => ({ sessions: buildBootstrapPayload().sessions }),
@@ -493,11 +498,11 @@ describe("App sending state", () => {
     expect(screen.getByText("0.4")).toBeInTheDocument();
   });
 
-  it("renders remote target diagnostics when provided", async () => {
+  it("renders LAN target diagnostics when provided", async () => {
     installClient({
       getDiagnostics: async () => ({
         ...buildDiagnostics(),
-        mode: "remote",
+        mode: "lan",
         target: { id: "remote-default", type: "remote", name: "Ops Gateway" },
         clientApiManagedByClient: false,
         clientApiBaseUrl: "http://10.0.0.8:8765",
@@ -510,14 +515,14 @@ describe("App sending state", () => {
     await screen.findByRole("button", { name: "发送" });
     fireEvent.click(screen.getByRole("button", { name: "设置" }));
 
-    await screen.findByText("Ops Gateway (remote)");
-    expect(screen.getByText("external / remote")).toBeInTheDocument();
+    await screen.findByText("Ops Gateway (lan)");
+    expect(screen.getByText("external / LAN")).toBeInTheDocument();
   });
 
   it("saves connection settings from the settings form", async () => {
     const saveConnectionSettings = vi.fn(async () => ({
       ...buildDiagnostics(),
-      mode: "remote" as const,
+      mode: "lan" as const,
       target: { id: "remote-ops-gateway", type: "remote" as const, name: "Ops Gateway" },
       clientApiManagedByClient: false,
       clientApiBaseUrl: "http://10.0.0.8:8765",
@@ -546,18 +551,53 @@ describe("App sending state", () => {
     fireEvent.change(screen.getByDisplayValue("http://127.0.0.1:8765"), {
       target: { value: "http://10.0.0.8:8765" },
     });
-    fireEvent.change(screen.getByDisplayValue("local"), {
-      target: { value: "remote" },
+    fireEvent.change(screen.getByLabelText("运行位置"), {
+      target: { value: "lan" },
+    });
+    fireEvent.change(screen.getByLabelText("Access Token"), {
+      target: { value: "test-token" },
     });
     fireEvent.click(screen.getByRole("button", { name: "保存并应用" }));
 
     await waitFor(() => {
       expect(saveConnectionSettings).toHaveBeenCalledWith({
-        targetType: "remote",
-        targetId: "remote-ops-gateway",
+        targetType: "lan",
+        targetId: "lan-ops-gateway",
         targetName: "Ops Gateway",
         clientApiBaseUrl: "http://10.0.0.8:8765",
+        accessToken: "test-token",
       });
     });
+  });
+
+  it("tests a LAN connection without saving it", async () => {
+    const testConnectionSettings = vi.fn(async () => ({
+      ...buildDiagnostics(),
+      mode: "lan" as const,
+      target: { id: "lan-studio", type: "remote" as const, name: "Studio Node" },
+      nodeName: "Studio Node",
+    }));
+    const saveConnectionSettings = vi.fn(async () => buildDiagnostics());
+    installClient({ testConnectionSettings, saveConnectionSettings });
+
+    render(<App />);
+    await screen.findByRole("button", { name: "发送" });
+    fireEvent.click(screen.getByRole("button", { name: "设置" }));
+    fireEvent.change(screen.getByLabelText("运行位置"), { target: { value: "lan" } });
+    fireEvent.change(screen.getByDisplayValue("http://127.0.0.1:8765"), {
+      target: { value: "http://192.168.1.8:8765" },
+    });
+    fireEvent.change(screen.getByLabelText("Access Token"), { target: { value: "secret" } });
+    fireEvent.click(screen.getByRole("button", { name: "测试连接" }));
+
+    await screen.findByText(/连接成功：Studio Node/);
+    expect(testConnectionSettings).toHaveBeenCalledWith(
+      expect.objectContaining({
+        targetType: "lan",
+        clientApiBaseUrl: "http://192.168.1.8:8765",
+        accessToken: "secret",
+      }),
+    );
+    expect(saveConnectionSettings).not.toHaveBeenCalled();
   });
 });

@@ -1,37 +1,19 @@
 import { app, BrowserWindow, ipcMain } from "electron";
-import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import type { ConnectionSettings, RuntimeCommand, SendMessageInput } from "../../app/src/types";
 import { OpenPpxLocalAdapter } from "./openppx-local-adapter";
+import {
+  readSecureConnectionSettings,
+  resolveCandidateConnectionSettings,
+  writeSecureConnectionSettings,
+} from "./secure-connection-store";
 
 let mainWindow: BrowserWindow | null = null;
 let unsubscribeRunEvents: (() => void) | null = null;
 let adapter: OpenPpxLocalAdapter | null = null;
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-
-function connectionSettingsPath(): string {
-  return path.join(app.getPath("userData"), "connection-settings.json");
-}
-
-function readConnectionSettings(): ConnectionSettings | null {
-  try {
-    const filePath = connectionSettingsPath();
-    if (!fs.existsSync(filePath)) {
-      return null;
-    }
-    return JSON.parse(fs.readFileSync(filePath, "utf-8")) as ConnectionSettings;
-  } catch {
-    return null;
-  }
-}
-
-function writeConnectionSettings(settings: ConnectionSettings): void {
-  const filePath = connectionSettingsPath();
-  fs.mkdirSync(path.dirname(filePath), { recursive: true });
-  fs.writeFileSync(filePath, JSON.stringify(settings, null, 2), "utf-8");
-}
 
 function createWindow(): void {
   const preloadPath = process.env.VITE_DEV_SERVER_URL
@@ -56,7 +38,7 @@ function createWindow(): void {
     },
   });
 
-  adapter = new OpenPpxLocalAdapter(readConnectionSettings() ?? undefined);
+  adapter = new OpenPpxLocalAdapter(readSecureConnectionSettings() ?? undefined);
   unsubscribeRunEvents = adapter.onRunEvent((event) => {
     mainWindow?.webContents.send("ppx-client:run-event", event);
   });
@@ -71,9 +53,15 @@ function createWindow(): void {
 app.whenReady().then(() => {
   ipcMain.handle("ppx-client:bootstrap", async () => adapter!.bootstrap());
   ipcMain.handle("ppx-client:get-diagnostics", async () => adapter!.getDiagnostics());
+  ipcMain.handle("ppx-client:test-connection-settings", async (_event, settings: ConnectionSettings) => {
+    const candidate = resolveCandidateConnectionSettings(settings);
+    return adapter!.testConnectionSettings(candidate);
+  });
   ipcMain.handle("ppx-client:save-connection-settings", async (_event, settings: ConnectionSettings) => {
-    writeConnectionSettings(settings);
-    adapter!.applyConnectionSettings(settings);
+    const candidate = resolveCandidateConnectionSettings(settings);
+    await adapter!.testConnectionSettings(candidate);
+    writeSecureConnectionSettings(candidate);
+    adapter!.applyConnectionSettings(candidate);
     return adapter!.getDiagnostics();
   });
   ipcMain.handle("ppx-client:runtime-command", async (_event, command: RuntimeCommand) =>

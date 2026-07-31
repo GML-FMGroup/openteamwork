@@ -1,9 +1,11 @@
 import {
   CLIENT_API_PROTOCOL_VERSION,
   parseClientApiHandshake,
+  parseClientApiNodeInfo,
 } from "../app/src/lib/client-api-contract";
 import healthIncompatible from "../../../contracts/client-api/fixtures/health-incompatible.json";
 import healthV1 from "../../../contracts/client-api/fixtures/health-v1.json";
+import nodeV1 from "../../../contracts/client-api/fixtures/node-v1.json";
 
 describe("Client API protocol contract", () => {
   it("accepts the shared protocol v1 health fixture", () => {
@@ -31,5 +33,18 @@ describe("Client API protocol contract", () => {
         data: { service: "openppx-client-api", product_version: "0.4", ready: true, state: "healthy" },
       }),
     ).toThrow(/protocol_version/);
+  });
+
+  it("accepts authenticated Node metadata from the shared fixture", () => {
+    const node = parseClientApiNodeInfo(nodeV1);
+
+    expect(node).toMatchObject({
+      nodeId: "node_0123456789abcdef0123456789abcdef",
+      displayName: "Studio Mac",
+      protocolMin: 1,
+      protocolMax: 1,
+      compatibility: "compatible",
+      authenticationRequired: true,
+    });
   });
 });

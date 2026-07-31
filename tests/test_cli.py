@@ -69,6 +69,19 @@ def tearDownModule() -> None:
 
 
 class CLITests(unittest.TestCase):
+    def test_client_api_serve_reports_unsafe_bind_without_traceback(self) -> None:
+        from openppx import cli
+
+        with patch(
+            "openppx.runtime.client_api_service.serve_client_api",
+            side_effect=ValueError("unsafe bind"),
+        ) as mocked_serve:
+            with self.assertRaises(SystemExit) as ctx:
+                cli.main(["client-api", "serve", "--host", "0.0.0.0"])
+
+        self.assertEqual(ctx.exception.code, 2)
+        mocked_serve.assert_called_once_with(host="0.0.0.0", port=8765)
+
     def test_message_mode_dispatch(self) -> None:
         from openppx import cli
 

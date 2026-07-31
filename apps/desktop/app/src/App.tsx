@@ -10,6 +10,7 @@ import type {
   SessionSummary,
 } from "./types";
 import { MessageBubble } from "./components/MessageBubble";
+import { normalizeConnectionSettings } from "./lib/connection-profile";
 
 type NavView = "chat" | "settings";
 
@@ -70,35 +71,11 @@ function runtimeActionLabel(state: RuntimeState): string {
 
 function buildConnectionSettings(diagnostics: ClientDiagnostics | null): ConnectionSettings {
   return {
-    targetType: diagnostics?.target.type ?? "local",
+    targetType: diagnostics?.mode === "lan" ? "lan" : "local",
     targetId: diagnostics?.target.id ?? "local-default",
     targetName: diagnostics?.target.name ?? "This Mac",
     clientApiBaseUrl: diagnostics?.clientApiBaseUrl ?? "http://127.0.0.1:8765",
-  };
-}
-
-function normalizeConnectionSettings(settings: ConnectionSettings): ConnectionSettings {
-  const targetType = settings.targetType;
-  const targetName = settings.targetName.trim() || (targetType === "remote" ? "Remote Gateway" : "This Mac");
-  const normalizedName =
-    targetName
-      .toLowerCase()
-      .replace(/[^a-z0-9_-]+/g, "-")
-      .replace(/^-+|-+$/g, "") || "default";
-  const existingId = settings.targetId.trim();
-  const targetId =
-    !existingId ||
-    existingId === "local-default" ||
-    existingId === "remote-default" ||
-    !existingId.startsWith(`${targetType}-`)
-      ? `${targetType}-${normalizedName}`
-      : existingId;
-  const clientApiBaseUrl = settings.clientApiBaseUrl.trim() || "http://127.0.0.1:8765";
-  return {
-    targetType,
-    targetId,
-    targetName,
-    clientApiBaseUrl,
+    accessToken: "",
   };
 }
 
@@ -133,6 +110,8 @@ export function App() {
   const [sendingSessionIds, setSendingSessionIds] = useState<string[]>([]);
   const [connectionForm, setConnectionForm] = useState<ConnectionSettings>(buildConnectionSettings(null));
   const [savingConnection, setSavingConnection] = useState(false);
+  const [testingConnection, setTestingConnection] = useState(false);
+  const [connectionFeedback, setConnectionFeedback] = useState<string | null>(null);
   const switchRequestIdRef = useRef(0);
   const agentsDropdownRef = useRef<HTMLDivElement | null>(null);
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
@@ -365,15 +344,19 @@ export function App() {
   }
 
   async function handleConnectionSave(): Promise<void> {
-    const nextSettings = normalizeConnectionSettings(connectionForm);
     setSavingConnection(true);
+    setConnectionFeedback(null);
     try {
+      const nextSettings = normalizeConnectionSettings(connectionForm);
       const nextDiagnostics = await window.ppxClient.saveConnectionSettings(nextSettings);
       setDiagnostics(nextDiagnostics);
-      const nextRuntime = await window.ppxClient.runRuntimeCommand("restart");
-      setRuntime(nextRuntime);
+      setConnectionForm(buildConnectionSettings(nextDiagnostics));
+      if (nextSettings.targetType === "local") {
+        await window.ppxClient.runRuntimeCommand("restart");
+      }
       try {
         const payload = await window.ppxClient.bootstrap();
+        setRuntime(payload.runtime);
         setAgents(payload.agents);
         setSessions(payload.sessions);
         setMessages(payload.messages);
@@ -386,8 +369,27 @@ export function App() {
         setSelectedAgentId("");
         setSelectedSessionId("");
       }
+      setConnectionFeedback(`已连接 ${nextDiagnostics.nodeName ?? nextDiagnostics.target.name}。`);
+    } catch (error) {
+      setConnectionFeedback(error instanceof Error ? error.message : String(error));
     } finally {
       setSavingConnection(false);
+    }
+  }
+
+  async function handleConnectionTest(): Promise<void> {
+    setTestingConnection(true);
+    setConnectionFeedback(null);
+    try {
+      const nextSettings = normalizeConnectionSettings(connectionForm);
+      const nextDiagnostics = await window.ppxClient.testConnectionSettings(nextSettings);
+      setConnectionFeedback(
+        `连接成功：${nextDiagnostics.nodeName ?? nextDiagnostics.target.name} · ${nextDiagnostics.clientApiProductVersion ?? "unknown"}`,
+      );
+    } catch (error) {
+      setConnectionFeedback(error instanceof Error ? error.message : String(error));
+    } finally {
+      setTestingConnection(false);
     }
   }
 
@@ -697,7 +699,7 @@ export function App() {
                 <section className="settings-card">
                   <div className="eyebrow">settings</div>
                   <h2>第一版设置</h2>
-                  <p>当前以本地模式为主，但已经补了远程 target 的接入准备。这里会直接展示当前 gateway 和 transport 的真实诊断信息。</p>
+                  <p>可以在这台电脑运行 OpenPPX Node，也可以连接可信局域网中的另一台机器。局域网模式需要 Bearer Token。</p>
                   <div className="runtime-actions">
                     <button onClick={() => void refreshDiagnostics()}>刷新诊断</button>
                   </div>
@@ -706,18 +708,19 @@ export function App() {
                   <h3>Connection config</h3>
                   <div className="settings-form">
                     <label className="settings-field">
-                      <span>Target type</span>
+                      <span>运行位置</span>
                       <select
                         value={connectionForm.targetType}
                         onChange={(event) =>
                           setConnectionForm((current) => ({
                             ...current,
-                            targetType: event.target.value === "remote" ? "remote" : "local",
+                            targetType: event.target.value === "lan" ? "lan" : "local",
+                            accessToken: "",
                           }))
                         }
                       >
-                        <option value="local">local</option>
-                        <option value="remote">remote</option>
+                        <option value="local">在这台电脑运行</option>
+                        <option value="lan">连接局域网 OpenPPX Node</option>
                       </select>
                     </label>
                     <label className="settings-field">
@@ -738,12 +741,38 @@ export function App() {
                         placeholder="http://127.0.0.1:8765"
                       />
                     </label>
+                    {connectionForm.targetType === "lan" && (
+                      <label className="settings-field">
+                        <span>Access Token</span>
+                        <input
+                          type="password"
+                          autoComplete="new-password"
+                          value={connectionForm.accessToken ?? ""}
+                          onChange={(event) =>
+                            setConnectionForm((current) => ({ ...current, accessToken: event.target.value }))
+                          }
+                          placeholder={
+                            diagnostics?.mode === "lan" && diagnostics.clientApiCredentialConfigured
+                              ? "已安全保存；留空保持原 Token"
+                              : "输入远端 OPENPPX_CLIENT_API_TOKEN"
+                          }
+                        />
+                      </label>
+                    )}
                   </div>
                   <div className="runtime-actions">
-                    <button onClick={() => void handleConnectionSave()} disabled={savingConnection}>
+                    <button
+                      className="secondary"
+                      onClick={() => void handleConnectionTest()}
+                      disabled={savingConnection || testingConnection}
+                    >
+                      {testingConnection ? "测试中" : "测试连接"}
+                    </button>
+                    <button onClick={() => void handleConnectionSave()} disabled={savingConnection || testingConnection}>
                       {savingConnection ? "保存中" : "保存并应用"}
                     </button>
                   </div>
+                  {connectionFeedback && <small>{connectionFeedback}</small>}
                 </section>
                 <section className="settings-card">
                   <h3>Runtime status</h3>
@@ -764,7 +793,7 @@ export function App() {
                   <dl className="diagnostics-grid">
                     <div>
                       <dt>Target</dt>
-                      <dd>{diagnostics ? `${diagnostics.target.name} (${diagnostics.target.type})` : "-"}</dd>
+                      <dd>{diagnostics ? `${diagnostics.target.name} (${diagnostics.mode})` : "-"}</dd>
                     </div>
                     <div>
                       <dt>Mode</dt>
@@ -787,12 +816,20 @@ export function App() {
                       <dd>{diagnostics?.clientApiProductVersion ?? "-"}</dd>
                     </div>
                     <div>
+                      <dt>Authentication</dt>
+                      <dd>{diagnostics?.clientApiAuthState ?? "unknown"}</dd>
+                    </div>
+                    <div>
+                      <dt>Node</dt>
+                      <dd>{diagnostics?.nodeName ?? "-"}</dd>
+                    </div>
+                    <div>
                       <dt>Process</dt>
                       <dd>{diagnostics?.clientApiProcessRunning ? "running" : "not managed"}</dd>
                     </div>
                     <div>
                       <dt>Gateway control</dt>
-                      <dd>{diagnostics?.clientApiManagedByClient ? "managed by client" : "external / remote"}</dd>
+                      <dd>{diagnostics?.clientApiManagedByClient ? "managed by client" : "external / LAN"}</dd>
                     </div>
                     <div>
                       <dt>Agents</dt>

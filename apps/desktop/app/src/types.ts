@@ -28,7 +28,7 @@ export interface RuntimeStatus {
 }
 
 export interface ClientDiagnostics {
-  mode: "local" | "remote" | "mock";
+  mode: "local" | "lan" | "mock";
   target: ConnectionTarget;
   openppxRoot: string;
   openppxRootExists: boolean;
@@ -42,6 +42,10 @@ export interface ClientDiagnostics {
   clientApiProtocolVersion?: number;
   clientApiCompatibility?: "compatible" | "incompatible" | "unknown";
   clientApiLastError?: string;
+  clientApiAuthState?: "authenticated" | "not-required" | "missing" | "unauthorized" | "unknown";
+  clientApiCredentialConfigured?: boolean;
+  nodeId?: string;
+  nodeName?: string;
   clientApiProcessRunning: boolean;
   bridgeScriptPath: string;
   bridgeScriptExists: boolean;
@@ -54,10 +58,11 @@ export interface ClientDiagnostics {
 }
 
 export interface ConnectionSettings {
-  targetType: "local" | "remote";
+  targetType: "local" | "lan";
   targetId: string;
   targetName: string;
   clientApiBaseUrl: string;
+  accessToken?: string;
 }
 
 export interface AgentProfile {
@@ -133,6 +138,7 @@ export interface SendMessageInput {
 export interface PpxClientApi {
   bootstrap(): Promise<BootstrapPayload>;
   getDiagnostics(): Promise<ClientDiagnostics>;
+  testConnectionSettings(settings: ConnectionSettings): Promise<ClientDiagnostics>;
   saveConnectionSettings(settings: ConnectionSettings): Promise<ClientDiagnostics>;
   runRuntimeCommand(command: RuntimeCommand): Promise<RuntimeStatus>;
   listSessions(agentId: string): Promise<{ sessions: SessionSummary[] }>;
