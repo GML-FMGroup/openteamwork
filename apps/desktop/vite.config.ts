@@ -21,6 +21,20 @@ export default defineConfig({
           },
         },
       },
+      {
+        entry: "electron/preload/index.ts",
+        vite: {
+          build: {
+            outDir: "dist-electron/preload",
+            emptyOutDir: false,
+            lib: {
+              entry: "electron/preload/index.ts",
+              formats: ["cjs"],
+              fileName: () => "index.cjs",
+            },
+          },
+        },
+      },
     ]),
     renderer(),
   ],

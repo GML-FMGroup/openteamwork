@@ -771,6 +771,10 @@ export function App() {
                       </dd>
                     </div>
                     <div>
+                      <dt>Desktop version</dt>
+                      <dd>{diagnostics?.desktopVersion ?? "-"}</dd>
+                    </div>
+                    <div>
                       <dt>Node version</dt>
                       <dd>{diagnostics?.clientApiProductVersion ?? "-"}</dd>
                     </div>

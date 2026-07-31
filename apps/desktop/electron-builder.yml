@@ -1,0 +1,34 @@
+appId: com.openppx.desktop
+productName: OpenPPX Desktop
+artifactName: OpenPPX-Desktop-${version}-${os}-${arch}.${ext}
+
+directories:
+  buildResources: build
+  output: release
+
+files:
+  - dist/**/*
+  - dist-electron/**/*
+  - package.json
+
+asar: true
+
+mac:
+  category: public.app-category.developer-tools
+  icon: build/icon.svg
+  identity: null
+  target:
+    - target: dmg
+      arch:
+        - arm64
+
+dmg:
+  title: OpenPPX Desktop ${version}
+  iconSize: 112
+  contents:
+    - x: 140
+      y: 180
+    - x: 400
+      y: 180
+      type: link
+      path: /Applications

@@ -2,6 +2,8 @@
 
 OpenPPX Desktop 是 OpenPPX monorepo 中的桌面客户端，支持管理本机 OpenPPX Node，也支持连接可信局域网中另一台机器上的 Node。
 
+当前桌面版本为 `0.5.0-beta.1` Developer Preview。它是前后端分离的薄客户端：安装包只包含 Desktop，不包含 Python 后端、Agent 配置或用户数据。
+
 当前版本聚焦这几条主路径：
 
 - runtime 状态
@@ -31,7 +33,7 @@ Renderer (React)
 
 客户端不会再自动展示 mock 数据，也不会静默回退到 legacy Python bridge。两者只保留为显式的开发调试模式。
 
-## 前置条件
+## 开发前置条件
 
 - 已安装 `Node.js`
 - 已安装 `pnpm`
@@ -80,6 +82,41 @@ pnpm desktop:build
 ```bash
 pnpm desktop:test
 ```
+
+## 构建 Developer Preview
+
+当前打包目标是未签名的 macOS Apple Silicon（arm64）Developer Preview。
+
+先构建可直接检查的 `.app`：
+
+```bash
+pnpm desktop:package:dir
+```
+
+再生成 DMG：
+
+```bash
+pnpm desktop:package
+pnpm desktop:checksum
+```
+
+产物位于 `apps/desktop/release/`，其中包括：
+
+- `OpenPPX-Desktop-0.5.0-beta.1-mac-arm64.dmg`
+- 对应的 `.blockmap`
+- `SHA256SUMS.txt`
+
+可在发布前验证 DMG 和校验清单：
+
+```bash
+hdiutil verify apps/desktop/release/OpenPPX-Desktop-0.5.0-beta.1-mac-arm64.dmg
+cd apps/desktop/release
+shasum -a 256 -c SHA256SUMS.txt
+```
+
+`release/` 是本地构建目录，不进入 Git。当前候选没有 Apple Developer ID 签名和 notarization，因此 macOS 可能显示来源验证提示；它适合开发者测试，不应被描述成正式稳定版。
+
+安装 Desktop 后仍需单独运行 OpenPPX Node。Desktop 可以连接同一台机器上的 Node，也可以连接可信局域网中另一台机器上的 Node。
 
 ## 配合后端启动
 
@@ -246,9 +283,9 @@ pnpm desktop:dev
 
 如果之前改过 Electron 相关代码，记得先停掉旧的 dev 进程再重启。
 
-### 3. 启动后进入 mock mode
+### 3. 启动后显示本地 Node 离线
 
-说明客户端没有找到可用的本地 `openppx` 运行环境。优先检查：
+正式构建不会自动回退到 mock。优先检查：
 
 - `OPENPPX_ROOT` 是否正确
 - `openppx_root/.venv` 是否存在
@@ -280,9 +317,9 @@ ppx client-api serve --host 127.0.0.1 --port 8765
 但当前还属于“第一版可用”阶段，后面还会继续补：
 
 - 多 target 管理
-- 远端认证
+- 自动发现与配对
 - 更完整的 tool / attachment 展示
-- 更正式的 remote gateway 使用方式
+- TLS、SSH tunnel、Tailnet 或公网 Relay 等远程连接方式
 
 ## 说明
 

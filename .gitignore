@@ -18,6 +18,8 @@ uv.lock
 
 # Build / packaging
 build/
+!apps/desktop/build/
+!apps/desktop/build/icon.svg
 dist/
 *.egg-info/
 *.egg

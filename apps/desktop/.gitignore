@@ -1,6 +1,7 @@
 node_modules
 dist
 dist-electron
+release
 coverage
 .DS_Store
 __pycache__/

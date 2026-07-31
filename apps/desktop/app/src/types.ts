@@ -28,6 +28,7 @@ export interface RuntimeStatus {
 }
 
 export interface ClientDiagnostics {
+  desktopVersion?: string;
   mode: "local" | "lan" | "mock";
   target: ConnectionTarget;
   openppxRoot: string;

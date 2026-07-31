@@ -8,6 +8,7 @@
 - [CONFIGURATION.md](./CONFIGURATION.md): configuration model, environment variables, examples, and platform notes
 - [SANDBOX.md](./SANDBOX.md): Docker sandbox build, usage, security boundary, diagnostics, and testing
 - [MCP_SECURITY.md](./MCP_SECURITY.md): MCP integration and security policy
+- [OpenPPX Desktop v0.5.0-beta.1](./releases/v0.5.0-beta.1.md): Developer Preview scope, validation, and known limitations
 
 ## Maintenance Guidance
 

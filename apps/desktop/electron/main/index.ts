@@ -1,7 +1,12 @@
 import { app, BrowserWindow, ipcMain } from "electron";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import type { ConnectionSettings, RuntimeCommand, SendMessageInput } from "../../app/src/types";
+import type {
+  ClientDiagnostics,
+  ConnectionSettings,
+  RuntimeCommand,
+  SendMessageInput,
+} from "../../app/src/types";
 import { OpenPpxLocalAdapter } from "./openppx-local-adapter";
 import {
   readSecureConnectionSettings,
@@ -15,10 +20,15 @@ let adapter: OpenPpxLocalAdapter | null = null;
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+app.setName("OpenPPX Desktop");
+
+/** Attach the packaged Desktop version to Main-owned runtime diagnostics. */
+function withDesktopVersion(diagnostics: ClientDiagnostics): ClientDiagnostics {
+  return { ...diagnostics, desktopVersion: app.getVersion() };
+}
+
 function createWindow(): void {
-  const preloadPath = process.env.VITE_DEV_SERVER_URL
-    ? path.resolve(process.cwd(), "electron/preload/index.cjs")
-    : path.join(__dirname, "../preload/index.cjs");
+  const preloadPath = path.join(__dirname, "../preload/index.cjs");
   const isMac = process.platform === "darwin";
 
   mainWindow = new BrowserWindow({
@@ -27,14 +37,14 @@ function createWindow(): void {
     minWidth: 960,
     minHeight: 760,
     backgroundColor: "#f4efe5",
-    title: "ppx-client",
+    title: "OpenPPX Desktop",
     titleBarStyle: isMac ? "hiddenInset" : "default",
     trafficLightPosition: isMac ? { x: 22, y: 22 } : undefined,
     webPreferences: {
       preload: preloadPath,
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: false,
+      sandbox: true,
     },
   });
 
@@ -46,23 +56,23 @@ function createWindow(): void {
   if (process.env.VITE_DEV_SERVER_URL) {
     void mainWindow.loadURL(process.env.VITE_DEV_SERVER_URL);
   } else {
-    void mainWindow.loadFile(path.join(__dirname, "../../index.html"));
+    void mainWindow.loadFile(path.join(__dirname, "../../dist/index.html"));
   }
 }
 
 app.whenReady().then(() => {
   ipcMain.handle("ppx-client:bootstrap", async () => adapter!.bootstrap());
-  ipcMain.handle("ppx-client:get-diagnostics", async () => adapter!.getDiagnostics());
+  ipcMain.handle("ppx-client:get-diagnostics", async () => withDesktopVersion(await adapter!.getDiagnostics()));
   ipcMain.handle("ppx-client:test-connection-settings", async (_event, settings: ConnectionSettings) => {
     const candidate = resolveCandidateConnectionSettings(settings);
-    return adapter!.testConnectionSettings(candidate);
+    return withDesktopVersion(await adapter!.testConnectionSettings(candidate));
   });
   ipcMain.handle("ppx-client:save-connection-settings", async (_event, settings: ConnectionSettings) => {
     const candidate = resolveCandidateConnectionSettings(settings);
     await adapter!.testConnectionSettings(candidate);
     writeSecureConnectionSettings(candidate);
     adapter!.applyConnectionSettings(candidate);
-    return adapter!.getDiagnostics();
+    return withDesktopVersion(await adapter!.getDiagnostics());
   });
   ipcMain.handle("ppx-client:runtime-command", async (_event, command: RuntimeCommand) =>
     adapter!.runRuntimeCommand(command),
