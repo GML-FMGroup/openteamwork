@@ -775,6 +775,18 @@ export function App() {
                       <dd>{diagnostics?.clientApiHealthy ? "healthy" : "offline"}</dd>
                     </div>
                     <div>
+                      <dt>Protocol</dt>
+                      <dd>
+                        {diagnostics?.clientApiProtocolVersion === undefined
+                          ? "-"
+                          : `v${diagnostics.clientApiProtocolVersion} / ${diagnostics.clientApiCompatibility ?? "unknown"}`}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt>Node version</dt>
+                      <dd>{diagnostics?.clientApiProductVersion ?? "-"}</dd>
+                    </div>
+                    <div>
                       <dt>Process</dt>
                       <dd>{diagnostics?.clientApiProcessRunning ? "running" : "not managed"}</dd>
                     </div>
@@ -829,6 +841,16 @@ export function App() {
                       <dd>{diagnostics?.debugEnabled ? "enabled" : "off"}</dd>
                     </div>
                     <div>
+                      <dt>Dev fallbacks</dt>
+                      <dd>
+                        {diagnostics?.mockEnabled
+                          ? "mock"
+                          : diagnostics?.legacyBridgeEnabled
+                            ? "legacy bridge"
+                            : "off"}
+                      </dd>
+                    </div>
+                    <div>
                       <dt>Session cache</dt>
                       <dd>{diagnostics?.sessionCacheEntries ?? 0}</dd>
                     </div>
@@ -839,6 +861,10 @@ export function App() {
                     <div>
                       <dt>Client API URL</dt>
                       <dd>{diagnostics?.clientApiBaseUrl || "-"}</dd>
+                    </div>
+                    <div>
+                      <dt>Last API error</dt>
+                      <dd>{diagnostics?.clientApiLastError || "-"}</dd>
                     </div>
                   </dl>
                 </section>

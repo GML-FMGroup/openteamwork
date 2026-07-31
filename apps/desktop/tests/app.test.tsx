@@ -66,6 +66,9 @@ function buildDiagnostics(): ClientDiagnostics {
     clientApiBaseUrl: "http://127.0.0.1:8765",
     clientApiManagedByClient: true,
     clientApiHealthy: true,
+    clientApiProductVersion: "0.4",
+    clientApiProtocolVersion: 1,
+    clientApiCompatibility: "compatible",
     clientApiProcessRunning: true,
     bridgeScriptPath: "/tmp/ppx-client/scripts/openppx_bridge.py",
     bridgeScriptExists: true,
@@ -73,6 +76,8 @@ function buildDiagnostics(): ClientDiagnostics {
     sessionCacheEntries: 1,
     messageCacheEntries: 1,
     debugEnabled: false,
+    mockEnabled: false,
+    legacyBridgeEnabled: false,
   };
 }
 
@@ -484,6 +489,8 @@ describe("App sending state", () => {
     expect(screen.getByText("http://127.0.0.1:8765")).toBeInTheDocument();
     expect(screen.getByText("/tmp/openppx_root")).toBeInTheDocument();
     expect(screen.getByText("This Mac (local)")).toBeInTheDocument();
+    expect(screen.getByText("v1 / compatible")).toBeInTheDocument();
+    expect(screen.getByText("0.4")).toBeInTheDocument();
   });
 
   it("renders remote target diagnostics when provided", async () => {

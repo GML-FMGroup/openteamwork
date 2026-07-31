@@ -22,6 +22,7 @@ from .access_policy import AccessPolicy
 from .agent_access_runtime import ensure_access_principal
 from .agent_access_runtime import ensure_agent_access_record
 from .agent_access_store import AgentAccessStore, AgentMembership, AgentRecord
+from .client_api_contract import build_client_api_health_data
 from .identity_models import ResolvedPrincipal
 from .identity_store import IdentityStore
 from .memory_query_service import MemoryQueryService
@@ -970,16 +971,14 @@ class ClientApiCoordinator:
         return _error("SESSION_NOT_FOUND", f"Session '{session_id}' was not found.")
 
     def health(self) -> dict[str, Any]:
-        """Return a lightweight health payload."""
+        """Return the versioned Client API readiness handshake."""
 
         return _ok(
-            {
-                "service": "openppx-client-api",
-                "state": "healthy",
-                "data_dir": str(self.data_dir),
-                "agents": len(list_enabled_agent_names(self.data_dir)),
-                "timestamp": _iso_now(),
-            }
+            build_client_api_health_data(
+                data_dir=self.data_dir,
+                agents=len(list_enabled_agent_names(self.data_dir)),
+                timestamp=_iso_now(),
+            )
         )
 
     def runtime_status(self) -> dict[str, Any]:
@@ -2217,7 +2216,7 @@ class ClientApiCoordinator:
 class _ClientApiHandler(BaseHTTPRequestHandler):
     """HTTP request handler bound to one coordinator instance."""
 
-    server_version = "OpenPpxClientApi/0.1"
+    server_version = "OpenPpxClientApi/1"
 
     @property
     def coordinator(self) -> ClientApiCoordinator:

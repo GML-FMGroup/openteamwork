@@ -278,6 +278,7 @@ export async function getDiagnostics(): Promise<ClientDiagnostics> {
     clientApiBaseUrl: "http://127.0.0.1:8765",
     clientApiManagedByClient: false,
     clientApiHealthy: false,
+    clientApiCompatibility: "unknown",
     clientApiProcessRunning: false,
     bridgeScriptPath: "",
     bridgeScriptExists: false,
@@ -285,6 +286,8 @@ export async function getDiagnostics(): Promise<ClientDiagnostics> {
     sessionCacheEntries: 0,
     messageCacheEntries: 0,
     debugEnabled: false,
+    mockEnabled: true,
+    legacyBridgeEnabled: false,
   };
 }
 

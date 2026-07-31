@@ -277,7 +277,7 @@ pnpm desktop:typecheck
 pnpm desktop:build
 ```
 
-The Electron/React desktop source lives in [`apps/desktop/`](./apps/desktop/). It remains separated from the Python/Google ADK backend through the client API.
+The Electron/React desktop source lives in [`apps/desktop/`](./apps/desktop/). It remains separated from the Python/Google ADK backend through the versioned [Client API contract](./contracts/client-api/README.md). Mock data and the legacy bridge are explicit development modes rather than automatic production fallbacks.
 
 Developer smoke checks:
 

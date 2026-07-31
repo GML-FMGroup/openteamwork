@@ -19,6 +19,11 @@ import {
   normalizeClientApiSession,
 } from "../../app/src/lib/client-api-projection";
 import {
+  CLIENT_API_PROTOCOL_VERSION,
+  parseClientApiHandshake,
+  type ClientApiHandshake,
+} from "../../app/src/lib/client-api-contract";
+import {
   buildMessagePartsFromSessionEvent,
   mergeAssistantParts,
   projectBridgeEventToStepParts,
@@ -39,6 +44,11 @@ import type {
   SendMessageInput,
   SessionSummary,
 } from "../../app/src/types";
+import {
+  canUseLegacyBridge,
+  resolveDesktopDevelopmentModes,
+  shouldStartManagedClientApi,
+} from "./development-modes";
 
 type EventSink = (event: RunEvent) => void;
 type StepPart = Extract<MessagePart, { type: "step_ref" }>;
@@ -57,6 +67,17 @@ interface GlobalAgentConfig {
 
 function now(): string {
   return new Date().toISOString();
+}
+
+function emptyBootstrap(runtime: RuntimeStatus): BootstrapPayload {
+  return {
+    runtime,
+    agents: [],
+    sessions: [],
+    messages: [],
+    selectedAgentId: "",
+    selectedSessionId: "",
+  };
 }
 
 function clientDebugEnabled(): boolean {
@@ -153,6 +174,8 @@ export class OpenPpxLocalAdapter implements PpxClientApi {
 
   private readonly configuredClientApiBaseUrl = process.env.OPENPPX_CLIENT_API_BASE_URL?.trim() || "";
 
+  private readonly developmentModes = resolveDesktopDevelopmentModes();
+
   private readonly clientApiHost = process.env.OPENPPX_CLIENT_API_HOST?.trim() || "127.0.0.1";
 
   private readonly clientApiPort = Number(process.env.OPENPPX_CLIENT_API_PORT?.trim() || "8765");
@@ -170,6 +193,12 @@ export class OpenPpxLocalAdapter implements PpxClientApi {
   private healthyUntil = 0;
 
   private inflightHealthCheck: Promise<boolean> | null = null;
+
+  private clientApiHandshake: ClientApiHandshake | null = null;
+
+  private clientApiLastError = "";
+
+  private clientApiReachable = false;
 
   private readonly mockUnsubscribe = subscribeMock((event) => {
     if (this.shouldUseMock()) {
@@ -213,6 +242,9 @@ export class OpenPpxLocalAdapter implements PpxClientApi {
     };
     this.clientApiBaseUrl = settings.clientApiBaseUrl.trim() || `http://${this.clientApiHost}:${this.clientApiPort}`;
     this.healthyUntil = 0;
+    this.clientApiHandshake = null;
+    this.clientApiLastError = "";
+    this.clientApiReachable = false;
     this.sessionsCache.clear();
     this.messagesCache.clear();
     if (this.clientApiProcess && this.clientApiProcess.exitCode === null) {
@@ -222,7 +254,7 @@ export class OpenPpxLocalAdapter implements PpxClientApi {
   }
 
   private canUseLegacyLocalFallback(): boolean {
-    return !this.isRemoteTarget();
+    return canUseLegacyBridge(this.target.type, this.developmentModes);
   }
 
   private emit(event: RunEvent): void {
@@ -323,23 +355,48 @@ export class OpenPpxLocalAdapter implements PpxClientApi {
     return payload;
   }
 
+  private rememberClientApiError(error: unknown): void {
+    this.clientApiLastError = error instanceof Error ? error.message : String(error);
+  }
+
+  private clientApiUnavailableError(operation: string): Error {
+    const reason = this.clientApiLastError || `No compatible protocol v${CLIENT_API_PROTOCOL_VERSION} gateway is ready.`;
+    return new Error(`${operation} requires the OpenPPX Client API. ${reason}`);
+  }
+
   private async isClientApiHealthy(): Promise<boolean> {
     if (Date.now() < this.healthyUntil) {
       return true;
     }
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 500);
+    this.clientApiReachable = false;
     try {
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 500);
       const response = await fetch(`${this.clientApiBaseUrl}/api/v1/health`, {
         signal: controller.signal,
       });
-      clearTimeout(timeout);
-      if (response.ok) {
-        this.healthyUntil = Date.now() + OpenPpxLocalAdapter.HEALTH_CACHE_TTL_MS;
+      this.clientApiReachable = true;
+      if (!response.ok) {
+        throw new Error(`Client API health request failed: ${response.status}`);
       }
-      return response.ok;
-    } catch {
+      const handshake = parseClientApiHandshake(await response.json());
+      this.clientApiHandshake = handshake;
+      if (handshake.compatibility !== "compatible") {
+        throw new Error(
+          `Client API protocol ${handshake.protocolVersion} is incompatible; Desktop supports ${CLIENT_API_PROTOCOL_VERSION}.`,
+        );
+      }
+      if (!handshake.ready) {
+        throw new Error("Client API reported that it is not ready.");
+      }
+      this.clientApiLastError = "";
+      this.healthyUntil = Date.now() + OpenPpxLocalAdapter.HEALTH_CACHE_TTL_MS;
+      return true;
+    } catch (error) {
+      this.rememberClientApiError(error);
       return false;
+    } finally {
+      clearTimeout(timeout);
     }
   }
 
@@ -366,19 +423,25 @@ export class OpenPpxLocalAdapter implements PpxClientApi {
       });
       return true;
     }
-    if (this.isRemoteTarget()) {
+    const openppxRootExists = fs.existsSync(this.openppxRoot);
+    if (
+      !shouldStartManagedClientApi({
+        targetType: this.target.type,
+        endpointReachable: this.clientApiReachable,
+        openppxRootExists,
+      })
+    ) {
+      const status = this.clientApiReachable
+        ? "reachable-but-incompatible"
+        : this.isRemoteTarget()
+          ? "remote-unreachable"
+          : "openppx-root-missing";
       clientDebugLog("client-api.health", {
         baseUrl: this.clientApiBaseUrl,
-        status: "remote-unreachable",
+        status,
         target: this.target,
-      });
-      return false;
-    }
-    if (!fs.existsSync(this.openppxRoot)) {
-      clientDebugLog("client-api.health", {
-        baseUrl: this.clientApiBaseUrl,
-        status: "openppx-root-missing",
         openppxRoot: this.openppxRoot,
+        error: this.clientApiLastError,
       });
       return false;
     }
@@ -497,10 +560,7 @@ export class OpenPpxLocalAdapter implements PpxClientApi {
   }
 
   private shouldUseMock(): boolean {
-    if (this.isRemoteTarget()) {
-      return false;
-    }
-    return !fs.existsSync(this.openppxRoot) || this.listRealAgents().length === 0;
+    return this.developmentModes.mockEnabled;
   }
 
   private listRealAgents(): AgentProfile[] {
@@ -543,7 +603,7 @@ export class OpenPpxLocalAdapter implements PpxClientApi {
         target: this.target,
         state: "error",
         summary: "Remote client-api gateway is unavailable.",
-        detail: `Check the remote gateway at ${this.clientApiBaseUrl}. The desktop client is not yet starting remote runtimes on demand.`,
+        detail: this.clientApiLastError || `Check the remote gateway at ${this.clientApiBaseUrl}.`,
         lastError: "REMOTE_GATEWAY_UNAVAILABLE",
       };
     }
@@ -556,28 +616,45 @@ export class OpenPpxLocalAdapter implements PpxClientApi {
         lastError: "OPENPPX_ROOT_NOT_FOUND",
       };
     }
-    if (!fs.existsSync(globalConfigPath())) {
+    if (this.canUseLegacyLocalFallback()) {
+      if (!fs.existsSync(globalConfigPath())) {
+        return {
+          target: this.target,
+          state: "starting",
+          summary: "openppx config is not initialized yet.",
+          detail: "Run the openppx setup first so ~/.openppx/global_config.json exists.",
+        };
+      }
       return {
         target: this.target,
-        state: "starting",
-        summary: "openppx config is not initialized yet.",
-        detail: "Run the openppx setup first so ~/.openppx/global_config.json exists.",
+        state: "healthy",
+        summary: "Legacy local bridge is enabled for development.",
+        detail: "Client API is unavailable; OPENPPX_DESKTOP_LEGACY_BRIDGE explicitly permits the bridge.",
       };
     }
     return {
       target: this.target,
-      state: "healthy",
-      summary: "Local openppx runtime is available.",
-      detail: "The client will prefer the local client-api gateway and fall back to the legacy bridge when needed.",
+      state: "error",
+      summary: "OpenPPX Client API is unavailable.",
+      detail: this.clientApiLastError || `Start a compatible protocol v${CLIENT_API_PROTOCOL_VERSION} gateway.`,
+      lastError:
+        this.clientApiHandshake?.compatibility === "incompatible"
+          ? "CLIENT_API_PROTOCOL_INCOMPATIBLE"
+          : "CLIENT_API_UNAVAILABLE",
     };
   }
 
   private async fetchRuntimeStatus(): Promise<RuntimeStatus> {
     if (await this.ensureClientApiAvailable()) {
-      const payload = await this.fetchClientApiJson("/api/v1/runtime/status");
-      const runtime = normalizeClientApiRuntime((payload.data as Record<string, unknown> | undefined) ?? {});
-      if (runtime) {
+      try {
+        const payload = await this.fetchClientApiJson("/api/v1/runtime/status");
+        const runtime = normalizeClientApiRuntime((payload.data as Record<string, unknown> | undefined) ?? {});
+        if (!runtime) {
+          throw new Error("Client API returned an invalid runtime status payload.");
+        }
         return runtime;
+      } catch (error) {
+        this.rememberClientApiError(error);
       }
     }
     return this.getFallbackRuntimeStatus();
@@ -589,16 +666,27 @@ export class OpenPpxLocalAdapter implements PpxClientApi {
     }
 
     const runtime = await this.fetchRuntimeStatus();
-    let agents = this.listRealAgents();
-    if (await this.isClientApiHealthy()) {
+    if (runtime.state !== "healthy" && !this.canUseLegacyLocalFallback()) {
+      return emptyBootstrap(runtime);
+    }
+    const clientApiHealthy = await this.isClientApiHealthy();
+    if (!clientApiHealthy && !this.canUseLegacyLocalFallback()) {
+      return emptyBootstrap(runtime);
+    }
+
+    let agents = this.canUseLegacyLocalFallback() ? this.listRealAgents() : [];
+    if (clientApiHealthy) {
       try {
         const payload = await this.fetchClientApiJson("/api/v1/agents");
         const items = Array.isArray((payload.data as Record<string, unknown> | undefined)?.items)
           ? ((payload.data as Record<string, unknown>).items as Array<Record<string, unknown>>)
           : [];
         agents = items.map((item) => normalizeAgentProfile(item));
-      } catch {
-        // Keep local fallback data when the client-api agent query fails.
+      } catch (error) {
+        this.rememberClientApiError(error);
+        if (!this.canUseLegacyLocalFallback()) {
+          throw this.clientApiUnavailableError("Loading agents");
+        }
       }
     }
 
@@ -618,6 +706,7 @@ export class OpenPpxLocalAdapter implements PpxClientApi {
 
   public async getDiagnostics(): Promise<ClientDiagnostics> {
     const realAgents = this.listRealAgents();
+    const clientApiHealthy = this.shouldUseMock() ? false : await this.isClientApiHealthy();
     return {
       mode: this.shouldUseMock() ? "mock" : this.isRemoteTarget() ? "remote" : "local",
       target: this.target,
@@ -627,8 +716,12 @@ export class OpenPpxLocalAdapter implements PpxClientApi {
       globalConfigPath: globalConfigPath(),
       globalConfigExists: fs.existsSync(globalConfigPath()),
       clientApiBaseUrl: this.clientApiBaseUrl,
-      clientApiManagedByClient: !this.isRemoteTarget(),
-      clientApiHealthy: await this.isClientApiHealthy(),
+      clientApiManagedByClient: !this.shouldUseMock() && !this.isRemoteTarget(),
+      clientApiHealthy,
+      clientApiProductVersion: this.clientApiHandshake?.productVersion,
+      clientApiProtocolVersion: this.clientApiHandshake?.protocolVersion,
+      clientApiCompatibility: this.clientApiHandshake?.compatibility ?? "unknown",
+      clientApiLastError: this.clientApiLastError || undefined,
       clientApiProcessRunning: !!this.clientApiProcess && this.clientApiProcess.exitCode === null,
       bridgeScriptPath: this.bridgeScriptPath,
       bridgeScriptExists: fs.existsSync(this.bridgeScriptPath),
@@ -636,6 +729,8 @@ export class OpenPpxLocalAdapter implements PpxClientApi {
       sessionCacheEntries: this.sessionsCache.size,
       messageCacheEntries: this.messagesCache.size,
       debugEnabled: clientDebugEnabled(),
+      mockEnabled: this.developmentModes.mockEnabled,
+      legacyBridgeEnabled: this.developmentModes.legacyBridgeEnabled,
     };
   }
 
@@ -696,12 +791,12 @@ export class OpenPpxLocalAdapter implements PpxClientApi {
           .filter((item): item is SessionSummary => item !== null);
         this.writeSessionsCache(agentId, sessions);
         return { sessions };
-      } catch {
-        // Fall back to the legacy bridge path below.
+      } catch (error) {
+        this.rememberClientApiError(error);
       }
     }
     if (!this.canUseLegacyLocalFallback()) {
-      return { sessions: [] };
+      throw this.clientApiUnavailableError("Listing sessions");
     }
     const sessions = await this.listSessionsForAgent(agentId);
     this.writeSessionsCache(agentId, sessions);
@@ -723,12 +818,12 @@ export class OpenPpxLocalAdapter implements PpxClientApi {
           this.invalidateSessionCaches(agentId);
           return { session };
         }
-      } catch {
-        // Fall through to the legacy bridge path.
+      } catch (error) {
+        this.rememberClientApiError(error);
       }
     }
     if (!this.canUseLegacyLocalFallback()) {
-      throw new Error(`Remote gateway is unavailable for target ${this.target.name}.`);
+      throw this.clientApiUnavailableError("Creating a session");
     }
     const response = (await this.callBridge(
       this.bridgeArgs("create_session", agentId, ["--session-id", `${agentId}-${crypto.randomUUID()}`]),
@@ -761,12 +856,12 @@ export class OpenPpxLocalAdapter implements PpxClientApi {
           .filter((item): item is ChatMessage => item !== null);
         this.writeMessagesCache(sessionId, messages);
         return { messages };
-      } catch {
-        // Fall through to the legacy bridge path.
+      } catch (error) {
+        this.rememberClientApiError(error);
       }
     }
     if (!this.canUseLegacyLocalFallback()) {
-      return { messages: [] };
+      throw this.clientApiUnavailableError("Loading session messages");
     }
     const sessions = await Promise.all(this.listRealAgents().map((agent) => this.listSessionsForAgent(agent.id)));
     const flat = sessions.flat();
@@ -790,7 +885,7 @@ export class OpenPpxLocalAdapter implements PpxClientApi {
       agentId: input.agentId,
       sessionId: input.sessionId,
       textPreview: input.text.slice(0, 240),
-      mode: this.shouldUseMock() ? "mock" : "local",
+      mode: this.shouldUseMock() ? "mock" : this.isRemoteTarget() ? "remote" : "local",
     });
     if (this.shouldUseMock()) {
       return mockSendMessage(input);
@@ -800,16 +895,16 @@ export class OpenPpxLocalAdapter implements PpxClientApi {
       try {
         return await this.sendMessageViaClientApi(input);
       } catch (error) {
+        this.rememberClientApiError(error);
         clientDebugLog("send.client-api.failed", {
           agentId: input.agentId,
           sessionId: input.sessionId,
           error: error instanceof Error ? error.message : String(error),
         });
-        // Fall back to the bridge path if the service flow fails.
       }
     }
     if (!this.canUseLegacyLocalFallback()) {
-      throw new Error(`Remote gateway is unavailable for target ${this.target.name}.`);
+      throw this.clientApiUnavailableError("Sending a message");
     }
     clientDebugLog("send.bridge.fallback", {
       agentId: input.agentId,

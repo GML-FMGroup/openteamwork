@@ -19,14 +19,16 @@ Renderer (React)
   -> preload host API
   -> Electron main
   -> openppx local adapter
-  -> openppx client-api gateway / legacy bridge / mock fallback
+  -> versioned openppx client-api gateway
 ```
 
 当前优先级顺序是：
 
-1. 优先使用 `openppx client-api` HTTP + SSE
-2. 本地模式下必要时回退到 legacy Python bridge
-3. `openppx` 不可用时回退到 mock mode
+1. 使用 `openppx client-api` HTTP + SSE
+2. 通过 `/api/v1/health` 验证 Client API v1 兼容性
+3. gateway 不可用或协议不兼容时显式显示错误
+
+客户端不会再自动展示 mock 数据，也不会静默回退到 legacy Python bridge。两者只保留为显式的开发调试模式。
 
 ## 前置条件
 
@@ -97,6 +99,8 @@ pnpm desktop:dev
 
 但开发联调时，还是建议你先手动启动 `client-api`，这样日志更清楚，也更方便排查问题。
 
+Client API v1 的握手、兼容性规则和共享测试 fixtures 见 [`contracts/client-api/`](../../contracts/client-api/README.md)。
+
 ## 常见启动方式
 
 ### 1. 本地模式
@@ -161,6 +165,22 @@ pnpm desktop:dev
 连接配置会持久化到 Electron 用户目录，下次打开客户端会继续使用。
 
 ## 调试
+
+### 显式开发模式
+
+只有在开发示例界面时才启用 mock：
+
+```bash
+OPENPPX_DESKTOP_MOCK=1 pnpm desktop:dev
+```
+
+只有在排查旧链路时才启用 legacy bridge：
+
+```bash
+OPENPPX_DESKTOP_LEGACY_BRIDGE=1 pnpm desktop:dev
+```
+
+legacy bridge 只允许本地 target；远程 target 永远不会使用它。正式使用和发布构建不应设置这两个变量。
 
 客户端调试日志：
 

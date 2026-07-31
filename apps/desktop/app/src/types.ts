@@ -38,6 +38,10 @@ export interface ClientDiagnostics {
   clientApiBaseUrl: string;
   clientApiManagedByClient: boolean;
   clientApiHealthy: boolean;
+  clientApiProductVersion?: string;
+  clientApiProtocolVersion?: number;
+  clientApiCompatibility?: "compatible" | "incompatible" | "unknown";
+  clientApiLastError?: string;
   clientApiProcessRunning: boolean;
   bridgeScriptPath: string;
   bridgeScriptExists: boolean;
@@ -45,6 +49,8 @@ export interface ClientDiagnostics {
   sessionCacheEntries: number;
   messageCacheEntries: number;
   debugEnabled: boolean;
+  mockEnabled?: boolean;
+  legacyBridgeEnabled?: boolean;
 }
 
 export interface ConnectionSettings {
