@@ -9,7 +9,10 @@ import type {
   RuntimeStatus,
   SessionSummary,
 } from "./types";
-import { MessageBubble } from "./components/MessageBubble";
+import { Composer } from "./components/workspace/Composer";
+import { ContextSidebar } from "./components/workspace/ContextSidebar";
+import { Transcript } from "./components/workspace/Transcript";
+import { WorkspaceInspector } from "./components/workspace/WorkspaceInspector";
 import { normalizeConnectionSettings } from "./lib/connection-profile";
 
 type NavView = "chat" | "settings";
@@ -104,7 +107,6 @@ export function App() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [selectedAgentId, setSelectedAgentId] = useState("");
   const [selectedSessionId, setSelectedSessionId] = useState("");
-  const [agentsOpen, setAgentsOpen] = useState(false);
   const [composer, setComposer] = useState("");
   const [sendError, setSendError] = useState<string | null>(null);
   const [sendingSessionIds, setSendingSessionIds] = useState<string[]>([]);
@@ -112,8 +114,10 @@ export function App() {
   const [savingConnection, setSavingConnection] = useState(false);
   const [testingConnection, setTestingConnection] = useState(false);
   const [connectionFeedback, setConnectionFeedback] = useState<string | null>(null);
+  const [leftSidebarCollapsed, setLeftSidebarCollapsed] = useState(false);
+  const [inspectorCollapsed, setInspectorCollapsed] = useState(false);
+  const [followingLatest, setFollowingLatest] = useState(true);
   const switchRequestIdRef = useRef(0);
-  const agentsDropdownRef = useRef<HTMLDivElement | null>(null);
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
   const messageStreamRef = useRef<HTMLElement | null>(null);
   const nextScrollBehaviorRef = useRef<ScrollBehavior>("auto");
@@ -175,6 +179,7 @@ export function App() {
         setAgents(payload.agents);
         setSessions(nextSessions);
         nextScrollBehaviorRef.current = "auto";
+        setFollowingLatest(true);
         setMessages(nextMessages);
         setSelectedAgentId(payload.selectedAgentId);
         setSelectedSessionId(nextSelectedSessionId);
@@ -210,29 +215,15 @@ export function App() {
   }, [composer]);
 
   useEffect(() => {
-    if (!agentsOpen) {
-      return;
-    }
-    function handlePointerDown(event: PointerEvent): void {
-      const dropdown = agentsDropdownRef.current;
-      if (!dropdown || dropdown.contains(event.target as Node)) {
-        return;
-      }
-      setAgentsOpen(false);
-    }
-    document.addEventListener("pointerdown", handlePointerDown);
-    return () => {
-      document.removeEventListener("pointerdown", handlePointerDown);
-    };
-  }, [agentsOpen]);
-
-  useEffect(() => {
     const stream = messageStreamRef.current;
     if (!stream) {
       return;
     }
     const behavior = nextScrollBehaviorRef.current;
     nextScrollBehaviorRef.current = "smooth";
+    if (!followingLatest && behavior !== "auto") {
+      return;
+    }
     if (typeof stream.scrollTo === "function") {
       stream.scrollTo({
         top: stream.scrollHeight,
@@ -241,12 +232,46 @@ export function App() {
       return;
     }
     stream.scrollTop = stream.scrollHeight;
-  }, [messages]);
+  }, [messages, followingLatest]);
+
+  useEffect(() => {
+    function handleShellShortcut(event: KeyboardEvent): void {
+      if (!(event.metaKey || event.ctrlKey) || event.key.toLowerCase() !== "b") {
+        return;
+      }
+      event.preventDefault();
+      if (event.shiftKey) {
+        setInspectorCollapsed((current) => !current);
+      } else {
+        setLeftSidebarCollapsed((current) => !current);
+      }
+    }
+    window.addEventListener("keydown", handleShellShortcut);
+    return () => window.removeEventListener("keydown", handleShellShortcut);
+  }, []);
+
+  useEffect(() => {
+    if (typeof window.matchMedia !== "function") {
+      return;
+    }
+    const narrowWorkspace = window.matchMedia("(max-width: 1080px)");
+    const collapseForNarrowWorkspace = (matches: boolean): void => {
+      if (matches) {
+        setLeftSidebarCollapsed(true);
+        setInspectorCollapsed(true);
+      }
+    };
+    collapseForNarrowWorkspace(narrowWorkspace.matches);
+    const handleChange = (event: MediaQueryListEvent): void => collapseForNarrowWorkspace(event.matches);
+    narrowWorkspace.addEventListener("change", handleChange);
+    return () => narrowWorkspace.removeEventListener("change", handleChange);
+  }, []);
 
   const selectedAgent = useMemo(
     () => agents.find((agent) => agent.id === selectedAgentId) ?? null,
     [agents, selectedAgentId],
   );
+  const workspaceAgentName = selectedAgent?.name ?? "OpenPPX";
 
   const selectedSession = useMemo(
     () => sessions.find((session) => session.id === selectedSessionId) ?? null,
@@ -275,6 +300,7 @@ export function App() {
     setSelectedAgentId(agentId);
     setSelectedSessionId("");
     setSessions([]);
+    setFollowingLatest(true);
     setMessages([]);
     const listed = await window.ppxClient.listSessions(agentId);
     if (requestId !== switchRequestIdRef.current) {
@@ -298,15 +324,11 @@ export function App() {
     }
     setSessions([created.session]);
     setSelectedSessionId(created.session.id);
+    setFollowingLatest(true);
     setMessages([]);
   }
 
-  function handleAgentToggle(): void {
-    setAgentsOpen((current) => !current);
-  }
-
   function handleAgentSelect(agentId: string): void {
-    setAgentsOpen(false);
     if (agentId === selectedAgentId) {
       return;
     }
@@ -324,6 +346,7 @@ export function App() {
       return;
     }
     nextScrollBehaviorRef.current = "auto";
+    setFollowingLatest(true);
     setMessages(loaded.messages);
   }
 
@@ -359,6 +382,8 @@ export function App() {
         setRuntime(payload.runtime);
         setAgents(payload.agents);
         setSessions(payload.sessions);
+        nextScrollBehaviorRef.current = "auto";
+        setFollowingLatest(true);
         setMessages(payload.messages);
         setSelectedAgentId(payload.selectedAgentId);
         setSelectedSessionId(payload.selectedSessionId);
@@ -401,6 +426,7 @@ export function App() {
     const created = await window.ppxClient.createSession(selectedAgentId);
     setSessions((current) => [created.session, ...current.filter((item) => item.id !== created.session.id)]);
     setSelectedSessionId(created.session.id);
+    setFollowingLatest(true);
     setMessages([]);
   }
 
@@ -417,6 +443,7 @@ export function App() {
       if (firstSession.id !== preferredSessionId) {
         const loaded = await window.ppxClient.loadSession(firstSession.id);
         nextScrollBehaviorRef.current = "auto";
+        setFollowingLatest(true);
         setMessages(loaded.messages);
       }
       return firstSession;
@@ -424,6 +451,7 @@ export function App() {
     const created = await window.ppxClient.createSession(agentId);
     setSessions((current) => [created.session, ...current.filter((item) => item.id !== created.session.id)]);
     setSelectedSessionId(created.session.id);
+    setFollowingLatest(true);
     setMessages([]);
     return created.session;
   }
@@ -462,6 +490,7 @@ export function App() {
     const sessionId = session.id;
     setSendingSessionIds((current) => (current.includes(sessionId) ? current : [...current, sessionId]));
     setComposer("");
+    setFollowingLatest(true);
     const optimisticMessage: ChatMessage = {
       id: `local-user-${crypto.randomUUID()}`,
       sessionId,
@@ -497,6 +526,21 @@ export function App() {
     void handleSend();
   }
 
+  function handleTranscriptScroll(): void {
+    const stream = messageStreamRef.current;
+    if (!stream) {
+      return;
+    }
+    const distanceFromBottom = stream.scrollHeight - stream.scrollTop - stream.clientHeight;
+    setFollowingLatest(distanceFromBottom < 72);
+  }
+
+  function handleJumpToLatest(): void {
+    const stream = messageStreamRef.current;
+    setFollowingLatest(true);
+    stream?.scrollTo({ top: stream.scrollHeight, behavior: "smooth" });
+  }
+
   if (bootstrapError) {
     return (
       <div className="loading-shell">
@@ -513,176 +557,91 @@ export function App() {
   }
 
   return (
-    <div className="app-shell">
-      <section className="nav-shell">
-        <aside className="nav-rail">
-          <button className={view === "chat" ? "nav-item active" : "nav-item"} onClick={() => setView("chat")} title="对话">
-            <svg viewBox="0 0 24 24" aria-hidden="true">
-              <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z" />
-            </svg>
-            {/* <span className="nav-label">对话</span> */}
-          </button>
-          <button className={view === "settings" ? "nav-item active" : "nav-item"} onClick={() => setView("settings")} title="设置">
-            <svg viewBox="0 0 24 24" aria-hidden="true">
-              <circle cx="12" cy="12" r="3" />
-              <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
-            </svg>
-            {/* <span className="nav-label">设置</span> */}
-          </button>
-        </aside>
-      </section>
+    <div
+      className={`app-shell ${leftSidebarCollapsed ? "sidebar-is-collapsed" : ""} ${
+        inspectorCollapsed ? "inspector-is-collapsed" : ""
+      }`}
+    >
+      <ContextSidebar
+        view={view}
+        runtime={runtime}
+        diagnostics={diagnostics}
+        agents={agents}
+        sessions={sessions}
+        selectedAgentId={selectedAgentId}
+        selectedSessionId={selectedSessionId}
+        sendingSessionIds={sendingSessionIds}
+        collapsed={leftSidebarCollapsed}
+        onToggleCollapse={() => setLeftSidebarCollapsed((current) => !current)}
+        onChangeView={setView}
+        onSelectAgent={handleAgentSelect}
+        onSelectSession={(session) => void switchSession(session)}
+        onNewSession={() => void handleNewSession()}
+      />
 
       {view === "chat" ? (
         <>
-          <section className="sidebar-shell">
-            <section className="sidebar">
-              <div className="sidebar-section">
-                <div className="sidebar-section-header">
-                  <span>Agents</span>
-                </div>
-                <div ref={agentsDropdownRef} className={agentsOpen ? "agents-container open" : "agents-container"}>
-                  <button
-                    type="button"
-                    className={agentsOpen ? "list-item active agents-dropdown-trigger" : "list-item agents-dropdown-trigger"}
-                    aria-expanded={agentsOpen}
-                    aria-controls="agents-dropdown-list"
-                    aria-label="Toggle agents list"
-                    onClick={handleAgentToggle}
-                  >
-                    <div className="agent-trigger-copy">
-                      <span className="agent-trigger-name-row">
-                        <strong>{selectedAgent?.name ?? "No agent selected"}</strong>
-                        {selectedAgent ? <span className={`agent-status-dot ${selectedAgent.status}`} aria-hidden="true" /> : null}
-                      </span>
-                    </div>
-                    <span className={agentsOpen ? "agents-chevron expanded" : "agents-chevron"} aria-hidden="true">
-                      <svg viewBox="0 0 20 20">
-                        <path d="M5.25 7.5 10 12.25 14.75 7.5" />
-                      </svg>
-                    </span>
-                  </button>
-                  {agentsOpen ? (
-                    <div id="agents-dropdown-list" className="list-stack agents-dropdown-list">
-                      {agents.map((agent) => (
-                        <button
-                          key={agent.id}
-                          className={agent.id === selectedAgentId ? "list-item active" : "list-item"}
-                          onClick={() => handleAgentSelect(agent.id)}
-                        >
-                          <div>
-                            <strong>{agent.name}</strong>
-                            {/* <p>{agent.description}</p> */}
-                          </div>
-                          <span className={`agent-status-text ${agent.status}`}>{agent.status}</span>
-                        </button>
-                      ))}
-                    </div>
-                  ) : null}
-                </div>
-              </div>
-
-              <div className="sidebar-divider" />
-
-              <div className="sidebar-section">
-                <div className="sidebar-section-header">
-                  <span>Sessions</span>
-                  {selectedAgentId ? (
-                    <button className="secondary small" onClick={() => void handleNewSession()}>
-                      新建
-                    </button>
-                  ) : null}
-                </div>
-                <div className="list-stack">
-                  {sessions.map((session) => (
-                    <button
-                      key={session.id}
-                      className={session.id === selectedSessionId ? "list-item active" : "list-item"}
-                      onClick={() => void switchSession(session)}
-                    >
-                      <div>
-                        <strong>{session.title}</strong>
-                      </div>
-                      <time>{new Date(session.updatedAt).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })}</time>
-                    </button>
-                  ))}
-                </div>
-              </div>
-            </section>
-          </section>
-
-          <section className="workspace-shell">
+          <section className="workspace-shell conversation-shell">
             <header className="column-topbar workspace-topbar">
               <div className="topbar-copy">
+                <span className="topbar-agent">{titlebarSubtitle}</span>
                 <strong>{titlebarTitle}</strong>
-                <span>{titlebarSubtitle}</span>
+                <span className="topbar-location">运行于 {diagnostics?.nodeName ?? runtime.target.name}</span>
               </div>
               <div className="topbar-actions">
+                {inspectorCollapsed ? (
+                  <button
+                    className="topbar-quiet-action"
+                    onClick={() => setInspectorCollapsed(false)}
+                  >
+                    打开检查器
+                  </button>
+                ) : null}
                 <button className="topbar-pill" onClick={() => setView("settings")} title="查看 runtime 状态">
                   <span className={`runtime-dot ${runtime.state}`} />
-                  {runtime.state}
+                  {runtime.state === "healthy" ? "Connected" : runtime.state}
                 </button>
               </div>
             </header>
             <div className="workspace-frame">
               <main className="workspace">
-                <section ref={messageStreamRef} className="message-stream">
-                  {messages.length === 0 ? (
-                    <div className="empty-state">
-                      <h3>{selectedAgent?.name ?? "Agent"} is ready</h3>
-                      <p>从一个本地任务开始。比如：帮我规划一个 client-api，或为当前仓库总结结构。</p>
-                      <div className="suggestion-grid">
-                        {[
-                          "为 ppx-client 设计本地 runtime 对接层",
-                          "帮我列出当前 agent 机器的会话模型",
-                          "把聊天消息渲染做成接近飞书的风格",
-                        ].map((suggestion) => (
-                          <button key={suggestion} className="suggestion-card" onClick={() => setComposer(suggestion)}>
-                            {suggestion}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                  ) : (
-                    messages.map((message, index) => {
-                      const previousMessage = index > 0 ? messages[index - 1] : null;
-                      const showIdentity = !(message.role === "assistant" && previousMessage?.role === "assistant");
-                      return <MessageBubble key={message.id} message={message} showIdentity={showIdentity} />;
-                    })
-                  )}
-                </section>
-
-                <footer className="composer-shell">
-                  <textarea
-                    ref={composerRef}
-                    value={composer}
-                    onChange={(event) => setComposer(event.target.value)}
-                    onKeyDown={handleComposerKeyDown}
-                    placeholder="向本地 agent 发送任务..."
-                    rows={2}
-                  />
-                  <div className="composer-actions">
-                    <span className={sendError ? "composer-error" : undefined}>
-                      {sendError ?? (selectedAgentBusy ? "当前 agent 正在流式返回..." : "本地模式 / Electron host API / mock runtime seam")}
-                    </span>
-                    <button
-                      className={canSend ? "icon-button send-button ready" : "icon-button send-button"}
-                      disabled={!canSend}
-                      onClick={() => void handleSend()}
-                      aria-label={selectedAgentBusy ? "运行中" : "发送"}
-                      title={selectedAgentBusy ? "运行中" : "发送"}
-                    >
-                      <svg viewBox="0 0 20 20" aria-hidden="true">
-                        <path d="M3.5 10.8 15.6 4.9c.8-.4 1.5.3 1.1 1.1l-5.9 12.1c-.4.9-1.7.8-2-.1L7.2 12.6a1 1 0 0 0-.6-.6L3.6 10.3c-.9-.3-.9-1.6-.1-2Z" />
-                      </svg>
-                    </button>
-                  </div>
-                </footer>
+                <Transcript
+                  messages={messages}
+                  agentName={workspaceAgentName}
+                  streamRef={messageStreamRef}
+                  showJumpToLatest={!followingLatest}
+                  onScroll={handleTranscriptScroll}
+                  onJumpToLatest={handleJumpToLatest}
+                  onUseSuggestion={setComposer}
+                />
+                <Composer
+                  value={composer}
+                  textareaRef={composerRef}
+                  canSend={canSend}
+                  busy={selectedAgentBusy}
+                  helperText={
+                    sendError ??
+                    (selectedAgentBusy ? "当前 Agent 正在执行；过程会显示在右侧 Activity。" : "")
+                  }
+                  agentName={workspaceAgentName}
+                  nodeName={diagnostics?.nodeName ?? runtime.target.name}
+                  onChange={setComposer}
+                  onKeyDown={handleComposerKeyDown}
+                  onSend={() => void handleSend()}
+                />
               </main>
             </div>
           </section>
+          <WorkspaceInspector
+            sessionId={selectedSessionId}
+            messages={messages}
+            running={currentSessionSending}
+            collapsed={inspectorCollapsed}
+            onToggleCollapse={() => setInspectorCollapsed((current) => !current)}
+          />
         </>
       ) : (
-          <section className="workspace-shell settings-shell">
+        <section className="workspace-shell settings-shell">
             <header className="column-topbar workspace-topbar">
               <div className="topbar-copy">
                 <strong>{titlebarTitle}</strong>

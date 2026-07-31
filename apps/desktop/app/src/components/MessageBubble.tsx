@@ -171,7 +171,7 @@ export function MessageBubble({ message, showIdentity = true }: { message: ChatM
   const statusLabel = messageStatusLabel(message.status);
   const isAssistant = message.role === "assistant";
   return (
-    <article className={`message-bubble ${message.role} ${message.status} ${isAssistant ? "agent-thread" : ""}`}>
+    <article id={`message-${message.id}`} className={`message-bubble ${message.role} ${message.status} ${isAssistant ? "agent-thread" : ""}`}>
       {showIdentity ? (
         <div className={`message-meta ${isAssistant ? "agent-meta" : ""}`}>
           <span className={isAssistant ? "agent-name" : ""}>{roleLabel(message.role)}</span>
