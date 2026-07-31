@@ -141,7 +141,7 @@ describe("App sending state", () => {
 
     render(<App />);
 
-    await screen.findByText("openppx workbench");
+    await screen.findByRole("button", { name: "发送" });
 
     fireEvent.change(screen.getByPlaceholderText("向本地 agent 发送任务..."), {
       target: { value: "hello world" },
@@ -165,7 +165,7 @@ describe("App sending state", () => {
 
     render(<App />);
 
-    await screen.findByText("openppx workbench");
+    await screen.findByRole("button", { name: "发送" });
 
     fireEvent.change(screen.getByPlaceholderText("向本地 agent 发送任务..."), {
       target: { value: "hello world" },
@@ -200,7 +200,7 @@ describe("App sending state", () => {
 
     render(<App />);
 
-    await screen.findByText("openppx workbench");
+    await screen.findByRole("button", { name: "发送" });
 
     const composer = screen.getByPlaceholderText("向本地 agent 发送任务...");
 
@@ -316,7 +316,7 @@ describe("App sending state", () => {
 
       render(<App />);
 
-      await screen.findByText("openppx workbench");
+      await screen.findByRole("button", { name: "发送" });
 
       fireEvent.change(screen.getByPlaceholderText("向本地 agent 发送任务..."), {
         target: { value: "will fail" },
@@ -334,7 +334,7 @@ describe("App sending state", () => {
 
     render(<App />);
 
-    await screen.findByText("openppx workbench");
+    await screen.findByRole("button", { name: "发送" });
 
     const sendButton = screen.getByRole("button", { name: "发送" });
     expect(sendButton).toBeDisabled();
@@ -476,7 +476,7 @@ describe("App sending state", () => {
 
     render(<App />);
 
-    await screen.findByText("openppx workbench");
+    await screen.findByRole("button", { name: "发送" });
 
     fireEvent.click(screen.getByRole("button", { name: "设置" }));
 
@@ -500,7 +500,7 @@ describe("App sending state", () => {
 
     render(<App />);
 
-    await screen.findByText("openppx workbench");
+    await screen.findByRole("button", { name: "发送" });
     fireEvent.click(screen.getByRole("button", { name: "设置" }));
 
     await screen.findByText("Ops Gateway (remote)");
@@ -530,7 +530,7 @@ describe("App sending state", () => {
 
     render(<App />);
 
-    await screen.findByText("openppx workbench");
+    await screen.findByRole("button", { name: "发送" });
     fireEvent.click(screen.getByRole("button", { name: "设置" }));
 
     fireEvent.change(screen.getByDisplayValue("This Mac"), {

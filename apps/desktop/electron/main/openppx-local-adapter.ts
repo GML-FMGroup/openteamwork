@@ -94,7 +94,7 @@ function detectOpenPpxRoot(): string {
   if (process.env.OPENPPX_ROOT?.trim()) {
     return path.resolve(process.env.OPENPPX_ROOT);
   }
-  return path.resolve(process.cwd(), "../openppx_root");
+  return path.resolve(process.cwd(), "../..");
 }
 
 function dataRootPath(): string {
@@ -552,7 +552,7 @@ export class OpenPpxLocalAdapter implements PpxClientApi {
         target: this.target,
         state: "error",
         summary: "openppx root was not found.",
-        detail: "Set OPENPPX_ROOT or keep ppx-client beside openppx_root.",
+        detail: "Set OPENPPX_ROOT or run Desktop from apps/desktop in the OpenPPX repository.",
         lastError: "OPENPPX_ROOT_NOT_FOUND",
       };
     }

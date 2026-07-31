@@ -43,6 +43,8 @@ messages/
 
 # Node
 node_modules/
+coverage/
+dist-electron/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*

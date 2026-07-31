@@ -262,6 +262,23 @@ Run tests:
 pytest -q
 ```
 
+Install and run OpenPPX Desktop from the repository root:
+
+```bash
+pnpm install
+pnpm desktop:dev
+```
+
+Desktop verification:
+
+```bash
+pnpm desktop:test
+pnpm desktop:typecheck
+pnpm desktop:build
+```
+
+The Electron/React desktop source lives in [`apps/desktop/`](./apps/desktop/). It remains separated from the Python/Google ADK backend through the client API.
+
 Developer smoke checks:
 
 ```bash
@@ -301,6 +318,8 @@ ppx token stats --last-hours 24
 ```text
 openppx_root/
 ├── README.md
+├── apps/
+│   └── desktop/
 ├── assets/
 ├── docs/
 │   ├── CONFIGURATION.md

@@ -1,0 +1,12 @@
+{
+  "name": "openppx",
+  "private": true,
+  "packageManager": "pnpm@10.30.3",
+  "scripts": {
+    "desktop:dev": "pnpm --filter ppx-client dev",
+    "desktop:test": "pnpm --filter ppx-client test",
+    "desktop:typecheck": "pnpm --filter ppx-client exec tsc --noEmit",
+    "desktop:build": "pnpm --filter ppx-client build",
+    "desktop:preview": "pnpm --filter ppx-client preview"
+  }
+}

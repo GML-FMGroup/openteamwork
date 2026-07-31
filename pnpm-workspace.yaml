@@ -1,3 +1,6 @@
+packages:
+  - "apps/*"
+
 onlyBuiltDependencies:
   - electron
   - esbuild

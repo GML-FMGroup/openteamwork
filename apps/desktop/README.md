@@ -1,6 +1,6 @@
-# ppx-client
+# OpenPPX Desktop
 
-`ppx-client` 是 `openppx` 的桌面客户端第一版，当前以本地模式为主，同时已经补了远程 gateway 的初步接入准备。
+OpenPPX Desktop 是 OpenPPX monorepo 中的桌面客户端，当前以本地模式为主，同时已经补了远程 gateway 的初步接入准备。
 
 当前版本聚焦这几条主路径：
 
@@ -32,16 +32,18 @@ Renderer (React)
 
 - 已安装 `Node.js`
 - 已安装 `pnpm`
-- 本地已有 `openppx_root`
+- 已在 OpenPPX 仓库根目录安装 Python 后端
 - 推荐本地已经执行过 `ppx init`
 
 如果你要跑真实本地模式，通常还需要：
 
 - `~/.openppx/global_config.json`
 - 至少一个 enabled agent
-- `openppx_root/.venv`
+- 仓库根目录的 `.venv`
 
 ## 安装依赖
+
+在仓库根目录执行：
 
 ```bash
 pnpm install
@@ -61,38 +63,38 @@ pnpm install
 开发模式：
 
 ```bash
-pnpm dev
+pnpm desktop:dev
 ```
 
 生产构建：
 
 ```bash
-pnpm build
+pnpm desktop:build
 ```
 
 测试：
 
 ```bash
-pnpm test
+pnpm desktop:test
 ```
 
 ## 配合后端启动
 
-`ppx-client` 最理想的工作方式，是本地 `openppx client-api` 已经在跑：
+OpenPPX Desktop 最理想的工作方式，是本地 `openppx client-api` 已经在跑。在仓库根目录执行：
 
 ```bash
-cd ../openppx_root
 source .venv/bin/activate
 ppx client-api serve --host 127.0.0.1 --port 8765
 ```
 
-然后在 `ppx-client` 里启动：
+然后在另一个终端的仓库根目录启动 Desktop：
 
 ```bash
-pnpm dev
+pnpm desktop:dev
 ```
 
-如果本地 target 处于默认配置，客户端也会尝试按需拉起本地 `client-api`。  
+如果本地 target 处于默认配置，客户端也会尝试按需拉起本地 `client-api`。
+
 但开发联调时，还是建议你先手动启动 `client-api`，这样日志更清楚，也更方便排查问题。
 
 ## 常见启动方式
@@ -101,7 +103,7 @@ pnpm dev
 
 默认就是本地模式。
 
-如果 `openppx_root` 不在 `ppx-client` 的旁边，先设置：
+默认会从 monorepo 根目录发现后端。如果要连接另一份本地 OpenPPX 源码，先设置：
 
 ```bash
 export OPENPPX_ROOT=/path/to/openppx_root
@@ -110,7 +112,7 @@ export OPENPPX_ROOT=/path/to/openppx_root
 然后：
 
 ```bash
-pnpm dev
+pnpm desktop:dev
 ```
 
 ### 2. 远程模式初版
@@ -129,7 +131,7 @@ pnpm dev
 export OPENPPX_TARGET_TYPE=remote
 export OPENPPX_TARGET_NAME="Ops Gateway"
 export OPENPPX_CLIENT_API_BASE_URL=http://10.0.0.8:8765
-pnpm dev
+pnpm desktop:dev
 ```
 
 当前远程模式的范围是：
@@ -163,13 +165,12 @@ pnpm dev
 客户端调试日志：
 
 ```bash
-OPENPPX_CLIENT_DEBUG=1 pnpm dev
+OPENPPX_CLIENT_DEBUG=1 pnpm desktop:dev
 ```
 
 后端 `client-api` 调试日志：
 
 ```bash
-cd ../openppx_root
 source .venv/bin/activate
 OPENPIPIXIA_DEBUG=1 ppx client-api serve --host 127.0.0.1 --port 8765
 ```
@@ -203,7 +204,7 @@ pnpm install
 
 ```bash
 pnpm install
-pnpm dev
+pnpm desktop:dev
 ```
 
 如果之前改过 Electron 相关代码，记得先停掉旧的 dev 进程再重启。
@@ -222,7 +223,6 @@ pnpm dev
 建议先单独启动后端：
 
 ```bash
-cd ../openppx_root
 source .venv/bin/activate
 ppx client-api serve --host 127.0.0.1 --port 8765
 ```
@@ -250,4 +250,4 @@ ppx client-api serve --host 127.0.0.1 --port 8765
 ## 说明
 
 - `task_plan.md`、`findings.md`、`progress.md` 是本地规划文件，不应提交。
-- 当前仓库的目标不是替代 `openppx_root`，而是作为 `openppx` 的桌面客户端。
+- Desktop 与 Python/Google ADK 后端位于同一仓库，但仍通过 HTTP/SSE 保持前后端分离。
