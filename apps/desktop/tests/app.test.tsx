@@ -458,6 +458,24 @@ describe("App sending state", () => {
     expect(screen.getByText("Preview B should stay hidden")).toBeInTheDocument();
   });
 
+  it("hides the generic OpenPPX session preview", async () => {
+    installClient({
+      bootstrap: async () => ({
+        ...buildBootstrapPayload(),
+        sessions: buildBootstrapPayload().sessions.map((session) => ({
+          ...session,
+          lastMessagePreview: "OpenPPX session",
+        })),
+      }),
+    });
+
+    render(<App />);
+
+    await screen.findByText("Loaded Session A");
+    expect(screen.queryByText("OpenPPX session")).not.toBeInTheDocument();
+    expect(document.querySelectorAll(".session-row-meta > span")).toHaveLength(0);
+  });
+
   it("uses the visible Agent list for the Node count", async () => {
     installClient({
       getDiagnostics: async () => ({ ...buildDiagnostics(), agentCount: 99 }),
@@ -690,6 +708,21 @@ describe("App sending state", () => {
     expect(screen.getByText("v1 / compatible")).toBeInTheDocument();
     expect(screen.getByText("0.5.0-beta.1")).toBeInTheDocument();
     expect(screen.getByText("0.4")).toBeInTheDocument();
+  });
+
+  it("uses compact settings columns without redundant helper copy", async () => {
+    installClient();
+
+    render(<App />);
+
+    await screen.findByRole("button", { name: "发送" });
+    fireEvent.click(screen.getByRole("button", { name: "连接与设置" }));
+
+    await screen.findByText("Runtime status");
+    expect(document.querySelectorAll(".settings-column")).toHaveLength(2);
+    expect(screen.queryByText("第一版设置")).not.toBeInTheDocument();
+    expect(screen.queryByText("detail")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "刷新诊断" })).toBeInTheDocument();
   });
 
   it("renders LAN target diagnostics when provided", async () => {

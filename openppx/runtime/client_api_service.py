@@ -1073,7 +1073,7 @@ class ClientApiCoordinator:
                     "subject_principal_id": subject_principal_id,
                     "title": str(session.get("title") or "").strip() or f"Session {session_id[:8]}",
                     "updated_at": updated_at,
-                    "last_message_preview": str(session.get("last_preview") or "OpenPPX session"),
+                    "last_message_preview": str(session.get("last_preview") or ""),
                     "archived": False,
                 }
             )

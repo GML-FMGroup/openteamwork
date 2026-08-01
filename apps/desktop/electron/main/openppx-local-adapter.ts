@@ -673,7 +673,7 @@ export class OpenPpxLocalAdapter implements PpxClientApi {
       agentId,
       title: `Session ${String(payload.id ?? "").slice(0, 8)}`,
       updatedAt,
-      lastMessagePreview: typeof payload.last_preview === "string" ? payload.last_preview : "Openppx session",
+      lastMessagePreview: typeof payload.last_preview === "string" ? payload.last_preview : "",
     };
   }
 

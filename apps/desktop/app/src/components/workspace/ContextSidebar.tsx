@@ -64,6 +64,11 @@ function compactAge(value: string): string {
   return new Date(timestamp).toLocaleDateString("zh-CN", { month: "numeric", day: "numeric" });
 }
 
+function visibleSessionPreview(value: string): string {
+  const preview = value.trim();
+  return /^openppx session$/i.test(preview) ? "" : preview;
+}
+
 interface ContextSidebarProps {
   view: "chat" | "settings";
   runtime: RuntimeStatus;
@@ -109,9 +114,10 @@ export function ContextSidebar({
     if (!normalized) {
       return sessions;
     }
-    return sessions.filter((session) =>
-      `${session.title} ${session.lastMessagePreview}`.toLowerCase().includes(normalized),
-    );
+    return sessions.filter((session) => {
+      const preview = visibleSessionPreview(session.lastMessagePreview);
+      return `${session.title} ${preview}`.toLowerCase().includes(normalized);
+    });
   }, [query, sessions]);
   const selectedAgent = useMemo(
     () => agents.find((agent) => agent.id === selectedAgentId) ?? null,
@@ -339,6 +345,7 @@ export function ContextSidebar({
         <div className="session-list">
           {filteredSessions.map((session) => {
             const running = sendingSessionIds.includes(session.id);
+            const preview = visibleSessionPreview(session.lastMessagePreview);
             return (
               <button
                 key={session.id}
@@ -350,7 +357,7 @@ export function ContextSidebar({
                   {running ? <span className="session-live-dot" /> : null}
                 </span>
                 <span className="session-row-meta">
-                  <span>{session.lastMessagePreview || "尚无消息"}</span>
+                  {preview ? <span>{preview}</span> : null}
                   <time>{compactAge(session.updatedAt)}</time>
                 </span>
               </button>

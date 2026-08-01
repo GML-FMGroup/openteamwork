@@ -575,6 +575,7 @@ textarea:focus-visible,
 
 .session-row-meta time {
   flex: 0 0 auto;
+  margin-left: auto;
 }
 
 .sidebar-empty {
@@ -1384,6 +1385,23 @@ textarea:focus-visible,
   background: var(--paper-warm);
 }
 
+.settings-column {
+  display: grid;
+  min-width: 0;
+  align-content: start;
+  gap: 12px;
+}
+
+.settings-column-primary {
+  grid-column: 2;
+  grid-row: 1;
+}
+
+.settings-column-secondary {
+  grid-column: 1;
+  grid-row: 1;
+}
+
 .settings-card {
   border-color: var(--hairline);
   border-radius: 12px;
@@ -1525,6 +1543,20 @@ textarea:focus-visible,
 
   .settings-page {
     grid-template-columns: 1fr;
+  }
+
+  .settings-column-primary,
+  .settings-column-secondary {
+    grid-column: 1;
+    grid-row: auto;
+  }
+
+  .settings-column-primary {
+    order: 1;
+  }
+
+  .settings-column-secondary {
+    order: 2;
   }
 }
 

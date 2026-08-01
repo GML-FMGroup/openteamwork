@@ -541,6 +541,31 @@ def test_list_sessions_uses_short_cache(tmp_path: Path, monkeypatch) -> None:
     assert calls["count"] == 1
 
 
+def test_list_sessions_does_not_synthesize_a_preview(tmp_path: Path, monkeypatch) -> None:
+    (tmp_path / "global_config.json").write_text(
+        json.dumps({"agents": [{"name": "writer", "enabled": True}]}),
+        encoding="utf-8",
+    )
+    agent_dir = tmp_path / "writer"
+    agent_dir.mkdir()
+    (agent_dir / "config.json").write_text(
+        json.dumps({"agent": {"workspace": "workspace/writer"}}),
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(
+        ClientApiCoordinator,
+        "_read_sessions_direct",
+        lambda self, config_path, *, user_id: [{"id": "session-1", "last_update_time": 1_700_000_000}],
+    )
+
+    coordinator = ClientApiCoordinator(data_dir=tmp_path)
+    sessions = coordinator.list_sessions("writer")
+
+    assert sessions["ok"] is True
+    assert sessions["data"]["items"][0]["last_message_preview"] == ""
+
+
 def test_create_session_invalidates_session_list_cache(tmp_path: Path, monkeypatch) -> None:
     (tmp_path / "global_config.json").write_text(
         json.dumps({"agents": [{"name": "writer", "enabled": True}]}),
