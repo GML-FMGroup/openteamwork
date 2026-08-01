@@ -1,4 +1,5 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { vi } from "vitest";
 import { MessageBubble } from "../app/src/components/MessageBubble";
 import type { ChatMessage } from "../app/src/types";
 
@@ -23,6 +24,35 @@ function buildMessage(overrides: Partial<ChatMessage> = {}): ChatMessage {
 }
 
 describe("MessageBubble", () => {
+  it("keeps user identity metadata out of the bubble and exposes copy/time actions", async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText },
+    });
+
+    const { container } = render(
+      <MessageBubble
+        message={buildMessage({
+          role: "user",
+          status: "completed",
+          parts: [{ type: "markdown", text: "Review the latest run" }],
+        })}
+      />,
+    );
+
+    expect(screen.queryByText("You")).not.toBeInTheDocument();
+    expect(container.querySelector(".message-meta")).not.toBeInTheDocument();
+    expect(container.querySelector(".user-message-actions")).toBeInTheDocument();
+    expect(container.querySelector(".user-message-actions time")).toHaveAttribute(
+      "dateTime",
+      "2026-04-02T12:00:00.000Z",
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Copy message" }));
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith("Review the latest run"));
+  });
+
   it("renders localized role, step status, and streaming hint", () => {
     const { container } = render(<MessageBubble message={buildMessage()} />);
 

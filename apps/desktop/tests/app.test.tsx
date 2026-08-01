@@ -699,7 +699,7 @@ describe("App sending state", () => {
 
     await screen.findByRole("button", { name: "Send" });
 
-    fireEvent.click(screen.getByRole("button", { name: "Connections & Settings" }));
+    fireEvent.click(screen.getByRole("button", { name: "Settings" }));
 
     await screen.findByText("Connection");
     expect(screen.getByText("http://127.0.0.1:8765")).toBeInTheDocument();
@@ -717,7 +717,8 @@ describe("App sending state", () => {
 
     await screen.findByRole("button", { name: "Send" });
     expect(screen.getByText("Workspace")).toBeInTheDocument();
-    expect(screen.getByText("Connections & Settings")).toBeInTheDocument();
+    expect(screen.getByText("Settings")).toBeInTheDocument();
+    expect(screen.queryByText("Connections & Settings")).not.toBeInTheDocument();
     expect(screen.getByPlaceholderText("Search sessions")).toBeInTheDocument();
     expect(screen.queryByText("工作区")).not.toBeInTheDocument();
   });
@@ -728,7 +729,7 @@ describe("App sending state", () => {
     render(<App />);
 
     await screen.findByRole("button", { name: "Send" });
-    fireEvent.click(screen.getByRole("button", { name: "Connections & Settings" }));
+    fireEvent.click(screen.getByRole("button", { name: "Settings" }));
 
     await screen.findByText("Runtime status");
     expect(document.querySelector(".settings-card-runtime")).toBeInTheDocument();
@@ -756,7 +757,7 @@ describe("App sending state", () => {
     render(<App />);
 
     await screen.findByRole("button", { name: "Send" });
-    fireEvent.click(screen.getByRole("button", { name: "Connections & Settings" }));
+    fireEvent.click(screen.getByRole("button", { name: "Settings" }));
 
     await screen.findByText("Ops Gateway (lan)");
     expect(screen.getByText("external / LAN")).toBeInTheDocument();
@@ -786,7 +787,7 @@ describe("App sending state", () => {
     render(<App />);
 
     await screen.findByRole("button", { name: "Send" });
-    fireEvent.click(screen.getByRole("button", { name: "Connections & Settings" }));
+    fireEvent.click(screen.getByRole("button", { name: "Settings" }));
 
     fireEvent.change(screen.getByDisplayValue("This Mac"), {
       target: { value: "Ops Gateway" },
@@ -825,7 +826,7 @@ describe("App sending state", () => {
 
     render(<App />);
     await screen.findByRole("button", { name: "Send" });
-    fireEvent.click(screen.getByRole("button", { name: "Connections & Settings" }));
+    fireEvent.click(screen.getByRole("button", { name: "Settings" }));
     fireEvent.change(screen.getByLabelText("Run location"), { target: { value: "lan" } });
     fireEvent.change(screen.getByDisplayValue("http://127.0.0.1:8765"), {
       target: { value: "http://192.168.1.8:8765" },

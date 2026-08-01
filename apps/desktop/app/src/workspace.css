@@ -843,11 +843,49 @@ textarea:focus-visible,
 }
 
 .message-bubble.user {
+  position: relative;
   max-width: min(620px, 82%);
   padding: 11px 14px;
   border-color: transparent;
   border-radius: 14px 14px 4px 14px;
   background: var(--paper-deep);
+}
+
+.user-message-actions {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--ink-faint);
+  font-size: 9px;
+  line-height: 1;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 140ms ease;
+  white-space: nowrap;
+}
+
+.message-bubble.user:hover .user-message-actions,
+.message-bubble.user:focus-within .user-message-actions {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.user-message-actions button {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.user-message-actions button:hover,
+.user-message-actions button:focus-visible {
+  color: var(--ink-soft);
 }
 
 .message-bubble.agent-thread {

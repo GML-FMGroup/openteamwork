@@ -1,49 +1,58 @@
 **Comparison Target**
 
-- Source visual truth: `$TMPDIR/codex-clipboard-66b16224-cab1-4926-94b5-318dec44b81f.png`, together with the explicit requirements to use English desktop chrome and remove the large empty Settings region through a more rational arrangement of Runtime status, Connection config, Connection, Diagnostics, and Paths.
-- Browser-rendered implementation: `$TMPDIR/openppx-settings-english-balanced.png` (top state) and `$TMPDIR/openppx-settings-english-balanced-matched.png` (bottom-of-page state).
-- Side-by-side comparison: `$TMPDIR/openppx-settings-phase49-side-by-side.png`.
-- Viewport: 1171 × 903 CSS px with device scale factor 1, matching the source's inferred 1171 × 903 CSS viewport.
-- Pixels and normalization: source 2342 × 1806 px at inferred 2× density was downsampled to 1171 × 903 px. Both implementation captures are 1171 × 903 px at 1× density. The normalized source and bottom implementation were assembled into a 2342 × 903 px comparison.
-- State: source uses the real local node after scrolling through the former unequal-column layout. Implementation uses deterministic mock runtime values and the new compact layout at its maximum scroll position. Runtime values differ intentionally; hierarchy, density, language, card sizing, and empty-space behavior are the comparison targets.
+- Source visual truth:
+  - `$TMPDIR/codex-clipboard-4af87992-0e8e-46d0-8bd7-a5e3c0f2b8c3.png` for the persistent `You + time` user-message header.
+  - `$TMPDIR/codex-clipboard-c558a50a-9ca3-441d-b67a-ca3ad38d7171.png` for the verbose `Connections & Settings` sidebar label.
+  - OpenWorker's local `Transcript.tsx` implementation for the content-only user bubble and zero-height hover/focus metadata treatment.
+- Browser-rendered implementation:
+  - `$TMPDIR/openppx-phase50-rest.png` for the normal transcript/sidebar state.
+  - `$TMPDIR/openppx-phase50-hover.png` for the keyboard-focus action state shared with hover styling.
+- Side-by-side focused comparison: `/private/tmp/openppx-phase50-side-by-side.png`.
+- Viewport: 1171 × 903 CSS px with device scale factor 1.
+- Pixels and normalization:
+  - User-message source: 1678 × 834 px.
+  - Settings-label source: 578 × 652 px.
+  - Each browser implementation capture: 1171 × 903 px at 1× density.
+  - Source and implementation regions were cropped at native density, then fit into equal 520 × 240 comparison cells so the requested metadata and label differences remain legible.
+- State: deterministic mock Node/Agent/session data with one completed user message and its assistant response. The normal and focus states preserve the same content and scroll position.
 
 **Full-view Comparison Evidence**
 
-- The source leaves approximately half of the left content column empty while Connection and Diagnostics continue down the right column.
-- The implementation replaces independent unequal stacks with a hierarchy-driven grid: Runtime status and Connection config span the page, Connection and Diagnostics share one balanced row, and Paths spans the page below them.
-- Connection and Diagnostics contain ten facts each, so their card heights and internal row rhythm match. Paths presents four values horizontally instead of building a tall one-column stack.
-- At the maximum scroll position, the new page still has continuous card content across the full width; the marked large blank region is gone.
-- All visible navigation, controls, labels, empty states, status copy, and Settings content are English. Dynamic node/runtime values remain unchanged.
+- The normal implementation view shows the user bubble as content-only; no fixed role label or timestamp consumes space above the message.
+- The expanded sidebar shows `Settings` with the existing icon and navigation placement unchanged.
+- Agent identity and timestamps remain visible, preserving the distinction requested by the user.
+- The transcript width, message alignment, composer position, inspector, and sidebar proportions did not change.
 
 **Focused Region Comparison Evidence**
 
-- A separate crop was not required: the normalized 2342 × 903 side-by-side image keeps the full Settings content legible, and the accessibility snapshot independently confirms every control label and section heading.
-- The LAN interaction state was also exercised: selecting `Connect to an OpenPPX Node on the LAN` reveals the English `Access Token` field and its English placeholder without shifting or breaking the card grid.
+- The upper comparison pair shows the source's boxed `You` label and fixed time versus the implementation's content-only user bubble.
+- The lower comparison pair shows `Connections & Settings` replaced by `Settings` while retaining the same icon, baseline, and footer hierarchy.
+- The focus-state browser capture shows `Copy` and the timestamp below the user bubble without moving the bubble or following Agent content.
 
 **Required Fidelity Surfaces**
 
-- Fonts and typography: existing family, weights, sizes, line heights, letter spacing, antialiasing, heading hierarchy, and uppercase diagnostic labels are preserved. Longer English controls fit without clipping.
-- Spacing and layout rhythm: 12 px card gaps, paired card widths, matched Connection/Diagnostics heights, compact Runtime row, three-column configuration fields, and four-column Paths remove the uneven vertical rhythm. Responsive rules collapse paired cards and field grids at narrower widths.
-- Colors and visual tokens: the neutral OpenWorker-inspired palette, white cards, warm paper background, hairline borders, dark primary controls, and green health state remain unchanged.
-- Image quality and asset fidelity: no image, logo, illustration, or icon asset was added, replaced, or degraded. Existing brand and shell icons remain sharp.
-- Copy and content: desktop-owned UI is English. User/Agent conversation content remains data and is not translated. The legacy Chinese generic session title is recognized only for cached-data compatibility and is not rendered as new UI copy.
+- Fonts and typography: existing OpenPPX type family, message size, user-bubble line height, Agent metadata, and sidebar weight are unchanged. Removing the header simplifies hierarchy in the same direction as OpenWorker.
+- Spacing and layout rhythm: the action strip is absolutely positioned below the user bubble inside the existing 18 px transcript gap, so normal layout height and alignment do not change.
+- Colors and visual tokens: the neutral message fill, faint metadata color, sidebar background, active Workspace state, and Settings icon color are preserved.
+- Image quality and asset fidelity: no raster, logo, illustration, or icon asset was added, replaced, or degraded.
+- Copy and content: the persistent `You` label is removed; the sidebar copy is exactly `Settings`. Dynamic conversation content and visible Agent metadata remain unchanged.
 
 **Findings**
 
-- No actionable P0, P1, or P2 mismatch remains for the requested language standardization and Settings layout correction.
+- No actionable P0, P1, or P2 mismatch remains for the two requested details.
 
 **Comparison History**
 
-- Iteration 1 source issue: two independent Settings columns had very different total heights, leaving a large empty left region while Connection and Diagnostics continued on the right. Desktop chrome also mixed Chinese and English.
-- Fix: replaced the column stacks with full-width/pair/full-width grid placement; balanced Connection and Diagnostics to ten facts each; made Connection config and Paths horizontal at desktop width; translated desktop-owned interface copy and validation messages to English.
-- Post-fix evidence: the source-equivalent browser captures and side-by-side comparison show continuous full-width content, balanced information cards, English controls, and no hidden persistent actions. No additional P0/P1/P2 fix was required.
+- Iteration 1 source issues: user messages permanently displayed `You + time`, unlike OpenWorker's content-only bubbles; the sidebar label was longer than requested.
+- Fix: made user metadata role-specific, added a zero-layout-shift copy/time action strip for hover/focus, and shortened both expanded and collapsed Settings labels.
+- Post-fix evidence: normal and focused browser captures plus the four-cell comparison confirm both requested details without adjacent layout drift.
 
 **Primary Interactions and Runtime Checks**
 
-- Opened the workspace and confirmed English navigation, Session search, composer, task panel, status, and artifact empty state.
-- Activated `Connections & Settings` through its unique accessible button.
-- Verified Runtime status, Connection config, Connection, Diagnostics, and Paths render in the intended order.
-- Switched Run location from local to LAN and verified Access Token appears with English copy.
+- Confirmed the DOM contains zero persistent user `.message-meta` rows and one user action strip.
+- Confirmed the sidebar contains one `Settings` action and no `Connections & Settings` action.
+- Exercised the action strip through keyboard focus; the shared hover/focus CSS state reached opacity 1 without moving surrounding content.
+- Unit coverage confirms Copy calls the Clipboard API with the user message text. The in-app browser isolates page clipboard contents, so clipboard payload confirmation there is not treated as visual QA evidence.
 - Browser console warnings/errors checked: none.
 
 **Open Questions**
@@ -52,14 +61,12 @@
 
 **Implementation Checklist**
 
-- [x] Translate desktop-owned interface copy to English.
-- [x] Preserve dynamic conversation content.
-- [x] Use a full-width Runtime status card.
-- [x] Use a full-width horizontal Connection config card.
-- [x] Balance Connection and Diagnostics in one row.
-- [x] Use a full-width horizontal Paths card.
-- [x] Preserve responsive single-column behavior.
-- [x] Run typecheck, desktop tests, client API tests, interaction checks, and visual comparison.
+- [x] Remove persistent user identity/time metadata.
+- [x] Preserve visible Agent identity/time metadata.
+- [x] Add non-layout-shifting Copy/time actions for hover and keyboard focus.
+- [x] Rename the expanded and collapsed navigation entry to `Settings`.
+- [x] Add focused regressions and run the full desktop suite.
+- [x] Capture normal and action states and compare both requested regions.
 
 **Follow-up Polish**
 

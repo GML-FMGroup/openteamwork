@@ -1,10 +1,11 @@
+import { useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type { ChatMessage, MessagePart } from "../types";
 
 function roleLabel(role: ChatMessage["role"]): string {
   if (role === "user") {
-    return "You";
+    return "";
   }
   if (role === "assistant") {
     return "Agent";
@@ -13,6 +14,21 @@ function roleLabel(role: ChatMessage["role"]): string {
     return "Tool";
   }
   return "System";
+}
+
+function copyableMessageText(message: ChatMessage): string {
+  return message.parts
+    .map((part) => {
+      if (part.type === "tool_result") {
+        return part.summary;
+      }
+      if (part.type === "step_ref") {
+        return part.detail;
+      }
+      return part.text;
+    })
+    .filter(Boolean)
+    .join("\n\n");
 }
 
 function stepStatusLabel(status: Extract<MessagePart, { type: "step_ref" }>["status"]): string {
@@ -168,14 +184,31 @@ function renderPart(part: MessagePart) {
 }
 
 export function MessageBubble({ message, showIdentity = true }: { message: ChatMessage; showIdentity?: boolean }) {
+  const [copied, setCopied] = useState(false);
   const statusLabel = messageStatusLabel(message.status);
   const isAssistant = message.role === "assistant";
+  const isUser = message.role === "user";
+  const timestamp = new Date(message.createdAt).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" });
+
+  async function copyMessage(): Promise<void> {
+    if (!navigator.clipboard) {
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(copyableMessageText(message));
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1200);
+    } catch {
+      // Clipboard access may be denied when the window is not focused.
+    }
+  }
+
   return (
     <article id={`message-${message.id}`} className={`message-bubble ${message.role} ${message.status} ${isAssistant ? "agent-thread" : ""}`}>
-      {showIdentity ? (
+      {showIdentity && !isUser ? (
         <div className={`message-meta ${isAssistant ? "agent-meta" : ""}`}>
           <span className={isAssistant ? "agent-name" : ""}>{roleLabel(message.role)}</span>
-          <span>{new Date(message.createdAt).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" })}</span>
+          <span>{timestamp}</span>
         </div>
       ) : null}
       <div className="message-body">
@@ -185,6 +218,14 @@ export function MessageBubble({ message, showIdentity = true }: { message: ChatM
         {message.status === "streaming" ? <div className="streaming-indicator">Preparing the result...</div> : null}
         {statusLabel ? <div className={`message-status-banner ${message.status}`}>{statusLabel}</div> : null}
       </div>
+      {isUser ? (
+        <div className="user-message-actions" aria-label="Message actions">
+          <button type="button" onClick={copyMessage} aria-label="Copy message">
+            {copied ? "Copied" : "Copy"}
+          </button>
+          <time dateTime={message.createdAt}>{timestamp}</time>
+        </div>
+      ) : null}
     </article>
   );
 }

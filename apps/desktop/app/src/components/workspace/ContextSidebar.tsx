@@ -213,7 +213,7 @@ export function ContextSidebar({
           <button
             className={view === "settings" ? "rail-action active" : "rail-action"}
             onClick={() => onChangeView("settings")}
-            title="Connections & Settings"
+            title="Settings"
           >
             <ShellIcon name="settings" />
           </button>
@@ -384,7 +384,7 @@ export function ContextSidebar({
           onClick={() => onChangeView("settings")}
         >
           <ShellIcon name="settings" />
-          <span>Connections &amp; Settings</span>
+          <span>Settings</span>
         </button>
       </nav>
     </aside>
