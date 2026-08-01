@@ -1,45 +1,45 @@
 **Comparison Target**
 
-- Source visual truth: `$TMPDIR/codex-clipboard-6102f843-6f63-454e-b570-b089d95945b2.png`
-- Implementation screenshot: `$TMPDIR/com.openai.sky.CUAService/OpenPPX Desktop Screenshot 2026-08-01 at 8.30.10 PM.jpeg`
-- Focused comparison: `$TMPDIR/openppx-session-brace.F4uWQT/comparison.png`
+- Source visual truth: `$TMPDIR/codex-clipboard-db0a73c4-3390-4719-8fc3-e62166cb494d.png` and `$TMPDIR/codex-clipboard-1c25a2b3-3b3b-4afb-81e2-def66a68b96c.png`.
+- Implementation screenshot: `$TMPDIR/com.openai.sky.CUAService/OpenPPX Desktop Screenshot 2026-08-01 at 9.08.47 PM.jpeg`.
+- Focused comparison: `$TMPDIR/openppx-font-weight.JZaOGv/font-weight-comparison.png`.
 - Viewport: OpenPPX Desktop window at 1203 × 768 px.
-- Pixels and normalization: source 612 × 534 px; implementation 1203 × 768 px. The Session regions were cropped and normalized to 520 px high, then placed side by side in a 1146 × 524 px comparison image. The desktop capture used the native Computer Use screenshot density.
-- State: left sidebar expanded, `low-main` selected, first Session selected, Session list visible.
+- Pixels and normalization: sources are 2816 × 1774 px and 2280 × 1102 px; implementation is 1203 × 768 px. Three annotated source regions and their corresponding implementation regions were cropped, aspect-fit into equal 440 × 240 px panels, and assembled into an 888 × 732 px comparison image. The implementation uses the native Computer Use screenshot density.
+- State: three-column workspace, `low-main` and its `hi` Session selected, Progress and Artifacts visible, assistant messages visible.
 
 **Full-view Comparison Evidence**
 
-- The source is a focused Session-list screenshot rather than a full application view, so full-screen fidelity outside the left sidebar is not part of this change.
-- The full implementation screenshot was checked for regressions: the three-column workspace, sidebar width, search field, Session list, composer, and inspector remain intact.
+- The full desktop screenshot confirms the three-column layout, selected Session, composer, transcript width, and inspector structure are unchanged.
+- No new wrapping, clipping, overflow, or spacing shift appears after the font-weight-only changes.
 
 **Focused Region Comparison Evidence**
 
-- The side-by-side comparison shows that the selected Session keeps its light-gray rounded background while the black brace-shaped left outline is absent.
-- Typography: title, metadata, date weight, hierarchy, wrapping, and truncation are unchanged by the CSS update.
-- Spacing and layout rhythm: row padding, radius, inter-row gaps, and search-to-list spacing are unchanged.
-- Colors and visual tokens: the existing selected-row gray token remains; no new color was introduced.
-- Image quality and asset fidelity: no image or icon asset is affected; the native desktop screenshot is sharp enough to inspect the selected-row edge.
-- Copy and content: Session titles, `OpenPPX session`, and dates remain unchanged.
+- Fonts and typography: conversation `AGENT` now uses regular weight while preserving its uppercase form, size, color, tracking, and timestamp alignment. The top Session title and the Progress/Artifacts headings use bold weight with unchanged font family, size, line height, and antialiasing.
+- Spacing and layout rhythm: header alignment, metadata gaps, disclosure-row height, chevron alignment, and transcript spacing are unchanged.
+- Colors and visual tokens: no color, opacity, background, border, or semantic token changed.
+- Image quality and asset fidelity: no raster, logo, illustration, or icon asset changed; native screenshots are sufficiently sharp to judge the requested text weights.
+- Copy and content: `AGENT`, `hi`, `Progress`, and `Artifacts` remain unchanged.
 
 **Findings**
 
-- No actionable P0, P1, or P2 mismatch remains for the requested selected-Session state.
+- No actionable P0, P1, or P2 mismatch remains for the requested typography hierarchy.
 
 **Comparison History**
 
-- Iteration 1: removing the active-row inset shadow alone did not fully remove the brace. The real desktop capture still showed the global `:focus-visible` outline clipped around the active rounded row.
-- Fix: added an active Session focus rule that suppresses this redundant outline while retaining the light-gray selected state.
-- Iteration 2: rebuilt and launched a fresh packaged desktop app. The focused side-by-side comparison confirms the brace is gone and no layout or token drift was introduced.
+- Iteration 1: the annotated screenshots identified three typography mismatches: an overly bold assistant identity label and insufficient emphasis on the Session title and inspector section headings.
+- Fix: changed `.agent-name` from weight 750 to 400, `.topbar-copy strong` from 650 to 700, and `.inspector-section-toggle` from 650 to 700.
+- Post-fix evidence: the packaged desktop screenshot and three-row focused comparison show the requested hierarchy without layout drift. No additional P0/P1/P2 fix was needed.
 
 **Open Questions**
 
-- None for this scoped visual change.
+- None for this scoped typography change.
 
 **Implementation Checklist**
 
-- [x] Remove the active-row inset accent.
-- [x] Remove the redundant active-row focus outline.
-- [x] Preserve the selected light-gray background.
+- [x] Use regular weight for the conversation assistant label.
+- [x] Use bold weight for the current Session title.
+- [x] Use bold weight for Progress and Artifacts.
+- [x] Preserve layout, color, size, tracking, and interaction behavior.
 - [x] Run typecheck and desktop tests.
 - [x] Rebuild and visually verify the packaged desktop app.
 
