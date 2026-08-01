@@ -547,7 +547,10 @@ textarea:focus-visible,
 .session-row.active {
   border-color: transparent;
   background: var(--paper-deep) !important;
-  box-shadow: inset 2px 0 0 var(--vermilion);
+}
+
+.session-row.active:focus-visible {
+  outline: none;
 }
 
 .session-row-title,
