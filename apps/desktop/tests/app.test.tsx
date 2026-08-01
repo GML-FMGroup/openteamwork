@@ -538,7 +538,9 @@ describe("App sending state", () => {
     render(<App />);
 
     await screen.findByText("First chunk");
-    expect(screen.getAllByText("Agent")).toHaveLength(1);
+    const transcript = document.querySelector<HTMLElement>(".transcript-column");
+    expect(transcript).not.toBeNull();
+    expect(within(transcript!).getAllByText("Agent")).toHaveLength(1);
   });
 
   it("switches transcript, progress, and artifacts together when selecting an Agent", async () => {
@@ -610,7 +612,21 @@ describe("App sending state", () => {
     expect(within(taskPanel).getByText("Agent 1 progress")).toBeInTheDocument();
     expect(within(taskPanel).getByText("agent-1.txt")).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: /Agent 2 Remote test agent/ }));
+    const agentTrigger = screen.getByRole("button", { name: /Agent 1 Local test agent/ });
+    expect(screen.queryByRole("listbox", { name: "选择 Agent" })).not.toBeInTheDocument();
+
+    fireEvent.click(agentTrigger);
+    expect(screen.getByRole("listbox", { name: "选择 Agent" })).toBeInTheDocument();
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(screen.queryByRole("listbox", { name: "选择 Agent" })).not.toBeInTheDocument();
+    expect(agentTrigger).toHaveFocus();
+
+    fireEvent.click(agentTrigger);
+    fireEvent.pointerDown(screen.getByText("Sessions"));
+    expect(screen.queryByRole("listbox", { name: "选择 Agent" })).not.toBeInTheDocument();
+
+    fireEvent.click(agentTrigger);
+    fireEvent.click(screen.getByRole("option", { name: /Agent 2 Remote test agent/ }));
 
     await screen.findByText("Agent 2 transcript");
     taskPanel = screen.getByLabelText("任务面板");

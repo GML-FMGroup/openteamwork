@@ -101,7 +101,6 @@ textarea:focus-visible,
 .brand-lockup,
 .quiet-icon-button,
 .node-card,
-.agent-row,
 .session-row,
 .section-add,
 .footer-nav,
@@ -117,7 +116,6 @@ textarea:focus-visible,
 .brand-lockup:hover,
 .quiet-icon-button:hover,
 .node-card:hover,
-.agent-row:hover,
 .session-row:hover,
 .section-add:hover,
 .footer-nav:hover,
@@ -328,7 +326,6 @@ textarea:focus-visible,
   font-size: 9px;
 }
 
-.agent-list,
 .session-list {
   display: flex;
   min-height: 0;
@@ -336,52 +333,61 @@ textarea:focus-visible,
   gap: 2px;
 }
 
-.agent-row {
+.agent-picker {
+  position: relative;
+  z-index: 12;
+}
+
+.agent-picker-trigger {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
   align-items: center;
   gap: 8px;
   width: 100%;
-  min-height: 42px;
-  padding: 5px 7px;
-  border: 0;
-  border-radius: 8px;
+  min-height: 52px;
+  padding: 7px 9px;
+  border: 1px solid var(--hairline);
+  border-radius: 10px;
+  background: var(--surface-soft) !important;
   text-align: left;
 }
 
-.agent-row:hover,
-.agent-row.active {
-  background: var(--surface-soft) !important;
+.agent-picker-trigger:hover,
+.agent-picker-trigger[aria-expanded="true"] {
+  border-color: var(--hairline-strong);
+  background: var(--surface-strong) !important;
 }
 
-.agent-row.active {
-  box-shadow: inset 2px 0 0 var(--ink);
+.agent-picker-trigger[aria-expanded="true"] {
+  box-shadow: 0 8px 22px rgba(23, 25, 28, 0.08);
+}
+
+.agent-picker-trigger:disabled {
+  cursor: default;
+  opacity: 0.65;
 }
 
 .agent-monogram {
   display: grid;
   place-items: center;
-  width: 24px;
-  height: 24px;
-  border-radius: 6px;
-  background: transparent;
-  color: var(--ink-soft);
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  background: var(--paper-deep);
+  color: var(--ink);
   font-family: inherit;
   font-size: 13px;
   font-weight: 700;
 }
 
-.agent-row.active .agent-monogram {
-  background: var(--paper-deep);
-  color: var(--ink);
-}
-
-.agent-row-copy {
+.agent-picker-copy,
+.agent-option-copy {
   display: grid;
   min-width: 0;
 }
 
-.agent-row-copy strong,
+.agent-picker-copy strong,
+.agent-option-copy strong,
 .session-row-title strong {
   overflow: hidden;
   color: var(--ink);
@@ -391,13 +397,79 @@ textarea:focus-visible,
   white-space: nowrap;
 }
 
-.agent-row-copy small {
+.agent-picker-copy small,
+.agent-option-copy small {
   overflow: hidden;
   margin-top: 2px;
   color: var(--ink-faint);
   font-size: 10px;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.agent-picker-chevron {
+  display: inline-flex;
+  color: var(--ink-faint);
+  transform: rotate(90deg);
+  transition: transform 150ms ease;
+}
+
+.agent-picker-chevron.open {
+  transform: rotate(-90deg);
+}
+
+.agent-picker-chevron .shell-icon {
+  width: 14px;
+  height: 14px;
+}
+
+.agent-picker-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  left: 0;
+  z-index: 20;
+  display: flex;
+  max-height: min(280px, 48vh);
+  overflow-y: auto;
+  flex-direction: column;
+  gap: 2px;
+  padding: 5px;
+  border: 1px solid var(--hairline-strong);
+  border-radius: 11px;
+  background: var(--surface-strong);
+  box-shadow: 0 16px 40px rgba(23, 25, 28, 0.14);
+}
+
+.agent-option {
+  display: grid;
+  width: 100%;
+  min-height: 46px;
+  grid-template-columns: 16px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 8px;
+  border: 0;
+  border-radius: 8px;
+  text-align: left;
+}
+
+.agent-option:hover,
+.agent-option:focus-visible,
+.agent-option.selected {
+  background: var(--surface-soft) !important;
+}
+
+.agent-option-marker {
+  display: grid;
+  place-items: center;
+  width: 16px;
+}
+
+.agent-option-check {
+  color: var(--ink-soft);
+  font-size: 11px;
+  font-weight: 700;
 }
 
 .session-section {

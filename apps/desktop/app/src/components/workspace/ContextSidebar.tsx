@@ -1,4 +1,11 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type ReactNode,
+} from "react";
 import type {
   AgentProfile,
   ClientDiagnostics,
@@ -92,7 +99,11 @@ export function ContextSidebar({
   onNewSession,
 }: ContextSidebarProps) {
   const [query, setQuery] = useState("");
+  const [agentMenuOpen, setAgentMenuOpen] = useState(false);
   const searchRef = useRef<HTMLInputElement | null>(null);
+  const agentPickerRef = useRef<HTMLDivElement | null>(null);
+  const agentTriggerRef = useRef<HTMLButtonElement | null>(null);
+  const agentOptionRefs = useRef<Array<HTMLButtonElement | null>>([]);
   const filteredSessions = useMemo(() => {
     const normalized = query.trim().toLowerCase();
     if (!normalized) {
@@ -102,6 +113,10 @@ export function ContextSidebar({
       `${session.title} ${session.lastMessagePreview}`.toLowerCase().includes(normalized),
     );
   }, [query, sessions]);
+  const selectedAgent = useMemo(
+    () => agents.find((agent) => agent.id === selectedAgentId) ?? null,
+    [agents, selectedAgentId],
+  );
   const nodeName = diagnostics?.nodeName ?? diagnostics?.target.name ?? runtime.target.name;
   const connectionMode = diagnostics?.mode === "lan" ? "LAN" : diagnostics?.mode === "mock" ? "DEMO" : "LOCAL";
 
@@ -115,6 +130,65 @@ export function ContextSidebar({
     window.addEventListener("keydown", handleSearchShortcut);
     return () => window.removeEventListener("keydown", handleSearchShortcut);
   }, [collapsed]);
+
+  useEffect(() => {
+    if (collapsed) {
+      setAgentMenuOpen(false);
+    }
+  }, [collapsed]);
+
+  useEffect(() => {
+    if (!agentMenuOpen) {
+      return;
+    }
+
+    const selectedIndex = Math.max(0, agents.findIndex((agent) => agent.id === selectedAgentId));
+    agentOptionRefs.current[selectedIndex]?.focus();
+
+    function handlePointerDown(event: PointerEvent): void {
+      if (!agentPickerRef.current?.contains(event.target as Node)) {
+        setAgentMenuOpen(false);
+      }
+    }
+
+    function handleEscape(event: KeyboardEvent): void {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        setAgentMenuOpen(false);
+        agentTriggerRef.current?.focus();
+      }
+    }
+
+    document.addEventListener("pointerdown", handlePointerDown);
+    document.addEventListener("keydown", handleEscape);
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown);
+      document.removeEventListener("keydown", handleEscape);
+    };
+  }, [agentMenuOpen, agents, selectedAgentId]);
+
+  function selectAgent(agentId: string): void {
+    setAgentMenuOpen(false);
+    onSelectAgent(agentId);
+    agentTriggerRef.current?.focus();
+  }
+
+  function handleAgentOptionKeyDown(event: ReactKeyboardEvent, index: number): void {
+    let nextIndex = index;
+    if (event.key === "ArrowDown") {
+      nextIndex = (index + 1) % agents.length;
+    } else if (event.key === "ArrowUp") {
+      nextIndex = (index - 1 + agents.length) % agents.length;
+    } else if (event.key === "Home") {
+      nextIndex = 0;
+    } else if (event.key === "End") {
+      nextIndex = agents.length - 1;
+    } else {
+      return;
+    }
+    event.preventDefault();
+    agentOptionRefs.current[nextIndex]?.focus();
+  }
 
   if (collapsed) {
     return (
@@ -181,27 +255,67 @@ export function ContextSidebar({
         <span className="node-card-count">{agents.length}</span>
       </button>
 
-      <section className="context-section agent-section">
+      <section className="context-section agent-section" aria-label="Agent selector">
         <div className="context-section-heading">
-          <span>Agents</span>
+          <span>Agent</span>
           <small>{agents.length}</small>
         </div>
-        <div className="agent-list">
-          {agents.map((agent) => (
-            <button
-              key={agent.id}
-              className={agent.id === selectedAgentId ? "agent-row active" : "agent-row"}
-              onClick={() => onSelectAgent(agent.id)}
-            >
-              <span className="agent-monogram">{agent.name.slice(0, 1).toUpperCase()}</span>
-              <span className="agent-row-copy">
-                <strong>{agent.name}</strong>
-                <small>{agent.description}</small>
-              </span>
-              <span className={`agent-state ${agent.status}`} />
-            </button>
-          ))}
-          {agents.length === 0 ? <p className="sidebar-empty">当前 Node 没有可用 Agent。</p> : null}
+        <div className="agent-picker" ref={agentPickerRef}>
+          <button
+            ref={agentTriggerRef}
+            className="agent-picker-trigger"
+            type="button"
+            aria-haspopup="listbox"
+            aria-expanded={agentMenuOpen}
+            disabled={agents.length === 0}
+            onClick={() => setAgentMenuOpen((current) => !current)}
+            onKeyDown={(event) => {
+              if (!agentMenuOpen && (event.key === "ArrowDown" || event.key === "Enter" || event.key === " ")) {
+                event.preventDefault();
+                setAgentMenuOpen(true);
+              }
+            }}
+          >
+            <span className="agent-monogram">
+              {selectedAgent?.name.slice(0, 1).toUpperCase() ?? "—"}
+            </span>
+            <span className="agent-picker-copy">
+              <strong>{selectedAgent?.name ?? "没有可用 Agent"}</strong>
+              <small>{selectedAgent?.description ?? "当前 Node 尚未提供 Agent"}</small>
+            </span>
+            {selectedAgent ? <span className={`agent-state ${selectedAgent.status}`} /> : null}
+            <span className={agentMenuOpen ? "agent-picker-chevron open" : "agent-picker-chevron"}>
+              <ShellIcon name="expand" />
+            </span>
+          </button>
+
+          {agentMenuOpen ? (
+            <div className="agent-picker-menu" role="listbox" aria-label="选择 Agent">
+              {agents.map((agent, index) => (
+                <button
+                  key={agent.id}
+                  ref={(element) => {
+                    agentOptionRefs.current[index] = element;
+                  }}
+                  className={agent.id === selectedAgentId ? "agent-option selected" : "agent-option"}
+                  type="button"
+                  role="option"
+                  aria-selected={agent.id === selectedAgentId}
+                  onClick={() => selectAgent(agent.id)}
+                  onKeyDown={(event) => handleAgentOptionKeyDown(event, index)}
+                >
+                  <span className="agent-option-marker">
+                    <span className={`agent-state ${agent.status}`} />
+                  </span>
+                  <span className="agent-option-copy">
+                    <strong>{agent.name}</strong>
+                    <small>{agent.description}</small>
+                  </span>
+                  {agent.id === selectedAgentId ? <span className="agent-option-check">✓</span> : null}
+                </button>
+              ))}
+            </div>
+          ) : null}
         </div>
       </section>
 
