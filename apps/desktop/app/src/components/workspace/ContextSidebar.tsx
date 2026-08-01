@@ -8,7 +8,7 @@ import type {
 
 type ShellIconName = "chat" | "settings" | "collapse" | "expand" | "search" | "plus";
 
-function ShellIcon({ name }: { name: ShellIconName }) {
+export function ShellIcon({ name }: { name: ShellIconName }) {
   const paths: Record<ShellIconName, ReactNode> = {
     chat: <path d="M4 5.5h16v11H9l-5 3v-14Z" />,
     settings: (

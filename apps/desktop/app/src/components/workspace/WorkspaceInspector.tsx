@@ -1,12 +1,11 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import {
   projectActivityItems,
   projectArtifactItems,
   type ArtifactItem,
 } from "../../lib/workspace-inspector";
 import type { ChatMessage } from "../../types";
-
-type InspectorTab = "activity" | "artifacts";
+import { ShellIcon } from "./ContextSidebar";
 
 function formatBytes(value: number | undefined): string {
   if (!value) {
@@ -27,23 +26,55 @@ function locateMessage(messageId: string): void {
     ?.scrollIntoView({ behavior: "smooth", block: "center" });
 }
 
+interface InspectorSectionProps {
+  title: string;
+  count?: number;
+  open: boolean;
+  onToggle: () => void;
+  children: ReactNode;
+}
+
+/** Collapsible section used by the session-scoped task panel. */
+function InspectorSection({
+  title,
+  count,
+  open,
+  onToggle,
+  children,
+}: InspectorSectionProps) {
+  return (
+    <section className="inspector-section">
+      <button
+        className="inspector-section-toggle"
+        aria-expanded={open}
+        onClick={onToggle}
+      >
+        <span className={open ? "inspector-section-chevron open" : "inspector-section-chevron"}>
+          <ShellIcon name="expand" />
+        </span>
+        <span>{title}</span>
+        {count ? <span className="inspector-section-count">({count})</span> : null}
+      </button>
+      {open ? <div className="inspector-section-body">{children}</div> : null}
+    </section>
+  );
+}
+
 interface WorkspaceInspectorProps {
   sessionId: string;
   messages: ChatMessage[];
   running: boolean;
   collapsed: boolean;
-  onToggleCollapse: () => void;
 }
 
-/** Right-side inspection surface derived from the selected transcript. */
+/** Right-side task panel derived from the currently selected session. */
 export function WorkspaceInspector({
   sessionId,
   messages,
   running,
   collapsed,
-  onToggleCollapse,
 }: WorkspaceInspectorProps) {
-  const [tab, setTab] = useState<InspectorTab>("activity");
+  const [open, setOpen] = useState({ progress: true, artifacts: true });
   const [selectedArtifact, setSelectedArtifact] = useState<ArtifactItem | null>(null);
   const activity = useMemo(() => projectActivityItems(messages), [messages]);
   const artifacts = useMemo(() => projectArtifactItems(messages), [messages]);
@@ -53,51 +84,49 @@ export function WorkspaceInspector({
   }, [sessionId]);
 
   if (collapsed) {
+    return null;
+  }
+
+  if (selectedArtifact) {
     return (
-      <aside className="workspace-inspector collapsed">
-        <button onClick={onToggleCollapse} title="展开检查器 (⌘⇧B)">
-          <span>INSPECT</span>
-          <strong>‹</strong>
-        </button>
+      <aside className="workspace-inspector" aria-label="任务面板">
+        <div className="inspector-body artifact-panel">
+          <div className="artifact-detail">
+            <button className="artifact-back" onClick={() => setSelectedArtifact(null)}>
+              ← 返回产物
+            </button>
+            {selectedArtifact.kind === "image" && selectedArtifact.url ? (
+              <img src={selectedArtifact.url} alt={selectedArtifact.title} />
+            ) : (
+              <div className="file-preview-glyph">
+                {selectedArtifact.title.split(".").pop()?.toUpperCase() || "FILE"}
+              </div>
+            )}
+            <div>
+              <small>{selectedArtifact.mimeType || selectedArtifact.kind}</small>
+              <h3>{selectedArtifact.title}</h3>
+              <p>{selectedArtifact.description}</p>
+            </div>
+            <button
+              className="locate-source"
+              onClick={() => locateMessage(selectedArtifact.messageId)}
+            >
+              在对话中定位
+            </button>
+          </div>
+        </div>
       </aside>
     );
   }
 
   return (
-    <aside className="workspace-inspector">
-      <header className="inspector-header">
-        <div className="inspector-tabs" role="tablist" aria-label="Session inspector">
-          <button
-            role="tab"
-            aria-selected={tab === "activity"}
-            className={tab === "activity" ? "active" : ""}
-            onClick={() => {
-              setTab("activity");
-              setSelectedArtifact(null);
-            }}
-          >
-            Activity <span>{activity.length}</span>
-          </button>
-          <button
-            role="tab"
-            aria-selected={tab === "artifacts"}
-            className={tab === "artifacts" ? "active" : ""}
-            onClick={() => setTab("artifacts")}
-          >
-            Artifacts <span>{artifacts.length}</span>
-          </button>
-        </div>
-        <button
-          className="inspector-collapse"
-          onClick={onToggleCollapse}
-          title="折叠检查器 (⌘⇧B)"
+    <aside className="workspace-inspector" aria-label="任务面板">
+      <div className="inspector-body rail-sections">
+        <InspectorSection
+          title="Progress"
+          open={open.progress}
+          onToggle={() => setOpen((current) => ({ ...current, progress: !current.progress }))}
         >
-          ›
-        </button>
-      </header>
-
-      {tab === "activity" ? (
-        <div className="inspector-body activity-panel">
           <div className={`run-summary ${running ? "running" : "idle"}`}>
             <span className="run-orbit" />
             <div>
@@ -125,40 +154,19 @@ export function WorkspaceInspector({
               ))}
             </ol>
           ) : (
-            <div className="inspector-empty">
-              <span>01</span>
-              <strong>过程会出现在这里</strong>
-              <p>当 Agent 规划、调用工具或遇到错误时，这里会形成可检查的时间线。</p>
-            </div>
+            <p className="rail-section-empty">
+              任务执行过程会在这里显示，包括规划、工具调用和错误。
+            </p>
           )}
-        </div>
-      ) : (
-        <div className="inspector-body artifact-panel">
-          {selectedArtifact ? (
-            <div className="artifact-detail">
-              <button className="artifact-back" onClick={() => setSelectedArtifact(null)}>
-                ← 返回产物
-              </button>
-              {selectedArtifact.kind === "image" && selectedArtifact.url ? (
-                <img src={selectedArtifact.url} alt={selectedArtifact.title} />
-              ) : (
-                <div className="file-preview-glyph">
-                  {selectedArtifact.title.split(".").pop()?.toUpperCase() || "FILE"}
-                </div>
-              )}
-              <div>
-                <small>{selectedArtifact.mimeType || selectedArtifact.kind}</small>
-                <h3>{selectedArtifact.title}</h3>
-                <p>{selectedArtifact.description}</p>
-              </div>
-              <button
-                className="locate-source"
-                onClick={() => locateMessage(selectedArtifact.messageId)}
-              >
-                在对话中定位
-              </button>
-            </div>
-          ) : artifacts.length ? (
+        </InspectorSection>
+
+        <InspectorSection
+          title="Artifacts"
+          count={artifacts.length}
+          open={open.artifacts}
+          onToggle={() => setOpen((current) => ({ ...current, artifacts: !current.artifacts }))}
+        >
+          {artifacts.length ? (
             <div className="artifact-list">
               {artifacts.map((artifact) => (
                 <button
@@ -181,19 +189,15 @@ export function WorkspaceInspector({
                         : artifact.mimeType || "image"}
                     </small>
                   </span>
-                  <b>↗</b>
+                  <b>Open</b>
                 </button>
               ))}
             </div>
           ) : (
-            <div className="inspector-empty">
-              <span>02</span>
-              <strong>交付物会集中在这里</strong>
-              <p>消息中的文件和图片会自动汇总；当前 Session 还没有产物。</p>
-            </div>
+            <p className="rail-section-empty">当前对话还没有可预览的文件或图片。</p>
           )}
-        </div>
-      )}
+        </InspectorSection>
+      </div>
     </aside>
   );
 }

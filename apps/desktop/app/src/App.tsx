@@ -10,7 +10,7 @@ import type {
   SessionSummary,
 } from "./types";
 import { Composer } from "./components/workspace/Composer";
-import { ContextSidebar } from "./components/workspace/ContextSidebar";
+import { ContextSidebar, ShellIcon } from "./components/workspace/ContextSidebar";
 import { Transcript } from "./components/workspace/Transcript";
 import { WorkspaceInspector } from "./components/workspace/WorkspaceInspector";
 import { normalizeConnectionSettings } from "./lib/connection-profile";
@@ -589,17 +589,17 @@ export function App() {
                 <span className="topbar-location">运行于 {diagnostics?.nodeName ?? runtime.target.name}</span>
               </div>
               <div className="topbar-actions">
-                {inspectorCollapsed ? (
-                  <button
-                    className="topbar-quiet-action"
-                    onClick={() => setInspectorCollapsed(false)}
-                  >
-                    打开检查器
-                  </button>
-                ) : null}
                 <button className="topbar-pill" onClick={() => setView("settings")} title="查看 runtime 状态">
                   <span className={`runtime-dot ${runtime.state}`} />
                   {runtime.state === "healthy" ? "Connected" : runtime.state}
+                </button>
+                <button
+                  className="quiet-icon-button task-panel-toggle"
+                  onClick={() => setInspectorCollapsed((current) => !current)}
+                  aria-label={inspectorCollapsed ? "打开任务面板" : "收起任务面板"}
+                  title={inspectorCollapsed ? "打开任务面板 (⌘⇧B)" : "收起任务面板 (⌘⇧B)"}
+                >
+                  <ShellIcon name={inspectorCollapsed ? "collapse" : "expand"} />
                 </button>
               </div>
             </header>
@@ -621,7 +621,7 @@ export function App() {
                   busy={selectedAgentBusy}
                   helperText={
                     sendError ??
-                    (selectedAgentBusy ? "当前 Agent 正在执行；过程会显示在右侧 Activity。" : "")
+                    (selectedAgentBusy ? "当前 Agent 正在执行；过程会显示在右侧 Progress。" : "")
                   }
                   agentName={workspaceAgentName}
                   nodeName={diagnostics?.nodeName ?? runtime.target.name}
@@ -637,7 +637,6 @@ export function App() {
             messages={messages}
             running={currentSessionSending}
             collapsed={inspectorCollapsed}
-            onToggleCollapse={() => setInspectorCollapsed((current) => !current)}
           />
         </>
       ) : (

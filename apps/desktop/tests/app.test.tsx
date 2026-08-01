@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { vi } from "vitest";
 import { App } from "../app/src/App";
 import type { BootstrapPayload, ClientDiagnostics, PpxClientApi, RunEvent, RuntimeStatus, SessionSummary } from "../app/src/types";
@@ -200,7 +200,7 @@ describe("App sending state", () => {
     await screen.findByRole("button", { name: "P" });
 
     fireEvent.keyDown(window, { key: "b", metaKey: true, shiftKey: true });
-    await screen.findByRole("button", { name: "打开检查器" });
+    await screen.findByRole("button", { name: "打开任务面板" });
   });
 
   it("starts with both side columns collapsed in a narrow window", async () => {
@@ -223,7 +223,7 @@ describe("App sending state", () => {
       render(<App />);
 
       await screen.findByRole("button", { name: "P" });
-      await screen.findByRole("button", { name: "打开检查器" });
+      await screen.findByRole("button", { name: "打开任务面板" });
     } finally {
       Object.defineProperty(window, "matchMedia", {
         configurable: true,
@@ -539,6 +539,86 @@ describe("App sending state", () => {
 
     await screen.findByText("First chunk");
     expect(screen.getAllByText("Agent")).toHaveLength(1);
+  });
+
+  it("switches transcript, progress, and artifacts together when selecting an Agent", async () => {
+    const bootstrap = buildBootstrapPayload();
+    const secondSession: SessionSummary = {
+      id: "session-agent-2",
+      agentId: "agent-2",
+      title: "Agent 2 Session",
+      updatedAt: "2026-04-02T11:00:00.000Z",
+      lastMessagePreview: "Agent 2 context",
+    };
+    const firstMessages: BootstrapPayload["messages"] = [
+      {
+        id: "agent-1-message",
+        sessionId: "session-a",
+        role: "assistant",
+        status: "completed",
+        createdAt: "2026-04-02T10:00:01.000Z",
+        parts: [
+          { type: "markdown", text: "Agent 1 transcript" },
+          { type: "step_ref", stepId: "agent-1-step", title: "Agent 1 progress", status: "completed", detail: "Done" },
+          { type: "file", text: "First output", fileName: "agent-1.txt", mimeType: "text/plain" },
+        ],
+      },
+    ];
+    const secondMessages: BootstrapPayload["messages"] = [
+      {
+        id: "agent-2-message",
+        sessionId: secondSession.id,
+        role: "assistant",
+        status: "completed",
+        createdAt: "2026-04-02T11:00:01.000Z",
+        parts: [
+          { type: "markdown", text: "Agent 2 transcript" },
+          { type: "step_ref", stepId: "agent-2-step", title: "Agent 2 progress", status: "completed", detail: "Done" },
+          { type: "file", text: "Second output", fileName: "agent-2.txt", mimeType: "text/plain" },
+        ],
+      },
+    ];
+
+    installClient({
+      bootstrap: async () => ({
+        ...bootstrap,
+        agents: [
+          ...bootstrap.agents,
+          {
+            id: "agent-2",
+            name: "Agent 2",
+            description: "Remote test agent",
+            enabled: true,
+            status: "healthy",
+            tags: ["lan"],
+          },
+        ],
+        messages: firstMessages,
+      }),
+      listSessions: async (agentId) => ({
+        sessions: agentId === "agent-2" ? [secondSession] : bootstrap.sessions,
+      }),
+      loadSession: async (sessionId) => ({
+        messages: sessionId === secondSession.id ? secondMessages : firstMessages,
+      }),
+    });
+
+    render(<App />);
+
+    await screen.findByText("Agent 1 transcript");
+    let taskPanel = screen.getByLabelText("任务面板");
+    expect(within(taskPanel).getByText("Agent 1 progress")).toBeInTheDocument();
+    expect(within(taskPanel).getByText("agent-1.txt")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /Agent 2 Remote test agent/ }));
+
+    await screen.findByText("Agent 2 transcript");
+    taskPanel = screen.getByLabelText("任务面板");
+    expect(screen.queryByText("Agent 1 transcript")).not.toBeInTheDocument();
+    expect(within(taskPanel).getByText("Agent 2 progress")).toBeInTheDocument();
+    expect(within(taskPanel).getByText("agent-2.txt")).toBeInTheDocument();
+    expect(within(taskPanel).queryByText("Agent 1 progress")).not.toBeInTheDocument();
+    expect(within(taskPanel).queryByText("agent-1.txt")).not.toBeInTheDocument();
   });
 
   it("clears previous messages immediately when switching sessions", async () => {
