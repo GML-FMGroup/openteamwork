@@ -36,7 +36,7 @@ function createWindow(): void {
     height: 920,
     minWidth: 960,
     minHeight: 760,
-    backgroundColor: "#f4efe5",
+    backgroundColor: "#f5f6f7",
     title: "OpenPPX Desktop",
     titleBarStyle: isMac ? "hiddenInset" : "default",
     trafficLightPosition: isMac ? { x: 22, y: 22 } : undefined,
