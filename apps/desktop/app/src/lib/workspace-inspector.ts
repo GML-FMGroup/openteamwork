@@ -45,7 +45,7 @@ function activityFromPart(message: ChatMessage, part: MessagePart, index: number
     return {
       id: `error:${message.id}:${index}`,
       kind: "error",
-      title: part.errorCode || "运行错误",
+      title: part.errorCode || "Run error",
       detail: part.text,
       status: "failed",
       messageId: message.id,
@@ -95,7 +95,7 @@ export function projectArtifactItems(messages: ChatMessage[]): ArtifactItem[] {
           id,
           kind: "image",
           title: part.text || "Image",
-          description: "来自当前 Session 对话的图像产物。",
+          description: "Image artifact from the current session.",
           mimeType: part.mimeType,
           url: part.url,
           messageId: message.id,

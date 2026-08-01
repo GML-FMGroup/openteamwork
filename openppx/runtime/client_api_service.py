@@ -1136,7 +1136,7 @@ class ClientApiCoordinator:
                     "id": session_id,
                     "agent_id": agent_id,
                     "subject_principal_id": requester.principal_id,
-                    "title": "新对话",
+                    "title": "New chat",
                     "updated_at": updated_at,
                     "last_message_preview": "",
                     "archived": False,

@@ -73,7 +73,7 @@ describe("connection profile persistence", () => {
         targetName: "Studio",
         clientApiBaseUrl: "http://user:password@studio.local:8765/path?token=secret",
       }),
-    ).toThrow("不能包含账号");
+    ).toThrow("cannot contain credentials");
     expect(() =>
       normalizeConnectionSettings({
         targetType: "lan",
@@ -81,7 +81,7 @@ describe("connection profile persistence", () => {
         targetName: "Studio",
         clientApiBaseUrl: "http://studio.local",
       }),
-    ).toThrow("必须显式填写端口");
+    ).toThrow("must include an explicit port");
     expect(() =>
       normalizeConnectionSettings({
         targetType: "local",
@@ -89,7 +89,7 @@ describe("connection profile persistence", () => {
         targetName: "This Mac",
         clientApiBaseUrl: "http://192.168.1.20:8765",
       }),
-    ).toThrow("本机模式只能连接");
+    ).toThrow("Local mode can only connect");
     expect(() =>
       normalizeConnectionSettings({
         targetType: "remote",
@@ -97,7 +97,7 @@ describe("connection profile persistence", () => {
         targetName: "Studio",
         clientApiBaseUrl: "http://192.168.1.20:8765",
       } as never),
-    ).toThrow("运行位置必须是本机或局域网节点");
+    ).toThrow("Run location must be this computer or a LAN node");
   });
 
   it("reuses a stored credential only for the same LAN endpoint", () => {

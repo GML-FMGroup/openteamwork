@@ -13,9 +13,9 @@ interface TranscriptProps {
 }
 
 const suggestions = [
-  "分析当前仓库，给出下一步实施计划",
-  "检查最近一次任务的执行过程和风险",
-  "整理一份可以直接交付的项目说明",
+  "Analyze this repository and propose the next implementation steps",
+  "Review the latest run and identify risks",
+  "Prepare a project brief that is ready to share",
 ];
 
 /** Central task transcript with a stable empty state and jump-to-latest affordance. */
@@ -34,8 +34,8 @@ export function Transcript({
         {messages.length === 0 ? (
           <div className="empty-state operator-empty">
             <span className="empty-kicker">READY WHEN YOU ARE</span>
-            <h3>{agentName} 已就位</h3>
-            <p>描述你想完成的结果。OpenPPX 会保留过程、工具结果和产物，方便你随时检查。</p>
+            <h3>{agentName} is ready</h3>
+            <p>Describe the outcome you want. OpenPPX keeps the process, tool results, and artifacts available for review.</p>
             <div className="suggestion-grid">
               {suggestions.map((suggestion) => (
                 <button
@@ -67,7 +67,7 @@ export function Transcript({
       </section>
       {showJumpToLatest ? (
         <button className="jump-latest" onClick={onJumpToLatest}>
-          跳到最新 <span>↓</span>
+          Jump to latest <span>↓</span>
         </button>
       ) : null}
     </div>

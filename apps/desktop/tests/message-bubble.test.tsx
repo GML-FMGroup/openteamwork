@@ -27,8 +27,8 @@ describe("MessageBubble", () => {
     const { container } = render(<MessageBubble message={buildMessage()} />);
 
     expect(screen.getAllByText("Agent")).toHaveLength(1);
-    expect(screen.getByText("执行中")).toBeInTheDocument();
-    expect(screen.getByText("正在整理结果...")).toBeInTheDocument();
+    expect(screen.getByText("Running")).toBeInTheDocument();
+    expect(screen.getByText("Preparing the result...")).toBeInTheDocument();
     const detailBlock = container.querySelector(".step-card-detail");
     expect(detailBlock?.textContent).toContain("path: README.md");
     expect(detailBlock?.textContent).toContain("line: 12");
@@ -38,7 +38,7 @@ describe("MessageBubble", () => {
     render(<MessageBubble message={buildMessage()} showIdentity={false} />);
 
     expect(screen.queryByText("Agent")).not.toBeInTheDocument();
-    expect(screen.getByText("执行中")).toBeInTheDocument();
+    expect(screen.getByText("Running")).toBeInTheDocument();
   });
 
   it("renders tool result and attachment cards", () => {
@@ -73,9 +73,9 @@ describe("MessageBubble", () => {
     );
 
     expect(screen.getByText("inspect_repo")).toBeInTheDocument();
-    expect(screen.getByText("查看原始结果")).toBeInTheDocument();
+    expect(screen.getByText("View raw result")).toBeInTheDocument();
     expect(screen.getByText("client_session_notes.md")).toBeInTheDocument();
-    expect(screen.getByText("打开原图")).toBeInTheDocument();
+    expect(screen.getByText("Open original")).toBeInTheDocument();
   });
 
   it("renders completed status for finished steps", () => {
@@ -96,8 +96,8 @@ describe("MessageBubble", () => {
       />,
     );
 
-    expect(screen.getByText("完成")).toBeInTheDocument();
-    expect(screen.queryByText("正在整理结果...")).not.toBeInTheDocument();
+    expect(screen.getByText("Completed")).toBeInTheDocument();
+    expect(screen.queryByText("Preparing the result...")).not.toBeInTheDocument();
   });
 
   it("renders exec detail as one continuous block", () => {
@@ -134,7 +134,7 @@ describe("MessageBubble", () => {
       />,
     );
 
-    expect(screen.getByText("本次运行失败")).toBeInTheDocument();
+    expect(screen.getByText("This run failed")).toBeInTheDocument();
     expect(screen.getByText("Provider timeout")).toBeInTheDocument();
 
     rerender(
@@ -154,7 +154,7 @@ describe("MessageBubble", () => {
       />,
     );
 
-    expect(screen.getByText("本次运行已取消")).toBeInTheDocument();
+    expect(screen.getByText("This run was cancelled")).toBeInTheDocument();
   });
 
   it("renders readable provider error guidance", () => {
@@ -173,7 +173,7 @@ describe("MessageBubble", () => {
       />,
     );
 
-    expect(screen.getByText("模型提供方配置异常")).toBeInTheDocument();
-    expect(screen.getByText("通常是 provider 名称、模型名，或对应的密钥配置不匹配。")).toBeInTheDocument();
+    expect(screen.getByText("Model provider configuration error")).toBeInTheDocument();
+    expect(screen.getByText("The provider name, model name, or corresponding credential may not match.")).toBeInTheDocument();
   });
 });

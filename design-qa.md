@@ -1,45 +1,49 @@
 **Comparison Target**
 
-- Source visual truth: `$TMPDIR/codex-clipboard-13e6370c-1dc6-4acf-a054-451a0a79e8a4.png` for Settings density and `$TMPDIR/codex-clipboard-6f0ca1b3-0b42-40bf-9edf-2f7635cbda3e.png` for Session metadata, together with the explicit requirements to remove low-value helper copy and the generic `OpenPPX session` fallback.
-- Browser-rendered implementation: `$TMPDIR/openppx-settings-compact-qa-1235x916.png`.
-- Packaged desktop implementation: `$TMPDIR/com.openai.sky.CUAService/OpenPPX Desktop Screenshot 2026-08-01 at 9.58.42 PM.jpeg`.
-- Full-view comparison: `$TMPDIR/openppx-settings-side-by-side.png`.
-- Focused Session comparison: `$TMPDIR/openppx-session-focused-side-by-side.png`.
-- Viewport: Settings was captured at 1235 × 916 CSS px with device scale factor 1; this matches the source's inferred 1235 × 916 CSS viewport. The packaged desktop workspace was captured at 1203 × 768 px.
-- Pixels and normalization: Settings source 2470 × 1832 px at inferred 2× density was downsampled to 1235 × 916 px; implementation 1235 × 916 px at 1× density. Session source 842 × 444 px; packaged implementation 1203 × 768 px. The focused source crop is 568 × 444 px at inferred 2× density; the 244 × 222 px implementation crop was upsampled to 488 × 444 px for an equal-density side-by-side review.
-- State: Settings uses the same desktop shell with a mock local runtime so all diagnostics fields are deterministic. The packaged workspace uses the real local node, `low-main`, and two `hi` sessions. Runtime values differ intentionally; the comparison judges structure, density, hierarchy, and removal of generic metadata.
+- Source visual truth: `$TMPDIR/codex-clipboard-66b16224-cab1-4926-94b5-318dec44b81f.png`, together with the explicit requirements to use English desktop chrome and remove the large empty Settings region through a more rational arrangement of Runtime status, Connection config, Connection, Diagnostics, and Paths.
+- Browser-rendered implementation: `$TMPDIR/openppx-settings-english-balanced.png` (top state) and `$TMPDIR/openppx-settings-english-balanced-matched.png` (bottom-of-page state).
+- Side-by-side comparison: `$TMPDIR/openppx-settings-phase49-side-by-side.png`.
+- Viewport: 1171 × 903 CSS px with device scale factor 1, matching the source's inferred 1171 × 903 CSS viewport.
+- Pixels and normalization: source 2342 × 1806 px at inferred 2× density was downsampled to 1171 × 903 px. Both implementation captures are 1171 × 903 px at 1× density. The normalized source and bottom implementation were assembled into a 2342 × 903 px comparison.
+- State: source uses the real local node after scrolling through the former unequal-column layout. Implementation uses deterministic mock runtime values and the new compact layout at its maximum scroll position. Runtime values differ intentionally; hierarchy, density, language, card sizing, and empty-space behavior are the comparison targets.
 
 **Full-view Comparison Evidence**
 
-- The former introductory Settings card is removed. Runtime status now starts at the top of the secondary column and contains only the useful summary and controls.
-- Refresh Diagnostics moved into Runtime status, so the action stays available without a dedicated oversized card.
-- Independent primary and secondary columns prevent the short Runtime status card from stretching to the height of Connection config. Paths begins immediately below it, eliminating both marked blank regions.
-- Connection config, Connection, Diagnostics, Runtime status, and Paths retain the existing visual language, borders, spacing scale, and control styling.
-- No viewport overflow hides persistent controls. The right column scrolls normally when detailed diagnostics exceed the viewport.
+- The source leaves approximately half of the left content column empty while Connection and Diagnostics continue down the right column.
+- The implementation replaces independent unequal stacks with a hierarchy-driven grid: Runtime status and Connection config span the page, Connection and Diagnostics share one balanced row, and Paths spans the page below them.
+- Connection and Diagnostics contain ten facts each, so their card heights and internal row rhythm match. Paths presents four values horizontally instead of building a tall one-column stack.
+- At the maximum scroll position, the new page still has continuous card content across the full width; the marked large blank region is gone.
+- All visible navigation, controls, labels, empty states, status copy, and Settings content are English. Dynamic node/runtime values remain unchanged.
 
 **Focused Region Comparison Evidence**
 
-- Fonts and typography: heading family, weight hierarchy, labels, values, and button text remain consistent with the established OpenPPX workspace. Removing helper copy does not create awkward wrapping or orphaned labels.
-- Spacing and layout rhythm: the two columns now align independently with a 12 px vertical gap. Runtime status uses content-driven height, and Paths follows directly below it. Session rows collapse to one title/time line when no meaningful preview exists.
-- Colors and visual tokens: neutral backgrounds, borders, text hierarchy, green health state, and dark primary buttons are unchanged; no new color was introduced.
-- Image quality and asset fidelity: no logo, illustration, or image asset was added, replaced, or degraded. Existing vector/icon rendering remains sharp at the captured density.
-- Copy and content: `第一版设置`, the introductory connection paragraph, the transport-level runtime detail, and generic `OpenPPX session` placeholders are absent. Real Session previews remain visible when supplied by the backend.
+- A separate crop was not required: the normalized 2342 × 903 side-by-side image keeps the full Settings content legible, and the accessibility snapshot independently confirms every control label and section heading.
+- The LAN interaction state was also exercised: selecting `Connect to an OpenPPX Node on the LAN` reveals the English `Access Token` field and its English placeholder without shifting or breaking the card grid.
+
+**Required Fidelity Surfaces**
+
+- Fonts and typography: existing family, weights, sizes, line heights, letter spacing, antialiasing, heading hierarchy, and uppercase diagnostic labels are preserved. Longer English controls fit without clipping.
+- Spacing and layout rhythm: 12 px card gaps, paired card widths, matched Connection/Diagnostics heights, compact Runtime row, three-column configuration fields, and four-column Paths remove the uneven vertical rhythm. Responsive rules collapse paired cards and field grids at narrower widths.
+- Colors and visual tokens: the neutral OpenWorker-inspired palette, white cards, warm paper background, hairline borders, dark primary controls, and green health state remain unchanged.
+- Image quality and asset fidelity: no image, logo, illustration, or icon asset was added, replaced, or degraded. Existing brand and shell icons remain sharp.
+- Copy and content: desktop-owned UI is English. User/Agent conversation content remains data and is not translated. The legacy Chinese generic session title is recognized only for cached-data compatibility and is not rendered as new UI copy.
 
 **Findings**
 
-- No actionable P0, P1, or P2 mismatch remains for the requested Settings compaction or Session metadata cleanup.
+- No actionable P0, P1, or P2 mismatch remains for the requested language standardization and Settings layout correction.
 
 **Comparison History**
 
-- Iteration 1 source issue: two left-side Settings cards were stretched by the taller cards in the shared CSS grid, producing large empty regions. The Session list also displayed the non-informative `OpenPPX session` fallback.
-- Fix: split Settings into independent primary and secondary column wrappers; removed the intro card and transport-level runtime detail; moved Refresh Diagnostics into Runtime status; changed backend and Electron fallbacks to an empty preview; added a renderer guard for older cached generic values.
-- Post-fix evidence: the normalized Settings side-by-side image shows content-driven card heights and continuous vertical rhythm. The focused Session comparison shows both rows without generic fallback text. No additional P0/P1/P2 fix was needed.
+- Iteration 1 source issue: two independent Settings columns had very different total heights, leaving a large empty left region while Connection and Diagnostics continued on the right. Desktop chrome also mixed Chinese and English.
+- Fix: replaced the column stacks with full-width/pair/full-width grid placement; balanced Connection and Diagnostics to ten facts each; made Connection config and Paths horizontal at desktop width; translated desktop-owned interface copy and validation messages to English.
+- Post-fix evidence: the source-equivalent browser captures and side-by-side comparison show continuous full-width content, balanced information cards, English controls, and no hidden persistent actions. No additional P0/P1/P2 fix was required.
 
 **Primary Interactions and Runtime Checks**
 
-- Opened the browser-rendered desktop shell and activated `连接与设置` through its unique accessible button.
-- Verified Connection config, Connection, Diagnostics, Runtime status, and Paths are present; verified the removed introductory copy and runtime detail are absent.
-- Verified the packaged desktop Session list contains title and date only when no real preview exists.
+- Opened the workspace and confirmed English navigation, Session search, composer, task panel, status, and artifact empty state.
+- Activated `Connections & Settings` through its unique accessible button.
+- Verified Runtime status, Connection config, Connection, Diagnostics, and Paths render in the intended order.
+- Switched Run location from local to LAN and verified Access Token appears with English copy.
 - Browser console warnings/errors checked: none.
 
 **Open Questions**
@@ -48,13 +52,14 @@
 
 **Implementation Checklist**
 
-- [x] Remove the generic Session fallback while preserving meaningful previews.
-- [x] Remove the redundant Settings introduction.
-- [x] Keep Refresh Diagnostics available in Runtime status.
-- [x] Remove the low-value transport detail from Runtime status.
-- [x] Use independent columns so cards keep content-driven heights.
-- [x] Preserve responsive single-column behavior below 760 px.
-- [x] Run typecheck, desktop tests, API tests, packaging, and visual QA.
+- [x] Translate desktop-owned interface copy to English.
+- [x] Preserve dynamic conversation content.
+- [x] Use a full-width Runtime status card.
+- [x] Use a full-width horizontal Connection config card.
+- [x] Balance Connection and Diagnostics in one row.
+- [x] Use a full-width horizontal Paths card.
+- [x] Preserve responsive single-column behavior.
+- [x] Run typecheck, desktop tests, client API tests, interaction checks, and visual comparison.
 
 **Follow-up Polish**
 

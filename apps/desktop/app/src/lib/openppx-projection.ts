@@ -58,17 +58,17 @@ function summarizeToolResponse(toolName: string, response: unknown): string {
       return record.summary.trim();
     }
     if (typeof record.ok === "boolean") {
-      return record.ok ? `${toolName} 已成功返回结果。` : `${toolName} 返回了失败结果。`;
+      return record.ok ? `${toolName} completed successfully.` : `${toolName} returned a failed result.`;
     }
     const keys = Object.keys(record);
     if (keys.length) {
-      return `${toolName} 返回了 ${keys.length} 个字段。`;
+      return `${toolName} returned ${keys.length} fields.`;
     }
   }
   if (typeof response === "string" && response.trim()) {
     return response.trim().slice(0, 140);
   }
-  return `${toolName} 已返回结果。`;
+  return `${toolName} returned a result.`;
 }
 
 function upsertStepPart(parts: StepPart[], nextPart: StepPart): StepPart[] {

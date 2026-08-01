@@ -171,7 +171,7 @@ function formatReplyParts(text: string): MessagePart[] {
   return [
     {
       type: "markdown",
-      text: `我已经收到任务：**${trimmed || "未命名任务"}**。\n\n第一版客户端目前通过本地模式连接运行时，所以我会先在本机完成执行与反馈。`,
+      text: `I received the task: **${trimmed || "Untitled task"}**.\n\nThe desktop client is currently connected in local mode, so execution and feedback will run on this computer.`,
     },
     {
       type: "step_ref",
@@ -183,8 +183,8 @@ function formatReplyParts(text: string): MessagePart[] {
     {
       type: "tool_result",
       toolName: "client_api_hint",
-      summary: "本地 client-api 启动命令已经准备好了。",
-      detail: "这只是一个 mock 示例，用来预览 tool response 卡片的展示效果。",
+      summary: "The local client API launch command is ready.",
+      detail: "This mock response demonstrates how tool results appear in the desktop client.",
       rawText: JSON.stringify({ command: "ppx client-api serve --host 127.0.0.1 --port 8765" }, null, 2),
     },
     {
@@ -247,7 +247,7 @@ export async function createSession(agentId: string): Promise<{ session: Session
   const session: SessionSummary = {
     id: `${agentId}-${crypto.randomUUID()}`,
     agentId,
-    title: "新对话",
+    title: "New chat",
     updatedAt: now(),
     lastMessagePreview: "",
   };

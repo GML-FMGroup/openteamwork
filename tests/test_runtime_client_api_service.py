@@ -595,6 +595,7 @@ def test_create_session_invalidates_session_list_cache(tmp_path: Path, monkeypat
 
     assert before["data"]["items"][0]["id"] == "session-1"
     assert created["ok"] is True
+    assert created["data"]["session"]["title"] == "New chat"
     assert after["data"]["items"][0]["id"] == "session-2"
     assert calls["count"] == 2
 

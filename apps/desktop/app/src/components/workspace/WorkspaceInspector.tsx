@@ -9,7 +9,7 @@ import { ShellIcon } from "./ContextSidebar";
 
 function formatBytes(value: number | undefined): string {
   if (!value) {
-    return "大小未知";
+    return "Unknown size";
   }
   if (value < 1024) {
     return `${value} B`;
@@ -89,11 +89,11 @@ export function WorkspaceInspector({
 
   if (selectedArtifact) {
     return (
-      <aside className="workspace-inspector" aria-label="任务面板">
+      <aside className="workspace-inspector" aria-label="Task panel">
         <div className="inspector-body artifact-panel">
           <div className="artifact-detail">
             <button className="artifact-back" onClick={() => setSelectedArtifact(null)}>
-              ← 返回产物
+              ← Back to artifacts
             </button>
             {selectedArtifact.kind === "image" && selectedArtifact.url ? (
               <img src={selectedArtifact.url} alt={selectedArtifact.title} />
@@ -111,7 +111,7 @@ export function WorkspaceInspector({
               className="locate-source"
               onClick={() => locateMessage(selectedArtifact.messageId)}
             >
-              在对话中定位
+              Locate in conversation
             </button>
           </div>
         </div>
@@ -120,7 +120,7 @@ export function WorkspaceInspector({
   }
 
   return (
-    <aside className="workspace-inspector" aria-label="任务面板">
+    <aside className="workspace-inspector" aria-label="Task panel">
       <div className="inspector-body rail-sections">
         <InspectorSection
           title="Progress"
@@ -132,7 +132,7 @@ export function WorkspaceInspector({
             <div>
               <small>CURRENT RUN</small>
               <strong>
-                {running ? "Agent 正在执行" : activity.length ? "最近运行已结束" : "等待任务"}
+                {running ? "Agent is running" : activity.length ? "Latest run finished" : "Waiting for a task"}
               </strong>
             </div>
           </div>
@@ -155,7 +155,7 @@ export function WorkspaceInspector({
             </ol>
           ) : (
             <p className="rail-section-empty">
-              任务执行过程会在这里显示，包括规划、工具调用和错误。
+              Task progress appears here, including plans, tool calls, and errors.
             </p>
           )}
         </InspectorSection>
@@ -194,7 +194,7 @@ export function WorkspaceInspector({
               ))}
             </div>
           ) : (
-            <p className="rail-section-empty">当前对话还没有可预览的文件或图片。</p>
+            <p className="rail-section-empty">No previewable files or images in this conversation yet.</p>
           )}
         </InspectorSection>
       </div>

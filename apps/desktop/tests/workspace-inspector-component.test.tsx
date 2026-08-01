@@ -39,7 +39,7 @@ describe("WorkspaceInspector", () => {
       />,
     );
 
-    const taskPanel = screen.getByLabelText("任务面板");
+    const taskPanel = screen.getByLabelText("Task panel");
     expect(within(taskPanel).queryByRole("tab")).not.toBeInTheDocument();
     expect(within(taskPanel).getByText("Inspect repository")).toBeInTheDocument();
     expect(within(taskPanel).getByText("notes.md")).toBeInTheDocument();
@@ -71,7 +71,7 @@ describe("WorkspaceInspector", () => {
       />,
     );
 
-    expect(screen.queryByLabelText("任务面板")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Task panel")).not.toBeInTheDocument();
     expect(document.querySelector(".workspace-inspector.collapsed")).toBeNull();
   });
 });

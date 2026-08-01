@@ -4,7 +4,7 @@ import type { ChatMessage, MessagePart } from "../types";
 
 function roleLabel(role: ChatMessage["role"]): string {
   if (role === "user") {
-    return "你";
+    return "You";
   }
   if (role === "assistant") {
     return "Agent";
@@ -17,20 +17,20 @@ function roleLabel(role: ChatMessage["role"]): string {
 
 function stepStatusLabel(status: Extract<MessagePart, { type: "step_ref" }>["status"]): string {
   if (status === "running") {
-    return "执行中";
+    return "Running";
   }
   if (status === "failed") {
-    return "失败";
+    return "Failed";
   }
-  return "完成";
+  return "Completed";
 }
 
 function messageStatusLabel(status: ChatMessage["status"]): string | null {
   if (status === "failed") {
-    return "本次运行失败";
+    return "This run failed";
   }
   if (status === "cancelled") {
-    return "本次运行已取消";
+    return "This run was cancelled";
   }
   return null;
 }
@@ -39,24 +39,24 @@ function explainError(errorCode: string | undefined, text: string): { title: str
   const normalized = `${errorCode ?? ""} ${text}`.toLowerCase();
   if (normalized.includes("provider list") || normalized.includes("litellm")) {
     return {
-      title: "模型提供方配置异常",
-      hint: "通常是 provider 名称、模型名，或对应的密钥配置不匹配。",
+      title: "Model provider configuration error",
+      hint: "The provider name, model name, or corresponding credential may not match.",
     };
   }
   if (normalized.includes("timeout") || normalized.includes("timed out")) {
     return {
-      title: "请求超时",
-      hint: "可以稍后重试，或者检查当前模型和网络状态。",
+      title: "Request timed out",
+      hint: "Try again later, or check the current model and network status.",
     };
   }
   if (normalized.includes("network") || normalized.includes("connection") || normalized.includes("unreachable")) {
     return {
-      title: "连接失败",
-      hint: "请检查 gateway 地址、网络连通性，或本地 client-api 是否正在运行。",
+      title: "Connection failed",
+      hint: "Check the gateway address, network connectivity, and whether the local client API is running.",
     };
   }
   return {
-    title: errorCode === "RUN_FAILED" ? "运行失败" : errorCode ?? "Error",
+    title: errorCode === "RUN_FAILED" ? "Run failed" : errorCode ?? "Error",
   };
 }
 
@@ -102,7 +102,7 @@ function renderPart(part: MessagePart) {
             <span>{part.mimeType ?? "image"}</span>
           </div>
           <a href={part.url} target="_blank" rel="noreferrer">
-            打开原图
+            Open original
           </a>
         </div>
       </div>
@@ -126,13 +126,13 @@ function renderPart(part: MessagePart) {
             <strong>{part.toolName}</strong>
             <span>Tool result</span>
           </div>
-          <span className="asset-badge">完成</span>
+          <span className="asset-badge">Completed</span>
         </div>
         <p>{part.summary}</p>
         {part.detail ? <small>{part.detail}</small> : null}
         {part.rawText ? (
           <details className="tool-result-raw">
-            <summary>查看原始结果</summary>
+            <summary>View raw result</summary>
             <pre>
               <code>{part.rawText}</code>
             </pre>
@@ -175,14 +175,14 @@ export function MessageBubble({ message, showIdentity = true }: { message: ChatM
       {showIdentity ? (
         <div className={`message-meta ${isAssistant ? "agent-meta" : ""}`}>
           <span className={isAssistant ? "agent-name" : ""}>{roleLabel(message.role)}</span>
-          <span>{new Date(message.createdAt).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })}</span>
+          <span>{new Date(message.createdAt).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" })}</span>
         </div>
       ) : null}
       <div className="message-body">
         {message.parts.map((part, index) => (
           <div key={`${message.id}-${index}`}>{renderPart(part)}</div>
         ))}
-        {message.status === "streaming" ? <div className="streaming-indicator">正在整理结果...</div> : null}
+        {message.status === "streaming" ? <div className="streaming-indicator">Preparing the result...</div> : null}
         {statusLabel ? <div className={`message-status-banner ${message.status}`}>{statusLabel}</div> : null}
       </div>
     </article>

@@ -58,7 +58,7 @@ describe("workspace inspector projections", () => {
       {
         kind: "image",
         title: "Architecture preview",
-        description: "来自当前 Session 对话的图像产物。",
+        description: "Image artifact from the current session.",
         url: "data:image/png;base64,preview",
       },
     ]);

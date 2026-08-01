@@ -199,21 +199,21 @@ export function ContextSidebar({
   if (collapsed) {
     return (
       <aside className="context-sidebar collapsed" aria-label="OpenPPX navigation">
-        <button className="brand-mark compact" onClick={onToggleCollapse} title="展开侧栏 (⌘B)">
+        <button className="brand-mark compact" onClick={onToggleCollapse} title="Expand sidebar (⌘B)">
           P
         </button>
         <div className="collapsed-nav">
           <button
             className={view === "chat" ? "rail-action active" : "rail-action"}
             onClick={() => onChangeView("chat")}
-            title="工作区"
+            title="Workspace"
           >
             <ShellIcon name="chat" />
           </button>
           <button
             className={view === "settings" ? "rail-action active" : "rail-action"}
             onClick={() => onChangeView("settings")}
-            title="连接与设置"
+            title="Connections & Settings"
           >
             <ShellIcon name="settings" />
           </button>
@@ -225,7 +225,7 @@ export function ContextSidebar({
         <button
           className="rail-action sidebar-toggle"
           onClick={onToggleCollapse}
-          title="展开侧栏 (⌘B)"
+          title="Expand sidebar (⌘B)"
         >
           <ShellIcon name="expand" />
         </button>
@@ -247,7 +247,7 @@ export function ContextSidebar({
             <small>Agent workspace</small>
           </span>
         </button>
-        <button className="quiet-icon-button" onClick={onToggleCollapse} title="折叠侧栏 (⌘B)">
+        <button className="quiet-icon-button" onClick={onToggleCollapse} title="Collapse sidebar (⌘B)">
           <ShellIcon name="collapse" />
         </button>
       </div>
@@ -286,8 +286,8 @@ export function ContextSidebar({
               {selectedAgent?.name.slice(0, 1).toUpperCase() ?? "—"}
             </span>
             <span className="agent-picker-copy">
-              <strong>{selectedAgent?.name ?? "没有可用 Agent"}</strong>
-              <small>{selectedAgent?.description ?? "当前 Node 尚未提供 Agent"}</small>
+              <strong>{selectedAgent?.name ?? "No Agent available"}</strong>
+              <small>{selectedAgent?.description ?? "This Node does not expose an Agent yet"}</small>
             </span>
             {selectedAgent ? <span className={`agent-state ${selectedAgent.status}`} /> : null}
             <span className={agentMenuOpen ? "agent-picker-chevron open" : "agent-picker-chevron"}>
@@ -296,7 +296,7 @@ export function ContextSidebar({
           </button>
 
           {agentMenuOpen ? (
-            <div className="agent-picker-menu" role="listbox" aria-label="选择 Agent">
+            <div className="agent-picker-menu" role="listbox" aria-label="Select Agent">
               {agents.map((agent, index) => (
                 <button
                   key={agent.id}
@@ -328,7 +328,7 @@ export function ContextSidebar({
       <section className="context-section session-section">
         <div className="context-section-heading">
           <span>Sessions</span>
-          <button className="section-add" onClick={onNewSession} disabled={!selectedAgentId} title="新建 Session">
+          <button className="section-add" onClick={onNewSession} disabled={!selectedAgentId} title="New session">
             <ShellIcon name="plus" />
           </button>
         </div>
@@ -338,7 +338,7 @@ export function ContextSidebar({
             ref={searchRef}
             value={query}
             onChange={(event) => setQuery(event.target.value)}
-            placeholder="搜索 Session"
+            placeholder="Search sessions"
           />
           <kbd>⌘K</kbd>
         </label>
@@ -365,7 +365,7 @@ export function ContextSidebar({
           })}
           {filteredSessions.length === 0 ? (
             <p className="sidebar-empty">
-              {query ? "没有匹配的 Session。" : "新建一个 Session 开始工作。"}
+              {query ? "No matching sessions." : "Create a session to get started."}
             </p>
           ) : null}
         </div>
@@ -377,14 +377,14 @@ export function ContextSidebar({
           onClick={() => onChangeView("chat")}
         >
           <ShellIcon name="chat" />
-          <span>工作区</span>
+          <span>Workspace</span>
         </button>
         <button
           className={view === "settings" ? "footer-nav active" : "footer-nav"}
           onClick={() => onChangeView("settings")}
         >
           <ShellIcon name="settings" />
-          <span>连接与设置</span>
+          <span>Connections &amp; Settings</span>
         </button>
       </nav>
     </aside>

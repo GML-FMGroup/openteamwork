@@ -1380,26 +1380,57 @@ textarea:focus-visible,
 }
 
 .settings-page {
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  align-content: start;
   gap: 12px;
   padding: 18px;
   background: var(--paper-warm);
 }
 
-.settings-column {
-  display: grid;
+.settings-card-runtime,
+.settings-card-config,
+.settings-card-paths {
+  grid-column: 1 / -1;
+}
+
+.settings-card-runtime {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+}
+
+.settings-runtime-copy {
   min-width: 0;
-  align-content: start;
-  gap: 12px;
 }
 
-.settings-column-primary {
-  grid-column: 2;
-  grid-row: 1;
+.settings-runtime-copy p {
+  margin-bottom: 0;
 }
 
-.settings-column-secondary {
-  grid-column: 1;
-  grid-row: 1;
+.settings-runtime-actions {
+  flex: 0 0 auto;
+  margin-top: 0;
+}
+
+.settings-card-connection {
+  grid-column: 1 / 7;
+}
+
+.settings-card-diagnostics {
+  grid-column: 7 / -1;
+}
+
+.settings-form-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.settings-field-token {
+  grid-column: 1 / -1;
+}
+
+.settings-paths-grid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 
 .settings-card {
@@ -1505,6 +1536,16 @@ textarea:focus-visible,
   .settings-shell {
     grid-column: 2 / -1;
   }
+
+  .settings-card-connection,
+  .settings-card-diagnostics {
+    grid-column: 1 / -1;
+  }
+
+  .settings-form-grid,
+  .settings-paths-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 @media (max-width: 760px) {
@@ -1545,18 +1586,23 @@ textarea:focus-visible,
     grid-template-columns: 1fr;
   }
 
-  .settings-column-primary,
-  .settings-column-secondary {
+  .settings-card-runtime,
+  .settings-card-config,
+  .settings-card-connection,
+  .settings-card-diagnostics,
+  .settings-card-paths {
     grid-column: 1;
-    grid-row: auto;
   }
 
-  .settings-column-primary {
-    order: 1;
+  .settings-card-runtime {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 12px;
   }
 
-  .settings-column-secondary {
-    order: 2;
+  .settings-form-grid,
+  .settings-paths-grid {
+    grid-template-columns: 1fr;
   }
 }
 

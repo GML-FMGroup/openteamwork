@@ -25,7 +25,7 @@ function asRecord(value: unknown): Record<string, unknown> | null {
 function normalizeAccessToken(value: string | undefined): string {
   const accessToken = value?.trim() || "";
   if (/\s/.test(accessToken)) {
-    throw new Error("Client API Token 不能包含空白字符。");
+    throw new Error("Client API Token cannot contain whitespace.");
   }
   return accessToken;
 }
@@ -49,19 +49,19 @@ export function normalizeClientApiBaseUrl(rawValue: string, targetType: "local" 
   const rawBaseUrl = rawValue.trim() || "http://127.0.0.1:8765";
   const parsedBaseUrl = new URL(rawBaseUrl);
   if (!["http:", "https:"].includes(parsedBaseUrl.protocol)) {
-    throw new Error("Gateway URL 必须使用 http:// 或 https://。");
+    throw new Error("Gateway URL must use http:// or https://.");
   }
   if (parsedBaseUrl.username || parsedBaseUrl.password || parsedBaseUrl.search || parsedBaseUrl.hash) {
-    throw new Error("Gateway URL 不能包含账号、密码、查询参数或锚点。");
+    throw new Error("Gateway URL cannot contain credentials, query parameters, or fragments.");
   }
   if (parsedBaseUrl.pathname !== "/") {
-    throw new Error("Gateway URL 只能填写协议、主机和端口，不能包含路径。");
+    throw new Error("Gateway URL can only contain the protocol, host, and port; paths are not allowed.");
   }
   if (targetType === "lan" && !parsedBaseUrl.port) {
-    throw new Error("局域网 Gateway URL 必须显式填写端口。");
+    throw new Error("A LAN Gateway URL must include an explicit port.");
   }
   if (targetType === "local" && !isLoopbackClientApiHostname(parsedBaseUrl.hostname)) {
-    throw new Error("本机模式只能连接 localhost 或回环 IP；其他机器请使用局域网模式。");
+    throw new Error("Local mode can only connect to localhost or a loopback IP. Use LAN mode for another machine.");
   }
   return parsedBaseUrl.origin;
 }
@@ -69,7 +69,7 @@ export function normalizeClientApiBaseUrl(rawValue: string, targetType: "local" 
 /** Validate and normalize settings at both the Renderer and Main trust boundaries. */
 export function normalizeConnectionSettings(settings: ConnectionSettings): ConnectionSettings {
   if (settings.targetType !== "local" && settings.targetType !== "lan") {
-    throw new Error("运行位置必须是本机或局域网节点。");
+    throw new Error("Run location must be this computer or a LAN node.");
   }
   const targetType = settings.targetType;
   const targetName = settings.targetName.trim() || (targetType === "lan" ? "LAN OpenPPX Node" : "This Mac");

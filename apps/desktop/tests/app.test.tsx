@@ -163,7 +163,7 @@ describe("App sending state", () => {
     Object.defineProperty(stream!, "scrollTo", { configurable: true, value: scrollTo });
 
     fireEvent.scroll(stream!);
-    await screen.findByRole("button", { name: /跳到最新/ });
+    await screen.findByRole("button", { name: /Jump to latest/ });
 
     act(() => {
       emit({
@@ -184,7 +184,7 @@ describe("App sending state", () => {
     await screen.findByText("New reply while reading");
     expect(scrollTo).not.toHaveBeenCalled();
 
-    fireEvent.click(screen.getByRole("button", { name: /跳到最新/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Jump to latest/ }));
     expect(scrollTo).toHaveBeenCalledWith({ top: 1_200, behavior: "smooth" });
   });
 
@@ -192,7 +192,7 @@ describe("App sending state", () => {
     installClient();
     render(<App />);
 
-    const search = await screen.findByPlaceholderText("搜索 Session");
+    const search = await screen.findByPlaceholderText("Search sessions");
     fireEvent.keyDown(window, { key: "k", metaKey: true });
     expect(search).toHaveFocus();
 
@@ -200,7 +200,7 @@ describe("App sending state", () => {
     await screen.findByRole("button", { name: "P" });
 
     fireEvent.keyDown(window, { key: "b", metaKey: true, shiftKey: true });
-    await screen.findByRole("button", { name: "打开任务面板" });
+    await screen.findByRole("button", { name: "Open task panel" });
   });
 
   it("starts with both side columns collapsed in a narrow window", async () => {
@@ -223,7 +223,7 @@ describe("App sending state", () => {
       render(<App />);
 
       await screen.findByRole("button", { name: "P" });
-      await screen.findByRole("button", { name: "打开任务面板" });
+      await screen.findByRole("button", { name: "Open task panel" });
     } finally {
       Object.defineProperty(window, "matchMedia", {
         configurable: true,
@@ -237,22 +237,22 @@ describe("App sending state", () => {
 
     render(<App />);
 
-    await screen.findByRole("button", { name: "发送" });
+    await screen.findByRole("button", { name: "Send" });
 
-    fireEvent.change(screen.getByPlaceholderText("描述你想完成的结果…"), {
+    fireEvent.change(screen.getByPlaceholderText("Describe the outcome you want..."), {
       target: { value: "hello world" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "发送" }));
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
 
-    await screen.findByRole("button", { name: "运行中" });
+    await screen.findByRole("button", { name: "Running" });
 
     fireEvent.click(screen.getByRole("button", { name: /Session B/ }));
-    fireEvent.change(screen.getByPlaceholderText("描述你想完成的结果…"), {
+    fireEvent.change(screen.getByPlaceholderText("Describe the outcome you want..."), {
       target: { value: "follow up" },
     });
 
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: "运行中" })).toBeDisabled();
+      expect(screen.getByRole("button", { name: "Running" })).toBeDisabled();
     });
   });
 
@@ -261,14 +261,14 @@ describe("App sending state", () => {
 
     render(<App />);
 
-    await screen.findByRole("button", { name: "发送" });
+    await screen.findByRole("button", { name: "Send" });
 
-    fireEvent.change(screen.getByPlaceholderText("描述你想完成的结果…"), {
+    fireEvent.change(screen.getByPlaceholderText("Describe the outcome you want..."), {
       target: { value: "hello world" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "发送" }));
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
 
-    await screen.findByRole("button", { name: "运行中" });
+    await screen.findByRole("button", { name: "Running" });
 
     await act(async () => {
       emit({
@@ -281,12 +281,12 @@ describe("App sending state", () => {
       });
     });
 
-    fireEvent.change(screen.getByPlaceholderText("描述你想完成的结果…"), {
+    fireEvent.change(screen.getByPlaceholderText("Describe the outcome you want..."), {
       target: { value: "second try" },
     });
 
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: "发送" })).toBeEnabled();
+      expect(screen.getByRole("button", { name: "Send" })).toBeEnabled();
     });
   });
 
@@ -296,9 +296,9 @@ describe("App sending state", () => {
 
     render(<App />);
 
-    await screen.findByRole("button", { name: "发送" });
+    await screen.findByRole("button", { name: "Send" });
 
-    const composer = screen.getByPlaceholderText("描述你想完成的结果…");
+    const composer = screen.getByPlaceholderText("Describe the outcome you want...");
 
     fireEvent.change(composer, { target: { value: "first line" } });
     fireEvent.keyDown(composer, { key: "Enter", code: "Enter", charCode: 13 });
@@ -346,10 +346,10 @@ describe("App sending state", () => {
 
     expect(createSession).toHaveBeenCalledWith("agent-1");
 
-    fireEvent.change(screen.getByPlaceholderText("描述你想完成的结果…"), {
+    fireEvent.change(screen.getByPlaceholderText("Describe the outcome you want..."), {
       target: { value: "first task" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "发送" }));
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
 
     await waitFor(() => {
       expect(sendMessage).toHaveBeenCalledWith({
@@ -384,12 +384,12 @@ describe("App sending state", () => {
 
     render(<App />);
 
-    await screen.findByText("Agent 1 已就位");
+    await screen.findByText("Agent 1 is ready");
 
-    fireEvent.change(screen.getByPlaceholderText("描述你想完成的结果…"), {
+    fireEvent.change(screen.getByPlaceholderText("Describe the outcome you want..."), {
       target: { value: "recover session" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "发送" }));
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
 
     await waitFor(() => {
       expect(createSession).toHaveBeenCalledWith("agent-1");
@@ -412,12 +412,12 @@ describe("App sending state", () => {
 
       render(<App />);
 
-      await screen.findByRole("button", { name: "发送" });
+      await screen.findByRole("button", { name: "Send" });
 
-    fireEvent.change(screen.getByPlaceholderText("描述你想完成的结果…"), {
+    fireEvent.change(screen.getByPlaceholderText("Describe the outcome you want..."), {
         target: { value: "will fail" },
       });
-      fireEvent.click(screen.getByRole("button", { name: "发送" }));
+      fireEvent.click(screen.getByRole("button", { name: "Send" }));
 
       await screen.findByText("gateway refused the run");
     } finally {
@@ -430,12 +430,12 @@ describe("App sending state", () => {
 
     render(<App />);
 
-    await screen.findByRole("button", { name: "发送" });
+    await screen.findByRole("button", { name: "Send" });
 
-    const sendButton = screen.getByRole("button", { name: "发送" });
+    const sendButton = screen.getByRole("button", { name: "Send" });
     expect(sendButton).toBeDisabled();
 
-    fireEvent.change(screen.getByPlaceholderText("描述你想完成的结果…"), {
+    fireEvent.change(screen.getByPlaceholderText("Describe the outcome you want..."), {
       target: { value: "hello world" },
     });
 
@@ -491,7 +491,7 @@ describe("App sending state", () => {
     const createdSession: SessionSummary = {
       id: "session-created",
       agentId: "agent-1",
-      title: "新对话",
+      title: "New chat",
       updatedAt: "2026-04-02T10:01:00.000Z",
       lastMessagePreview: "",
     };
@@ -510,13 +510,13 @@ describe("App sending state", () => {
     render(<App />);
 
     await waitFor(() => {
-      expect(screen.getAllByText("新对话").length).toBeGreaterThan(0);
+      expect(screen.getAllByText("New chat").length).toBeGreaterThan(0);
     });
 
-    fireEvent.change(screen.getByPlaceholderText("描述你想完成的结果…"), {
+    fireEvent.change(screen.getByPlaceholderText("Describe the outcome you want..."), {
       target: { value: "帮我查一下深圳到青岛的火车和费用" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "发送" }));
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
 
     await waitFor(() => {
       expect(screen.getAllByText("帮我查一下深圳到青岛的火车和费用").length).toBeGreaterThan(0);
@@ -626,28 +626,28 @@ describe("App sending state", () => {
     render(<App />);
 
     await screen.findByText("Agent 1 transcript");
-    let taskPanel = screen.getByLabelText("任务面板");
+    let taskPanel = screen.getByLabelText("Task panel");
     expect(within(taskPanel).getByText("Agent 1 progress")).toBeInTheDocument();
     expect(within(taskPanel).getByText("agent-1.txt")).toBeInTheDocument();
 
     const agentTrigger = screen.getByRole("button", { name: /Agent 1 Local test agent/ });
-    expect(screen.queryByRole("listbox", { name: "选择 Agent" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("listbox", { name: "Select Agent" })).not.toBeInTheDocument();
 
     fireEvent.click(agentTrigger);
-    expect(screen.getByRole("listbox", { name: "选择 Agent" })).toBeInTheDocument();
+    expect(screen.getByRole("listbox", { name: "Select Agent" })).toBeInTheDocument();
     fireEvent.keyDown(document, { key: "Escape" });
-    expect(screen.queryByRole("listbox", { name: "选择 Agent" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("listbox", { name: "Select Agent" })).not.toBeInTheDocument();
     expect(agentTrigger).toHaveFocus();
 
     fireEvent.click(agentTrigger);
     fireEvent.pointerDown(screen.getByText("Sessions"));
-    expect(screen.queryByRole("listbox", { name: "选择 Agent" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("listbox", { name: "Select Agent" })).not.toBeInTheDocument();
 
     fireEvent.click(agentTrigger);
     fireEvent.click(screen.getByRole("option", { name: /Agent 2 Remote test agent/ }));
 
     await screen.findByText("Agent 2 transcript");
-    taskPanel = screen.getByLabelText("任务面板");
+    taskPanel = screen.getByLabelText("Task panel");
     expect(screen.queryByText("Agent 1 transcript")).not.toBeInTheDocument();
     expect(within(taskPanel).getByText("Agent 2 progress")).toBeInTheDocument();
     expect(within(taskPanel).getByText("agent-2.txt")).toBeInTheDocument();
@@ -697,9 +697,9 @@ describe("App sending state", () => {
 
     render(<App />);
 
-    await screen.findByRole("button", { name: "发送" });
+    await screen.findByRole("button", { name: "Send" });
 
-    fireEvent.click(screen.getByRole("button", { name: "连接与设置" }));
+    fireEvent.click(screen.getByRole("button", { name: "Connections & Settings" }));
 
     await screen.findByText("Connection");
     expect(screen.getByText("http://127.0.0.1:8765")).toBeInTheDocument();
@@ -710,19 +710,35 @@ describe("App sending state", () => {
     expect(screen.getByText("0.4")).toBeInTheDocument();
   });
 
-  it("uses compact settings columns without redundant helper copy", async () => {
+  it("renders desktop-owned interface copy in English", async () => {
     installClient();
 
     render(<App />);
 
-    await screen.findByRole("button", { name: "发送" });
-    fireEvent.click(screen.getByRole("button", { name: "连接与设置" }));
+    await screen.findByRole("button", { name: "Send" });
+    expect(screen.getByText("Workspace")).toBeInTheDocument();
+    expect(screen.getByText("Connections & Settings")).toBeInTheDocument();
+    expect(screen.getByPlaceholderText("Search sessions")).toBeInTheDocument();
+    expect(screen.queryByText("工作区")).not.toBeInTheDocument();
+  });
+
+  it("uses a balanced settings grid without redundant helper copy", async () => {
+    installClient();
+
+    render(<App />);
+
+    await screen.findByRole("button", { name: "Send" });
+    fireEvent.click(screen.getByRole("button", { name: "Connections & Settings" }));
 
     await screen.findByText("Runtime status");
-    expect(document.querySelectorAll(".settings-column")).toHaveLength(2);
-    expect(screen.queryByText("第一版设置")).not.toBeInTheDocument();
+    expect(document.querySelector(".settings-card-runtime")).toBeInTheDocument();
+    expect(document.querySelector(".settings-card-config")).toBeInTheDocument();
+    expect(document.querySelector(".settings-card-connection")).toBeInTheDocument();
+    expect(document.querySelector(".settings-card-diagnostics")).toBeInTheDocument();
+    expect(document.querySelector(".settings-card-paths")).toBeInTheDocument();
+    expect(document.querySelectorAll(".settings-column")).toHaveLength(0);
     expect(screen.queryByText("detail")).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "刷新诊断" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Refresh diagnostics" })).toBeInTheDocument();
   });
 
   it("renders LAN target diagnostics when provided", async () => {
@@ -739,8 +755,8 @@ describe("App sending state", () => {
 
     render(<App />);
 
-    await screen.findByRole("button", { name: "发送" });
-    fireEvent.click(screen.getByRole("button", { name: "连接与设置" }));
+    await screen.findByRole("button", { name: "Send" });
+    fireEvent.click(screen.getByRole("button", { name: "Connections & Settings" }));
 
     await screen.findByText("Ops Gateway (lan)");
     expect(screen.getByText("external / LAN")).toBeInTheDocument();
@@ -769,8 +785,8 @@ describe("App sending state", () => {
 
     render(<App />);
 
-    await screen.findByRole("button", { name: "发送" });
-    fireEvent.click(screen.getByRole("button", { name: "连接与设置" }));
+    await screen.findByRole("button", { name: "Send" });
+    fireEvent.click(screen.getByRole("button", { name: "Connections & Settings" }));
 
     fireEvent.change(screen.getByDisplayValue("This Mac"), {
       target: { value: "Ops Gateway" },
@@ -778,13 +794,13 @@ describe("App sending state", () => {
     fireEvent.change(screen.getByDisplayValue("http://127.0.0.1:8765"), {
       target: { value: "http://10.0.0.8:8765" },
     });
-    fireEvent.change(screen.getByLabelText("运行位置"), {
+    fireEvent.change(screen.getByLabelText("Run location"), {
       target: { value: "lan" },
     });
     fireEvent.change(screen.getByLabelText("Access Token"), {
       target: { value: "test-token" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "保存并应用" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save & apply" }));
 
     await waitFor(() => {
       expect(saveConnectionSettings).toHaveBeenCalledWith({
@@ -808,16 +824,16 @@ describe("App sending state", () => {
     installClient({ testConnectionSettings, saveConnectionSettings });
 
     render(<App />);
-    await screen.findByRole("button", { name: "发送" });
-    fireEvent.click(screen.getByRole("button", { name: "连接与设置" }));
-    fireEvent.change(screen.getByLabelText("运行位置"), { target: { value: "lan" } });
+    await screen.findByRole("button", { name: "Send" });
+    fireEvent.click(screen.getByRole("button", { name: "Connections & Settings" }));
+    fireEvent.change(screen.getByLabelText("Run location"), { target: { value: "lan" } });
     fireEvent.change(screen.getByDisplayValue("http://127.0.0.1:8765"), {
       target: { value: "http://192.168.1.8:8765" },
     });
     fireEvent.change(screen.getByLabelText("Access Token"), { target: { value: "secret" } });
-    fireEvent.click(screen.getByRole("button", { name: "测试连接" }));
+    fireEvent.click(screen.getByRole("button", { name: "Test connection" }));
 
-    await screen.findByText(/连接成功：Studio Node/);
+    await screen.findByText(/Connection successful: Studio Node/);
     expect(testConnectionSettings).toHaveBeenCalledWith(
       expect.objectContaining({
         targetType: "lan",
