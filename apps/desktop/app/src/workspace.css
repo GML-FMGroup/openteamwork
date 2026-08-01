@@ -870,6 +870,14 @@ textarea:focus-visible,
   border-radius: 14px;
   background: rgba(251, 250, 246, 0.95);
   box-shadow: 0 10px 28px rgba(56, 42, 30, 0.08);
+  transition: border-color 140ms ease, box-shadow 140ms ease;
+}
+
+.composer-shell:focus-within {
+  border-color: rgba(182, 76, 50, 0.3);
+  box-shadow:
+    0 10px 28px rgba(56, 42, 30, 0.08),
+    0 0 0 2px rgba(182, 76, 50, 0.05);
 }
 
 .composer-context {
@@ -893,6 +901,10 @@ textarea:focus-visible,
   color: var(--ink);
   font-size: 13px;
   line-height: 1.5;
+}
+
+.composer-shell textarea:focus-visible {
+  outline: 0;
 }
 
 .composer-shell textarea::placeholder {
