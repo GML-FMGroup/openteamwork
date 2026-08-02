@@ -7,7 +7,7 @@ import { fileURLToPath } from "node:url";
 const scriptDirectory = path.dirname(fileURLToPath(import.meta.url));
 const releaseDirectory = path.resolve(scriptDirectory, "../release");
 const checksumPath = path.join(releaseDirectory, "SHA256SUMS.txt");
-const distributableSuffixes = [".dmg", ".zip", ".exe", ".blockmap"];
+const distributableSuffixes = [".dmg", ".zip", ".exe", ".blockmap", ".whl"];
 
 /** Return distributable files that should be covered by the release checksum manifest. */
 async function listReleaseArtifacts() {
