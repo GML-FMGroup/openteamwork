@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import importlib.util
 import sys
 from pathlib import Path
@@ -28,7 +29,7 @@ def test_eval_entrypoint_directory_basename_matches_production_app_name() -> Non
 def test_adk_eval_entrypoint_exposes_root_agent() -> None:
     sys.modules.pop("agent", None)
     try:
-        root_agent = get_root_agent(str(AGENT_DIR))
+        root_agent = asyncio.run(get_root_agent(str(AGENT_DIR)))
     finally:
         sys.modules.pop("agent", None)
 
