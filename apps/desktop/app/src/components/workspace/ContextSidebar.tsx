@@ -13,7 +13,7 @@ import type {
   SessionSummary,
 } from "../../types";
 
-type ShellIconName = "chat" | "settings" | "collapse" | "expand" | "search" | "plus";
+type ShellIconName = "chat" | "settings" | "expand" | "search" | "plus" | "sidebar" | "sidebar-right";
 
 export function ShellIcon({ name }: { name: ShellIconName }) {
   const paths: Record<ShellIconName, ReactNode> = {
@@ -24,7 +24,6 @@ export function ShellIcon({ name }: { name: ShellIconName }) {
         <path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9 7 7M17 17l2.1 2.1M19.1 4.9 17 7M7 17l-2.1 2.1" />
       </>
     ),
-    collapse: <path d="m14 6-6 6 6 6" />,
     expand: <path d="m10 6 6 6-6 6" />,
     search: (
       <>
@@ -33,11 +32,68 @@ export function ShellIcon({ name }: { name: ShellIconName }) {
       </>
     ),
     plus: <path d="M12 5v14M5 12h14" />,
+    sidebar: (
+      <>
+        <rect x="3.5" y="4.5" width="17" height="15" rx="4" />
+        <path d="M9 4.5v15" />
+      </>
+    ),
+    "sidebar-right": (
+      <>
+        <rect x="3.5" y="4.5" width="17" height="15" rx="4" />
+        <path d="M15 4.5v15" />
+      </>
+    ),
   };
   return (
-    <svg className="shell-icon" viewBox="0 0 24 24" aria-hidden="true">
+    <svg className="shell-icon" viewBox="0 0 24 24" data-icon={name} aria-hidden="true">
       {paths[name]}
     </svg>
+  );
+}
+
+interface CollapsedSidebarToolsProps {
+  canCreateSession: boolean;
+  onRevealSidebar: () => void;
+  onNewSession: () => void;
+  onSearchSessions: () => void;
+}
+
+/** Window-level navigation actions shown only while the context sidebar is hidden. */
+export function CollapsedSidebarTools({
+  canCreateSession,
+  onRevealSidebar,
+  onNewSession,
+  onSearchSessions,
+}: CollapsedSidebarToolsProps) {
+  return (
+    <nav className="collapsed-sidebar-tools" aria-label="Sidebar tools">
+      <button
+        className="quiet-icon-button collapsed-sidebar-tool"
+        onClick={onRevealSidebar}
+        aria-label="Open sidebar"
+        title="Open sidebar (⌘B)"
+      >
+        <ShellIcon name="sidebar" />
+      </button>
+      <button
+        className="quiet-icon-button collapsed-sidebar-tool"
+        onClick={onNewSession}
+        aria-label="New session"
+        title="New session"
+        disabled={!canCreateSession}
+      >
+        <ShellIcon name="plus" />
+      </button>
+      <button
+        className="quiet-icon-button collapsed-sidebar-tool"
+        onClick={onSearchSessions}
+        aria-label="Search sessions"
+        title="Search sessions (⌘K)"
+      >
+        <ShellIcon name="search" />
+      </button>
+    </nav>
   );
 }
 
@@ -61,7 +117,7 @@ function compactAge(value: string): string {
   if (days < 7) {
     return `${days}d`;
   }
-  return new Date(timestamp).toLocaleDateString("zh-CN", { month: "numeric", day: "numeric" });
+  return new Date(timestamp).toLocaleDateString("en-US", { month: "short", day: "numeric" });
 }
 
 function visibleSessionPreview(value: string): string {
@@ -79,6 +135,7 @@ interface ContextSidebarProps {
   selectedSessionId: string;
   sendingSessionIds: string[];
   collapsed: boolean;
+  searchFocusRequest: number;
   onToggleCollapse: () => void;
   onChangeView: (view: "chat" | "settings") => void;
   onSelectAgent: (agentId: string) => void;
@@ -97,6 +154,7 @@ export function ContextSidebar({
   selectedSessionId,
   sendingSessionIds,
   collapsed,
+  searchFocusRequest,
   onToggleCollapse,
   onChangeView,
   onSelectAgent,
@@ -142,6 +200,12 @@ export function ContextSidebar({
       setAgentMenuOpen(false);
     }
   }, [collapsed]);
+
+  useEffect(() => {
+    if (!collapsed && searchFocusRequest > 0) {
+      searchRef.current?.focus();
+    }
+  }, [collapsed, searchFocusRequest]);
 
   useEffect(() => {
     if (!agentMenuOpen) {
@@ -209,13 +273,15 @@ export function ContextSidebar({
           aria-label="OpenPPX workspace"
         >
           <span className="brand-mark">P</span>
-          <span>
-            <strong>OpenPPX</strong>
-            <small>Agent workspace</small>
-          </span>
+          <strong>OpenPPX</strong>
         </button>
-        <button className="quiet-icon-button" onClick={onToggleCollapse} title="Collapse sidebar (⌘B)">
-          <ShellIcon name="collapse" />
+        <button
+          className="quiet-icon-button"
+          onClick={onToggleCollapse}
+          aria-label="Collapse sidebar"
+          title="Collapse sidebar (⌘B)"
+        >
+          <ShellIcon name="sidebar" />
         </button>
       </div>
 
@@ -250,8 +316,8 @@ export function ContextSidebar({
             }}
           >
             <span className="agent-picker-copy">
-              <strong>{selectedAgent?.name ?? "No Agent available"}</strong>
-              <small>{selectedAgent?.description ?? "This Node does not expose an Agent yet"}</small>
+              <strong>{selectedAgent?.name ?? "No agents available"}</strong>
+              <small>{selectedAgent?.description ?? "Connect a Node to continue"}</small>
             </span>
             {selectedAgent ? <span className={`agent-state ${selectedAgent.status}`} /> : null}
             <span className={agentMenuOpen ? "agent-picker-chevron open" : "agent-picker-chevron"}>

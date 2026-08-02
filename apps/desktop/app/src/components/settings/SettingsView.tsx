@@ -1,6 +1,6 @@
 import type { Dispatch, SetStateAction } from "react";
 import type { ClientDiagnostics, ConnectionSettings, RuntimeState, RuntimeStatus } from "../../types";
-import { ShellIcon } from "../workspace/ContextSidebar";
+import { CollapsedSidebarTools } from "../workspace/ContextSidebar";
 
 interface SettingsViewProps {
   runtime: RuntimeStatus;
@@ -10,8 +10,11 @@ interface SettingsViewProps {
   testingConnection: boolean;
   connectionFeedback: string | null;
   sidebarCollapsed: boolean;
+  canCreateSession: boolean;
   setConnectionForm: Dispatch<SetStateAction<ConnectionSettings>>;
   onRevealSidebar: () => void;
+  onNewSession: () => void;
+  onSearchSessions: () => void;
   onReturnToChat: () => void;
   onRuntimeAction: () => void;
   onStopRuntime: () => void;
@@ -39,8 +42,11 @@ export function SettingsView({
   testingConnection,
   connectionFeedback,
   sidebarCollapsed,
+  canCreateSession,
   setConnectionForm,
   onRevealSidebar,
+  onNewSession,
+  onSearchSessions,
   onReturnToChat,
   onRuntimeAction,
   onStopRuntime,
@@ -53,14 +59,12 @@ export function SettingsView({
       <header className="column-topbar workspace-topbar">
         <div className="topbar-copy">
           {sidebarCollapsed ? (
-            <button
-              className="quiet-icon-button sidebar-reveal"
-              onClick={onRevealSidebar}
-              aria-label="Open sidebar"
-              title="Open sidebar (⌘B)"
-            >
-              <ShellIcon name="expand" />
-            </button>
+            <CollapsedSidebarTools
+              canCreateSession={canCreateSession}
+              onRevealSidebar={onRevealSidebar}
+              onNewSession={onNewSession}
+              onSearchSessions={onSearchSessions}
+            />
           ) : null}
           <strong>Settings</strong>
         </div>

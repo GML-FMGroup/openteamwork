@@ -33,9 +33,9 @@ export function Transcript({
       <section ref={streamRef} className="message-stream" onScroll={onScroll}>
         {messages.length === 0 ? (
           <div className="empty-state operator-empty">
-            <span className="empty-kicker">READY WHEN YOU ARE</span>
+            <span className="empty-kicker">START A TASK</span>
             <h3>{agentName} is ready</h3>
-            <p>Describe the outcome you want. OpenPPX keeps the process, tool results, and artifacts available for review.</p>
+            <p>Describe the outcome. Progress and artifacts stay visible while the Agent works.</p>
             <div className="suggestion-grid">
               {suggestions.map((suggestion) => (
                 <button

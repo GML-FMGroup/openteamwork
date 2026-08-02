@@ -155,7 +155,7 @@ export function WorkspaceInspector({
             </ol>
           ) : (
             <p className="rail-section-empty">
-              Task progress appears here, including plans, tool calls, and errors.
+              Plans and tool activity will appear here.
             </p>
           )}
         </InspectorSection>
@@ -194,7 +194,7 @@ export function WorkspaceInspector({
               ))}
             </div>
           ) : (
-            <p className="rail-section-empty">No previewable files or images in this conversation yet.</p>
+            <p className="rail-section-empty">No artifacts yet.</p>
           )}
         </InspectorSection>
       </div>

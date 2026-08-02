@@ -86,6 +86,38 @@ function buildDiagnostics(): ClientDiagnostics {
   };
 }
 
+function installLocalStorage(): { storage: Storage; restore: () => void } {
+  const values = new Map<string, string>();
+  const previousDescriptor = Object.getOwnPropertyDescriptor(window, "localStorage");
+  const storage: Storage = {
+    get length() {
+      return values.size;
+    },
+    clear: () => {
+      values.clear();
+    },
+    getItem: (key) => values.get(key) ?? null,
+    key: (index) => Array.from(values.keys())[index] ?? null,
+    removeItem: (key) => {
+      values.delete(key);
+    },
+    setItem: (key, value) => {
+      values.set(key, String(value));
+    },
+  };
+  Object.defineProperty(window, "localStorage", { configurable: true, value: storage });
+  return {
+    storage,
+    restore: () => {
+      if (previousDescriptor) {
+        Object.defineProperty(window, "localStorage", previousDescriptor);
+      } else {
+        Reflect.deleteProperty(window, "localStorage");
+      }
+    },
+  };
+}
+
 function installClient(overrides: Partial<PpxClientApi> = {}): { client: PpxClientApi; emit: (event: RunEvent) => void } {
   let listener: ((event: RunEvent) => void) | null = null;
   const client: PpxClientApi = {
@@ -194,19 +226,96 @@ describe("App sending state", () => {
     render(<App />);
 
     const search = await screen.findByPlaceholderText("Search sessions");
+    const collapseSidebar = screen.getByRole("button", { name: "Collapse sidebar" });
+    const closeTaskPanel = screen.getByRole("button", { name: "Close task panel" });
+    expect(collapseSidebar.querySelector('[data-icon="sidebar"]')).toBeInTheDocument();
+    expect(closeTaskPanel.querySelector('[data-icon="sidebar-right"]')).toBeInTheDocument();
     fireEvent.keyDown(window, { key: "k", metaKey: true });
     expect(search).toHaveFocus();
 
     fireEvent.keyDown(window, { key: "b", metaKey: true });
     expect(screen.queryByLabelText("OpenPPX navigation")).not.toBeInTheDocument();
     const openSidebar = await screen.findByRole("button", { name: "Open sidebar" });
+    expect(openSidebar.querySelector('[data-icon="sidebar"]')).toBeInTheDocument();
+    await screen.findByRole("button", { name: "New session" });
+    const searchSessions = await screen.findByRole("button", { name: "Search sessions" });
 
-    fireEvent.click(openSidebar);
+    fireEvent.click(searchSessions);
     await screen.findByLabelText("OpenPPX navigation");
+    expect(screen.getByPlaceholderText("Search sessions")).toHaveFocus();
     expect(screen.queryByRole("button", { name: "Open sidebar" })).not.toBeInTheDocument();
 
     fireEvent.keyDown(window, { key: "b", metaKey: true, shiftKey: true });
-    await screen.findByRole("button", { name: "Open task panel" });
+    const openTaskPanel = await screen.findByRole("button", { name: "Open task panel" });
+    expect(openTaskPanel.querySelector('[data-icon="sidebar-right"]')).toBeInTheDocument();
+  });
+
+  it("resizes both workspace side columns and preserves their widths across collapse", async () => {
+    const { storage, restore } = installLocalStorage();
+    const previousInnerWidth = window.innerWidth;
+    Object.defineProperty(window, "innerWidth", { configurable: true, value: 1_440 });
+    try {
+      installClient();
+      const { container, unmount } = render(<App />);
+
+      const shell = await waitFor(() => {
+        const element = container.querySelector<HTMLElement>(".app-shell");
+        expect(element).not.toBeNull();
+        return element!;
+      });
+      Object.defineProperty(shell, "clientWidth", { configurable: true, value: 1_440 });
+
+      const leftSeparator = await screen.findByRole("separator", { name: "Resize navigation sidebar" });
+      fireEvent(leftSeparator, new MouseEvent("pointerdown", { bubbles: true, button: 0, clientX: 252 }));
+      fireEvent(window, new MouseEvent("pointermove", { bubbles: true, clientX: 332 }));
+      fireEvent(window, new MouseEvent("pointerup", { bubbles: true, clientX: 332 }));
+      expect(shell.style.getPropertyValue("--left-column-custom")).toBe("332px");
+
+      const rightSeparator = screen.getByRole("separator", { name: "Resize task panel" });
+      fireEvent(rightSeparator, new MouseEvent("pointerdown", { bubbles: true, button: 0, clientX: 1_124 }));
+      fireEvent(window, new MouseEvent("pointermove", { bubbles: true, clientX: 1_044 }));
+      fireEvent(window, new MouseEvent("pointerup", { bubbles: true, clientX: 1_044 }));
+      expect(shell.style.getPropertyValue("--right-column-custom")).toBe("396px");
+      expect(storage.getItem("openppx.desktop.column-widths.v1")).toContain('"left":332');
+      expect(storage.getItem("openppx.desktop.column-widths.v1")).toContain('"right":396');
+
+      fireEvent.click(screen.getByRole("button", { name: "Collapse sidebar" }));
+      expect(screen.queryByRole("separator", { name: "Resize navigation sidebar" })).not.toBeInTheDocument();
+      fireEvent.click(await screen.findByRole("button", { name: "Open sidebar" }));
+      expect(await screen.findByRole("separator", { name: "Resize navigation sidebar" })).toBeInTheDocument();
+      expect(shell.style.getPropertyValue("--left-column-custom")).toBe("332px");
+
+      unmount();
+      installClient();
+      const restored = render(<App />);
+      await screen.findByRole("separator", { name: "Resize navigation sidebar" });
+      const restoredShell = restored.container.querySelector<HTMLElement>(".app-shell");
+      expect(restoredShell?.style.getPropertyValue("--left-column-custom")).toBe("332px");
+      expect(restoredShell?.style.getPropertyValue("--right-column-custom")).toBe("396px");
+      restored.unmount();
+    } finally {
+      Object.defineProperty(window, "innerWidth", { configurable: true, value: previousInnerWidth });
+      restore();
+    }
+  });
+
+  it("supports keyboard resizing and double-click reset", async () => {
+    const { restore } = installLocalStorage();
+    try {
+      installClient();
+      const { container } = render(<App />);
+      const leftSeparator = await screen.findByRole("separator", { name: "Resize navigation sidebar" });
+      const shell = container.querySelector<HTMLElement>(".app-shell");
+      expect(shell).not.toBeNull();
+      Object.defineProperty(shell!, "clientWidth", { configurable: true, value: 1_440 });
+
+      fireEvent.keyDown(leftSeparator, { key: "ArrowRight" });
+      expect(shell!.style.getPropertyValue("--left-column-custom")).toBe("268px");
+      fireEvent.doubleClick(leftSeparator);
+      expect(shell!.style.getPropertyValue("--left-column-custom")).toBe("");
+    } finally {
+      restore();
+    }
   });
 
   it("keeps a top-bar sidebar opener in Settings", async () => {
@@ -218,6 +327,28 @@ describe("App sending state", () => {
 
     expect(screen.queryByLabelText("OpenPPX navigation")).not.toBeInTheDocument();
     expect(await screen.findByRole("button", { name: "Open sidebar" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "New session" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Search sessions" })).toBeInTheDocument();
+  });
+
+  it("creates a new session from the collapsed top-bar tools", async () => {
+    const createdSession: SessionSummary = {
+      id: "session-toolbar",
+      agentId: "agent-1",
+      title: "Toolbar session",
+      updatedAt: "2026-04-02T10:02:00.000Z",
+      lastMessagePreview: "",
+    };
+    const createSession = vi.fn(async () => ({ session: createdSession }));
+    installClient({ createSession });
+    render(<App />);
+
+    await screen.findByText("Loaded Session A");
+    fireEvent.keyDown(window, { key: "b", metaKey: true });
+    fireEvent.click(await screen.findByRole("button", { name: "New session" }));
+
+    await waitFor(() => expect(createSession).toHaveBeenCalledWith("agent-1"));
+    expect(await screen.findByText("Toolbar session")).toBeInTheDocument();
   });
 
   it("starts with both side columns collapsed in a narrow window", async () => {
@@ -242,6 +373,41 @@ describe("App sending state", () => {
       expect(screen.queryByLabelText("OpenPPX navigation")).not.toBeInTheDocument();
       await screen.findByRole("button", { name: "Open sidebar" });
       await screen.findByRole("button", { name: "Open task panel" });
+      expect(screen.queryByRole("separator", { name: "Resize navigation sidebar" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("separator", { name: "Resize task panel" })).not.toBeInTheDocument();
+    } finally {
+      Object.defineProperty(window, "matchMedia", {
+        configurable: true,
+        value: originalMatchMedia,
+      });
+    }
+  });
+
+  it("closes the sidebar overlay after navigation in a narrow window", async () => {
+    const originalMatchMedia = window.matchMedia;
+    Object.defineProperty(window, "matchMedia", {
+      configurable: true,
+      value: () => ({
+        matches: true,
+        media: "(max-width: 1080px)",
+        onchange: null,
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+        addListener: vi.fn(),
+        removeListener: vi.fn(),
+        dispatchEvent: vi.fn(),
+      }),
+    });
+    try {
+      installClient();
+      render(<App />);
+
+      fireEvent.click(await screen.findByRole("button", { name: "Open sidebar" }));
+      fireEvent.click(await screen.findByRole("button", { name: "Settings" }));
+
+      expect(screen.queryByLabelText("OpenPPX navigation")).not.toBeInTheDocument();
+      expect(await screen.findByRole("button", { name: "Open sidebar" })).toBeInTheDocument();
+      expect(await screen.findByText("Connection config")).toBeInTheDocument();
     } finally {
       Object.defineProperty(window, "matchMedia", {
         configurable: true,
@@ -799,6 +965,8 @@ describe("App sending state", () => {
     render(<App />);
 
     await screen.findByRole("button", { name: "Send" });
+    expect(screen.getByText("OpenPPX")).toBeInTheDocument();
+    expect(screen.queryByText(/Agent workspace/i)).not.toBeInTheDocument();
     expect(screen.getByText("Workspace")).toBeInTheDocument();
     expect(screen.getByText("Settings")).toBeInTheDocument();
     expect(screen.queryByText("Connections & Settings")).not.toBeInTheDocument();

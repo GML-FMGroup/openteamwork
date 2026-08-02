@@ -1,9 +1,15 @@
 import { useEffect, useRef, useState } from "react";
 import { SettingsView } from "./components/settings/SettingsView";
 import { Composer } from "./components/workspace/Composer";
-import { ContextSidebar, ShellIcon } from "./components/workspace/ContextSidebar";
+import {
+  CollapsedSidebarTools,
+  ContextSidebar,
+  ShellIcon,
+} from "./components/workspace/ContextSidebar";
 import { Transcript } from "./components/workspace/Transcript";
 import { WorkspaceInspector } from "./components/workspace/WorkspaceInspector";
+import { ColumnResizeHandle } from "./components/workspace/ColumnResizeHandle";
+import { COLUMN_WIDTH_LIMITS, useColumnLayout } from "./hooks/use-column-layout";
 import { useDesktopWorkspace } from "./hooks/use-desktop-workspace";
 import { useTranscriptFollow } from "./hooks/use-transcript-follow";
 
@@ -25,10 +31,12 @@ function resizeComposer(textarea: HTMLTextAreaElement | null): void {
 
 export function App() {
   const workspace = useDesktopWorkspace();
+  const columnLayout = useColumnLayout();
   const transcript = useTranscriptFollow(workspace.messages, workspace.transcriptResetKey);
   const [view, setView] = useState<NavView>("chat");
   const [leftSidebarCollapsed, setLeftSidebarCollapsed] = useState(false);
   const [inspectorCollapsed, setInspectorCollapsed] = useState(false);
+  const [sidebarSearchRequest, setSidebarSearchRequest] = useState(0);
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
 
   useEffect(() => {
@@ -52,21 +60,11 @@ export function App() {
   }, []);
 
   useEffect(() => {
-    if (typeof window.matchMedia !== "function") {
-      return;
+    if (columnLayout.compactLayout) {
+      setLeftSidebarCollapsed(true);
+      setInspectorCollapsed(true);
     }
-    const narrowWorkspace = window.matchMedia("(max-width: 1080px)");
-    const collapseForNarrowWorkspace = (matches: boolean): void => {
-      if (matches) {
-        setLeftSidebarCollapsed(true);
-        setInspectorCollapsed(true);
-      }
-    };
-    collapseForNarrowWorkspace(narrowWorkspace.matches);
-    const handleChange = (event: MediaQueryListEvent): void => collapseForNarrowWorkspace(event.matches);
-    narrowWorkspace.addEventListener("change", handleChange);
-    return () => narrowWorkspace.removeEventListener("change", handleChange);
-  }, []);
+  }, [columnLayout.compactLayout]);
 
   function handleComposerKeyDown(event: React.KeyboardEvent<HTMLTextAreaElement>): void {
     if (event.key !== "Enter" || event.shiftKey) {
@@ -80,10 +78,28 @@ export function App() {
     void workspace.sendMessage();
   }
 
+  function handleChangeView(nextView: NavView): void {
+    setView(nextView);
+    if (columnLayout.compactLayout) {
+      setLeftSidebarCollapsed(true);
+    }
+  }
+
+  function revealSidebarForSearch(): void {
+    setLeftSidebarCollapsed(false);
+    setSidebarSearchRequest((current) => current + 1);
+  }
+
+  function createSessionFromTopbar(): void {
+    setView("chat");
+    void workspace.createSession();
+  }
+
   if (workspace.bootstrapError) {
     return (
       <div className="loading-shell">
         <div>
+          <span className="loading-brand" aria-hidden="true">P</span>
           <strong>ppx-client failed to initialize</strong>
           <p>{workspace.bootstrapError}</p>
         </div>
@@ -92,7 +108,14 @@ export function App() {
   }
 
   if (!workspace.ready || !workspace.runtime) {
-    return <div className="loading-shell">Loading ppx-client...</div>;
+    return (
+      <div className="loading-shell" aria-live="polite">
+        <div>
+          <span className="loading-brand" aria-hidden="true">P</span>
+          <span className="loading-caption">Opening OpenPPX workspace…</span>
+        </div>
+      </div>
+    );
   }
 
   const runtime = workspace.runtime;
@@ -104,10 +127,38 @@ export function App() {
 
   return (
     <div
+      ref={columnLayout.shellRef}
+      style={columnLayout.style}
       className={`app-shell ${leftSidebarCollapsed ? "sidebar-is-collapsed" : ""} ${
         inspectorCollapsed ? "inspector-is-collapsed" : ""
-      }`}
+      } ${columnLayout.resizingColumn ? "column-resize-active" : ""}`}
     >
+      {!columnLayout.compactLayout && !leftSidebarCollapsed ? (
+        <ColumnResizeHandle
+          side="left"
+          label="Resize navigation sidebar"
+          value={columnLayout.leftWidth}
+          minimum={COLUMN_WIDTH_LIMITS.left.min}
+          maximum={COLUMN_WIDTH_LIMITS.left.max}
+          active={columnLayout.resizingColumn === "left"}
+          onResizeStart={(clientX) => columnLayout.beginResize("left", clientX)}
+          onKeyboardResize={(key, largeStep) => columnLayout.resizeWithKeyboard("left", key, largeStep)}
+          onReset={() => columnLayout.resetColumn("left")}
+        />
+      ) : null}
+      {view === "chat" && !columnLayout.compactLayout && !inspectorCollapsed ? (
+        <ColumnResizeHandle
+          side="right"
+          label="Resize task panel"
+          value={columnLayout.rightWidth}
+          minimum={COLUMN_WIDTH_LIMITS.right.min}
+          maximum={COLUMN_WIDTH_LIMITS.right.max}
+          active={columnLayout.resizingColumn === "right"}
+          onResizeStart={(clientX) => columnLayout.beginResize("right", clientX)}
+          onKeyboardResize={(key, largeStep) => columnLayout.resizeWithKeyboard("right", key, largeStep)}
+          onReset={() => columnLayout.resetColumn("right")}
+        />
+      ) : null}
       <ContextSidebar
         view={view}
         runtime={runtime}
@@ -118,8 +169,9 @@ export function App() {
         selectedSessionId={workspace.selectedSessionId}
         sendingSessionIds={workspace.activeSessionIds}
         collapsed={leftSidebarCollapsed}
+        searchFocusRequest={sidebarSearchRequest}
         onToggleCollapse={() => setLeftSidebarCollapsed((current) => !current)}
-        onChangeView={setView}
+        onChangeView={handleChangeView}
         onSelectAgent={(agentId) => void workspace.switchAgent(agentId)}
         onSelectSession={(session) => void workspace.switchSession(session)}
         onNewSession={() => void workspace.createSession()}
@@ -131,14 +183,12 @@ export function App() {
             <header className="column-topbar workspace-topbar">
               <div className="topbar-copy">
                 {leftSidebarCollapsed ? (
-                  <button
-                    className="quiet-icon-button sidebar-reveal"
-                    onClick={() => setLeftSidebarCollapsed(false)}
-                    aria-label="Open sidebar"
-                    title="Open sidebar (⌘B)"
-                  >
-                    <ShellIcon name="expand" />
-                  </button>
+                  <CollapsedSidebarTools
+                    canCreateSession={Boolean(workspace.selectedAgentId)}
+                    onRevealSidebar={() => setLeftSidebarCollapsed(false)}
+                    onNewSession={createSessionFromTopbar}
+                    onSearchSessions={revealSidebarForSearch}
+                  />
                 ) : null}
                 <span className="topbar-agent">{titlebarSubtitle}</span>
                 <strong>{titlebarTitle}</strong>
@@ -161,7 +211,7 @@ export function App() {
                   aria-label={inspectorCollapsed ? "Open task panel" : "Close task panel"}
                   title={inspectorCollapsed ? "Open task panel (⌘⇧B)" : "Close task panel (⌘⇧B)"}
                 >
-                  <ShellIcon name={inspectorCollapsed ? "collapse" : "expand"} />
+                  <ShellIcon name="sidebar-right" />
                 </button>
               </div>
             </header>
@@ -190,7 +240,6 @@ export function App() {
                       : "")
                   }
                   agentName={workspaceAgentName}
-                  nodeName={workspace.diagnostics?.nodeName ?? runtime.target.name}
                   onChange={workspace.setComposer}
                   onKeyDown={handleComposerKeyDown}
                   onSend={() => {
@@ -220,6 +269,9 @@ export function App() {
           sidebarCollapsed={leftSidebarCollapsed}
           setConnectionForm={workspace.setConnectionForm}
           onRevealSidebar={() => setLeftSidebarCollapsed(false)}
+          onNewSession={createSessionFromTopbar}
+          onSearchSessions={revealSidebarForSearch}
+          canCreateSession={Boolean(workspace.selectedAgentId)}
           onReturnToChat={() => setView("chat")}
           onRuntimeAction={() => void workspace.runRuntimeAction()}
           onStopRuntime={() => void workspace.stopRuntime()}

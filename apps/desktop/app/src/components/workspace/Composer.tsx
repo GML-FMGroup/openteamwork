@@ -9,7 +9,6 @@ interface ComposerProps {
   stopping: boolean;
   helperText: string;
   agentName: string;
-  nodeName: string;
   onChange: (value: string) => void;
   onKeyDown: (event: KeyboardEvent<HTMLTextAreaElement>) => void;
   onSend: () => void;
@@ -26,7 +25,6 @@ export function Composer({
   stopping,
   helperText,
   agentName,
-  nodeName,
   onChange,
   onKeyDown,
   onSend,
@@ -38,7 +36,6 @@ export function Composer({
     <footer className="composer-shell">
       <div className="composer-context">
         <span>{agentName}</span>
-        <span>Running on {nodeName}</span>
       </div>
       <textarea
         ref={textareaRef}

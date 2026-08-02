@@ -44,6 +44,7 @@ describe("MessageBubble", () => {
     expect(screen.queryByText("You")).not.toBeInTheDocument();
     expect(container.querySelector(".message-meta")).not.toBeInTheDocument();
     expect(container.querySelector(".user-message-actions")).toBeInTheDocument();
+    expect(container.querySelector(".message-bubble.user")).toBeInTheDocument();
     expect(container.querySelector(".user-message-actions time")).toHaveAttribute(
       "dateTime",
       "2026-04-02T12:00:00.000Z",
