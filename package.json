@@ -3,6 +3,8 @@
   "private": true,
   "packageManager": "pnpm@10.30.3",
   "scripts": {
+    "client:test": "pnpm --filter @openppx/client test",
+    "client:typecheck": "pnpm --filter @openppx/client typecheck",
     "desktop:dev": "pnpm --filter @openppx/desktop dev",
     "desktop:test": "pnpm --filter @openppx/desktop test",
     "desktop:typecheck": "pnpm --filter @openppx/desktop exec tsc --noEmit",
@@ -10,6 +12,8 @@
     "desktop:preview": "pnpm --filter @openppx/desktop preview",
     "desktop:package": "pnpm --filter @openppx/desktop package",
     "desktop:package:dir": "pnpm --filter @openppx/desktop package:dir",
-    "desktop:checksum": "pnpm --filter @openppx/desktop checksum"
+    "desktop:checksum": "pnpm --filter @openppx/desktop checksum",
+    "test": "pnpm client:test && pnpm desktop:test",
+    "typecheck": "pnpm client:typecheck && pnpm desktop:typecheck"
   }
 }

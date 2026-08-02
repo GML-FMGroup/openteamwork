@@ -2,7 +2,7 @@ import {
   CLIENT_API_PROTOCOL_VERSION,
   parseClientApiHandshake,
   parseClientApiNodeInfo,
-} from "../app/src/lib/client-api-contract";
+} from "@openppx/client";
 import healthIncompatible from "../../../contracts/client-api/fixtures/health-incompatible.json";
 import healthV1 from "../../../contracts/client-api/fixtures/health-v1.json";
 import nodeV1 from "../../../contracts/client-api/fixtures/node-v1.json";

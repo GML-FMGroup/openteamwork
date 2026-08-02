@@ -5,6 +5,18 @@ import os from "node:os";
 import path from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import {
+  CLIENT_API_PROTOCOL_VERSION,
+  ClientApiHttpTransport,
+  ClientApiRequestError,
+  normalizeClientApiMessage,
+  normalizeClientApiPart,
+  normalizeClientApiSession,
+  parseClientApiHandshake,
+  parseClientApiNodeInfo,
+  type ClientApiHandshake,
+  type ClientApiNodeInfo,
+} from "@openppx/client";
+import {
   bootstrap as mockBootstrap,
   createSession as mockCreateSession,
   listSessions as mockListSessions,
@@ -14,19 +26,8 @@ import {
   subscribe as subscribeMock,
 } from "../../app/src/lib/mock-client";
 import {
-  normalizeClientApiMessage,
-  normalizeClientApiPart,
   normalizeClientApiRuntime,
-  normalizeClientApiSession,
 } from "../../app/src/lib/client-api-projection";
-import {
-  CLIENT_API_PROTOCOL_VERSION,
-  parseClientApiHandshake,
-  parseClientApiNodeInfo,
-  type ClientApiHandshake,
-  type ClientApiNodeInfo,
-} from "../../app/src/lib/client-api-contract";
-import { buildClientApiAuthorizationHeaders } from "../../app/src/lib/client-api-auth";
 import { isLoopbackClientApiHostname } from "../../app/src/lib/connection-profile";
 import {
   buildMessagePartsFromSessionEvent,
@@ -68,17 +69,6 @@ interface GlobalAgentConfigEntry {
 
 interface GlobalAgentConfig {
   agents?: GlobalAgentConfigEntry[] | { list?: GlobalAgentConfigEntry[] };
-}
-
-class ClientApiRequestError extends Error {
-  public constructor(
-    message: string,
-    public readonly status: number,
-    public readonly code: string,
-  ) {
-    super(message);
-    this.name = "ClientApiRequestError";
-  }
 }
 
 function now(): string {
@@ -378,28 +368,14 @@ export class OpenPpxLocalAdapter implements PpxClientApi {
   }
 
   private async fetchClientApiJson(pathname: string, init?: RequestInit): Promise<Record<string, unknown>> {
-    const response = await fetch(`${this.clientApiBaseUrl}${pathname}`, {
-      ...init,
-      headers: {
-        "Content-Type": "application/json",
-        ...(init?.headers ?? {}),
-        ...this.authorizationHeaders(),
-      },
-    });
-    const payload = (await response.json()) as Record<string, unknown>;
-    if (!response.ok || payload.ok === false) {
-      const error = (payload.error as Record<string, unknown> | undefined) ?? {};
-      throw new ClientApiRequestError(
-        String(error.message ?? `Client API request failed: ${response.status}`),
-        response.status,
-        String(error.code ?? "CLIENT_API_REQUEST_FAILED"),
-      );
-    }
-    return payload;
+    return this.clientApiTransport().requestJson(pathname, init);
   }
 
-  private authorizationHeaders(): Record<string, string> {
-    return buildClientApiAuthorizationHeaders(this.clientApiAccessToken);
+  private clientApiTransport(): ClientApiHttpTransport {
+    return new ClientApiHttpTransport({
+      baseUrl: this.clientApiBaseUrl,
+      accessToken: this.clientApiAccessToken,
+    });
   }
 
   private stopManagedClientApiImmediately(): void {
@@ -472,15 +448,11 @@ export class OpenPpxLocalAdapter implements PpxClientApi {
     this.clientApiNodeInfo = null;
     this.clientApiAuthState = "unknown";
     try {
-      const response = await fetch(`${this.clientApiBaseUrl}/api/v1/health`, {
+      const payload = await this.clientApiTransport().requestJson("/api/v1/health", {
         signal: controller.signal,
-        headers: this.authorizationHeaders(),
       });
       this.clientApiReachable = true;
-      if (!response.ok) {
-        throw new Error(`Client API health request failed: ${response.status}`);
-      }
-      const handshake = parseClientApiHandshake(await response.json());
+      const handshake = parseClientApiHandshake(payload);
       this.clientApiHandshake = handshake;
       if (handshake.compatibility !== "compatible") {
         throw new Error(
@@ -503,8 +475,11 @@ export class OpenPpxLocalAdapter implements PpxClientApi {
       this.healthyUntil = Date.now() + OpenPpxLocalAdapter.HEALTH_CACHE_TTL_MS;
       return true;
     } catch (error) {
-      if (error instanceof ClientApiRequestError && error.code === "UNAUTHORIZED") {
-        this.clientApiAuthState = this.clientApiAccessToken ? "unauthorized" : "missing";
+      if (error instanceof ClientApiRequestError) {
+        this.clientApiReachable = true;
+        if (error.code === "UNAUTHORIZED") {
+          this.clientApiAuthState = this.clientApiAccessToken ? "unauthorized" : "missing";
+        }
       }
       this.rememberClientApiError(error);
       return false;
@@ -1098,9 +1073,7 @@ export class OpenPpxLocalAdapter implements PpxClientApi {
       lastMessagePreview: input.text,
     };
 
-    const response = await fetch(`${this.clientApiBaseUrl}/api/v1/runs/${runId}/events`, {
-      headers: this.authorizationHeaders(),
-    });
+    const response = await this.clientApiTransport().request(`/api/v1/runs/${runId}/events`);
     if (!response.ok || !response.body) {
       throw new Error(`Failed opening run event stream for ${runId}`);
     }

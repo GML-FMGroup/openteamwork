@@ -19,7 +19,9 @@
     "verify:package": "node scripts/verify-preload.mjs --asar \"release/mac-arm64/OpenPPX Desktop.app/Contents/Resources/app.asar\" dist-electron/preload/index.cjs",
     "checksum": "node scripts/checksum-release.mjs"
   },
-  "dependencies": {},
+  "dependencies": {
+    "@openppx/client": "workspace:*"
+  },
   "devDependencies": {
     "react": "^19.0.0",
     "react-dom": "^19.0.0",

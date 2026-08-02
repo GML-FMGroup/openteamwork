@@ -1,4 +1,4 @@
-import { buildClientApiAuthorizationHeaders } from "../app/src/lib/client-api-auth";
+import { buildClientApiAuthorizationHeaders } from "@openppx/client";
 
 describe("Client API authorization headers", () => {
   it("omits Authorization when no credential is configured", () => {

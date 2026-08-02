@@ -1,9 +1,9 @@
 import {
   normalizeClientApiMessage,
   normalizeClientApiPart,
-  normalizeClientApiRuntime,
   normalizeClientApiSession,
-} from "../app/src/lib/client-api-projection";
+} from "@openppx/client";
+import { normalizeClientApiRuntime } from "../app/src/lib/client-api-projection";
 
 describe("client api projection helpers", () => {
   it("normalizes runtime payloads", () => {
