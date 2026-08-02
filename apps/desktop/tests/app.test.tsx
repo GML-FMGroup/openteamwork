@@ -487,6 +487,15 @@ describe("App sending state", () => {
     expect(document.querySelector(".node-card-count")).toHaveTextContent("1");
   });
 
+  it("does not show an initial block in the selected Agent summary", async () => {
+    render(<App />);
+
+    await screen.findByText("Loaded Session A");
+    const agentTrigger = screen.getByRole("button", { name: /Agent 1 Local test agent/ });
+
+    expect(agentTrigger.querySelector(".agent-monogram")).not.toBeInTheDocument();
+  });
+
   it("uses the first user message as the visible session title", async () => {
     const createdSession: SessionSummary = {
       id: "session-created",

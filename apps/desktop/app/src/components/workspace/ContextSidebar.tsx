@@ -282,9 +282,6 @@ export function ContextSidebar({
               }
             }}
           >
-            <span className="agent-monogram">
-              {selectedAgent?.name.slice(0, 1).toUpperCase() ?? "—"}
-            </span>
             <span className="agent-picker-copy">
               <strong>{selectedAgent?.name ?? "No Agent available"}</strong>
               <small>{selectedAgent?.description ?? "This Node does not expose an Agent yet"}</small>
