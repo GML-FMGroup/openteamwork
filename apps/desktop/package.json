@@ -9,11 +9,14 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc && vite build",
+    "build": "tsc && vite build && npm run verify:preload",
     "preview": "vite preview",
-    "test": "vitest run",
-    "package": "npm run build && electron-builder --mac --arm64 --publish never",
-    "package:dir": "npm run build && electron-builder --dir --mac --arm64",
+    "test": "vitest run && npm run test:preload",
+    "test:preload": "node --test scripts/verify-preload.node-test.mjs",
+    "package": "npm run build && electron-builder --mac --arm64 --publish never && npm run verify:package",
+    "package:dir": "npm run build && electron-builder --dir --mac --arm64 && npm run verify:package",
+    "verify:preload": "node scripts/verify-preload.mjs dist-electron/preload/index.cjs",
+    "verify:package": "node scripts/verify-preload.mjs --asar \"release/mac-arm64/OpenPPX Desktop.app/Contents/Resources/app.asar\" dist-electron/preload/index.cjs",
     "checksum": "node scripts/checksum-release.mjs"
   },
   "dependencies": {},

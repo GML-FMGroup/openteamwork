@@ -1,13 +1,12 @@
 import { defineConfig } from "vitest/config";
 import react from "@vitejs/plugin-react";
-import electron from "vite-plugin-electron";
-import renderer from "vite-plugin-electron-renderer";
+import electron from "vite-plugin-electron/simple";
 
 export default defineConfig({
   plugins: [
     react(),
-    electron([
-      {
+    electron({
+      main: {
         entry: "electron/main/index.ts",
         vite: {
           build: {
@@ -21,22 +20,22 @@ export default defineConfig({
           },
         },
       },
-      {
-        entry: "electron/preload/index.ts",
+      preload: {
+        input: "electron/preload/index.ts",
         vite: {
           build: {
             outDir: "dist-electron/preload",
             emptyOutDir: false,
-            lib: {
-              entry: "electron/preload/index.ts",
-              formats: ["cjs"],
-              fileName: () => "index.cjs",
+            rollupOptions: {
+              output: {
+                entryFileNames: "index.cjs",
+              },
             },
           },
         },
       },
-    ]),
-    renderer(),
+      renderer: {},
+    }),
   ],
   resolve: {
     alias: {
