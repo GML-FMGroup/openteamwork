@@ -805,8 +805,8 @@ export function App() {
                       <dd>{diagnostics?.clientApiAuthState ?? "unknown"}</dd>
                     </div>
                     <div>
-                      <dt>Node</dt>
-                      <dd>{diagnostics?.nodeName ?? "-"}</dd>
+                      <dt>Node ID</dt>
+                      <dd>{diagnostics?.nodeId ?? "-"}</dd>
                     </div>
                     <div>
                       <dt>Process</dt>

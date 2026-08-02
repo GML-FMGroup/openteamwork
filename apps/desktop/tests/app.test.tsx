@@ -734,6 +734,11 @@ describe("App sending state", () => {
     expect(screen.getByText("v1 / compatible")).toBeInTheDocument();
     expect(screen.getByText("0.5.0-beta.1")).toBeInTheDocument();
     expect(screen.getByText("0.4")).toBeInTheDocument();
+    const connectionCard = screen.getByText("Connection").closest("section");
+    expect(connectionCard).not.toBeNull();
+    expect(within(connectionCard as HTMLElement).getByText("Node ID")).toBeInTheDocument();
+    expect(within(connectionCard as HTMLElement).getByText("node_test")).toBeInTheDocument();
+    expect(within(connectionCard as HTMLElement).queryByText("Node")).not.toBeInTheDocument();
   });
 
   it("renders desktop-owned interface copy in English", async () => {

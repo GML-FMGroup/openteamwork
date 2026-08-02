@@ -12,6 +12,7 @@ from openppx.runtime.client_api_contract import (
     get_openppx_product_version,
 )
 from openppx.runtime.client_api_service import ClientApiCoordinator
+from openppx.runtime import node_identity as node_identity_module
 from openppx.runtime.node_identity import load_or_create_node_identity
 
 
@@ -74,6 +75,57 @@ def test_node_identity_is_stable_and_persisted_with_private_permissions(tmp_path
     assert first.node_id.startswith("node_")
     assert first.display_name
     assert (tmp_path / "node.json").stat().st_mode & 0o777 == 0o600
+
+
+def test_node_identity_uses_platform_name_instead_of_truncated_ip_hostname(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(node_identity_module.socket, "gethostname", lambda: "192.168.1.39")
+    monkeypatch.setattr(
+        node_identity_module,
+        "_preferred_platform_display_name",
+        lambda: "Wenhao MacBook Pro",
+        raising=False,
+    )
+
+    identity = load_or_create_node_identity(tmp_path)
+
+    assert identity.display_name == "Wenhao MacBook Pro"
+
+
+def test_node_identity_migrates_legacy_ip_prefix_without_changing_node_id(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    identity_path = tmp_path / "node.json"
+    identity_path.write_text(
+        json.dumps(
+            {
+                "node_id": "node_legacy",
+                "display_name": "192",
+            }
+        ),
+        encoding="utf-8",
+    )
+    identity_path.chmod(0o600)
+    monkeypatch.setattr(node_identity_module.socket, "gethostname", lambda: "192.168.1.39")
+    monkeypatch.setattr(
+        node_identity_module,
+        "_preferred_platform_display_name",
+        lambda: "Wenhao MacBook Pro",
+        raising=False,
+    )
+
+    identity = load_or_create_node_identity(tmp_path)
+    persisted = json.loads(identity_path.read_text(encoding="utf-8"))
+
+    assert identity == node_identity_module.NodeIdentity(
+        node_id="node_legacy",
+        display_name="Wenhao MacBook Pro",
+    )
+    assert persisted == identity.as_dict()
+    assert identity_path.stat().st_mode & 0o777 == 0o600
 
 
 def test_coordinator_node_info_does_not_expose_secrets(tmp_path: Path) -> None:
