@@ -1032,6 +1032,13 @@ textarea:focus-visible,
   background: var(--vermilion-deep);
 }
 
+.send-button.stop,
+.send-button.stop:hover {
+  border-color: var(--ink);
+  background: var(--ink);
+  color: var(--paper);
+}
+
 .send-button:disabled {
   cursor: default;
 }

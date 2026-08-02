@@ -14,6 +14,7 @@ from openppx.runtime.access_policy import AccessPolicy
 from openppx.runtime.agent_access_store import AgentAccessStore, AgentMembership
 from openppx.runtime.client_api_service import (
     ClientApiCoordinator,
+    RunHandle,
     build_agent_profile,
     list_enabled_agent_names,
     project_session_event,
@@ -401,6 +402,24 @@ def test_cancel_run_emits_cancelled_message_and_run(tmp_path: Path, monkeypatch)
     assert by_event["message.cancelled"]["status"] == "cancelled"
     assert by_event["message.cancelled"]["message_id"].startswith("msg_")
     assert by_event["run.cancelled"]["status"] == "cancelled"
+
+
+def test_run_event_replay_uses_sequence_after_two_digit_event_id() -> None:
+    process = _PendingProcess()
+    handle = RunHandle(run_id="run_resume", agent_id="writer", session_id="session_resume", process=process)
+    for index in range(12):
+        handle.publish("message.delta", {"index": index + 1})
+    handle.finish()
+
+    subscriber = handle.subscribe(last_event_id="run_resume:9")
+    replay = []
+    while True:
+        item = subscriber.get(timeout=1.0)
+        if item is None:
+            break
+        replay.append(item)
+
+    assert [item.seq for item in replay] == [10, 11, 12]
 
 
 def test_create_run_tolerates_null_long_running_tool_ids(tmp_path: Path, monkeypatch) -> None:

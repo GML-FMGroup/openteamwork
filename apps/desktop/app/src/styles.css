@@ -487,7 +487,8 @@ button.small {
   background: rgba(79, 107, 91, 0.85);
 }
 
-.runtime-dot.starting {
+.runtime-dot.starting,
+.runtime-dot.reconnecting {
   background: rgba(180, 150, 50, 0.85);
 }
 
@@ -1286,6 +1287,13 @@ button.small {
 .send-button.ready:hover {
   transform: none;
   background: #333333;
+}
+
+.send-button.stop,
+.send-button.stop:hover {
+  background: var(--text-strong);
+  border-color: var(--text-strong);
+  color: #ffffff;
 }
 
 .send-button:disabled {

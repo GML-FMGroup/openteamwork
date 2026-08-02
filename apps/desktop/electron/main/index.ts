@@ -1,12 +1,13 @@
 import { app, BrowserWindow, ipcMain } from "electron";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import type {
-  ClientDiagnostics,
-  ConnectionSettings,
-  RuntimeCommand,
-  SendMessageInput,
-} from "../../app/src/types";
+import type { ClientDiagnostics } from "../../app/src/types";
+import {
+  validateConnectionSettings,
+  validateIdentifier,
+  validateRuntimeCommand,
+  validateSendMessageInput,
+} from "./ipc-validation";
 import { OpenPpxLocalAdapter } from "./openppx-local-adapter";
 import {
   readSecureConnectionSettings,
@@ -63,24 +64,35 @@ function createWindow(): void {
 app.whenReady().then(() => {
   ipcMain.handle("ppx-client:bootstrap", async () => adapter!.bootstrap());
   ipcMain.handle("ppx-client:get-diagnostics", async () => withDesktopVersion(await adapter!.getDiagnostics()));
-  ipcMain.handle("ppx-client:test-connection-settings", async (_event, settings: ConnectionSettings) => {
-    const candidate = resolveCandidateConnectionSettings(settings);
+  ipcMain.handle("ppx-client:test-connection-settings", async (_event, settings: unknown) => {
+    const candidate = resolveCandidateConnectionSettings(validateConnectionSettings(settings));
     return withDesktopVersion(await adapter!.testConnectionSettings(candidate));
   });
-  ipcMain.handle("ppx-client:save-connection-settings", async (_event, settings: ConnectionSettings) => {
-    const candidate = resolveCandidateConnectionSettings(settings);
+  ipcMain.handle("ppx-client:save-connection-settings", async (_event, settings: unknown) => {
+    const candidate = resolveCandidateConnectionSettings(validateConnectionSettings(settings));
     await adapter!.testConnectionSettings(candidate);
     writeSecureConnectionSettings(candidate);
     adapter!.applyConnectionSettings(candidate);
     return withDesktopVersion(await adapter!.getDiagnostics());
   });
-  ipcMain.handle("ppx-client:runtime-command", async (_event, command: RuntimeCommand) =>
-    adapter!.runRuntimeCommand(command),
+  ipcMain.handle("ppx-client:runtime-command", async (_event, command: unknown) =>
+    adapter!.runRuntimeCommand(validateRuntimeCommand(command)),
   );
-  ipcMain.handle("ppx-client:list-sessions", async (_event, agentId: string) => adapter!.listSessions(agentId));
-  ipcMain.handle("ppx-client:create-session", async (_event, agentId: string) => adapter!.createSession(agentId));
-  ipcMain.handle("ppx-client:load-session", async (_event, sessionId: string) => adapter!.loadSession(sessionId));
-  ipcMain.handle("ppx-client:send-message", async (_event, input: SendMessageInput) => adapter!.sendMessage(input));
+  ipcMain.handle("ppx-client:list-sessions", async (_event, agentId: unknown) =>
+    adapter!.listSessions(validateIdentifier(agentId, "Agent id")),
+  );
+  ipcMain.handle("ppx-client:create-session", async (_event, agentId: unknown) =>
+    adapter!.createSession(validateIdentifier(agentId, "Agent id")),
+  );
+  ipcMain.handle("ppx-client:load-session", async (_event, sessionId: unknown) =>
+    adapter!.loadSession(validateIdentifier(sessionId, "Session id")),
+  );
+  ipcMain.handle("ppx-client:send-message", async (_event, input: unknown) =>
+    adapter!.sendMessage(validateSendMessageInput(input)),
+  );
+  ipcMain.handle("ppx-client:cancel-run", async (_event, runId: unknown) =>
+    adapter!.cancelRun(validateIdentifier(runId, "Run id")),
+  );
 
   createWindow();
 

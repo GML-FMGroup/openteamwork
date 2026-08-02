@@ -570,7 +570,9 @@ class RunHandle:
         with self._lock:
             replay = list(self._history)
             if last_event_id:
-                replay = [item for item in replay if item.event_id > last_event_id]
+                last_seen = next((item.seq for item in replay if item.event_id == last_event_id), None)
+                if last_seen is not None:
+                    replay = [item for item in replay if item.seq > last_seen]
             if not self.done.is_set():
                 self._subscribers.append(q)
             done = self.done.is_set()

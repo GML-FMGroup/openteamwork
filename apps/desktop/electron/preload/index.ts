@@ -11,6 +11,7 @@ const api: PpxClientApi = {
   createSession: (agentId: string) => ipcRenderer.invoke("ppx-client:create-session", agentId),
   loadSession: (sessionId: string) => ipcRenderer.invoke("ppx-client:load-session", sessionId),
   sendMessage: (input: SendMessageInput) => ipcRenderer.invoke("ppx-client:send-message", input),
+  cancelRun: (runId: string) => ipcRenderer.invoke("ppx-client:cancel-run", runId),
   onRunEvent: (listener: (event: RunEvent) => void) => {
     const wrapped = (_event: unknown, payload: RunEvent) => listener(payload);
     ipcRenderer.on("ppx-client:run-event", wrapped);

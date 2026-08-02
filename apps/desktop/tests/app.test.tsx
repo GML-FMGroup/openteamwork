@@ -98,6 +98,7 @@ function installClient(overrides: Partial<PpxClientApi> = {}): { client: PpxClie
     createSession: async () => ({ session: buildBootstrapPayload().sessions[0] }),
     loadSession: async () => ({ messages: [] }),
     sendMessage: async () => new Promise<{ runId: string }>(() => undefined),
+    cancelRun: async (runId) => ({ runId, status: "cancelled" }),
     onRunEvent: (next) => {
       listener = next;
       return () => {
@@ -305,6 +306,30 @@ describe("App sending state", () => {
     await waitFor(() => {
       expect(screen.getByRole("button", { name: "Send" })).toBeEnabled();
     });
+  });
+
+  it("cancels the active Run from the composer", async () => {
+    const cancelRun = vi.fn(async (runId: string) => ({ runId, status: "cancelled" as const }));
+    const { emit } = installClient({
+      sendMessage: async () => ({ runId: "run-stop" }),
+      cancelRun,
+    });
+    render(<App />);
+
+    await screen.findByRole("button", { name: "Send" });
+    fireEvent.change(screen.getByPlaceholderText("Describe the outcome you want..."), {
+      target: { value: "long task" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+
+    const stop = await screen.findByRole("button", { name: "Stop" });
+    expect(stop).toBeEnabled();
+    fireEvent.click(stop);
+    await waitFor(() => expect(cancelRun).toHaveBeenCalledWith("run-stop"));
+    expect(screen.getByRole("button", { name: "Stopping" })).toBeDisabled();
+
+    act(() => emit({ type: "run.finished", runId: "run-stop", sessionId: "session-a" }));
+    await screen.findByRole("button", { name: "Send" });
   });
 
   it("sends on Enter and keeps Shift+Enter for newline", async () => {
@@ -718,6 +743,33 @@ describe("App sending state", () => {
     await screen.findByText("Loaded Session B");
   });
 
+  it("does not mix background Session events into the selected transcript", async () => {
+    const { emit } = installClient({ loadSession: async () => ({ messages: [] }) });
+    render(<App />);
+
+    await screen.findByText("Loaded Session A");
+    fireEvent.click(screen.getByRole("button", { name: /Session B/ }));
+    await waitFor(() => expect(screen.queryByText("Loaded Session A")).not.toBeInTheDocument());
+
+    act(() => {
+      emit({
+        type: "message.created",
+        runId: "run-background",
+        sessionId: "session-a",
+        message: {
+          id: "background-message",
+          sessionId: "session-a",
+          role: "assistant",
+          status: "streaming",
+          createdAt: "2026-04-02T10:00:03.000Z",
+          parts: [{ type: "markdown", text: "Background Session A reply" }],
+        },
+      });
+    });
+
+    expect(screen.queryByText("Background Session A reply")).not.toBeInTheDocument();
+  });
+
   it("renders live diagnostics in settings view", async () => {
     installClient();
 
@@ -771,6 +823,52 @@ describe("App sending state", () => {
     expect(document.querySelectorAll(".settings-column")).toHaveLength(0);
     expect(screen.queryByText("detail")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Refresh diagnostics" })).toBeInTheDocument();
+  });
+
+  it("preserves unsaved connection edits during a diagnostics refresh", async () => {
+    const getDiagnostics = vi.fn(async () => ({ ...buildDiagnostics() }));
+    installClient({ getDiagnostics });
+    render(<App />);
+
+    await screen.findByRole("button", { name: "Settings" });
+    fireEvent.click(screen.getByRole("button", { name: "Settings" }));
+    const targetName = await screen.findByLabelText("Target name");
+    fireEvent.change(targetName, { target: { value: "Draft Node Name" } });
+    fireEvent.click(screen.getByRole("button", { name: "Refresh diagnostics" }));
+
+    await waitFor(() => expect(getDiagnostics.mock.calls.length).toBeGreaterThanOrEqual(2));
+    expect(targetName).toHaveValue("Draft Node Name");
+  });
+
+  it("rehydrates Agents and Sessions after retrying an unavailable runtime", async () => {
+    const healthy = buildBootstrapPayload();
+    const unavailable: BootstrapPayload = {
+      ...healthy,
+      runtime: {
+        ...healthy.runtime,
+        state: "error",
+        summary: "OpenPPX Client API is unavailable.",
+      },
+      agents: [],
+      sessions: [],
+      messages: [],
+      selectedAgentId: "",
+      selectedSessionId: "",
+    };
+    const bootstrap = vi.fn().mockResolvedValueOnce(unavailable).mockResolvedValue(healthy);
+    installClient({
+      bootstrap,
+      runRuntimeCommand: async () => healthy.runtime,
+    });
+    render(<App />);
+
+    await screen.findByRole("button", { name: "Settings" });
+    fireEvent.click(screen.getByRole("button", { name: "Settings" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Retry" }));
+
+    await waitFor(() => expect(bootstrap).toHaveBeenCalledTimes(2));
+    expect(await screen.findByText("Agent 1")).toBeInTheDocument();
+    expect(screen.getByText("Session A")).toBeInTheDocument();
   });
 
   it("renders LAN target diagnostics when provided", async () => {

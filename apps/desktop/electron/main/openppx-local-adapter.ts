@@ -3,21 +3,15 @@ import { randomBytes } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { setTimeout as delay } from "node:timers/promises";
 import {
   CLIENT_API_PROTOCOL_VERSION,
-  ClientApiHttpTransport,
-  ClientApiRequestError,
   normalizeClientApiMessage,
   normalizeClientApiPart,
   normalizeClientApiSession,
-  parseClientApiHandshake,
-  parseClientApiNodeInfo,
-  type ClientApiHandshake,
-  type ClientApiNodeInfo,
 } from "@openppx/client";
 import {
   bootstrap as mockBootstrap,
+  cancelRun as mockCancelRun,
   createSession as mockCreateSession,
   listSessions as mockListSessions,
   loadSession as mockLoadSession,
@@ -25,9 +19,7 @@ import {
   sendMessage as mockSendMessage,
   subscribe as subscribeMock,
 } from "../../app/src/lib/mock-client";
-import {
-  normalizeClientApiRuntime,
-} from "../../app/src/lib/client-api-projection";
+import { normalizeClientApiRuntime } from "../../app/src/lib/client-api-projection";
 import { isLoopbackClientApiHostname } from "../../app/src/lib/connection-profile";
 import {
   buildMessagePartsFromSessionEvent,
@@ -55,11 +47,14 @@ import {
   resolveDesktopDevelopmentModes,
   shouldStartManagedClientApi,
 } from "./development-modes";
+import { ClientApiConnection } from "./client-api-connection";
+import { ClientApiRunStream } from "./client-api-run-stream";
+import { ClientApiSessionCache } from "./client-api-session-cache";
+import { LegacyBridgeClient, type LegacyBridgeStreamEvent } from "./legacy-bridge-client";
+import { LocalNodeSupervisor } from "./local-node-supervisor";
 
 type EventSink = (event: RunEvent) => void;
 type StepPart = Extract<MessagePart, { type: "step_ref" }>;
-type SessionCacheEntry = { sessions: SessionSummary[]; expiresAt: number };
-type MessageCacheEntry = { messages: ChatMessage[]; expiresAt: number };
 
 interface GlobalAgentConfigEntry {
   name?: string;
@@ -164,12 +159,6 @@ function normalizeAgentProfile(payload: Record<string, unknown>): AgentProfile {
 }
 
 export class OpenPpxLocalAdapter implements PpxClientApi {
-  private static readonly SESSION_CACHE_TTL_MS = 5_000;
-
-  private static readonly MESSAGE_CACHE_TTL_MS = 5_000;
-
-  private static readonly HEALTH_CACHE_TTL_MS = 1_500;
-
   private readonly listeners = new Set<EventSink>();
 
   private readonly openppxRoot = detectOpenPpxRoot();
@@ -192,31 +181,19 @@ export class OpenPpxLocalAdapter implements PpxClientApi {
 
   private target: ConnectionTarget;
 
-  private clientApiBaseUrl: string;
+  private readonly connection: ClientApiConnection;
 
-  private clientApiProcess: ReturnType<typeof spawn> | null = null;
+  private readonly runStream: ClientApiRunStream;
 
-  private managedClientApiEnabled = true;
+  private readonly nodeSupervisor: LocalNodeSupervisor;
 
-  private readonly sessionsCache = new Map<string, SessionCacheEntry>();
+  private readonly legacyBridge: LegacyBridgeClient;
 
-  private readonly messagesCache = new Map<string, MessageCacheEntry>();
+  private readonly sessionCache = new ClientApiSessionCache();
 
-  private healthyUntil = 0;
+  private readonly activeRunStreams = new Map<string, AbortController>();
 
   private inflightHealthCheck: Promise<boolean> | null = null;
-
-  private clientApiHandshake: ClientApiHandshake | null = null;
-
-  private clientApiNodeInfo: ClientApiNodeInfo | null = null;
-
-  private clientApiAccessToken = "";
-
-  private clientApiAuthState: NonNullable<ClientDiagnostics["clientApiAuthState"]> = "unknown";
-
-  private clientApiLastError = "";
-
-  private clientApiReachable = false;
 
   private readonly mockUnsubscribe = subscribeMock((event) => {
     if (this.shouldUseMock()) {
@@ -226,9 +203,32 @@ export class OpenPpxLocalAdapter implements PpxClientApi {
 
   public constructor(initialSettings?: ConnectionSettings) {
     this.target = this.buildTarget();
-    this.clientApiBaseUrl = this.configuredClientApiBaseUrl || `http://${this.clientApiHost}:${this.clientApiPort}`;
-    this.clientApiAccessToken =
-      this.configuredClientApiAccessToken || (this.target.type === "local" ? this.managedLocalAccessToken : "");
+    this.connection = new ClientApiConnection({
+      baseUrl: this.configuredClientApiBaseUrl || `http://${this.clientApiHost}:${this.clientApiPort}`,
+      accessToken:
+        this.configuredClientApiAccessToken || (this.target.type === "local" ? this.managedLocalAccessToken : ""),
+    });
+    this.runStream = new ClientApiRunStream({
+      request: (pathname, init) => this.connection.request(pathname, init),
+    });
+    this.nodeSupervisor = new LocalNodeSupervisor({
+      openppxRoot: this.openppxRoot,
+      pythonBin: this.pythonBin,
+      spawnProcess: spawn,
+      log: clientDebugLog,
+      onExit: ({ baseUrl }) => {
+        if (baseUrl === this.connection.baseUrl) {
+          this.connection.invalidateHealth();
+        }
+      },
+    });
+    this.legacyBridge = new LegacyBridgeClient({
+      openppxRoot: this.openppxRoot,
+      pythonBin: this.pythonBin,
+      scriptPath: this.bridgeScriptPath,
+      spawnProcess: spawn,
+      log: clientDebugLog,
+    });
     if (initialSettings) {
       this.applyConnectionSettings(initialSettings);
     }
@@ -258,27 +258,23 @@ export class OpenPpxLocalAdapter implements PpxClientApi {
     const isLan = settings.targetType === "lan";
     const nextBaseUrl = settings.clientApiBaseUrl.trim() || `http://${this.clientApiHost}:${this.clientApiPort}`;
     const shouldStopManagedProcess =
-      this.target.type === "local" && (isLan || nextBaseUrl !== this.clientApiBaseUrl);
+      this.target.type === "local" && (isLan || nextBaseUrl !== this.connection.baseUrl);
     this.target = {
       id: settings.targetId.trim() || (isLan ? "lan-default" : "local-default"),
       type: isLan ? "remote" : "local",
       name: settings.targetName.trim() || (isLan ? "LAN OpenPPX Node" : "This Mac"),
     };
-    this.clientApiBaseUrl = nextBaseUrl;
-    this.clientApiAccessToken = isLan
-      ? settings.accessToken?.trim() || this.configuredClientApiAccessToken
-      : this.configuredClientApiAccessToken || this.managedLocalAccessToken;
-    this.healthyUntil = 0;
-    this.clientApiHandshake = null;
-    this.clientApiNodeInfo = null;
-    this.clientApiLastError = "";
-    this.clientApiAuthState = "unknown";
-    this.clientApiReachable = false;
-    this.sessionsCache.clear();
-    this.messagesCache.clear();
+    this.connection.configure({
+      baseUrl: nextBaseUrl,
+      accessToken: isLan
+        ? settings.accessToken?.trim() || this.configuredClientApiAccessToken
+        : this.configuredClientApiAccessToken || this.managedLocalAccessToken,
+    });
+    this.sessionCache.clear();
     if (shouldStopManagedProcess) {
       this.stopManagedClientApiImmediately();
     }
+    this.abortActiveRunStreams();
   }
 
   private canUseLegacyLocalFallback(): boolean {
@@ -286,137 +282,30 @@ export class OpenPpxLocalAdapter implements PpxClientApi {
   }
 
   private emit(event: RunEvent): void {
-    this.applyEventToCache(event);
+    this.sessionCache.applyEvent(event);
     this.listeners.forEach((listener) => listener(event));
   }
 
-  private readSessionsCache(agentId: string): SessionSummary[] | null {
-    const cached = this.sessionsCache.get(agentId);
-    if (!cached || cached.expiresAt < Date.now()) {
-      return null;
-    }
-    return cached.sessions.map((session) => ({ ...session }));
-  }
-
-  private writeSessionsCache(agentId: string, sessions: SessionSummary[]): void {
-    this.sessionsCache.set(agentId, {
-      sessions: sessions.map((session) => ({ ...session })),
-      expiresAt: Date.now() + OpenPpxLocalAdapter.SESSION_CACHE_TTL_MS,
-    });
-  }
-
-  private readMessagesCache(sessionId: string): ChatMessage[] | null {
-    const cached = this.messagesCache.get(sessionId);
-    if (!cached || cached.expiresAt < Date.now()) {
-      return null;
-    }
-    return cached.messages.map((message) => ({
-      ...message,
-      parts: [...message.parts],
-    }));
-  }
-
-  private writeMessagesCache(sessionId: string, messages: ChatMessage[]): void {
-    this.messagesCache.set(sessionId, {
-      messages: messages.map((message) => ({
-        ...message,
-        parts: [...message.parts],
-      })),
-      expiresAt: Date.now() + OpenPpxLocalAdapter.MESSAGE_CACHE_TTL_MS,
-    });
-  }
-
-  private invalidateSessionCaches(agentId: string, sessionId?: string): void {
-    this.sessionsCache.delete(agentId);
-    if (sessionId) {
-      this.messagesCache.delete(sessionId);
-    }
-  }
-
-  private applyEventToCache(event: RunEvent): void {
-    if (event.type === "message.created") {
-      const cached = this.readMessagesCache(event.sessionId) ?? [];
-      if (!cached.some((message) => message.id === event.message.id)) {
-        this.writeMessagesCache(event.sessionId, [...cached, event.message]);
-      }
-      return;
-    }
-    if (event.type === "message.updated") {
-      const cached = this.readMessagesCache(event.sessionId);
-      if (!cached) {
-        return;
-      }
-      const next = cached.map((message) =>
-        message.id === event.messageId
-          ? {
-              ...message,
-              status: event.status ?? message.status,
-              parts: event.replaceParts ?? [...message.parts, ...(event.appendParts ?? [])],
-            }
-          : message,
-      );
-      this.writeMessagesCache(event.sessionId, next);
-      return;
-    }
-    if (event.type === "session.updated") {
-      const cached = this.readSessionsCache(event.session.agentId) ?? [];
-      const next = [event.session, ...cached.filter((session) => session.id !== event.session.id)].sort((left, right) =>
-        right.updatedAt.localeCompare(left.updatedAt),
-      );
-      this.writeSessionsCache(event.session.agentId, next);
-    }
-  }
-
   private async fetchClientApiJson(pathname: string, init?: RequestInit): Promise<Record<string, unknown>> {
-    return this.clientApiTransport().requestJson(pathname, init);
-  }
-
-  private clientApiTransport(): ClientApiHttpTransport {
-    return new ClientApiHttpTransport({
-      baseUrl: this.clientApiBaseUrl,
-      accessToken: this.clientApiAccessToken,
-    });
+    return this.connection.requestJson(pathname, init);
   }
 
   private stopManagedClientApiImmediately(): void {
-    const child = this.clientApiProcess;
-    this.clientApiProcess = null;
-    this.healthyUntil = 0;
-    if (child && child.exitCode === null) {
-      child.kill();
-    }
+    this.connection.invalidateHealth();
+    this.nodeSupervisor.stopImmediately();
   }
 
   private async stopManagedClientApi(): Promise<void> {
-    const child = this.clientApiProcess;
-    this.clientApiProcess = null;
-    this.healthyUntil = 0;
-    if (!child || child.exitCode !== null) {
-      return;
-    }
-    await new Promise<void>((resolve) => {
-      let settled = false;
-      const finish = (): void => {
-        if (settled) {
-          return;
-        }
-        settled = true;
-        clearTimeout(timeout);
-        resolve();
-      };
-      const timeout = setTimeout(finish, 1_500);
-      timeout.unref();
-      child.once("close", finish);
-      child.kill();
-    });
+    this.connection.invalidateHealth();
+    await this.nodeSupervisor.stop();
   }
 
   private managedClientApiBindAddress(): { host: string; port: number } | null {
-    if (!this.managedClientApiEnabled || this.isRemoteTarget()) {
+    if (!this.nodeSupervisor.managementEnabled || this.isRemoteTarget()) {
       return null;
     }
     try {
-      const endpoint = new URL(this.clientApiBaseUrl);
+      const endpoint = new URL(this.connection.baseUrl);
       if (endpoint.protocol !== "http:" || !isLoopbackClientApiHostname(endpoint.hostname)) {
         return null;
       }
@@ -430,66 +319,19 @@ export class OpenPpxLocalAdapter implements PpxClientApi {
   }
 
   private rememberClientApiError(error: unknown): void {
-    this.clientApiLastError = error instanceof Error ? error.message : String(error);
+    this.connection.rememberError(error);
   }
 
   private clientApiUnavailableError(operation: string): Error {
-    const reason = this.clientApiLastError || `No compatible protocol v${CLIENT_API_PROTOCOL_VERSION} gateway is ready.`;
-    return new Error(`${operation} requires the OpenPPX Client API. ${reason}`);
+    return this.connection.unavailableError(operation);
   }
 
   private async isClientApiHealthy(): Promise<boolean> {
-    if (Date.now() < this.healthyUntil) {
-      return true;
-    }
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), this.isRemoteTarget() ? 2_000 : 500);
-    this.clientApiReachable = false;
-    this.clientApiNodeInfo = null;
-    this.clientApiAuthState = "unknown";
-    try {
-      const payload = await this.clientApiTransport().requestJson("/api/v1/health", {
-        signal: controller.signal,
-      });
-      this.clientApiReachable = true;
-      const handshake = parseClientApiHandshake(payload);
-      this.clientApiHandshake = handshake;
-      if (handshake.compatibility !== "compatible") {
-        throw new Error(
-          `Client API protocol ${handshake.protocolVersion} is incompatible; Desktop supports ${CLIENT_API_PROTOCOL_VERSION}.`,
-        );
-      }
-      if (!handshake.ready) {
-        throw new Error("Client API reported that it is not ready.");
-      }
-      const nodePayload = await this.fetchClientApiJson("/api/v1/node", { signal: controller.signal });
-      const nodeInfo = parseClientApiNodeInfo(nodePayload);
-      this.clientApiNodeInfo = nodeInfo;
-      if (nodeInfo.compatibility !== "compatible") {
-        throw new Error(
-          `Node protocol range ${nodeInfo.protocolMin}-${nodeInfo.protocolMax} does not include ${CLIENT_API_PROTOCOL_VERSION}.`,
-        );
-      }
-      this.clientApiAuthState = nodeInfo.authenticationRequired ? "authenticated" : "not-required";
-      this.clientApiLastError = "";
-      this.healthyUntil = Date.now() + OpenPpxLocalAdapter.HEALTH_CACHE_TTL_MS;
-      return true;
-    } catch (error) {
-      if (error instanceof ClientApiRequestError) {
-        this.clientApiReachable = true;
-        if (error.code === "UNAUTHORIZED") {
-          this.clientApiAuthState = this.clientApiAccessToken ? "unauthorized" : "missing";
-        }
-      }
-      this.rememberClientApiError(error);
-      return false;
-    } finally {
-      clearTimeout(timeout);
-    }
+    return this.connection.checkHealth({ timeoutMs: this.isRemoteTarget() ? 2_000 : 500 });
   }
 
   private async ensureClientApiAvailable(): Promise<boolean> {
-    if (Date.now() < this.healthyUntil) {
+    if (this.connection.isHealthCached()) {
       return true;
     }
     if (this.inflightHealthCheck) {
@@ -506,138 +348,45 @@ export class OpenPpxLocalAdapter implements PpxClientApi {
   private async ensureClientApiAvailableImpl(): Promise<boolean> {
     if (await this.isClientApiHealthy()) {
       clientDebugLog("client-api.health", {
-        baseUrl: this.clientApiBaseUrl,
+        baseUrl: this.connection.baseUrl,
         status: "healthy",
       });
       return true;
     }
     const openppxRootExists = fs.existsSync(this.openppxRoot);
     const managedBindAddress = this.managedClientApiBindAddress();
+    const connection = this.connection.getSnapshot();
     if (
       !managedBindAddress ||
       !shouldStartManagedClientApi({
         targetType: this.target.type,
-        endpointReachable: this.clientApiReachable,
+        endpointReachable: connection.reachable,
         openppxRootExists,
       })
     ) {
-      const status = this.clientApiReachable
-        ? `reachable-${this.clientApiAuthState}`
+      const status = connection.reachable
+        ? `reachable-${connection.authState}`
         : this.isRemoteTarget()
           ? "remote-unreachable"
           : !openppxRootExists
             ? "openppx-root-missing"
             : "local-endpoint-not-managed";
       clientDebugLog("client-api.health", {
-        baseUrl: this.clientApiBaseUrl,
+        baseUrl: this.connection.baseUrl,
         status,
         target: this.target,
         openppxRoot: this.openppxRoot,
-        error: this.clientApiLastError,
+        error: connection.lastError,
       });
       return false;
     }
-    if (!this.clientApiProcess) {
-      clientDebugLog("client-api.spawn", {
-        baseUrl: this.clientApiBaseUrl,
-        pythonBin: this.pythonBin,
-        openppxRoot: this.openppxRoot,
-      });
-      const child = spawn(
-        this.pythonBin,
-        [
-          "-m",
-          "openppx.cli",
-          "client-api",
-          "serve",
-          "--host",
-          managedBindAddress.host,
-          "--port",
-          String(managedBindAddress.port),
-        ],
-        {
-          cwd: this.openppxRoot,
-          env: {
-            ...process.env,
-            OPENPPX_CLIENT_API_TOKEN: this.clientApiAccessToken,
-          },
-          stdio: ["ignore", "pipe", "pipe"],
-        },
-      );
-      this.clientApiProcess = child;
-      const processBaseUrl = this.clientApiBaseUrl;
-      child.stdout?.on("data", (chunk: Buffer | string) => {
-        clientDebugLog("client-api.stdout", chunk.toString().trim());
-      });
-      child.stderr?.on("data", (chunk: Buffer | string) => {
-        clientDebugLog("client-api.stderr", chunk.toString().trim());
-      });
-      child.on("close", () => {
-        clientDebugLog("client-api.close", { baseUrl: processBaseUrl });
-        if (this.clientApiProcess === child) {
-          this.clientApiProcess = null;
-          this.healthyUntil = 0;
-        }
-      });
-    }
-    for (let attempt = 0; attempt < 12; attempt += 1) {
-      await delay(250);
-      if (await this.isClientApiHealthy()) {
-        clientDebugLog("client-api.health", {
-          baseUrl: this.clientApiBaseUrl,
-          status: "healthy-after-spawn",
-          attempt: attempt + 1,
-        });
-        return true;
-      }
-    }
-    clientDebugLog("client-api.health", {
-      baseUrl: this.clientApiBaseUrl,
-      status: "unreachable",
+    return this.nodeSupervisor.ensureReady({
+      host: managedBindAddress.host,
+      port: managedBindAddress.port,
+      accessToken: this.connection.accessToken,
+      baseUrl: this.connection.baseUrl,
+      probe: () => this.isClientApiHealthy(),
     });
-    return false;
-  }
-
-  private async callBridge(args: string[]): Promise<unknown> {
-    return new Promise((resolve, reject) => {
-      const child = spawn(this.pythonBin, [this.bridgeScriptPath, ...args], {
-        cwd: this.openppxRoot,
-        stdio: ["ignore", "pipe", "pipe"],
-      });
-
-      let stdout = "";
-      let stderr = "";
-
-      child.stdout.on("data", (chunk: Buffer | string) => {
-        stdout += chunk.toString();
-      });
-      child.stderr.on("data", (chunk: Buffer | string) => {
-        stderr += chunk.toString();
-      });
-      child.on("close", (code) => {
-        if (code !== 0) {
-          reject(new Error(stderr.trim() || stdout.trim() || `Bridge exited with code ${code}`));
-          return;
-        }
-        const lines = stdout
-          .split("\n")
-          .map((line) => line.trim())
-          .filter(Boolean);
-        if (!lines.length) {
-          resolve(null);
-          return;
-        }
-        try {
-          resolve(JSON.parse(lines.at(-1)!));
-        } catch (error) {
-          reject(error);
-        }
-      });
-    });
-  }
-
-  private bridgeArgs(action: string, agentId: string, extra: string[] = []): string[] {
-    return ["--openppx-root", this.openppxRoot, action, "--agent", agentId, ...extra];
   }
 
   private formatSessionSummary(agentId: string, payload: Record<string, unknown>): SessionSummary {
@@ -707,12 +456,13 @@ export class OpenPpxLocalAdapter implements PpxClientApi {
   }
 
   private getFallbackRuntimeStatus(): RuntimeStatus {
+    const connection = this.connection.getSnapshot();
     if (this.isRemoteTarget()) {
       return {
         target: this.target,
         state: "error",
         summary: "Remote client-api gateway is unavailable.",
-        detail: this.clientApiLastError || `Check the remote gateway at ${this.clientApiBaseUrl}.`,
+        detail: connection.lastError || `Check the remote gateway at ${connection.baseUrl}.`,
         lastError: "REMOTE_GATEWAY_UNAVAILABLE",
       };
     }
@@ -745,9 +495,9 @@ export class OpenPpxLocalAdapter implements PpxClientApi {
       target: this.target,
       state: "error",
       summary: "OpenPPX Client API is unavailable.",
-      detail: this.clientApiLastError || `Start a compatible protocol v${CLIENT_API_PROTOCOL_VERSION} gateway.`,
+      detail: connection.lastError || `Start a compatible protocol v${CLIENT_API_PROTOCOL_VERSION} gateway.`,
       lastError:
-        this.clientApiHandshake?.compatibility === "incompatible"
+        connection.handshake?.compatibility === "incompatible"
           ? "CLIENT_API_PROTOCOL_INCOMPATIBLE"
           : "CLIENT_API_UNAVAILABLE",
     };
@@ -816,6 +566,8 @@ export class OpenPpxLocalAdapter implements PpxClientApi {
   public async getDiagnostics(): Promise<ClientDiagnostics> {
     const realAgents = this.listRealAgents();
     const clientApiHealthy = this.shouldUseMock() ? false : await this.isClientApiHealthy();
+    const connection = this.connection.getSnapshot();
+    const cacheEntries = this.sessionCache.getEntryCounts();
     return {
       mode: this.shouldUseMock() ? "mock" : this.isRemoteTarget() ? "lan" : "local",
       target: this.target,
@@ -824,23 +576,23 @@ export class OpenPpxLocalAdapter implements PpxClientApi {
       pythonBin: this.pythonBin,
       globalConfigPath: globalConfigPath(),
       globalConfigExists: fs.existsSync(globalConfigPath()),
-      clientApiBaseUrl: this.clientApiBaseUrl,
+      clientApiBaseUrl: connection.baseUrl,
       clientApiManagedByClient: !this.shouldUseMock() && Boolean(this.managedClientApiBindAddress()),
       clientApiHealthy,
-      clientApiProductVersion: this.clientApiNodeInfo?.productVersion ?? this.clientApiHandshake?.productVersion,
-      clientApiProtocolVersion: this.clientApiHandshake?.protocolVersion,
-      clientApiCompatibility: this.clientApiNodeInfo?.compatibility ?? this.clientApiHandshake?.compatibility ?? "unknown",
-      clientApiLastError: this.clientApiLastError || undefined,
-      clientApiAuthState: this.clientApiAuthState,
-      clientApiCredentialConfigured: Boolean(this.clientApiAccessToken),
-      nodeId: this.clientApiNodeInfo?.nodeId,
-      nodeName: this.clientApiNodeInfo?.displayName,
-      clientApiProcessRunning: !!this.clientApiProcess && this.clientApiProcess.exitCode === null,
+      clientApiProductVersion: connection.nodeInfo?.productVersion ?? connection.handshake?.productVersion,
+      clientApiProtocolVersion: connection.handshake?.protocolVersion,
+      clientApiCompatibility: connection.nodeInfo?.compatibility ?? connection.handshake?.compatibility ?? "unknown",
+      clientApiLastError: connection.lastError || undefined,
+      clientApiAuthState: connection.authState,
+      clientApiCredentialConfigured: connection.credentialConfigured,
+      nodeId: connection.nodeInfo?.nodeId,
+      nodeName: connection.nodeInfo?.displayName,
+      clientApiProcessRunning: this.nodeSupervisor.processRunning,
       bridgeScriptPath: this.bridgeScriptPath,
       bridgeScriptExists: fs.existsSync(this.bridgeScriptPath),
-      agentCount: this.clientApiNodeInfo?.agents ?? realAgents.length,
-      sessionCacheEntries: this.sessionsCache.size,
-      messageCacheEntries: this.messagesCache.size,
+      agentCount: connection.nodeInfo?.agents ?? realAgents.length,
+      sessionCacheEntries: cacheEntries.sessions,
+      messageCacheEntries: cacheEntries.messages,
       debugEnabled: clientDebugEnabled(),
       mockEnabled: this.developmentModes.mockEnabled,
       legacyBridgeEnabled: this.developmentModes.legacyBridgeEnabled,
@@ -853,7 +605,7 @@ export class OpenPpxLocalAdapter implements PpxClientApi {
   }
 
   public async testConnectionSettings(settings: ConnectionSettings): Promise<ClientDiagnostics> {
-    if (settings.targetType === "local" && settings.clientApiBaseUrl === this.clientApiBaseUrl) {
+    if (settings.targetType === "local" && settings.clientApiBaseUrl === this.connection.baseUrl) {
       await this.ensureClientApiAvailable();
       const diagnostics = await this.getDiagnostics();
       if (!diagnostics.clientApiHealthy) {
@@ -864,7 +616,7 @@ export class OpenPpxLocalAdapter implements PpxClientApi {
 
     const candidate = new OpenPpxLocalAdapter(settings);
     // A changed local endpoint may be probed, but a temporary test must not own its process lifecycle.
-    candidate.managedClientApiEnabled = false;
+    candidate.nodeSupervisor.setEnabled(false);
     try {
       await candidate.ensureClientApiAvailable();
       const diagnostics = await candidate.getDiagnostics();
@@ -886,7 +638,7 @@ export class OpenPpxLocalAdapter implements PpxClientApi {
       return {
         ...this.getFallbackRuntimeStatus(),
         summary: "Remote gateway control is not supported from the desktop client yet.",
-        detail: `This target is configured as remote. Manage the gateway directly at ${this.clientApiBaseUrl}.`,
+        detail: `This target is configured as remote. Manage the gateway directly at ${this.connection.baseUrl}.`,
       };
     }
     if (command === "stop") {
@@ -911,7 +663,7 @@ export class OpenPpxLocalAdapter implements PpxClientApi {
     if (this.shouldUseMock()) {
       return mockListSessions(agentId);
     }
-    const cached = this.readSessionsCache(agentId);
+    const cached = this.sessionCache.readSessions(agentId);
     if (cached) {
       clientDebugLog("sessions.cache.hit", {
         agentId,
@@ -928,7 +680,7 @@ export class OpenPpxLocalAdapter implements PpxClientApi {
         const sessions = items
           .map((item) => normalizeClientApiSession(item))
           .filter((item): item is SessionSummary => item !== null);
-        this.writeSessionsCache(agentId, sessions);
+        this.sessionCache.writeSessions(agentId, sessions);
         return { sessions };
       } catch (error) {
         this.rememberClientApiError(error);
@@ -938,7 +690,7 @@ export class OpenPpxLocalAdapter implements PpxClientApi {
       throw this.clientApiUnavailableError("Listing sessions");
     }
     const sessions = await this.listSessionsForAgent(agentId);
-    this.writeSessionsCache(agentId, sessions);
+    this.sessionCache.writeSessions(agentId, sessions);
     return { sessions };
   }
 
@@ -954,7 +706,7 @@ export class OpenPpxLocalAdapter implements PpxClientApi {
         });
         const session = normalizeClientApiSession((payload.data as Record<string, unknown> | undefined)?.session);
         if (session) {
-          this.invalidateSessionCaches(agentId);
+          this.sessionCache.invalidate(agentId);
           return { session };
         }
       } catch (error) {
@@ -964,11 +716,12 @@ export class OpenPpxLocalAdapter implements PpxClientApi {
     if (!this.canUseLegacyLocalFallback()) {
       throw this.clientApiUnavailableError("Creating a session");
     }
-    const response = (await this.callBridge(
-      this.bridgeArgs("create_session", agentId, ["--session-id", `${agentId}-${crypto.randomUUID()}`]),
-    )) as { session?: Record<string, unknown> } | null;
+    const response = await this.legacyBridge.request<{ session?: Record<string, unknown> }>("create_session", agentId, [
+      "--session-id",
+      `${agentId}-${crypto.randomUUID()}`,
+    ]);
     const session = this.formatSessionSummary(agentId, response?.session ?? {});
-    this.invalidateSessionCaches(agentId);
+    this.sessionCache.invalidate(agentId);
     return { session };
   }
 
@@ -976,7 +729,7 @@ export class OpenPpxLocalAdapter implements PpxClientApi {
     if (this.shouldUseMock()) {
       return mockLoadSession(sessionId);
     }
-    const cached = this.readMessagesCache(sessionId);
+    const cached = this.sessionCache.readMessages(sessionId);
     if (cached) {
       clientDebugLog("messages.cache.hit", {
         sessionId,
@@ -993,7 +746,7 @@ export class OpenPpxLocalAdapter implements PpxClientApi {
         const messages = items
           .map((item) => normalizeClientApiMessage(item))
           .filter((item): item is ChatMessage => item !== null);
-        this.writeMessagesCache(sessionId, messages);
+        this.sessionCache.writeMessages(sessionId, messages);
         return { messages };
       } catch (error) {
         this.rememberClientApiError(error);
@@ -1008,14 +761,16 @@ export class OpenPpxLocalAdapter implements PpxClientApi {
     if (!session) {
       return { messages: [] };
     }
-    const response = (await this.callBridge(
-      this.bridgeArgs("get_session", session.agentId, ["--session-id", sessionId]),
-    )) as { session?: Record<string, unknown> | null } | null;
+    const response = await this.legacyBridge.request<{ session?: Record<string, unknown> | null }>(
+      "get_session",
+      session.agentId,
+      ["--session-id", sessionId],
+    );
     if (!response?.session) {
       return { messages: [] };
     }
     const messages = this.buildMessagesFromSession(sessionId, response.session);
-    this.writeMessagesCache(sessionId, messages);
+    this.sessionCache.writeMessages(sessionId, messages);
     return { messages };
   }
 
@@ -1029,7 +784,7 @@ export class OpenPpxLocalAdapter implements PpxClientApi {
     if (this.shouldUseMock()) {
       return mockSendMessage(input);
     }
-    this.invalidateSessionCaches(input.agentId, input.sessionId);
+    this.sessionCache.invalidate(input.agentId, input.sessionId);
     if (await this.ensureClientApiAvailable()) {
       try {
         return await this.sendMessageViaClientApi(input);
@@ -1064,174 +819,168 @@ export class OpenPpxLocalAdapter implements PpxClientApi {
       agentId: input.agentId,
       sessionId: input.sessionId,
     });
-    const sessionPayload = await this.listSessions(input.agentId);
-    const session = sessionPayload.sessions.find((item) => item.id === input.sessionId) ?? {
+    const session: SessionSummary = {
       id: input.sessionId,
       agentId: input.agentId,
-      title: "Local session",
+      title: "New chat",
       updatedAt: now(),
       lastMessagePreview: input.text,
     };
 
-    const response = await this.clientApiTransport().request(`/api/v1/runs/${runId}/events`);
-    if (!response.ok || !response.body) {
-      throw new Error(`Failed opening run event stream for ${runId}`);
-    }
     clientDebugLog("send.client-api.stream-open", {
       runId,
-      url: `${this.clientApiBaseUrl}/api/v1/runs/${runId}/events`,
+      url: `${this.connection.baseUrl}/api/v1/runs/${runId}/events`,
     });
-
-    await new Promise<void>(async (resolve, reject) => {
-      const reader = response.body!.getReader();
-      const decoder = new TextDecoder();
-      let buffer = "";
-      let assistantMessage: ChatMessage | null = null;
-      let finalText = "";
-      let stepParts: StepPart[] = [];
-
-      const syncAssistant = (status: ChatMessage["status"]): void => {
-        if (!assistantMessage) {
+    let assistantMessage: ChatMessage | null = null;
+    let finalText = "";
+    let stepParts: StepPart[] = [];
+    let terminal = false;
+    const syncAssistant = (status: ChatMessage["status"]): void => {
+      if (!assistantMessage) {
+        return;
+      }
+      assistantMessage.status = status;
+      assistantMessage.parts = mergeAssistantParts(stepParts, finalText);
+      this.emit({
+        type: "message.updated",
+        runId,
+        sessionId: assistantMessage.sessionId,
+        messageId: assistantMessage.id,
+        replaceParts: assistantMessage.parts,
+        status,
+      });
+    };
+    const handleClientApiEvent = (eventName: string, data: Record<string, unknown>): void => {
+      clientDebugLog("send.client-api.event", { runId, eventName, keys: Object.keys(data) });
+      if (eventName === "message.created") {
+        const message = normalizeClientApiMessage(data.message);
+        if (!message) {
           return;
         }
-        assistantMessage.status = status;
-        assistantMessage.parts = mergeAssistantParts(stepParts, finalText);
-        this.emit({
-            type: "message.updated",
-            runId,
-            sessionId: assistantMessage.sessionId,
-            messageId: assistantMessage.id,
-            replaceParts: assistantMessage.parts,
-            status,
-          });
-      };
-
-      const handleClientApiEvent = (eventName: string, data: Record<string, unknown>): void => {
-        clientDebugLog("send.client-api.event", {
-          runId,
-          eventName,
-          keys: Object.keys(data),
-        });
-        if (eventName === "message.created") {
-          const message = normalizeClientApiMessage(data.message);
-          if (!message) {
-            return;
-          }
-          assistantMessage = message;
-          stepParts = message.parts.filter((part): part is StepPart => part.type === "step_ref");
-          this.emit({ type: "message.created", runId, sessionId: message.sessionId, message });
-          return;
-        }
-        if (eventName === "step.updated" && assistantMessage) {
-          const stepPart = normalizeClientApiPart(data.step);
-          if (stepPart?.type !== "step_ref") {
-            return;
-          }
-          stepParts = [
-            ...stepParts.filter((part) => part.stepId !== stepPart.stepId),
-            stepPart,
-          ];
+        assistantMessage = message;
+        stepParts = message.parts.filter((part): part is StepPart => part.type === "step_ref");
+        this.emit({ type: "message.created", runId, sessionId: message.sessionId, message });
+      } else if (eventName === "step.updated" && assistantMessage) {
+        const stepPart = normalizeClientApiPart(data.step);
+        if (stepPart?.type === "step_ref") {
+          stepParts = [...stepParts.filter((part) => part.stepId !== stepPart.stepId), stepPart];
           syncAssistant("streaming");
-          return;
         }
-        if (eventName === "message.delta" && assistantMessage) {
-          const part = normalizeClientApiPart(data.part);
-          if (part?.type === "markdown") {
-            finalText = part.text;
-            syncAssistant("streaming");
-          }
-          return;
+      } else if (eventName === "message.delta" && assistantMessage) {
+        const part = normalizeClientApiPart(data.part);
+        if (part?.type === "markdown") {
+          finalText = part.text;
+          syncAssistant("streaming");
         }
-        if (eventName === "message.completed" && assistantMessage) {
-          const message = normalizeClientApiMessage(data.message);
-          finalText = message?.parts.find((part) => part.type === "markdown")?.text ?? finalText;
-          stepParts = stepParts.map((part) => (part.status === "running" ? { ...part, status: "completed" } : part));
-          syncAssistant("completed");
-          return;
-        }
-        if (eventName === "message.failed" && assistantMessage) {
-          const errorPart = normalizeClientApiPart(data.error);
-          if (errorPart?.type === "error") {
-            this.emit({
-              type: "message.updated",
-              runId,
-              sessionId: assistantMessage.sessionId,
-              messageId: assistantMessage.id,
-              replaceParts: [errorPart],
-              status: "failed",
-            });
-          }
-          return;
-        }
-        if (eventName === "message.cancelled" && assistantMessage) {
+      } else if (eventName === "message.completed" && assistantMessage) {
+        const message = normalizeClientApiMessage(data.message);
+        finalText = message?.parts.find((part) => part.type === "markdown")?.text ?? finalText;
+        stepParts = stepParts.map((part) => (part.status === "running" ? { ...part, status: "completed" } : part));
+        syncAssistant("completed");
+      } else if (eventName === "message.failed" && assistantMessage) {
+        const errorPart = normalizeClientApiPart(data.error);
+        if (errorPart?.type === "error") {
           this.emit({
             type: "message.updated",
             runId,
             sessionId: assistantMessage.sessionId,
             messageId: assistantMessage.id,
-            replaceParts: mergeAssistantParts(
-              stepParts.map((part) => (part.status === "running" ? { ...part, status: "failed" } : part)),
-              finalText,
-            ),
-            status: "cancelled",
+            replaceParts: [errorPart],
+            status: "failed",
           });
-          return;
         }
-        if (eventName === "run.finished") {
-          session.updatedAt = now();
-          session.lastMessagePreview = finalText || input.text;
-          this.emit({ type: "session.updated", runId, session });
-          this.emit({ type: "run.finished", runId, sessionId: input.sessionId });
-          clientDebugLog("send.client-api.finished", {
-            runId,
-            status: "completed",
-            finalTextLength: finalText.length,
-          });
-          return;
-        }
-        if (eventName === "run.cancelled") {
-          this.emit({ type: "run.finished", runId, sessionId: input.sessionId });
-        }
-      };
-
-      try {
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) {
-            clientDebugLog("send.client-api.stream-closed", { runId });
-            break;
-          }
-          buffer += decoder.decode(value, { stream: true });
-          const frames = buffer.split("\n\n");
-          buffer = frames.pop() ?? "";
-          for (const frame of frames) {
-            const lines = frame.split("\n");
-            let eventName = "message";
-            let dataLine = "";
-            for (const line of lines) {
-              if (line.startsWith("event:")) {
-                eventName = line.slice(6).trim();
-              } else if (line.startsWith("data:")) {
-                dataLine += line.slice(5).trim();
-              }
-            }
-            if (!dataLine) {
-              continue;
-            }
-            handleClientApiEvent(eventName, JSON.parse(dataLine) as Record<string, unknown>);
-          }
-        }
-        resolve();
-      } catch (error) {
+      } else if (eventName === "message.cancelled" && assistantMessage) {
+        this.emit({
+          type: "message.updated",
+          runId,
+          sessionId: assistantMessage.sessionId,
+          messageId: assistantMessage.id,
+          replaceParts: mergeAssistantParts(
+            stepParts.map((part) => (part.status === "running" ? { ...part, status: "failed" } : part)),
+            finalText,
+          ),
+          status: "cancelled",
+        });
+      } else if (eventName === "run.finished") {
+        terminal = true;
+        session.updatedAt = now();
+        session.lastMessagePreview = finalText || input.text;
+        this.emit({ type: "session.updated", runId, session });
+        this.emit({ type: "run.finished", runId, sessionId: input.sessionId });
+        clientDebugLog("send.client-api.finished", {
+          runId,
+          status: "completed",
+          finalTextLength: finalText.length,
+        });
+      } else if (eventName === "run.cancelled") {
+        terminal = true;
+        this.emit({ type: "run.finished", runId, sessionId: input.sessionId });
+      }
+    };
+    const streamController = new AbortController();
+    this.activeRunStreams.set(runId, streamController);
+    void this.runStream
+      .consume(runId, ({ event, data }) => handleClientApiEvent(event, data), { signal: streamController.signal })
+      .then(() => clientDebugLog("send.client-api.stream-closed", { runId }))
+      .catch((error: unknown) => {
+        this.rememberClientApiError(error);
         clientDebugLog("send.client-api.stream-error", {
           runId,
           error: error instanceof Error ? error.message : String(error),
         });
-        reject(error);
-      }
-    });
+        if (terminal) {
+          return;
+        }
+        terminal = true;
+        const errorPart: MessagePart = {
+          type: "error",
+          text: error instanceof Error ? error.message : String(error),
+          errorCode: "CLIENT_API_STREAM_ERROR",
+        };
+        if (assistantMessage) {
+          this.emit({
+            type: "message.updated",
+            runId,
+            sessionId: input.sessionId,
+            messageId: assistantMessage.id,
+            replaceParts: [errorPart],
+            status: "failed",
+          });
+        } else {
+          const failedMessage: ChatMessage = {
+            id: `assistant-${runId}`,
+            sessionId: input.sessionId,
+            role: "assistant",
+            status: "failed",
+            createdAt: now(),
+            parts: [errorPart],
+          };
+          this.emit({ type: "message.created", runId, sessionId: input.sessionId, message: failedMessage });
+        }
+        this.emit({ type: "run.finished", runId, sessionId: input.sessionId });
+      })
+      .finally(() => {
+        if (this.activeRunStreams.get(runId) === streamController) {
+          this.activeRunStreams.delete(runId);
+        }
+      });
 
     return { runId };
+  }
+
+  public async cancelRun(runId: string): Promise<{ runId: string; status: "cancelled" }> {
+    if (this.shouldUseMock()) {
+      return mockCancelRun(runId);
+    }
+    if (!(await this.ensureClientApiAvailable())) {
+      throw this.clientApiUnavailableError("Cancelling a Run");
+    }
+    const payload = await this.fetchClientApiJson(`/api/v1/runs/${runId}/cancel`, {
+      method: "POST",
+      body: "{}",
+    });
+    const run = ((payload.data as Record<string, unknown> | undefined)?.run ?? {}) as Record<string, unknown>;
+    return { runId: String(run.id ?? runId), status: "cancelled" };
   }
 
   private async sendMessageViaBridge(input: SendMessageInput): Promise<{ runId: string }> {
@@ -1273,153 +1022,98 @@ export class OpenPpxLocalAdapter implements PpxClientApi {
       lastMessagePreview: input.text,
     };
 
-    await new Promise<void>((resolve) => {
-      const child = spawn(
-        this.pythonBin,
-        this.bridgeArgs("run", input.agentId, ["--session-id", input.sessionId, "--message", input.text]),
-        {
-          cwd: this.openppxRoot,
-          stdio: ["ignore", "pipe", "pipe"],
-        },
-      );
-
-      let stdoutBuffer = "";
-      let finalText = "";
-      let stderrText = "";
-      let stepParts: StepPart[] = assistantMessage.parts.filter((part): part is StepPart => part.type === "step_ref");
-      let hasStructuredEvent = false;
-
-      const applyAssistantParts = (parts: MessagePart[], status: ChatMessage["status"]): void => {
-        assistantMessage.status = status;
-        assistantMessage.parts = parts;
-        this.emit({
-          type: "message.updated",
-          runId,
-          sessionId: assistantMessage.sessionId,
-          messageId: assistantMessage.id,
-          replaceParts: parts,
-          status,
-        });
-      };
-
-      const syncAssistant = (status: ChatMessage["status"]): void => {
-        applyAssistantParts(mergeAssistantParts(stepParts, finalText), status);
-      };
-
-      const handleLine = (line: string): void => {
-        if (!line.trim()) {
-          return;
-        }
-        try {
-          const payload = JSON.parse(line) as { type: string; text?: string; message?: string; event?: Record<string, unknown> };
-          clientDebugLog("send.bridge.payload", {
-            runId,
-            type: payload.type,
-          });
-          if (payload.type === "event" && payload.event) {
-            hasStructuredEvent = true;
-            stepParts = projectBridgeEventToStepParts(payload.event, stepParts).filter(
-              (part) => !part.title.startsWith("Connecting to openppx"),
-            );
-            syncAssistant("streaming");
-            return;
-          }
-          if (payload.type === "delta") {
-            finalText = payload.text ?? finalText;
-            if (hasStructuredEvent) {
-              syncAssistant("streaming");
-            } else {
-              applyAssistantParts([{ type: "markdown", text: finalText }], "streaming");
-            }
-            return;
-          }
-          if (payload.type === "final") {
-            finalText = payload.text ?? finalText;
-            if (hasStructuredEvent) {
-              stepParts = stepParts.map((part) =>
-                part.status === "running"
-                  ? { ...part, status: "completed", detail: `${part.detail}\n\nFinished without an explicit tool response event.` }
-                  : part,
-              );
-              syncAssistant("completed");
-            } else {
-              applyAssistantParts([{ type: "markdown", text: finalText }], "completed");
-            }
-            return;
-          }
-          if (payload.type === "error") {
-            if (hasStructuredEvent && stepParts.length) {
-              stepParts = stepParts.map((part) =>
-                part.status === "running"
-                  ? { ...part, status: "failed", detail: payload.message ?? part.detail }
-                  : part,
-              );
-              syncAssistant("failed");
-              return;
-            }
-            applyAssistantParts(
-              [{ type: "error", text: payload.message ?? "Unknown bridge error", errorCode: "OPENPPX_BRIDGE_ERROR" }],
-              "failed",
-            );
-          }
-        } catch {
-          finalText = line.trim();
+    let finalText = "";
+    let stepParts: StepPart[] = assistantMessage.parts.filter((part): part is StepPart => part.type === "step_ref");
+    let hasStructuredEvent = false;
+    const applyAssistantParts = (parts: MessagePart[], status: ChatMessage["status"]): void => {
+      assistantMessage.status = status;
+      assistantMessage.parts = parts;
+      this.emit({
+        type: "message.updated",
+        runId,
+        sessionId: assistantMessage.sessionId,
+        messageId: assistantMessage.id,
+        replaceParts: parts,
+        status,
+      });
+    };
+    const syncAssistant = (status: ChatMessage["status"]): void => {
+      applyAssistantParts(mergeAssistantParts(stepParts, finalText), status);
+    };
+    const handleBridgeEvent = (payload: LegacyBridgeStreamEvent): void => {
+      clientDebugLog("send.bridge.payload", { runId, type: payload.type });
+      if (payload.type === "raw") {
+        finalText = typeof payload.text === "string" ? payload.text : "";
+        applyAssistantParts([{ type: "markdown", text: finalText }], "streaming");
+        return;
+      }
+      const text = typeof payload.text === "string" ? payload.text : undefined;
+      const message = typeof payload.message === "string" ? payload.message : undefined;
+      const bridgeEvent =
+        payload.event && typeof payload.event === "object" && !Array.isArray(payload.event)
+          ? (payload.event as Record<string, unknown>)
+          : null;
+      if (payload.type === "event" && bridgeEvent) {
+        hasStructuredEvent = true;
+        stepParts = projectBridgeEventToStepParts(bridgeEvent, stepParts).filter(
+          (part) => !part.title.startsWith("Connecting to openppx"),
+        );
+        syncAssistant("streaming");
+      } else if (payload.type === "delta") {
+        finalText = text ?? finalText;
+        if (hasStructuredEvent) {
+          syncAssistant("streaming");
+        } else {
           applyAssistantParts([{ type: "markdown", text: finalText }], "streaming");
         }
-      };
-
-      child.stdout.on("data", (chunk: Buffer | string) => {
-        stdoutBuffer += chunk.toString();
-        const lines = stdoutBuffer.split("\n");
-        stdoutBuffer = lines.pop() ?? "";
-        lines.forEach(handleLine);
-      });
-
-      child.stderr.on("data", (chunk: Buffer | string) => {
-        stderrText += chunk.toString();
-        clientDebugLog("send.bridge.stderr", {
-          runId,
-          text: chunk.toString().trim(),
-        });
-      });
-
-      child.on("close", (code) => {
-        clientDebugLog("send.bridge.close", {
-          runId,
-          code,
-          assistantStatus: assistantMessage.status,
-        });
-        if (stdoutBuffer.trim()) {
-          handleLine(stdoutBuffer.trim());
+      } else if (payload.type === "final") {
+        finalText = text ?? finalText;
+        if (hasStructuredEvent) {
+          stepParts = stepParts.map((part) =>
+            part.status === "running"
+              ? { ...part, status: "completed", detail: `${part.detail}\n\nFinished without an explicit tool response event.` }
+              : part,
+          );
+          syncAssistant("completed");
+        } else {
+          applyAssistantParts([{ type: "markdown", text: finalText }], "completed");
         }
-        if (code !== 0 && assistantMessage.status !== "failed") {
+      } else if (payload.type === "error") {
+        if (hasStructuredEvent && stepParts.length) {
+          stepParts = stepParts.map((part) =>
+            part.status === "running" ? { ...part, status: "failed", detail: message ?? part.detail } : part,
+          );
+          syncAssistant("failed");
+        } else {
           applyAssistantParts(
-            [
-              {
-                type: "error",
-                text: stderrText.trim() || `Bridge exited with code ${code}`,
-                errorCode: "OPENPPX_BRIDGE_EXIT",
-              },
-            ],
+            [{ type: "error", text: message ?? "Unknown bridge error", errorCode: "OPENPPX_BRIDGE_ERROR" }],
             "failed",
           );
         }
-
-        session.updatedAt = now();
-        session.lastMessagePreview = finalText || input.text;
-        this.emit({
-          type: "session.updated",
-          runId,
-          session,
-        });
-        this.emit({
-          type: "run.finished",
-          runId,
-          sessionId: input.sessionId,
-        });
-        resolve();
-      });
+      }
+    };
+    const result = await this.legacyBridge.run(input, handleBridgeEvent);
+    clientDebugLog("send.bridge.close", {
+      runId,
+      code: result.code,
+      assistantStatus: assistantMessage.status,
     });
+    if (result.code !== 0 && assistantMessage.status !== "failed") {
+      applyAssistantParts(
+        [
+          {
+            type: "error",
+            text: result.stderr || `Bridge exited with code ${result.code}`,
+            errorCode: "OPENPPX_BRIDGE_EXIT",
+          },
+        ],
+        "failed",
+      );
+    }
+    session.updatedAt = now();
+    session.lastMessagePreview = finalText || input.text;
+    this.emit({ type: "session.updated", runId, session });
+    this.emit({ type: "run.finished", runId, sessionId: input.sessionId });
 
     return { runId };
   }
@@ -1433,13 +1127,21 @@ export class OpenPpxLocalAdapter implements PpxClientApi {
 
   public dispose(): void {
     this.mockUnsubscribe();
+    this.abortActiveRunStreams();
+    this.sessionCache.clear();
     this.stopManagedClientApiImmediately();
   }
 
+  private abortActiveRunStreams(): void {
+    this.activeRunStreams.forEach((controller) => controller.abort());
+    this.activeRunStreams.clear();
+  }
+
   private async listSessionsForAgent(agentId: string): Promise<SessionSummary[]> {
-    const response = (await this.callBridge(this.bridgeArgs("list_sessions", agentId))) as
-      | { sessions?: Array<Record<string, unknown>> }
-      | null;
+    const response = await this.legacyBridge.request<{ sessions?: Array<Record<string, unknown>> }>(
+      "list_sessions",
+      agentId,
+    );
     const sessions = Array.isArray(response?.sessions) ? response.sessions : [];
     return sessions
       .map((payload) => this.formatSessionSummary(agentId, payload))

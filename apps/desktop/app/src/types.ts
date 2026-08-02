@@ -17,7 +17,7 @@ export type {
   SessionSummary,
 } from "@openppx/client";
 
-export type RuntimeState = "stopped" | "starting" | "healthy" | "error";
+export type RuntimeState = "stopped" | "starting" | "reconnecting" | "healthy" | "error";
 
 export interface ConnectionTarget {
   id: string;
@@ -93,5 +93,6 @@ export interface PpxClientApi {
   createSession(agentId: string): Promise<{ session: SessionSummary }>;
   loadSession(sessionId: string): Promise<{ messages: ChatMessage[] }>;
   sendMessage(input: SendMessageInput): Promise<{ runId: string }>;
+  cancelRun(runId: string): Promise<{ runId: string; status: "cancelled" }>;
   onRunEvent(listener: (event: RunEvent) => void): () => void;
 }

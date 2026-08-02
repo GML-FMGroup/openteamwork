@@ -25,6 +25,11 @@ type EventSink = (event: RunEvent) => void;
 
 const now = () => new Date().toISOString();
 
+const activeMockRuns = new Map<
+  string,
+  { sessionId: string; messageId: string; timers: Array<ReturnType<typeof setTimeout>> }
+>();
+
 function compactSessionTitle(text: string): string {
   const normalized = text.replace(/\s+/g, " ").trim();
   if (normalized.length <= 64) {
@@ -338,8 +343,13 @@ export async function sendMessage(input: SendMessageInput): Promise<{ runId: str
   });
 
   const parts = formatReplyParts(input.text);
+  const activeRun = { sessionId: input.sessionId, messageId: assistant.id, timers: [] as Array<ReturnType<typeof setTimeout>> };
+  activeMockRuns.set(runId, activeRun);
   parts.forEach((part, index) => {
-    setTimeout(() => {
+    const timer = setTimeout(() => {
+      if (!activeMockRuns.has(runId)) {
+        return;
+      }
       emit({
         type: "message.updated",
         runId,
@@ -361,9 +371,30 @@ export async function sendMessage(input: SendMessageInput): Promise<{ runId: str
           runId,
           sessionId: input.sessionId,
         });
+        activeMockRuns.delete(runId);
       }
     }, 250 * (index + 1));
+    activeRun.timers.push(timer);
   });
 
   return { runId };
+}
+
+/** Cancel a development mock Run and emit the same terminal events as Client API. */
+export async function cancelRun(runId: string): Promise<{ runId: string; status: "cancelled" }> {
+  const activeRun = activeMockRuns.get(runId);
+  if (!activeRun) {
+    throw new Error(`Run '${runId}' is not active.`);
+  }
+  activeRun.timers.forEach((timer) => clearTimeout(timer));
+  activeMockRuns.delete(runId);
+  emit({
+    type: "message.updated",
+    runId,
+    sessionId: activeRun.sessionId,
+    messageId: activeRun.messageId,
+    status: "cancelled",
+  });
+  emit({ type: "run.finished", runId, sessionId: activeRun.sessionId });
+  return { runId, status: "cancelled" };
 }
