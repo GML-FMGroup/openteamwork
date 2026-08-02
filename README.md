@@ -5,6 +5,8 @@
 
 ## ✨ News
 
+- 2026-08-02: v0.5.1 Developer Preview adds a reusable TypeScript Client, resilient Desktop/Node reconnection and task cancellation, and a quieter resizable three-column Desktop workspace. It is published as a prerelease while real two-machine LAN validation and macOS signing/notarization remain outstanding.
+
 - 2026-08-02: v0.5.0-beta.1 released with the new OpenPPX Desktop for managing multiple agents, a separated Desktop/Node architecture for same-machine or LAN deployment, secure Client API connections, a refined three-column workspace with session/activity/artifact visibility, Docker-backed skill API sandboxing, and hardened desktop packaging.
 
 - 2026-06-10: v0.4 released with supervised long-task execution, persistent task runs, pause/resume/cancel controls, checkpoint and provider migration support, client API session titles based on the first user message, and lower-noise Feishu task updates.

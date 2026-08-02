@@ -9,6 +9,7 @@
 - [SANDBOX.md](./SANDBOX.md): Docker sandbox build, usage, security boundary, diagnostics, and testing
 - [MCP_SECURITY.md](./MCP_SECURITY.md): MCP integration and security policy
 - [OpenPPX Desktop v0.5.0-beta.1](./releases/v0.5.0-beta.1.md): Developer Preview scope, validation, and known limitations
+- [OpenPPX v0.5.1](./releases/v0.5.1.md): Desktop/Node resilience, TypeScript Client, refined workspace, and prerelease limitations
 
 ## Maintenance Guidance
 

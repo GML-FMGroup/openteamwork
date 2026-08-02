@@ -2,7 +2,7 @@
 
 OpenPPX Desktop 是 OpenPPX monorepo 中的桌面客户端，支持管理本机 OpenPPX Node，也支持连接可信局域网中另一台机器上的 Node。
 
-当前桌面版本为 `0.5.0-beta.1` Developer Preview。它是前后端分离的薄客户端：安装包只包含 Desktop，不包含 Python 后端、Agent 配置或用户数据。
+当前桌面版本为 `0.5.1` Developer Preview。它是前后端分离的薄客户端：安装包只包含 Desktop，不包含 Python 后端、Agent 配置或用户数据。
 
 当前版本聚焦这几条主路径：
 
@@ -102,14 +102,14 @@ pnpm desktop:checksum
 
 产物位于 `apps/desktop/release/`，其中包括：
 
-- `OpenPPX-Desktop-0.5.0-beta.1-mac-arm64.dmg`
+- `OpenPPX-Desktop-0.5.1-mac-arm64.dmg`
 - 对应的 `.blockmap`
 - `SHA256SUMS.txt`
 
 可在发布前验证 DMG 和校验清单：
 
 ```bash
-hdiutil verify apps/desktop/release/OpenPPX-Desktop-0.5.0-beta.1-mac-arm64.dmg
+hdiutil verify apps/desktop/release/OpenPPX-Desktop-0.5.1-mac-arm64.dmg
 cd apps/desktop/release
 shasum -a 256 -c SHA256SUMS.txt
 ```

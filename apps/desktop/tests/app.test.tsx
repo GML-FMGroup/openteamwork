@@ -56,7 +56,7 @@ function buildBootstrapPayload(): BootstrapPayload {
 
 function buildDiagnostics(): ClientDiagnostics {
   return {
-    desktopVersion: "0.5.0-beta.1",
+    desktopVersion: "0.5.1",
     mode: "local",
     target: { id: "local-default", type: "local", name: "This Mac" },
     openppxRoot: "/tmp/openppx_root",
@@ -950,7 +950,7 @@ describe("App sending state", () => {
     expect(screen.getByText("/tmp/openppx_root")).toBeInTheDocument();
     expect(screen.getByText("This Mac (local)")).toBeInTheDocument();
     expect(screen.getByText("v1 / compatible")).toBeInTheDocument();
-    expect(screen.getByText("0.5.0-beta.1")).toBeInTheDocument();
+    expect(screen.getByText("0.5.1")).toBeInTheDocument();
     expect(screen.getByText("0.4")).toBeInTheDocument();
     const connectionCard = screen.getByText("Connection").closest("section");
     expect(connectionCard).not.toBeNull();

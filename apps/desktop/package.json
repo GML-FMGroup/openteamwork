@@ -1,6 +1,6 @@
 {
   "name": "@openppx/desktop",
-  "version": "0.5.0-beta.1",
+  "version": "0.5.1",
   "private": true,
   "description": "Local-first desktop workbench for OpenPPX agents",
   "author": "OpenPPX Contributors",
