@@ -197,40 +197,7 @@ export function ContextSidebar({
   }
 
   if (collapsed) {
-    return (
-      <aside className="context-sidebar collapsed" aria-label="OpenPPX navigation">
-        <button className="brand-mark compact" onClick={onToggleCollapse} title="Expand sidebar (⌘B)">
-          P
-        </button>
-        <div className="collapsed-nav">
-          <button
-            className={view === "chat" ? "rail-action active" : "rail-action"}
-            onClick={() => onChangeView("chat")}
-            title="Workspace"
-          >
-            <ShellIcon name="chat" />
-          </button>
-          <button
-            className={view === "settings" ? "rail-action active" : "rail-action"}
-            onClick={() => onChangeView("settings")}
-            title="Settings"
-          >
-            <ShellIcon name="settings" />
-          </button>
-        </div>
-        <span
-          className={`node-beacon ${runtime.state}`}
-          title={`${nodeName} · ${runtime.state}`}
-        />
-        <button
-          className="rail-action sidebar-toggle"
-          onClick={onToggleCollapse}
-          title="Expand sidebar (⌘B)"
-        >
-          <ShellIcon name="expand" />
-        </button>
-      </aside>
-    );
+    return null;
   }
 
   return (

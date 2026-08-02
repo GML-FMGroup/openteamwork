@@ -1,65 +1,63 @@
 **Comparison Target**
 
-- Source visual truth: `$TMPDIR/codex-clipboard-dcb6779f-5395-4a3e-8b24-160936a05035.png`.
-- Browser-rendered implementation: `$TMPDIR/openppx-phase51-full.png`.
-- Focused implementation crop: `$TMPDIR/openppx-phase51-implementation-normalized.png`.
-- Side-by-side comparison: `$TMPDIR/openppx-phase51-side-by-side.png` (source on the left, implementation on the right).
-- Viewport: 1171 × 903 CSS px; reported browser `devicePixelRatio`: 2.
-- Pixels and normalization:
-  - Source: 576 × 746 px, normalized to 288 × 373 px before placement in a 320 × 400 comparison cell.
-  - Full implementation capture: 1171 × 903 px.
-  - Focused implementation crop: 244 × 365 px, placed without scaling in a 320 × 400 comparison cell.
-- State: expanded desktop sidebar with a healthy Node, selected Agent summary, Sessions search, and session rows. The implementation uses deterministic mock content while preserving the same selected-Agent interaction state as the source.
+- Source visual truth: `$TMPDIR/codex-clipboard-1162d2b9-ed0b-48db-b02f-4d3cf5f96f0c.png`.
+- Browser-rendered collapsed Chat view: `$TMPDIR/openppx-phase52-collapsed.png`.
+- Browser-rendered expanded Chat view: `$TMPDIR/openppx-phase52-expanded.png`.
+- Browser-rendered collapsed Settings view: `$TMPDIR/openppx-phase52-settings-collapsed.png`.
+- Browser-rendered narrow views: `$TMPDIR/openppx-phase52-narrow-collapsed.png` and `$TMPDIR/openppx-phase52-narrow-expanded.png`.
+- Focused side-by-side comparison: `$TMPDIR/openppx-phase52-comparison.png` (source on the left, implementation on the right).
+- Desktop viewport: 1171 × 903 CSS px; screenshot output: 1171 × 903 px.
+- Narrow viewport: 720 × 800 CSS px; screenshot output: 720 × 800 px.
+- State: sidebar collapsed in Chat and Settings, then reopened in desktop and narrow-window layouts.
 
 **Full-view Comparison Evidence**
 
-- The browser-rendered full view keeps the established three-column application composition and all surrounding sidebar sections intact.
-- The selected Agent name and description now begin at the left content inset instead of following a monogram block.
-- The status dot and dropdown chevron remain aligned on the right; the Node card, Sessions section, transcript, composer, and footer navigation do not shift.
+- The collapsed `ContextSidebar` branch renders no DOM and the application grid reports `0px 879px 292px`; no blank or decorative rail remains.
+- Chat uses the released width immediately while preserving the existing center transcript and right task panel.
+- Settings uses the same top-bar recovery control and fills the released width without restoring a separate navigation strip.
+- The top-bar opener starts at CSS x=72px, keeping it after the macOS traffic-light safe area.
 
 **Focused Region Comparison Evidence**
 
-- The source screenshot shows the unwanted rounded `L` block before `low-main`.
-- The normalized implementation shows the same selected-Agent row structure without any leading initial block; the name and secondary description take the released space.
-- DOM evidence confirms zero `.agent-monogram` elements, one selected-Agent status dot, and one selected-Agent chevron.
+- The normalized source crop shows the unwanted `P`, Workspace, Settings, Node-status, and bottom-chevron rail.
+- The implementation crop shows no left rail or left border; only the single top-bar recovery chevron remains.
+- DOM evidence confirms zero `[aria-label="OpenPPX navigation"]` elements and zero collapsed-rail elements while collapsed, with exactly one `Open sidebar` button.
 
 **Required Fidelity Surfaces**
 
-- Fonts and typography: Agent name weight, secondary description size/color, heading tracking, truncation, and session typography remain unchanged; only the text start position moves left.
-- Spacing and layout rhythm: the trigger changes from four tracks to three (`minmax(0, 1fr)`, status, chevron). Existing height, padding, gap, radius, and adjacent section spacing are preserved.
-- Colors and visual tokens: the neutral card fill, border, text colors, healthy green status color, and icon color remain unchanged. Removing the monogram also removes its redundant gray fill.
-- Image quality and asset fidelity: no raster, logo, illustration, or icon asset was added, removed, replaced, or degraded.
-- Copy and content: dynamic Agent names and descriptions remain unchanged. The removed content is only the derived initial; no literal Agent data is filtered.
+- Fonts and typography: top-bar labels and application content retain the existing type scale, weights, and neutral palette.
+- Spacing and layout rhythm: the collapsed left grid track changes from 64px to 0px; the opener is 30 × 30px at x=72px, and no vertical strip consumes content width.
+- Colors and visual tokens: no new accent color, surface, border, shadow, or status treatment was introduced.
+- Image quality and asset fidelity: no raster or brand asset was added, removed, replaced, or degraded; existing icon components provide the chevrons.
+- Copy and content: Node, Agent, Session, task, Settings, and inspector content are unchanged. Only redundant collapsed-rail chrome is removed.
+
+**Interactions and Responsive Checks**
+
+- Clicking `Open sidebar` restores the expanded desktop navigation to 244px and removes the opener.
+- `⌘B` remains covered by the same sidebar state toggle regression.
+- Settings exposes exactly one top-bar opener while collapsed.
+- At 720 × 800, the collapsed layout has no sidebar DOM and the opener remains available; activating it restores a 270px absolute overlay sidebar.
+- Browser console warnings/errors checked: none. Only Vite debug connection messages and the React development-tools information message were present.
 
 **Findings**
 
-- No actionable P0, P1, or P2 mismatch remains for the requested removal.
+- No actionable P0, P1, or P2 mismatch remains for the requested rail removal.
 
 **Comparison History**
 
-- Iteration 1 source issue: the selected Agent summary contains a rounded dynamic initial block that consumes horizontal space and adds visual noise.
-- Fix: remove the monogram element and its styles, then change the trigger grid from four columns to three.
-- Post-fix evidence: the focused side-by-side comparison and DOM checks show no leading initial block while retaining the Agent text, healthy status, and dropdown affordance.
-
-**Primary Interactions and Runtime Checks**
-
-- Opened the selected Agent dropdown and confirmed both Agent options remain available.
-- Switched from Builder to Operator; the menu closed normally, the selected summary updated, and the monogram count remained zero.
-- Browser console warnings/errors checked: none.
-- Full desktop regression: 63 tests across 11 files passed.
-- Production TypeScript/Vite/Electron build passed.
-
-**Open Questions**
-
-- None for this scoped iteration.
+- Iteration 1 source issue: collapsing the sidebar preserved a 64px rail with duplicated brand/navigation/status controls and a bottom restore button.
+- Fix: return no collapsed sidebar component, set the collapsed grid track to 0px, and place one restore action in both application top bars.
+- Responsive follow-up: allow the real expanded sidebar to return as an overlay at the narrow breakpoint instead of hiding it unconditionally.
+- Post-fix evidence: desktop Chat, desktop Settings, narrow collapsed, and narrow reopened states all preserve a clear recovery path without recreating the vertical rail.
 
 **Implementation Checklist**
 
-- [x] Remove the selected Agent initial block for every Agent.
-- [x] Shift Agent name and description into the released horizontal space.
-- [x] Preserve the status dot, chevron, dropdown options, and Agent switching.
+- [x] Remove the collapsed sidebar rail and release its grid width.
+- [x] Add a macOS-safe top-bar recovery control in Chat and Settings.
+- [x] Preserve expanded navigation, `⌘B`, and application state.
+- [x] Preserve narrow-window recovery with an overlay sidebar.
 - [x] Add focused regression coverage and run the full desktop suite.
-- [x] Capture and compare the expanded sidebar against the requested source region.
+- [x] Capture and compare the requested collapsed region.
 
 **Follow-up Polish**
 

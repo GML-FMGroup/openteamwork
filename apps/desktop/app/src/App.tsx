@@ -584,6 +584,16 @@ export function App() {
           <section className="workspace-shell conversation-shell">
             <header className="column-topbar workspace-topbar">
               <div className="topbar-copy">
+                {leftSidebarCollapsed ? (
+                  <button
+                    className="quiet-icon-button sidebar-reveal"
+                    onClick={() => setLeftSidebarCollapsed(false)}
+                    aria-label="Open sidebar"
+                    title="Open sidebar (⌘B)"
+                  >
+                    <ShellIcon name="expand" />
+                  </button>
+                ) : null}
                 <span className="topbar-agent">{titlebarSubtitle}</span>
                 <strong>{titlebarTitle}</strong>
                 <span className="topbar-location">Running on {diagnostics?.nodeName ?? runtime.target.name}</span>
@@ -643,6 +653,16 @@ export function App() {
         <section className="workspace-shell settings-shell">
             <header className="column-topbar workspace-topbar">
               <div className="topbar-copy">
+                {leftSidebarCollapsed ? (
+                  <button
+                    className="quiet-icon-button sidebar-reveal"
+                    onClick={() => setLeftSidebarCollapsed(false)}
+                    aria-label="Open sidebar"
+                    title="Open sidebar (⌘B)"
+                  >
+                    <ShellIcon name="expand" />
+                  </button>
+                ) : null}
                 <strong>{titlebarTitle}</strong>
               </div>
               <div className="topbar-actions">

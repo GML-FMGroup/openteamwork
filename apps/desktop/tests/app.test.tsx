@@ -197,10 +197,26 @@ describe("App sending state", () => {
     expect(search).toHaveFocus();
 
     fireEvent.keyDown(window, { key: "b", metaKey: true });
-    await screen.findByRole("button", { name: "P" });
+    expect(screen.queryByLabelText("OpenPPX navigation")).not.toBeInTheDocument();
+    const openSidebar = await screen.findByRole("button", { name: "Open sidebar" });
+
+    fireEvent.click(openSidebar);
+    await screen.findByLabelText("OpenPPX navigation");
+    expect(screen.queryByRole("button", { name: "Open sidebar" })).not.toBeInTheDocument();
 
     fireEvent.keyDown(window, { key: "b", metaKey: true, shiftKey: true });
     await screen.findByRole("button", { name: "Open task panel" });
+  });
+
+  it("keeps a top-bar sidebar opener in Settings", async () => {
+    installClient();
+    render(<App />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Settings" }));
+    fireEvent.keyDown(window, { key: "b", metaKey: true });
+
+    expect(screen.queryByLabelText("OpenPPX navigation")).not.toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "Open sidebar" })).toBeInTheDocument();
   });
 
   it("starts with both side columns collapsed in a narrow window", async () => {
@@ -222,7 +238,8 @@ describe("App sending state", () => {
       installClient();
       render(<App />);
 
-      await screen.findByRole("button", { name: "P" });
+      expect(screen.queryByLabelText("OpenPPX navigation")).not.toBeInTheDocument();
+      await screen.findByRole("button", { name: "Open sidebar" });
       await screen.findByRole("button", { name: "Open task panel" });
     } finally {
       Object.defineProperty(window, "matchMedia", {

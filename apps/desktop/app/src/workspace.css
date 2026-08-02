@@ -65,7 +65,7 @@ textarea:focus-visible,
 }
 
 .app-shell.sidebar-is-collapsed {
-  --left-column: 64px;
+  --left-column: 0px;
 }
 
 .app-shell.inspector-is-collapsed {
@@ -103,8 +103,7 @@ textarea:focus-visible,
 .node-card,
 .session-row,
 .section-add,
-.footer-nav,
-.rail-action {
+.footer-nav {
   color: inherit;
   background: transparent;
   box-shadow: none;
@@ -118,8 +117,7 @@ textarea:focus-visible,
 .node-card:hover,
 .session-row:hover,
 .section-add:hover,
-.footer-nav:hover,
-.rail-action:hover {
+.footer-nav:hover {
   color: inherit;
   background: transparent;
   transform: none;
@@ -185,8 +183,7 @@ textarea:focus-visible,
 }
 
 .quiet-icon-button,
-.section-add,
-.rail-action {
+.section-add {
   display: inline-grid;
   place-items: center;
   width: 30px;
@@ -197,8 +194,7 @@ textarea:focus-visible,
 }
 
 .quiet-icon-button:hover,
-.section-add:hover,
-.rail-action:hover {
+.section-add:hover {
   background: var(--surface-soft) !important;
   border-color: var(--hairline);
 }
@@ -600,35 +596,12 @@ textarea:focus-visible,
   color: var(--ink) !important;
 }
 
-.context-sidebar.collapsed {
-  align-items: center;
-  padding: 42px 8px 12px;
+.app-shell.sidebar-is-collapsed .workspace-topbar {
+  padding-left: 72px;
 }
 
-.brand-mark.compact {
-  width: 34px;
-  height: 34px;
-  padding: 0;
-  border: 0;
-}
-
-.collapsed-nav {
-  display: grid;
-  gap: 8px;
-  margin-top: 32px;
-}
-
-.rail-action.active {
-  background: var(--vermilion-soft) !important;
-  color: var(--vermilion-deep);
-}
-
-.context-sidebar.collapsed > .node-beacon {
-  margin-top: auto;
-}
-
-.sidebar-toggle {
-  margin-top: 18px;
+.sidebar-reveal {
+  flex: 0 0 auto;
 }
 
 .conversation-shell {
@@ -1524,7 +1497,7 @@ textarea:focus-visible,
   .app-shell,
   .app-shell.sidebar-is-collapsed,
   .app-shell.inspector-is-collapsed {
-    grid-template-columns: 64px minmax(0, 1fr) 0;
+    grid-template-columns: 0 minmax(0, 1fr) 0;
   }
 
   .context-sidebar:not(.collapsed) {
@@ -1536,10 +1509,6 @@ textarea:focus-visible,
     border-right: 1px solid var(--hairline);
     border-radius: 0;
     box-shadow: 14px 0 34px rgba(23, 25, 28, 0.12);
-  }
-
-  .context-sidebar.collapsed {
-    grid-column: 1;
   }
 
   .conversation-shell,
@@ -1581,8 +1550,6 @@ textarea:focus-visible,
     padding: 0;
   }
 
-  .context-sidebar,
-  .context-sidebar.collapsed,
   .workspace-inspector {
     display: none;
   }
