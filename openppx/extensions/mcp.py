@@ -26,6 +26,7 @@ from openppx.config.atomic import atomic_write_resource
 
 from .errors import ExtensionError
 from .mcp_models import McpRemoteTransport, McpSecretValue, McpServer, McpStdioTransport
+from .prefixes import ToolPrefixIndex, ToolPrefixReservation
 
 
 _RESOURCE_NAME_PATTERN = re.compile(r"^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$")
@@ -89,6 +90,7 @@ class McpManager:
         secret_store: SecretStore,
         *,
         executable_resolver: Callable[[str], str | None] = shutil.which,
+        prefix_index: ToolPrefixIndex | None = None,
         lock_timeout: float = 5.0,
     ) -> None:
         self.node_root = node_root.expanduser().resolve(strict=False)
@@ -96,7 +98,10 @@ class McpManager:
         self.records_dir = self.root / "records"
         self.secret_store = secret_store
         self.executable_resolver = executable_resolver
+        self.prefix_index = prefix_index
         self.lock_timeout = lock_timeout
+        if prefix_index is not None:
+            prefix_index.register("direct-mcp", self._prefix_reservations)
 
     def create(self, record: McpServer, *, expected_revision: str | None) -> VersionedMcp:
         """Create one disabled MCP resource under a create-only precondition."""
@@ -272,6 +277,13 @@ class McpManager:
 
     def _require_prefix_available(self, record: McpServer, agent_id: str, *, ignore_id: str) -> None:
         prefix = record.spec.policy.resolved_prefix(record.metadata.name)
+        if self.prefix_index is not None:
+            self.prefix_index.require_available(
+                prefix,
+                agent_id,
+                owner_key=f"mcp:{ignore_id}",
+            )
+            return
         for item in self.list():
             if item.record.metadata.name == ignore_id or agent_id not in item.record.spec.enabled_agent_ids:
                 continue
@@ -281,6 +293,17 @@ class McpManager:
                     "extension_conflict",
                     "MCP tool-name prefix conflicts with another resource enabled for this Agent.",
                 )
+
+    def _prefix_reservations(self, agent_id: str) -> tuple[ToolPrefixReservation, ...]:
+        """Project enabled direct MCP prefixes into the shared conflict index."""
+        return tuple(
+            ToolPrefixReservation(
+                prefix=item.record.spec.policy.resolved_prefix(item.record.metadata.name),
+                owner_key=f"mcp:{item.record.metadata.name}",
+            )
+            for item in self.list()
+            if agent_id in item.record.spec.enabled_agent_ids
+        )
 
     def _write(self, record: McpServer, *, expected_revision: str | None) -> None:
         path = self._record_path(record.metadata.name)
@@ -359,6 +382,29 @@ def _snapshot_from_entries(entries: tuple[McpSnapshotEntry, ...]) -> McpSnapshot
     )
 
 
+def merge_mcp_snapshots(*snapshots: McpSnapshot) -> McpSnapshot:
+    """Merge immutable MCP projections while rejecting identity/prefix collisions."""
+    entries = tuple(
+        sorted(
+            (entry for snapshot in snapshots for entry in snapshot.entries),
+            key=lambda entry: entry.record.metadata.name,
+        )
+    )
+    names: set[str] = set()
+    prefixes: set[str] = set()
+    for entry in entries:
+        name = entry.record.metadata.name
+        prefix = entry.record.spec.policy.resolved_prefix(name)
+        if name in names or prefix in prefixes:
+            raise ExtensionError(
+                "extension_conflict",
+                "MCP projections contain a duplicate identity or tool-name prefix.",
+            )
+        names.add(name)
+        prefixes.add(prefix)
+    return _snapshot_from_entries(entries)
+
+
 def _fsync_directory(directory: Path) -> None:
     try:
         descriptor = os.open(directory, os.O_RDONLY)
@@ -378,4 +424,5 @@ __all__ = [
     "McpSnapshot",
     "McpSnapshotEntry",
     "VersionedMcp",
+    "merge_mcp_snapshots",
 ]

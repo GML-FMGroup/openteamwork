@@ -25,7 +25,8 @@ from openppx.config import (
 )
 from openppx.actions import ActionContext
 from openppx.control_plane import build_control_plane
-from openppx.extensions import ExtensionSourceRef, McpManager, McpServer, SkillManager
+from openppx.extensions import AppManager, ExtensionSourceRef, McpManager, McpServer, SkillManager
+from openppx.extensions.app_models import AppConnection, AppDefinition
 from openppx.core.mcp_registry import ManagedMcpToolset
 from openppx.modeling import ModelCatalog, ModelProfile, ModelProfileRepository, ModelProfileSelector
 from openppx.runtime.assembly import RuntimeAssembler
@@ -273,6 +274,97 @@ def test_supervisor_attaches_direct_mcp_and_rebuilds_for_resource_change(tmp_pat
         update={"spec": record.spec.model_copy(update={"description": "Updated direct MCP fixture."})}
     )
     manager.update(candidate, expected_revision=enabled.revision)
+    second = supervisor.runtime_for("low-main")
+
+    assert second is not first
+    assert second.metadata.snapshot_revision == first.metadata.snapshot_revision
+    assert second.metadata.extension_revision != first.metadata.extension_revision
+    supervisor.close()
+
+
+def test_supervisor_attaches_app_mcp_and_rebuilds_for_definition_change(tmp_path: Path) -> None:
+    config_service, secrets = _configured(tmp_path)
+    manager = AppManager(tmp_path, secrets)
+    definition = AppDefinition.model_validate(
+        {
+            "apiVersion": "openppx.io/v1alpha1",
+            "kind": "AppDefinition",
+            "metadata": {"name": "runtime-app"},
+            "spec": {
+                "displayName": "Runtime App",
+                "description": "App runtime fixture.",
+                "version": "1.0.0",
+                "category": "testing",
+                "developer": "OpenPPX",
+                "source": {
+                    "type": "builtin",
+                    "locator": "runtime-app",
+                    "version": "1.0.0",
+                    "revision": "builtin:1.0.0",
+                    "digest": "sha256:" + "c" * 64,
+                },
+                "auth": {"type": "none", "credentials": []},
+                "mcp": {
+                    "type": "stdio",
+                    "command": sys.executable,
+                    "args": [str(Path("tests/eval/mock_mcp_server.py").resolve())],
+                    "environment": {},
+                },
+                "tools": [
+                    {
+                        "name": "echo_context",
+                        "title": "Echo context",
+                        "description": "Echo one token.",
+                        "access": "read",
+                        "risk": "low",
+                    }
+                ],
+                "policy": {},
+            },
+        }
+    )
+    installed = manager.install_definition(definition, expected_revision=None)
+    connection = manager.create_connection(
+        AppConnection.model_validate(
+            {
+                "apiVersion": "openppx.io/v1alpha1",
+                "kind": "AppConnection",
+                "metadata": {"name": "runtime-account"},
+                "spec": {
+                    "appId": "runtime-app",
+                    "displayName": "Runtime account",
+                },
+            }
+        ),
+        expected_revision=None,
+    )
+    manager.enable_connection(
+        "runtime-account",
+        "low-main",
+        expected_revision=connection.revision,
+    )
+    assembler = RuntimeAssembler(
+        node_root=tmp_path,
+        secret_store=secrets,
+        model_factory=lambda _resolution: _HelloLlm(model="hello-model"),
+        app_manager=manager,
+    )
+    supervisor = NodeRuntimeSupervisor(config_service=config_service, assembler=assembler)
+
+    first = supervisor.runtime_for("low-main")
+    assert len(first.extension_toolsets) == 1
+    assert isinstance(first.extension_toolsets[0], ManagedMcpToolset)
+    assert first.extension_toolsets[0] in first.agent.tools
+    assert assembler.extension_snapshot_for_agent("low-main").apps.connection_ids == (
+        "runtime-account",
+    )
+
+    candidate = definition.model_copy(
+        update={
+            "spec": definition.spec.model_copy(update={"description": "Updated App runtime fixture."})
+        }
+    )
+    manager.update_definition(candidate, expected_revision=installed.revision)
     second = supervisor.runtime_for("low-main")
 
     assert second is not first

@@ -1,7 +1,22 @@
 """OpenPPX Extension Platform domain boundary."""
 
 from .errors import ExtensionError
-from .mcp import McpManager, McpReadiness, McpSnapshot, McpSnapshotEntry, VersionedMcp
+from .apps import (
+    AppManager,
+    AppReadiness,
+    AppSnapshot,
+    AppSnapshotEntry,
+    VersionedAppConnection,
+    VersionedAppDefinition,
+)
+from .mcp import (
+    McpManager,
+    McpReadiness,
+    McpSnapshot,
+    McpSnapshotEntry,
+    VersionedMcp,
+    merge_mcp_snapshots,
+)
 from .mcp_models import McpServer
 from .models import (
     ExtensionSourceIdentity,
@@ -24,6 +39,10 @@ from .skills import (
 
 __all__ = [
     "ExtensionError",
+    "AppManager",
+    "AppReadiness",
+    "AppSnapshot",
+    "AppSnapshotEntry",
     "McpManager",
     "McpReadiness",
     "McpServer",
@@ -43,5 +62,8 @@ __all__ = [
     "StagedSkill",
     "VersionedSkill",
     "VersionedMcp",
+    "VersionedAppConnection",
+    "VersionedAppDefinition",
+    "merge_mcp_snapshots",
     "parse_skill_manifest",
 ]

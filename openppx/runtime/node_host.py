@@ -10,7 +10,8 @@ from typing import Any, Callable
 
 from openppx.config import SecretStore, SystemCredentialSecretStore
 from openppx.control_plane import ControlPlaneApplication, build_control_plane
-from openppx.extensions import McpManager, SkillManager
+from openppx.extensions import AppManager, McpManager, SkillManager
+from openppx.extensions.prefixes import ToolPrefixIndex
 
 from .assembly import RuntimeAssembler
 from .client_api_auth import resolve_client_api_access_token, validate_client_api_bind
@@ -121,11 +122,15 @@ class OpenPpxNodeHost:
             raise ValueError("Node Client API authentication is required but no access token is configured.")
         validate_client_api_bind(host=resolved_host, access_token=resolved_token)
 
+        prefix_index = ToolPrefixIndex()
+        mcp_manager = McpManager(root, secrets, prefix_index=prefix_index)
+        app_manager = AppManager(root, secrets, prefix_index=prefix_index)
         assembler = RuntimeAssembler(
             node_root=root,
             secret_store=secrets,
             skill_manager=SkillManager(root, builtin_skills=_builtin_skill_roots()),
-            mcp_manager=McpManager(root, secrets),
+            mcp_manager=mcp_manager,
+            app_manager=app_manager,
         )
         runtime_supervisor = NodeRuntimeSupervisor(
             config_service=control_plane.config_service,

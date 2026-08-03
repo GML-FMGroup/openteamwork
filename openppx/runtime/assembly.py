@@ -12,7 +12,15 @@ from google.genai import types
 
 from openppx.app.agent import build_root_agent
 from openppx.config import ConfigSnapshot, SecretStore
-from openppx.extensions import McpManager, McpSnapshot, SkillManager, SkillSnapshot
+from openppx.extensions import (
+    AppManager,
+    AppSnapshot,
+    McpManager,
+    McpSnapshot,
+    SkillManager,
+    SkillSnapshot,
+    merge_mcp_snapshots,
+)
 from openppx.modeling import ModelResolution
 from openppx.core.mcp_registry import ManagedMcpToolset, summarize_mcp_toolsets
 
@@ -88,17 +96,28 @@ class RuntimeServices:
 
 @dataclass(frozen=True, slots=True)
 class RuntimeExtensionSnapshot:
-    """Immutable Skill and direct MCP resources used by one Runtime."""
+    """Immutable Skill, direct MCP, and App resources used by one Runtime."""
 
     revision: str
     skills: SkillSnapshot
     mcp: McpSnapshot
+    apps: AppSnapshot
 
     @classmethod
-    def create(cls, skills: SkillSnapshot, mcp: McpSnapshot) -> "RuntimeExtensionSnapshot":
+    def create(
+        cls,
+        skills: SkillSnapshot,
+        mcp: McpSnapshot,
+        apps: AppSnapshot | None = None,
+    ) -> "RuntimeExtensionSnapshot":
         """Combine child revisions into one deterministic cache identity."""
+        resolved_apps = apps or AppSnapshot.empty()
         canonical = json.dumps(
-            {"skills": skills.revision, "mcp": mcp.revision},
+            {
+                "skills": skills.revision,
+                "mcp": mcp.revision,
+                "apps": resolved_apps.revision,
+            },
             sort_keys=True,
             separators=(",", ":"),
         ).encode("utf-8")
@@ -106,6 +125,7 @@ class RuntimeExtensionSnapshot:
             revision=f"sha256:{hashlib.sha256(canonical).hexdigest()}",
             skills=skills,
             mcp=mcp,
+            apps=resolved_apps,
         )
 
     @classmethod
@@ -170,6 +190,7 @@ class RuntimeAssembler:
         runner_factory: RunnerFactory = create_runner,
         skill_manager: SkillManager | None = None,
         mcp_manager: McpManager | None = None,
+        app_manager: AppManager | None = None,
         mcp_adapter: McpRuntimeAdapter | None = None,
     ) -> None:
         self.node_root = node_root.expanduser().resolve(strict=False)
@@ -181,6 +202,7 @@ class RuntimeAssembler:
         self._runner_factory = runner_factory
         self._skill_manager = skill_manager
         self._mcp_manager = mcp_manager
+        self._app_manager = app_manager
         self._mcp_adapter = mcp_adapter or McpRuntimeAdapter(secret_store)
 
     def skill_snapshot_for_agent(self, agent_id: str) -> SkillSnapshot:
@@ -192,8 +214,18 @@ class RuntimeAssembler:
     def extension_snapshot_for_agent(self, agent_id: str) -> RuntimeExtensionSnapshot:
         """Capture all extension resources that key a newly assembled Runtime."""
         skills = self.skill_snapshot_for_agent(agent_id)
-        mcp = McpSnapshot.empty() if self._mcp_manager is None else self._mcp_manager.snapshot_for_agent(agent_id)
-        return RuntimeExtensionSnapshot.create(skills, mcp)
+        direct_mcp = (
+            McpSnapshot.empty()
+            if self._mcp_manager is None
+            else self._mcp_manager.snapshot_for_agent(agent_id)
+        )
+        apps = (
+            AppSnapshot.empty()
+            if self._app_manager is None
+            else self._app_manager.snapshot_for_agent(agent_id)
+        )
+        mcp = merge_mcp_snapshots(direct_mcp, apps.mcp)
+        return RuntimeExtensionSnapshot.create(skills, mcp, apps)
 
     def assemble(
         self,
