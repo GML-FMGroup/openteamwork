@@ -11,7 +11,7 @@ from .diagnostics import (
     read_json_object,
     validation_issues,
 )
-from .models import AgentConfig, NodeConfig, ResourceName
+from .models import AgentConfig, NodeConfig, ResourceName, StrictConfigModel
 from .layers import ConfigOrigin, ConfigSnapshot
 from .repository import ConfigRepository, ConfigSource, FilesystemConfigRepository, VersionedResource
 from .revision import config_revision
@@ -68,6 +68,7 @@ __all__ = [
     "SecretStore",
     "SecretValue",
     "SystemCredentialSecretStore",
+    "StrictConfigModel",
     "VersionedResource",
     "ValidationResult",
     "config_revision",

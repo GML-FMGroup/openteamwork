@@ -79,6 +79,11 @@ Extension inventory and lifecycle use this Action boundary rather than parallel 
 - App connections and directly managed MCP resources keep domain-specific Action IDs while sharing the same envelope;
 - inventory payloads omit source locators, credential references, URL secrets, and backend exception text.
 
+First-run setup uses `setup.status`, `setup.apply`, and `setup.hello`. Applying resources leaves the Node in
+`configured`; clients may enter the workspace only after `setup.hello` completes a real model turn and the
+current Node, Agent, and Model Profile revisions become `ready`. Secret values are accepted only in the apply
+request and never appear in status, apply, Hello, diagnostics, or audit responses.
+
 The CLI and Desktop consume these Actions through the same client contract. A CLI managing another machine sets the Node URL and bearer token; it does not read or mutate that Node's files directly.
 
 Strict Node identity now comes from NodeConfig `metadata.name` and follows the ResourceName grammar. The former separate `node_...` identity file is no longer read by Client API.

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { SettingsView } from "./components/settings/SettingsView";
+import { OnboardingView } from "./components/setup/OnboardingView";
 import { Composer } from "./components/workspace/Composer";
 import {
   CollapsedSidebarTools,
@@ -107,7 +108,7 @@ export function App() {
     );
   }
 
-  if (!workspace.ready || !workspace.runtime) {
+  if (!workspace.ready || !workspace.runtime || !workspace.setupStatus) {
     return (
       <div className="loading-shell" aria-live="polite">
         <div>
@@ -115,6 +116,27 @@ export function App() {
           <span className="loading-caption">Opening OpenPPX workspace…</span>
         </div>
       </div>
+    );
+  }
+
+  if (workspace.setupStatus.state !== "ready") {
+    return (
+      <OnboardingView
+        status={workspace.setupStatus}
+        form={workspace.setupForm}
+        connection={workspace.connectionForm}
+        diagnostics={workspace.diagnostics}
+        submitting={workspace.setupSubmitting}
+        testingConnection={workspace.testingConnection}
+        savingConnection={workspace.savingConnection}
+        error={workspace.setupError}
+        connectionFeedback={workspace.connectionFeedback}
+        setForm={workspace.setSetupForm}
+        setConnection={workspace.setConnectionForm}
+        onTestConnection={() => void workspace.testConnection()}
+        onSaveConnection={() => void workspace.saveConnection()}
+        onSubmit={() => void workspace.completeSetup()}
+      />
     );
   }
 
@@ -268,6 +290,8 @@ export function App() {
           testingConnection={workspace.testingConnection}
           connectionFeedback={workspace.connectionFeedback}
           extensions={workspace.extensions}
+          modelProfiles={workspace.modelProfiles}
+          agents={workspace.agents}
           extensionsLoading={workspace.extensionsLoading}
           extensionsError={workspace.extensionsError}
           extensionMutationId={workspace.extensionMutationId}
@@ -285,6 +309,7 @@ export function App() {
           onTestConnection={() => void workspace.testConnection()}
           onSaveConnection={() => void workspace.saveConnection()}
           onRefreshExtensions={() => void workspace.refreshExtensions()}
+          onRefreshModels={() => void workspace.refreshModelProfiles()}
           onSetExtensionEnabled={(extension, enabled) => void workspace.setExtensionEnabled(extension, enabled)}
         />
       )}

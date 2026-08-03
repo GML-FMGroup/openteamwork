@@ -105,6 +105,76 @@ export interface ModelSelectionInput extends Record<string, unknown> {
   maxOutputCostPerMillionUsd?: string;
 }
 
+export interface SetupProvider {
+  id: string;
+  displayName: string;
+  runtime: string;
+  credentialMode: "api_key" | "oauth" | "none";
+  credentialRequired: boolean;
+  defaultModel: string;
+}
+
+export interface SetupStatusResult extends Record<string, unknown> {
+  state: "ready" | "configured" | "needs_configuration";
+  steps: Record<string, string>;
+  revisions: { node: string | null; agent: string | null; profile: string | null };
+  recommendedWorkspace: string;
+  current: { node: Record<string, unknown> | null; agent: Record<string, unknown> | null; profile: Record<string, unknown> | null };
+  providers: SetupProvider[];
+}
+
+export interface SetupApplyResult extends Record<string, unknown> {
+  state: "configured";
+  revisions: { node: string; agent: string; profile: string };
+  secretState: string;
+  restartRequired: boolean;
+}
+
+export interface SetupApplyRequest extends Record<string, unknown> {
+  node: {
+    apiVersion: "openppx.io/v1alpha1";
+    kind: "NodeConfig";
+    metadata: { name: string };
+    spec: {
+      displayName: string;
+      enabledAgents: string[];
+      clientApi: { listenHost: string; port: number; authentication: "required" | "disabled" };
+    };
+  };
+  agent: {
+    apiVersion: "openppx.io/v1alpha1";
+    kind: "AgentConfig";
+    metadata: { name: string };
+    spec: {
+      displayName: string;
+      workspace: string;
+      ownerPrincipalId: string;
+      privilegeLevel: "low" | "medium" | "high" | "root";
+      modelPolicy: { defaultProfile: string };
+    };
+  };
+  profile: {
+    apiVersion: "openppx.io/v1alpha1";
+    kind: "ModelProfile";
+    metadata: { name: string };
+    spec: {
+      provider: string;
+      model: string;
+      credential?: { store: "system"; name: string };
+      executionLocation: "local" | "remote";
+      capabilities: string[];
+    };
+  };
+  secret: { ref: { store: "system"; name: string }; value: string } | null;
+  expectedRevisions: { node: string | null; agent: string | null; profile: string | null };
+}
+
+export interface SetupHelloResult extends Record<string, unknown> {
+  sessionId: string;
+  reply: string;
+  state: "ready";
+}
+
 export interface ActionClientOptions {
   idFactory?: () => string;
 }
@@ -225,6 +295,50 @@ export class ModelClient {
   public select(input: ModelSelectionInput): Promise<ActionEnvelope<Record<string, unknown>>> {
     return this.actions.invoke("model.select", input);
   }
+
+  public readProfile(profileId: string): Promise<ActionEnvelope<Record<string, unknown>>> {
+    return this.actions.invoke("model.profile.read", { profileId });
+  }
+
+  public applyProfile(
+    profileId: string,
+    candidate: Record<string, unknown>,
+    expectedRevision: string | null,
+  ): Promise<ActionEnvelope<Record<string, unknown>>> {
+    return this.actions.invoke("model.profile.apply", { profileId, candidate, expectedRevision });
+  }
+}
+
+export class SetupClient {
+  public constructor(private readonly actions: ActionClient) {}
+
+  public status(): Promise<ActionEnvelope<SetupStatusResult>> {
+    return this.actions.invoke("setup.status", {});
+  }
+
+  public apply(request: SetupApplyRequest): Promise<ActionEnvelope<SetupApplyResult>> {
+    return this.actions.invoke("setup.apply", { request });
+  }
+
+  public hello(agentId: string, userId: string, text = "Hello"): Promise<ActionEnvelope<SetupHelloResult>> {
+    return this.actions.invoke("setup.hello", { agentId, userId, text });
+  }
+}
+
+export class SecretClient {
+  public constructor(private readonly actions: ActionClient) {}
+
+  public status(ref: Record<string, unknown>): Promise<ActionEnvelope<Record<string, unknown>>> {
+    return this.actions.invoke("secret.status", { ref });
+  }
+
+  public put(ref: Record<string, unknown>, value: string): Promise<ActionEnvelope<Record<string, unknown>>> {
+    return this.actions.invoke("secret.put", { ref, value });
+  }
+
+  public delete(ref: Record<string, unknown>, confirmed = false): Promise<ActionEnvelope<Record<string, unknown>>> {
+    return this.actions.invoke("secret.delete", { ref }, { confirmed });
+  }
 }
 
 export class SessionClient {
@@ -298,6 +412,10 @@ export class OpenPpxClient {
 
   public readonly commands: CommandClient;
 
+  public readonly setup: SetupClient;
+
+  public readonly secrets: SecretClient;
+
   public constructor(options: ClientApiHttpTransportOptions & ActionClientOptions) {
     this.transport = new ClientApiHttpTransport(options);
     this.actions = new ActionClient(this.transport, options);
@@ -307,5 +425,7 @@ export class OpenPpxClient {
     this.run = new RunClient(this.actions);
     this.extensions = new ExtensionClient(this.actions);
     this.commands = new CommandClient(this.actions);
+    this.setup = new SetupClient(this.actions);
+    this.secrets = new SecretClient(this.actions);
   }
 }

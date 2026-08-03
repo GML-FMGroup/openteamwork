@@ -6,9 +6,13 @@ import type {
   ClientDiagnostics,
   ConnectionSettings,
   ExtensionSummary,
+  ModelProfileSummary,
   RuntimeStatus,
   SessionSummary,
   ProjectedSlashCommand,
+  SetupApplyRequest,
+  SetupForm,
+  SetupStatusResult,
   SlashCommandResult,
 } from "../types";
 import { normalizeConnectionSettings } from "../lib/connection-profile";
@@ -63,6 +67,113 @@ function buildConnectionSettings(diagnostics: ClientDiagnostics | null): Connect
     targetName: diagnostics?.target.name ?? "This Mac",
     clientApiBaseUrl: diagnostics?.clientApiBaseUrl ?? "http://127.0.0.1:8765",
     accessToken: "",
+  };
+}
+
+function initialSetupForm(): SetupForm {
+  return {
+    nodeId: "local-node",
+    nodeName: "This Mac",
+    agentId: "main",
+    agentName: "Main",
+    workspace: "",
+    ownerPrincipalId: "ppx-client-user",
+    privilegeLevel: "medium",
+    profileId: "primary",
+    provider: "google",
+    model: "",
+    executionLocation: "remote",
+    credentialName: "primary-model-api-key",
+    apiKey: "",
+    hello: "Hello OpenPPX",
+  };
+}
+
+function setupFormFromStatus(status: SetupStatusResult, diagnostics: ClientDiagnostics): SetupForm {
+  const current = initialSetupForm();
+  const node = record(status.current.node);
+  const nodeMetadata = record(node.metadata);
+  const nodeSpec = record(node.spec);
+  const agent = record(status.current.agent);
+  const agentMetadata = record(agent.metadata);
+  const agentSpec = record(agent.spec);
+  const modelPolicy = record(agentSpec.modelPolicy);
+  const profile = record(status.current.profile);
+  const profileMetadata = record(profile.metadata);
+  const profileSpec = record(profile.spec);
+  const credential = record(profileSpec.credential);
+  const providerId = String(profileSpec.provider ?? current.provider);
+  const provider = status.providers.find((item) => item.id === providerId) ?? status.providers[0];
+  return {
+    ...current,
+    nodeId: String(nodeMetadata.name ?? current.nodeId),
+    nodeName: String(nodeSpec.displayName ?? diagnostics.nodeName ?? diagnostics.target.name),
+    agentId: String(agentMetadata.name ?? current.agentId),
+    agentName: String(agentSpec.displayName ?? current.agentName),
+    workspace: String(agentSpec.workspace ?? status.recommendedWorkspace),
+    ownerPrincipalId: String(agentSpec.ownerPrincipalId ?? current.ownerPrincipalId),
+    privilegeLevel: (String(agentSpec.privilegeLevel ?? current.privilegeLevel) as SetupForm["privilegeLevel"]),
+    profileId: String(profileMetadata.name ?? modelPolicy.defaultProfile ?? current.profileId),
+    provider: provider?.id ?? current.provider,
+    model: String(profileSpec.model ?? provider?.defaultModel ?? current.model),
+    executionLocation: (String(profileSpec.executionLocation ?? current.executionLocation) as SetupForm["executionLocation"]),
+    credentialName: String(credential.name ?? current.credentialName),
+  };
+}
+
+function buildSetupRequest(
+  form: SetupForm,
+  status: SetupStatusResult,
+  connection: ConnectionSettings,
+): SetupApplyRequest {
+  const provider = status.providers.find((item) => item.id === form.provider);
+  if (!provider) {
+    throw new Error("Select an available model provider.");
+  }
+  const endpoint = new URL(connection.clientApiBaseUrl);
+  const credential = { store: "system" as const, name: form.credentialName };
+  const usesApiKey = provider.credentialMode === "api_key";
+  return {
+    node: {
+      apiVersion: "openppx.io/v1alpha1",
+      kind: "NodeConfig",
+      metadata: { name: form.nodeId },
+      spec: {
+        displayName: form.nodeName,
+        enabledAgents: [form.agentId],
+        clientApi: {
+          listenHost: connection.targetType === "local" ? "127.0.0.1" : endpoint.hostname,
+          port: Number(endpoint.port || (endpoint.protocol === "https:" ? 443 : 80)),
+          authentication: connection.targetType === "local" ? "disabled" : "required",
+        },
+      },
+    },
+    agent: {
+      apiVersion: "openppx.io/v1alpha1",
+      kind: "AgentConfig",
+      metadata: { name: form.agentId },
+      spec: {
+        displayName: form.agentName,
+        workspace: form.workspace,
+        ownerPrincipalId: form.ownerPrincipalId,
+        privilegeLevel: form.privilegeLevel,
+        modelPolicy: { defaultProfile: form.profileId },
+      },
+    },
+    profile: {
+      apiVersion: "openppx.io/v1alpha1",
+      kind: "ModelProfile",
+      metadata: { name: form.profileId },
+      spec: {
+        provider: form.provider,
+        model: form.model,
+        ...(usesApiKey ? { credential } : {}),
+        executionLocation: form.executionLocation,
+        capabilities: ["text", "tool_calling"],
+      },
+    },
+    secret: usesApiKey && form.apiKey ? { ref: credential, value: form.apiKey } : null,
+    expectedRevisions: status.revisions,
   };
 }
 
@@ -161,11 +272,17 @@ export function useDesktopWorkspace() {
   const [extensionsError, setExtensionsError] = useState<string | null>(null);
   const [extensionMutationId, setExtensionMutationId] = useState<string | null>(null);
   const [slashCommands, setSlashCommands] = useState<ProjectedSlashCommand[]>([]);
+  const [setupStatus, setSetupStatus] = useState<SetupStatusResult | null>(null);
+  const [setupForm, setSetupForm] = useState<SetupForm>(initialSetupForm);
+  const [setupSubmitting, setSetupSubmitting] = useState(false);
+  const [setupError, setSetupError] = useState<string | null>(null);
+  const [modelProfiles, setModelProfiles] = useState<ModelProfileSummary[]>([]);
   const [transcriptResetKey, setTranscriptResetKey] = useState(0);
   const switchRequestIdRef = useRef(0);
   const selectedAgentIdRef = useRef("");
   const selectedSessionIdRef = useRef("");
   const connectionProfileKeyRef = useRef("");
+  const setupFormInitializedRef = useRef(false);
   const activeRuns = useActiveRuns();
 
   const selectAgentId = (agentId: string): void => {
@@ -224,16 +341,19 @@ export function useDesktopWorkspace() {
       }
     });
 
-    window.ppxClient
-      .bootstrap()
-      .then(async (payload: BootstrapPayload) => {
+    Promise.all([
+      window.ppxClient.getSetupStatus(),
+      window.ppxClient.getDiagnostics(),
+      window.ppxClient.bootstrap(),
+    ])
+      .then(async ([nextSetupStatus, nextDiagnostics, payload]: [SetupStatusResult, ClientDiagnostics, BootstrapPayload]) => {
         if (!mounted) {
           return;
         }
         let nextSessions = payload.sessions;
         let nextSelectedSessionId = payload.selectedSessionId;
         let nextMessages = payload.messages;
-        if (payload.selectedAgentId && !nextSelectedSessionId) {
+        if (nextSetupStatus.state === "ready" && payload.selectedAgentId && !nextSelectedSessionId) {
           const created = await window.ppxClient.createSession(payload.selectedAgentId);
           nextSessions = [created.session, ...nextSessions.filter((session) => session.id !== created.session.id)];
           nextSelectedSessionId = created.session.id;
@@ -243,6 +363,12 @@ export function useDesktopWorkspace() {
           return;
         }
         setRuntime(payload.runtime);
+        setSetupStatus(nextSetupStatus);
+        setDiagnostics(nextDiagnostics);
+        if (!setupFormInitializedRef.current) {
+          setupFormInitializedRef.current = true;
+          setSetupForm(setupFormFromStatus(nextSetupStatus, nextDiagnostics));
+        }
         setAgents(payload.agents);
         setSessions(nextSessions);
         replaceMessages(nextMessages);
@@ -250,7 +376,7 @@ export function useDesktopWorkspace() {
         selectSessionId(nextSelectedSessionId);
         setReady(true);
         setBootstrapError(null);
-        void window.ppxClient
+        if (nextSetupStatus.state === "ready") void window.ppxClient
           .listExtensions()
           .then((result) => {
             if (mounted) {
@@ -263,7 +389,7 @@ export function useDesktopWorkspace() {
               setExtensionsError(error instanceof Error ? error.message : String(error));
             }
           });
-        void window.ppxClient
+        if (nextSetupStatus.state === "ready") void window.ppxClient
           .listSlashCommands()
           .then((result) => {
             if (mounted) {
@@ -275,11 +401,11 @@ export function useDesktopWorkspace() {
               setSlashCommands([]);
             }
           });
-        void window.ppxClient
-          .getDiagnostics()
+        if (nextSetupStatus.state === "ready") void window.ppxClient
+          .listModelProfiles()
           .then((nextDiagnostics) => {
             if (mounted) {
-              setDiagnostics(nextDiagnostics);
+              setModelProfiles(nextDiagnostics.profiles);
             }
           })
           .catch(() => undefined);
@@ -324,7 +450,7 @@ export function useDesktopWorkspace() {
   };
 
   useConnectionRecovery({
-    active: ready && runtime?.state !== "stopped",
+    active: ready && setupStatus?.state === "ready" && runtime?.state !== "stopped",
     check: async () => {
       let nextDiagnostics = await window.ppxClient.getDiagnostics();
       setDiagnostics(nextDiagnostics);
@@ -452,6 +578,42 @@ export function useDesktopWorkspace() {
     }
   }
 
+  async function refreshModelProfiles(): Promise<void> {
+    const result = await window.ppxClient.listModelProfiles();
+    setModelProfiles(result.profiles);
+  }
+
+  async function completeSetup(): Promise<void> {
+    if (!setupStatus || setupSubmitting) {
+      return;
+    }
+    setSetupSubmitting(true);
+    setSetupError(null);
+    try {
+      const request = buildSetupRequest(setupForm, setupStatus, connectionForm);
+      await window.ppxClient.applySetup(request);
+      await window.ppxClient.runSetupHello(setupForm.agentId, setupForm.ownerPrincipalId, setupForm.hello);
+      const verified = await window.ppxClient.getSetupStatus();
+      if (verified.state !== "ready") {
+        throw new Error("The first model turn completed, but setup verification is not ready.");
+      }
+      setSetupStatus(verified);
+      setSetupForm((current) => ({ ...current, apiKey: "" }));
+      applyConnectionBootstrap(await window.ppxClient.bootstrap());
+      await Promise.all([refreshExtensions(), refreshModelProfiles()]);
+      setSlashCommands((await window.ppxClient.listSlashCommands()).commands);
+    } catch (error) {
+      setSetupError(error instanceof Error ? error.message : String(error));
+      try {
+        setSetupStatus(await window.ppxClient.getSetupStatus());
+      } catch {
+        // Preserve the actionable setup error when the endpoint also became unavailable.
+      }
+    } finally {
+      setSetupSubmitting(false);
+    }
+  }
+
   async function setExtensionEnabled(extension: ExtensionSummary, enabled: boolean): Promise<void> {
     if (!selectedAgentId || extension.kind === "app") {
       return;
@@ -487,6 +649,10 @@ export function useDesktopWorkspace() {
       try {
         const payload = await window.ppxClient.bootstrap();
         applyConnectionBootstrap(payload);
+        const nextSetupStatus = await window.ppxClient.getSetupStatus();
+        setSetupStatus(nextSetupStatus);
+        setupFormInitializedRef.current = true;
+        setSetupForm(setupFormFromStatus(nextSetupStatus, nextDiagnostics));
       } catch {
         setAgents([]);
         setSessions([]);
@@ -707,6 +873,12 @@ export function useDesktopWorkspace() {
     extensionsError,
     extensionMutationId,
     slashCommands,
+    setupStatus,
+    setupForm,
+    setSetupForm,
+    setupSubmitting,
+    setupError,
+    modelProfiles,
     transcriptResetKey,
     switchAgent,
     switchSession,
@@ -714,6 +886,8 @@ export function useDesktopWorkspace() {
     stopRuntime,
     refreshDiagnostics,
     refreshExtensions,
+    refreshModelProfiles,
+    completeSetup,
     setExtensionEnabled,
     saveConnection,
     testConnection,

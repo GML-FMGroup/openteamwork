@@ -1,4 +1,4 @@
-import type { ConnectionSettings, ExtensionEnablementRequest, RuntimeCommand, SendMessageInput, SlashCommandRequest } from "../../app/src/types";
+import type { ConnectionSettings, ExtensionEnablementRequest, RuntimeCommand, SendMessageInput, SetupApplyRequest, SlashCommandRequest } from "../../app/src/types";
 
 function record(value: unknown, label: string): Record<string, unknown> {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
@@ -47,6 +47,119 @@ export function validateRuntimeCommand(value: unknown): RuntimeCommand {
 /** Validate one session or Run identifier crossing the IPC trust boundary. */
 export function validateIdentifier(value: unknown, label: string): string {
   return string(value, label, 512);
+}
+
+/** Validate the bounded first-turn prompt crossing the IPC boundary. */
+export function validateSetupHelloText(value: unknown): string {
+  return string(value, "Setup Hello", 2_000);
+}
+
+function resourceName(value: unknown, label: string): string {
+  const candidate = string(value, label, 63);
+  if (!/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(candidate)) {
+    throw new TypeError(`${label} must be a lowercase resource name.`);
+  }
+  return candidate;
+}
+
+function revision(value: unknown, label: string): string | null {
+  if (value === null) return null;
+  return string(value, label, 512);
+}
+
+/** Validate one complete setup baseline crossing the isolated Renderer boundary. */
+export function validateSetupApplyRequest(value: unknown): SetupApplyRequest {
+  const input = record(value, "Setup request");
+  const node = record(input.node, "Setup Node");
+  const nodeMetadata = record(node.metadata, "Setup Node metadata");
+  const nodeSpec = record(node.spec, "Setup Node spec");
+  const clientApi = record(nodeSpec.clientApi, "Setup Client API");
+  const agent = record(input.agent, "Setup Agent");
+  const agentMetadata = record(agent.metadata, "Setup Agent metadata");
+  const agentSpec = record(agent.spec, "Setup Agent spec");
+  const modelPolicy = record(agentSpec.modelPolicy, "Setup Agent model policy");
+  const profile = record(input.profile, "Setup Model Profile");
+  const profileMetadata = record(profile.metadata, "Setup Model Profile metadata");
+  const profileSpec = record(profile.spec, "Setup Model Profile spec");
+  const expected = record(input.expectedRevisions, "Setup expected revisions");
+  const port = clientApi.port;
+  if (!Number.isInteger(port) || Number(port) < 1 || Number(port) > 65_535) {
+    throw new TypeError("Setup Client API port must be an integer from 1 to 65535.");
+  }
+  if (clientApi.authentication !== "required" && clientApi.authentication !== "disabled") {
+    throw new TypeError("Setup authentication must be required or disabled.");
+  }
+  if (agentSpec.privilegeLevel !== "low" && agentSpec.privilegeLevel !== "medium" && agentSpec.privilegeLevel !== "high" && agentSpec.privilegeLevel !== "root") {
+    throw new TypeError("Setup privilege level is not supported.");
+  }
+  if (profileSpec.executionLocation !== "local" && profileSpec.executionLocation !== "remote") {
+    throw new TypeError("Setup execution location must be local or remote.");
+  }
+  if (!Array.isArray(profileSpec.capabilities)) {
+    throw new TypeError("Setup Model capabilities must be an array.");
+  }
+  const credential = profileSpec.credential === undefined
+    ? undefined
+    : record(profileSpec.credential, "Setup credential reference");
+  const secret = input.secret === null
+    ? null
+    : record(input.secret, "Setup Secret");
+  const secretRef = secret ? record(secret.ref, "Setup Secret reference") : null;
+  const agentId = resourceName(agentMetadata.name, "Agent id");
+  const profileId = resourceName(profileMetadata.name, "Model Profile id");
+  return {
+    node: {
+      apiVersion: "openppx.io/v1alpha1",
+      kind: "NodeConfig",
+      metadata: { name: resourceName(nodeMetadata.name, "Node id") },
+      spec: {
+        displayName: string(nodeSpec.displayName, "Node display name", 80),
+        enabledAgents: [agentId],
+        clientApi: {
+          listenHost: string(clientApi.listenHost, "Client API host", 253),
+          port: Number(port),
+          authentication: clientApi.authentication,
+        },
+      },
+    },
+    agent: {
+      apiVersion: "openppx.io/v1alpha1",
+      kind: "AgentConfig",
+      metadata: { name: agentId },
+      spec: {
+        displayName: string(agentSpec.displayName, "Agent display name", 80),
+        workspace: string(agentSpec.workspace, "Agent workspace", 1_024),
+        ownerPrincipalId: string(agentSpec.ownerPrincipalId, "Agent owner", 128),
+        privilegeLevel: agentSpec.privilegeLevel,
+        modelPolicy: { defaultProfile: resourceName(modelPolicy.defaultProfile, "Default Model Profile") },
+      },
+    },
+    profile: {
+      apiVersion: "openppx.io/v1alpha1",
+      kind: "ModelProfile",
+      metadata: { name: profileId },
+      spec: {
+        provider: string(profileSpec.provider, "Model provider", 63),
+        model: string(profileSpec.model, "Model", 256),
+        ...(credential
+          ? { credential: { store: "system" as const, name: resourceName(credential.name, "Credential name") } }
+          : {}),
+        executionLocation: profileSpec.executionLocation,
+        capabilities: profileSpec.capabilities.map((item) => string(item, "Model capability", 63)),
+      },
+    },
+    secret: secret && secretRef
+      ? {
+          ref: { store: "system", name: resourceName(secretRef.name, "Secret name") },
+          value: string(secret.value, "Secret value", 65_536),
+        }
+      : null,
+    expectedRevisions: {
+      node: revision(expected.node, "Expected Node revision"),
+      agent: revision(expected.agent, "Expected Agent revision"),
+      profile: revision(expected.profile, "Expected Model Profile revision"),
+    },
+  };
 }
 
 /** Validate a message request before passing it to the local or remote Node. */

@@ -1,0 +1,38 @@
+{
+  "correlationId": "req_setup_status_fixture",
+  "ok": true,
+  "protocolVersion": 1,
+  "requestId": "req_setup_status_fixture",
+  "result": {
+    "current": {
+      "agent": null,
+      "node": null,
+      "profile": null
+    },
+    "diagnostic": null,
+    "providers": [
+      {
+        "credentialMode": "api_key",
+        "credentialRequired": true,
+        "defaultModel": "gemini-2.5-flash",
+        "displayName": "Google Gemini",
+        "id": "google",
+        "runtime": "google_adk"
+      }
+    ],
+    "recommendedWorkspace": "/workspace",
+    "revisions": {
+      "agent": null,
+      "node": null,
+      "profile": null
+    },
+    "state": "needs_configuration",
+    "steps": {
+      "agent": "missing",
+      "credential": "not_required",
+      "hello": "not_started",
+      "model": "missing",
+      "node": "missing"
+    }
+  }
+}

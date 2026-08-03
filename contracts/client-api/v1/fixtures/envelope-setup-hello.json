@@ -1,0 +1,11 @@
+{
+  "correlationId": "req_setup_hello_fixture",
+  "ok": true,
+  "protocolVersion": 1,
+  "requestId": "req_setup_hello_fixture",
+  "result": {
+    "reply": "Hello from OpenPPX",
+    "sessionId": "session_fixture",
+    "state": "ready"
+  }
+}

@@ -8,12 +8,14 @@ from openppx.actions import ActionContext, ActionExecutor, ActionOutcome, Action
 from openppx.actions import ActionError, ActionFailure, SlashCommandError, SlashInvocationContext
 from openppx.config import ConfigService, FilesystemConfigRepository
 from openppx.modeling import ModelProfileRepository, ModelProfileSelector
+from openppx.setup import SetupService
 
 from .config_actions import register_config_actions
 from .extension_actions import register_extension_actions
 from .model_actions import register_model_actions
 from .runtime_actions import register_runtime_actions
 from .system_actions import register_system_actions
+from .setup_actions import register_setup_actions, register_setup_runtime_actions
 from .input_models import SlashCommandInvokeInput
 
 
@@ -27,17 +29,20 @@ class ControlPlaneApplication:
         config_service: ConfigService,
         profile_repository: ModelProfileRepository,
         model_selector: ModelProfileSelector,
+        setup_service: SetupService,
         product_version: str,
     ) -> None:
         self.config_repository = config_repository
         self.config_service = config_service
         self.profile_repository = profile_repository
         self.model_selector = model_selector
+        self.setup_service = setup_service
         self.product_version = product_version
         registry = ActionRegistry()
         executor = ActionExecutor(registry)
         register_config_actions(registry, config_repository, config_service)
         register_model_actions(registry, profile_repository, model_selector, config_repository)
+        register_setup_actions(registry, setup_service)
         register_system_actions(
             registry,
             config_repository,
@@ -138,6 +143,7 @@ class ControlPlaneApplication:
         if self.runtime_supervisor is not None:
             raise RuntimeError("A Runtime Supervisor is already attached.")
         register_runtime_actions(self.registry, supervisor, task_controller=task_controller)
+        register_setup_runtime_actions(self.registry, self.setup_service, supervisor)
         self.runtime_supervisor = supervisor
 
     def status(self, context: ActionContext) -> ActionOutcome:

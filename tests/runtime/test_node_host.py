@@ -156,3 +156,42 @@ def test_node_host_starts_scheduler_before_server_and_stops_once(tmp_path: Path)
     assert scheduler.events == ["scheduler.start", "scheduler.stop"]
     assert servers[0].events == ["server.start", "server.close"]
     assert host.runtime_supervisor.status()["state"] == "stopped"
+
+
+def test_unconfigured_node_starts_safe_loopback_bootstrap_surface(tmp_path: Path) -> None:
+    servers: list[_Server] = []
+    host = OpenPpxNodeHost.build(
+        tmp_path,
+        secret_store=InMemorySecretStore(),
+        scheduler=_Scheduler(),
+        server_factory=lambda address, coordinator, access_token: servers.append(
+            _Server(address, coordinator, access_token=access_token)
+        ) or servers[-1],
+    )
+
+    assert host.address == ("127.0.0.1", 18765)
+    assert host.authentication_required is False
+    assert host.coordinator.health()["data"]["state"] == "needs_configuration"
+    setup = host.coordinator.invoke_action(
+        "setup.status",
+        {},
+        request_id="req-bootstrap",
+        correlation_id="corr-bootstrap",
+        confirmed=False,
+    )
+    assert setup["ok"] is True
+    assert setup["result"]["state"] == "needs_configuration"
+    host.close()
+
+
+def test_unconfigured_non_loopback_bootstrap_requires_token(tmp_path: Path) -> None:
+    import pytest
+
+    with pytest.raises(ValueError, match="OPENPPX_CLIENT_API_TOKEN"):
+        OpenPpxNodeHost.build(
+            tmp_path,
+            host="0.0.0.0",
+            secret_store=InMemorySecretStore(),
+            scheduler=_Scheduler(),
+            server_factory=_Server,
+        )

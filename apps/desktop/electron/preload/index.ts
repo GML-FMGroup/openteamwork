@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from "electron";
-import type { ConnectionSettings, ExtensionEnablementRequest, PpxClientApi, RunEvent, RuntimeCommand, SendMessageInput, SlashCommandRequest } from "../../app/src/types";
+import type { ConnectionSettings, ExtensionEnablementRequest, PpxClientApi, RunEvent, RuntimeCommand, SendMessageInput, SetupApplyRequest, SlashCommandRequest } from "../../app/src/types";
 
 const api: PpxClientApi = {
   bootstrap: () => ipcRenderer.invoke("ppx-client:bootstrap"),
@@ -7,6 +7,11 @@ const api: PpxClientApi = {
   testConnectionSettings: (settings: ConnectionSettings) => ipcRenderer.invoke("ppx-client:test-connection-settings", settings),
   saveConnectionSettings: (settings: ConnectionSettings) => ipcRenderer.invoke("ppx-client:save-connection-settings", settings),
   runRuntimeCommand: (command: RuntimeCommand) => ipcRenderer.invoke("ppx-client:runtime-command", command),
+  getSetupStatus: () => ipcRenderer.invoke("ppx-client:get-setup-status"),
+  applySetup: (request: SetupApplyRequest) => ipcRenderer.invoke("ppx-client:apply-setup", request),
+  runSetupHello: (agentId: string, userId: string, text: string) =>
+    ipcRenderer.invoke("ppx-client:run-setup-hello", agentId, userId, text),
+  listModelProfiles: () => ipcRenderer.invoke("ppx-client:list-model-profiles"),
   listSessions: (agentId: string) => ipcRenderer.invoke("ppx-client:list-sessions", agentId),
   createSession: (agentId: string) => ipcRenderer.invoke("ppx-client:create-session", agentId),
   loadSession: (sessionId: string) => ipcRenderer.invoke("ppx-client:load-session", sessionId),

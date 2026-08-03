@@ -8,6 +8,8 @@ import {
   CLIENT_API_PROTOCOL_VERSION,
   CommandClient,
   ExtensionClient,
+  ModelClient,
+  SetupClient,
   normalizeClientApiMessage,
   normalizeClientApiPart,
   normalizeClientApiSession,
@@ -38,6 +40,7 @@ import type {
   ExtensionDetail,
   ExtensionEnablementRequest,
   ExtensionSummary,
+  ModelProfileSummary,
   MessagePart,
   PpxClientApi,
   RunEvent,
@@ -48,6 +51,10 @@ import type {
   SlashCommandRequest,
   ProjectedSlashCommand,
   SlashCommandResult,
+  SetupApplyRequest,
+  SetupApplyResult,
+  SetupHelloResult,
+  SetupStatusResult,
 } from "../../app/src/types";
 import {
   canUseLegacyBridge,
@@ -161,6 +168,10 @@ export class OpenPpxLocalAdapter implements PpxClientApi {
 
   private readonly commands: CommandClient;
 
+  private readonly setup: SetupClient;
+
+  private readonly models: ModelClient;
+
   private readonly nodeSupervisor: LocalNodeSupervisor;
 
   private readonly legacyBridge: LegacyBridgeClient;
@@ -190,6 +201,8 @@ export class OpenPpxLocalAdapter implements PpxClientApi {
     this.actions = new ActionClient(this.connection);
     this.extensions = new ExtensionClient(this.actions);
     this.commands = new CommandClient(this.actions);
+    this.setup = new SetupClient(this.actions);
+    this.models = new ModelClient(this.actions);
     this.nodeSupervisor = new LocalNodeSupervisor({
       openppxRoot: this.openppxRoot,
       nodeRoot: dataRootPath(),
@@ -576,6 +589,56 @@ export class OpenPpxLocalAdapter implements PpxClientApi {
       await this.ensureClientApiAvailable();
     }
     return this.fetchRuntimeStatus();
+  }
+
+  public async getSetupStatus(): Promise<SetupStatusResult> {
+    if (this.shouldUseMock()) {
+      return {
+        state: "ready",
+        steps: { node: "complete", agent: "complete", model: "complete", credential: "not_required", hello: "verified" },
+        revisions: { node: "mock", agent: "mock", profile: "mock" },
+        recommendedWorkspace: "",
+        current: { node: null, agent: null, profile: null },
+        providers: [],
+      };
+    }
+    await this.ensureClientApiAvailable();
+    return (await this.setup.status()).result;
+  }
+
+  public async applySetup(request: SetupApplyRequest): Promise<SetupApplyResult> {
+    if (this.shouldUseMock()) {
+      throw new Error("Setup is unavailable in mock mode.");
+    }
+    await this.ensureClientApiAvailable();
+    return (await this.setup.apply(request)).result;
+  }
+
+  public async runSetupHello(agentId: string, userId: string, text: string): Promise<SetupHelloResult> {
+    if (this.shouldUseMock()) {
+      throw new Error("Setup Hello is unavailable in mock mode.");
+    }
+    await this.ensureClientApiAvailable();
+    const result = (await this.setup.hello(agentId, userId, text)).result;
+    this.sessionCache.clear();
+    return result;
+  }
+
+  public async listModelProfiles(): Promise<{ profiles: ModelProfileSummary[] }> {
+    if (this.shouldUseMock()) {
+      return { profiles: [] };
+    }
+    await this.ensureClientApiAvailable();
+    const envelope = await this.models.list();
+    const profiles = envelope.result.items.map((item) => ({
+      id: String(item.id ?? ""),
+      revision: String(item.revision ?? ""),
+      provider: String(item.provider ?? ""),
+      model: String(item.model ?? ""),
+      enabled: item.enabled !== false,
+      credentialState: String(item.credentialState ?? "unknown"),
+    }));
+    return { profiles };
   }
 
   public async listExtensions(): Promise<{ extensions: ExtensionSummary[] }> {

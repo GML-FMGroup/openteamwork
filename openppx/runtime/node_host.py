@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable
 
-from openppx.config import SecretStore, SystemCredentialSecretStore
+from openppx.config import ConfigLoadError, SecretStore, SystemCredentialSecretStore
 from openppx.control_plane import ControlPlaneApplication, build_control_plane
 from openppx.extensions import AppManager, ExtensionRegistry, McpManager, PluginManager, SkillManager
 from openppx.extensions.indexes import ExtensionReferenceIndex, ResourceIdentityIndex
@@ -22,6 +22,92 @@ from .task_scheduler import TaskWakeScheduler
 
 
 ServerFactory = Callable[..., Any]
+
+
+@dataclass(frozen=True, slots=True)
+class NodeComposition:
+    """One Node-owned Control Plane, Extension, and Runtime object graph."""
+
+    control_plane: ControlPlaneApplication
+    runtime_supervisor: NodeRuntimeSupervisor
+    assembler: RuntimeAssembler
+
+
+def build_node_composition(
+    node_root: Path,
+    *,
+    secret_store: SecretStore | None = None,
+) -> NodeComposition:
+    """Build the shared business/runtime graph without binding a transport."""
+    root = node_root.expanduser().resolve(strict=False)
+    secrets = secret_store or SystemCredentialSecretStore()
+    control_plane = build_control_plane(root, secret_store=secrets)
+    prefix_index = ToolPrefixIndex()
+    identity_index = ResourceIdentityIndex()
+    reference_index = ExtensionReferenceIndex()
+    plugin_manager = PluginManager(
+        root,
+        secrets,
+        allowed_runtime_capabilities=frozenset({"runtime.task-observability"}),
+        identity_index=identity_index,
+        reference_index=reference_index,
+        prefix_index=prefix_index,
+    )
+    mcp_manager = McpManager(
+        root,
+        secrets,
+        prefix_index=prefix_index,
+        identity_index=identity_index,
+    )
+    app_manager = AppManager(
+        root,
+        secrets,
+        prefix_index=prefix_index,
+        identity_index=identity_index,
+        reference_index=reference_index,
+        owner_enabled=plugin_manager.is_enabled,
+    )
+    app_manager.register_definition_provider("plugins", plugin_manager.app_definitions)
+    plugin_manager.register_app_definition_validator(
+        "app-connections",
+        app_manager.validate_managed_definitions,
+    )
+    skill_manager = SkillManager(
+        root,
+        builtin_skills=_builtin_skill_roots(),
+        identity_index=identity_index,
+    )
+    extension_registry = ExtensionRegistry(
+        skills=skill_manager,
+        mcp=mcp_manager,
+        apps=app_manager,
+        plugins=plugin_manager,
+    )
+    control_plane.attach_extensions(
+        extension_registry,
+        skills=skill_manager,
+        mcp=mcp_manager,
+        apps=app_manager,
+        plugins=plugin_manager,
+    )
+    assembler = RuntimeAssembler(
+        node_root=root,
+        secret_store=secrets,
+        skill_manager=skill_manager,
+        mcp_manager=mcp_manager,
+        app_manager=app_manager,
+        plugin_manager=plugin_manager,
+    )
+    runtime_supervisor = NodeRuntimeSupervisor(
+        config_service=control_plane.config_service,
+        assembler=assembler,
+    )
+    control_plane.attach_runtime(runtime_supervisor)
+    return NodeComposition(
+        control_plane=control_plane,
+        runtime_supervisor=runtime_supervisor,
+        assembler=assembler,
+    )
 
 
 class _AsyncServiceThread:
@@ -112,78 +198,31 @@ class OpenPpxNodeHost:
         """Compose one Node from its strict Config and explicit dependencies."""
         root = node_root.expanduser().resolve(strict=False)
         secrets = secret_store or SystemCredentialSecretStore()
-        control_plane = build_control_plane(root, secret_store=secrets)
-        node_resource = control_plane.config_repository.read_node()
-        listener = node_resource.document.spec.client_api
-        resolved_host = host or listener.listen_host
-        resolved_port = port or listener.port
-        authentication_required = listener.authentication == "required"
-        resolved_token = resolve_client_api_access_token(access_token) if authentication_required else ""
+        composition = build_node_composition(root, secret_store=secrets)
+        control_plane = composition.control_plane
+        try:
+            node_resource = control_plane.config_repository.read_node()
+        except ConfigLoadError as exc:
+            if exc.kind != "not_found":
+                raise
+            node_resource = None
+        if node_resource is None:
+            resolved_host = host or "127.0.0.1"
+            resolved_port = port or 18765
+            resolved_token = resolve_client_api_access_token(access_token)
+            authentication_required = bool(resolved_token)
+        else:
+            listener = node_resource.document.spec.client_api
+            resolved_host = host or listener.listen_host
+            resolved_port = port or listener.port
+            authentication_required = listener.authentication == "required"
+            resolved_token = resolve_client_api_access_token(access_token) if authentication_required else ""
         if authentication_required and not resolved_token:
             raise ValueError("Node Client API authentication is required but no access token is configured.")
         validate_client_api_bind(host=resolved_host, access_token=resolved_token)
 
-        prefix_index = ToolPrefixIndex()
-        identity_index = ResourceIdentityIndex()
-        reference_index = ExtensionReferenceIndex()
-        plugin_manager = PluginManager(
-            root,
-            secrets,
-            allowed_runtime_capabilities=frozenset({"runtime.task-observability"}),
-            identity_index=identity_index,
-            reference_index=reference_index,
-            prefix_index=prefix_index,
-        )
-        mcp_manager = McpManager(
-            root,
-            secrets,
-            prefix_index=prefix_index,
-            identity_index=identity_index,
-        )
-        app_manager = AppManager(
-            root,
-            secrets,
-            prefix_index=prefix_index,
-            identity_index=identity_index,
-            reference_index=reference_index,
-            owner_enabled=plugin_manager.is_enabled,
-        )
-        app_manager.register_definition_provider("plugins", plugin_manager.app_definitions)
-        plugin_manager.register_app_definition_validator(
-            "app-connections",
-            app_manager.validate_managed_definitions,
-        )
-        skill_manager = SkillManager(
-            root,
-            builtin_skills=_builtin_skill_roots(),
-            identity_index=identity_index,
-        )
-        extension_registry = ExtensionRegistry(
-            skills=skill_manager,
-            mcp=mcp_manager,
-            apps=app_manager,
-            plugins=plugin_manager,
-        )
-        control_plane.attach_extensions(
-            extension_registry,
-            skills=skill_manager,
-            mcp=mcp_manager,
-            apps=app_manager,
-            plugins=plugin_manager,
-        )
-        assembler = RuntimeAssembler(
-            node_root=root,
-            secret_store=secrets,
-            skill_manager=skill_manager,
-            mcp_manager=mcp_manager,
-            app_manager=app_manager,
-            plugin_manager=plugin_manager,
-        )
-        runtime_supervisor = NodeRuntimeSupervisor(
-            config_service=control_plane.config_service,
-            assembler=assembler,
-        )
-        control_plane.attach_runtime(runtime_supervisor)
+        assembler = composition.assembler
+        runtime_supervisor = composition.runtime_supervisor
         coordinator = ClientApiCoordinator(
             data_dir=root,
             control_plane=control_plane,
@@ -269,4 +308,4 @@ def _builtin_skill_roots() -> dict[str, Path]:
     }
 
 
-__all__ = ["OpenPpxNodeHost", "run_node"]
+__all__ = ["NodeComposition", "OpenPpxNodeHost", "build_node_composition", "run_node"]

@@ -69,6 +69,39 @@ def tearDownModule() -> None:
 
 
 class CLITests(unittest.TestCase):
+    def test_setup_applies_through_local_action_composition_without_legacy_bootstrap(self) -> None:
+        from openppx import cli
+        from openppx.config import InMemorySecretStore
+        from openppx.control_plane import build_control_plane
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            control_plane = build_control_plane(root, secret_store=InMemorySecretStore(), product_version="test")
+            supervisor = Mock()
+            composition = SimpleNamespace(control_plane=control_plane, runtime_supervisor=supervisor)
+            with patch.object(cli, "bootstrap_env_from_config") as mocked_bootstrap:
+                with patch("openppx.runtime.node_host.build_node_composition", return_value=composition):
+                    with patch.object(cli, "_stdout_line") as output:
+                        with self.assertRaises(SystemExit) as ctx:
+                            cli.main(
+                                [
+                                    "setup",
+                                    "--node-root",
+                                    tmp,
+                                    "--api-key",
+                                    "setup-secret-canary",
+                                    "--no-hello",
+                                    "--json",
+                                ]
+                            )
+
+        self.assertEqual(ctx.exception.code, 0)
+        mocked_bootstrap.assert_not_called()
+        supervisor.close.assert_called_once_with()
+        rendered = "\n".join(str(call.args[0]) for call in output.call_args_list)
+        self.assertIn('"state": "configured"', rendered)
+        self.assertNotIn("setup-secret-canary", rendered)
+
     def test_client_api_serve_reports_unsafe_bind_without_traceback(self) -> None:
         from openppx import cli
 

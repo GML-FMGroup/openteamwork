@@ -5,7 +5,7 @@ from __future__ import annotations
 from decimal import Decimal, InvalidOperation
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, StrictInt, StringConstraints, field_validator
+from pydantic import BaseModel, ConfigDict, Field, SecretStr, StrictInt, StringConstraints, field_validator
 from pydantic.alias_generators import to_camel
 
 from openppx.config import AgentConfig, NodeConfig
@@ -13,6 +13,8 @@ from openppx.config import SecretRef
 from openppx.extensions.app_models import AppConnection, AppDefinition
 from openppx.extensions.mcp_models import McpServer
 from openppx.extensions.models import ExtensionSourceRef
+from openppx.modeling import ModelProfile
+from openppx.setup import SetupApplyRequest
 
 
 ResourceId = Annotated[
@@ -133,6 +135,44 @@ class ModelSelectionInput(AgentReadInput):
             if not parsed.is_finite() or parsed < 0:
                 raise ValueError("cost constraint must be finite and non-negative")
         return value
+
+
+class ModelProfileReadInput(ActionInput):
+    """Identify one persisted Model Profile."""
+
+    profile_id: ResourceId
+
+
+class ModelProfileMutationInput(ModelProfileReadInput):
+    """Create or replace one strict Model Profile under a revision precondition."""
+
+    candidate: ModelProfile
+    expected_revision: str | None
+
+
+class SecretStatusInput(ActionInput):
+    """Inspect one protected credential without resolving its value."""
+
+    ref: SecretRef
+
+
+class SecretPutInput(SecretStatusInput):
+    """Write credential material through the protected SecretStore boundary."""
+
+    value: SecretStr
+
+
+class SetupApplyInput(ActionInput):
+    """Apply one complete first-run baseline."""
+
+    request: SetupApplyRequest
+
+
+class SetupHelloInput(AgentReadInput):
+    """Create a first Session and run one real model turn."""
+
+    user_id: PrincipalId
+    text: Annotated[str, StringConstraints(min_length=1, max_length=2000)] = "Hello"
 
 
 class SessionNewInput(AgentReadInput):

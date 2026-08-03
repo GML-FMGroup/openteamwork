@@ -264,6 +264,24 @@ class NodeRuntimeSupervisor:
             session_id=session_id,
         )
 
+    def hello_sync(
+        self,
+        agent_id: str,
+        text: str,
+        *,
+        user_id: str,
+        session_id: str,
+    ) -> str:
+        """Complete one model turn from synchronous Setup/CLI Action boundaries."""
+        return _run_sync(
+            self.hello(
+                agent_id,
+                text,
+                user_id=user_id,
+                session_id=session_id,
+            )
+        )  # type: ignore[return-value]
+
     def register_run(
         self,
         *,

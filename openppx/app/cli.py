@@ -6,6 +6,7 @@ import argparse
 import asyncio
 import contextlib
 import datetime as dt
+import getpass
 import importlib.util
 import json
 import os
@@ -4370,6 +4371,224 @@ def _cmd_action_catalog(
     return _emit_client_api_payload(payload, output_json=output_json)
 
 
+def _setup_context(*, request_id: str) -> Any:
+    """Build the trusted local CLI context used by the shared setup Actions."""
+    from ..actions import ActionContext
+
+    permissions = frozenset(
+        {
+            "setup.read",
+            "setup.write",
+            "secret.read",
+            "secret.write",
+            "model.read",
+            "model.write",
+            "run.start",
+        }
+    )
+    return ActionContext(
+        request_id=request_id,
+        correlation_id=request_id,
+        actor_id="principal:local-cli",
+        capabilities=permissions,
+        permissions=permissions,
+    )
+
+
+def _invoke_local_setup_action(composition: Any, action_id: str, raw_input: dict[str, object]) -> dict[str, Any]:
+    """Invoke one setup Action in-process and return the common wire envelope."""
+    from ..client_api.contracts import ContractMapper
+
+    request_id = f"req_setup_{uuid.uuid4().hex}"
+    outcome = composition.control_plane.invoke(
+        action_id,
+        raw_input,
+        _setup_context(request_id=request_id),
+    )
+    return ContractMapper().from_outcome(
+        outcome,
+        request_id=request_id,
+        correlation_id=request_id,
+    ).model_dump(mode="json", by_alias=True)
+
+
+def _setup_result(envelope: dict[str, Any]) -> dict[str, Any] | None:
+    """Return one successful setup result without weakening envelope checks."""
+    result = envelope.get("result")
+    if envelope.get("ok") is True and isinstance(result, dict):
+        return result
+    return None
+
+
+def _setup_provider(status: dict[str, Any], provider_id: str) -> dict[str, Any] | None:
+    """Resolve one provider from the server-owned first-run catalog."""
+    providers = status.get("providers")
+    if not isinstance(providers, list):
+        return None
+    for provider in providers:
+        if isinstance(provider, dict) and provider.get("id") == provider_id:
+            return provider
+    return None
+
+
+def _setup_apply_input(
+    args: argparse.Namespace,
+    status: dict[str, Any],
+    *,
+    api_key: str | None,
+) -> dict[str, object]:
+    """Build one strict complete setup baseline from CLI values and server facts."""
+    provider = _setup_provider(status, args.provider)
+    if provider is None:
+        raise ValueError(f"Provider '{args.provider}' is not available on this OpenPPX Node.")
+    credential_mode = str(provider.get("credentialMode") or "none")
+    model = args.model or str(provider.get("defaultModel") or "").strip()
+    if not model:
+        raise ValueError(f"Provider '{args.provider}' did not provide a default model; pass --model.")
+    recommended_workspace = str(status.get("recommendedWorkspace") or "").strip()
+    workspace = str(Path(args.workspace or recommended_workspace).expanduser().resolve(strict=False))
+    credential_ref = {"store": "system", "name": args.credential_name}
+    profile_spec: dict[str, object] = {
+        "provider": args.provider,
+        "model": model,
+        "executionLocation": args.execution_location,
+        "capabilities": ["text", "tool_calling"],
+    }
+    secret: dict[str, object] | None = None
+    if credential_mode == "api_key":
+        profile_spec["credential"] = credential_ref
+        if api_key:
+            secret = {"ref": credential_ref, "value": api_key}
+    revisions = status.get("revisions") if isinstance(status.get("revisions"), dict) else {}
+    return {
+        "request": {
+            "node": {
+                "apiVersion": "openppx.io/v1alpha1",
+                "kind": "NodeConfig",
+                "metadata": {"name": args.node_id},
+                "spec": {
+                    "displayName": args.node_name or socket.gethostname(),
+                    "enabledAgents": [args.agent_id],
+                    "clientApi": {
+                        "listenHost": args.listen_host,
+                        "port": args.listen_port,
+                        "authentication": args.authentication,
+                    },
+                },
+            },
+            "agent": {
+                "apiVersion": "openppx.io/v1alpha1",
+                "kind": "AgentConfig",
+                "metadata": {"name": args.agent_id},
+                "spec": {
+                    "displayName": args.agent_name,
+                    "workspace": workspace,
+                    "ownerPrincipalId": args.user_id,
+                    "privilegeLevel": args.privilege_level,
+                    "modelPolicy": {"defaultProfile": args.profile_id},
+                },
+            },
+            "profile": {
+                "apiVersion": "openppx.io/v1alpha1",
+                "kind": "ModelProfile",
+                "metadata": {"name": args.profile_id},
+                "spec": profile_spec,
+            },
+            "secret": secret,
+            "expectedRevisions": {
+                "node": revisions.get("node"),
+                "agent": revisions.get("agent"),
+                "profile": revisions.get("profile"),
+            },
+        }
+    }
+
+
+def _dispatch_setup_command(args: argparse.Namespace) -> int:
+    """Configure one Node through shared Actions and complete its first real Hello."""
+    from ..runtime.client_api_client import ClientApiClient
+    from ..runtime.node_host import build_node_composition
+
+    composition = None
+    if args.client_api_url:
+        client = ClientApiClient(base_url=args.client_api_url, access_token=args.access_token)
+
+        def invoke(action_id: str, raw_input: dict[str, object]) -> dict[str, Any]:
+            request_id = f"req_setup_{uuid.uuid4().hex}"
+            return client.invoke_action(action_id, raw_input, request_id=request_id)
+    else:
+        composition = build_node_composition(args.node_root)
+
+        def invoke(action_id: str, raw_input: dict[str, object]) -> dict[str, Any]:
+            assert composition is not None
+            return _invoke_local_setup_action(composition, action_id, raw_input)
+
+    try:
+        before_envelope = invoke("setup.status", {})
+        before = _setup_result(before_envelope)
+        if before is None:
+            return _emit_client_api_payload(before_envelope, output_json=args.output_json)
+        provider = _setup_provider(before, args.provider)
+        if provider is None:
+            _stdout_line(f"Error: Provider '{args.provider}' is not available on this OpenPPX Node.")
+            return 2
+        api_key = args.api_key
+        if str(provider.get("credentialMode")) == "api_key" and not api_key:
+            secret_envelope = invoke(
+                "secret.status",
+                {"ref": {"store": "system", "name": args.credential_name}},
+            )
+            secret_status = _setup_result(secret_envelope)
+            secret_available = secret_status is not None and secret_status.get("state") == "available"
+            if not secret_available:
+                if not sys.stdin.isatty():
+                    _stdout_line("Error: this provider requires an API key; pass --api-key in non-interactive mode.")
+                    return 2
+                api_key = getpass.getpass(f"{provider.get('displayName', args.provider)} API key: ").strip()
+        apply_input = _setup_apply_input(args, before, api_key=api_key or None)
+        apply_envelope = invoke("setup.apply", apply_input)
+        applied = _setup_result(apply_envelope)
+        if applied is None:
+            return _emit_client_api_payload(apply_envelope, output_json=args.output_json)
+
+        hello_envelope: dict[str, Any] | None = None
+        hello = None
+        if not args.no_hello:
+            hello_envelope = invoke(
+                "setup.hello",
+                {"agentId": args.agent_id, "userId": args.user_id, "text": args.hello},
+            )
+            hello = _setup_result(hello_envelope)
+            if hello is None:
+                return _emit_client_api_payload(hello_envelope, output_json=args.output_json)
+        after_envelope = invoke("setup.status", {})
+        after = _setup_result(after_envelope)
+        if after is None:
+            return _emit_client_api_payload(after_envelope, output_json=args.output_json)
+    except (OSError, TimeoutError, ValueError) as exc:
+        endpoint = args.client_api_url or str(args.node_root)
+        _stdout_line(f"Error: setup could not use OpenPPX Node at {endpoint}: {exc}")
+        return 1
+    finally:
+        if composition is not None:
+            composition.runtime_supervisor.close()
+
+    result = {"statusBefore": before, "apply": applied, "hello": hello, "statusAfter": after}
+    if args.output_json:
+        _stdout_line(json.dumps(result, ensure_ascii=False, indent=2))
+    else:
+        _stdout_line(f"Setup: {after.get('state', 'unknown')}")
+        _stdout_line(f"Node: {args.node_name or socket.gethostname()} ({args.node_id})")
+        _stdout_line(f"Agent: {args.agent_name} ({args.agent_id})")
+        _stdout_line(f"Model: {args.provider}/{args.model or provider.get('defaultModel')}")
+        if hello is not None:
+            _stdout_line(f"Session: {hello.get('sessionId')}")
+            _stdout_line(str(hello.get("reply") or ""))
+        else:
+            _stdout_line("First Hello: skipped")
+    return 0
+
+
 def _parse_action_input(raw: str) -> dict[str, object]:
     """Parse a strict JSON object for generic Action invocation."""
     try:
@@ -4642,7 +4861,7 @@ def _should_require_agent_config_for_gateway(args: argparse.Namespace) -> bool:
 def _should_bootstrap_single_agent_env(args: argparse.Namespace) -> bool:
     """Return true when startup should hydrate one explicit config into process env."""
 
-    if args.command in {"install", "create", "client-api", "extension", "action", "command", "node", "sandbox"}:
+    if args.command in {"install", "create", "client-api", "extension", "action", "command", "node", "sandbox", "setup"}:
         return False
     return True
 
@@ -4842,6 +5061,53 @@ def main(argv: list[str] | None = None) -> None:
         action="store_true",
         help="Emit machine-readable JSON for `gateway status`.",
     )
+    setup_parser = subparsers.add_parser(
+        "setup",
+        help="Configure a Node, Agent, Model Profile, and first real Hello.",
+    )
+    setup_parser.add_argument("--node-root", type=Path, default=get_data_dir())
+    setup_parser.add_argument("--url", dest="client_api_url", default="", help="Use a running Node instead of local in-process setup.")
+    setup_parser.add_argument(
+        "--token",
+        dest="access_token",
+        default=os.environ.get("OPENPPX_CLIENT_API_TOKEN", ""),
+        help="Bearer token for a protected running Node.",
+    )
+    setup_parser.add_argument("--node-id", default="local-node")
+    setup_parser.add_argument("--node-name", default="")
+    setup_parser.add_argument("--agent-id", default="main")
+    setup_parser.add_argument("--agent-name", default="Main")
+    setup_parser.add_argument("--user-id", default="ppx-client-user")
+    setup_parser.add_argument("--workspace", default="")
+    setup_parser.add_argument(
+        "--privilege-level",
+        choices=["low", "medium", "high", "root"],
+        default="medium",
+    )
+    setup_parser.add_argument("--profile-id", default="primary")
+    setup_parser.add_argument("--provider", default="google")
+    setup_parser.add_argument("--model", default="")
+    setup_parser.add_argument(
+        "--execution-location",
+        choices=["local", "remote"],
+        default="remote",
+    )
+    setup_parser.add_argument("--credential-name", default="primary-model-api-key")
+    setup_parser.add_argument(
+        "--api-key",
+        default="",
+        help="Provider API key. Prefer the hidden interactive prompt because command arguments may be observable.",
+    )
+    setup_parser.add_argument("--listen-host", default="127.0.0.1")
+    setup_parser.add_argument("--listen-port", type=int, default=18765)
+    setup_parser.add_argument(
+        "--authentication",
+        choices=["required", "disabled"],
+        default="disabled",
+    )
+    setup_parser.add_argument("--hello", default="Hello OpenPPX")
+    setup_parser.add_argument("--no-hello", action="store_true", help="Apply configuration without performing the first model turn.")
+    setup_parser.add_argument("--json", dest="output_json", action="store_true")
     node_parser = subparsers.add_parser(
         "node",
         help="Run the long-lived OpenPPX Node service.",
@@ -5386,6 +5652,8 @@ def main(argv: list[str] | None = None) -> None:
         else:
             parser.print_help()
             code = 2
+    elif args.command == "setup":
+        code = _dispatch_setup_command(args)
     elif args.command == "node":
         from ..runtime.node_host import run_node
 

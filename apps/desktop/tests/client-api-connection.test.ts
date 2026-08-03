@@ -21,6 +21,13 @@ function healthPayload(): Record<string, unknown> {
   };
 }
 
+function setupHealthPayload(): Record<string, unknown> {
+  const payload = healthPayload();
+  (payload.data as Record<string, unknown>).ready = false;
+  (payload.data as Record<string, unknown>).state = "needs_configuration";
+  return payload;
+}
+
 function nodePayload(): Record<string, unknown> {
   return {
     ok: true,
@@ -90,6 +97,37 @@ describe("ClientApiConnection", () => {
     releaseHealth(jsonResponse(healthPayload()));
     await expect(Promise.all([first, second])).resolves.toEqual([true, true]);
     expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("treats a compatible needs-configuration Node as available for setup Actions", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith("/api/v1/health")) return jsonResponse(setupHealthPayload());
+      if (url.endsWith("/api/v1/actions?namespace=setup")) {
+        return jsonResponse({
+          protocolVersion: 1,
+          requestId: "req-setup",
+          correlationId: "req-setup",
+          ok: true,
+          result: { items: [] },
+        });
+      }
+      throw new Error(`Unexpected request: ${url}`);
+    });
+    const connection = new ClientApiConnection({
+      baseUrl: "http://127.0.0.1:8765",
+      accessToken: "bootstrap-token",
+      fetch: fetchMock as typeof fetch,
+    });
+
+    await expect(connection.checkHealth({ timeoutMs: 100 })).resolves.toBe(true);
+    expect(connection.getSnapshot()).toMatchObject({
+      reachable: true,
+      authState: "authenticated",
+      handshake: { ready: false, compatibility: "compatible" },
+      nodeInfo: null,
+      lastError: "",
+    });
   });
 
   it("rejects an incompatible protocol while preserving reachability diagnostics", async () => {

@@ -9,6 +9,10 @@ import type {
   AgentEnablementKind,
   ProjectedSlashCommand,
   SlashCommandResult,
+  SetupApplyRequest,
+  SetupApplyResult,
+  SetupHelloResult,
+  SetupStatusResult,
 } from "@openppx/client";
 
 export type {
@@ -25,6 +29,10 @@ export type {
   AgentEnablementKind,
   ProjectedSlashCommand,
   SlashCommandResult,
+  SetupApplyRequest,
+  SetupApplyResult,
+  SetupHelloResult,
+  SetupStatusResult,
 } from "@openppx/client";
 
 export type RuntimeState = "stopped" | "starting" | "reconnecting" | "healthy" | "error";
@@ -106,6 +114,32 @@ export interface SlashCommandRequest {
   runId?: string | null;
 }
 
+export interface SetupForm {
+  nodeId: string;
+  nodeName: string;
+  agentId: string;
+  agentName: string;
+  workspace: string;
+  ownerPrincipalId: string;
+  privilegeLevel: "low" | "medium" | "high" | "root";
+  profileId: string;
+  provider: string;
+  model: string;
+  executionLocation: "local" | "remote";
+  credentialName: string;
+  apiKey: string;
+  hello: string;
+}
+
+export interface ModelProfileSummary {
+  id: string;
+  revision: string;
+  provider: string;
+  model: string;
+  enabled: boolean;
+  credentialState: string;
+}
+
 export interface PpxClientApi {
   bootstrap(): Promise<BootstrapPayload>;
   getDiagnostics(): Promise<ClientDiagnostics>;
@@ -119,6 +153,10 @@ export interface PpxClientApi {
   cancelRun(runId: string): Promise<{ runId: string; status: "cancelled" }>;
   listSlashCommands(): Promise<{ commands: ProjectedSlashCommand[] }>;
   invokeSlashCommand(input: SlashCommandRequest): Promise<SlashCommandResult>;
+  getSetupStatus(): Promise<SetupStatusResult>;
+  applySetup(request: SetupApplyRequest): Promise<SetupApplyResult>;
+  runSetupHello(agentId: string, userId: string, text: string): Promise<SetupHelloResult>;
+  listModelProfiles(): Promise<{ profiles: ModelProfileSummary[] }>;
   listExtensions(): Promise<{ extensions: ExtensionSummary[] }>;
   getExtension(kind: ExtensionSummary["kind"], extensionId: string): Promise<{ extension: ExtensionDetail }>;
   setExtensionAgentEnabled(input: ExtensionEnablementRequest): Promise<{ revision: string; status: string }>;

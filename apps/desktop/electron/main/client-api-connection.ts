@@ -185,7 +185,15 @@ export class ClientApiConnection {
         );
       }
       if (!handshake.ready) {
-        throw new Error("Client API reported that it is not ready.");
+        // A protocol-compatible unconfigured Node is intentionally usable for setup Actions.
+        await this.requestJson("/api/v1/actions?namespace=setup", { signal: controller.signal });
+        if (generation !== this.configurationGeneration) {
+          return false;
+        }
+        this.authState = this.accessTokenValue ? "authenticated" : "not-required";
+        this.lastError = "";
+        this.healthyUntil = this.now() + this.healthCacheTtlMs;
+        return true;
       }
 
       const nodePayload = await this.requestJson("/api/v1/node", { signal: controller.signal });

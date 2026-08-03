@@ -56,6 +56,20 @@ def export_client_contract(output_dir: Path) -> tuple[Path, ...]:
             action_id="system.command.invoke",
             input=_command_input_fixture(),
         ),
+        fixtures_dir / "action-invoke-setup-status.json": _invoke_fixture(
+            request_id="req_setup_status_fixture",
+            action_id="setup.status",
+        ),
+        fixtures_dir / "action-invoke-setup-apply.json": _invoke_fixture(
+            request_id="req_setup_apply_fixture",
+            action_id="setup.apply",
+            input={"request": _setup_request_fixture()},
+        ),
+        fixtures_dir / "action-invoke-setup-hello.json": _invoke_fixture(
+            request_id="req_setup_hello_fixture",
+            action_id="setup.hello",
+            input={"agentId": "main", "userId": "user_fixture", "text": "Hello OpenPPX"},
+        ),
         fixtures_dir / "envelope-model-list.json": _domain_success_fixture(
             request_id="req_model_list_fixture",
             result={"items": []},
@@ -97,6 +111,27 @@ def export_client_contract(output_dir: Path) -> tuple[Path, ...]:
         fixtures_dir / "envelope-command-status.json": _domain_success_fixture(
             request_id="req_command_status_fixture",
             result=_command_result_fixture(),
+        ),
+        fixtures_dir / "envelope-setup-status.json": _domain_success_fixture(
+            request_id="req_setup_status_fixture",
+            result=_setup_status_fixture(),
+        ),
+        fixtures_dir / "envelope-setup-apply.json": _domain_success_fixture(
+            request_id="req_setup_apply_fixture",
+            result={
+                "state": "configured",
+                "revisions": {
+                    "node": "sha256:node-fixture",
+                    "agent": "sha256:agent-fixture",
+                    "profile": "sha256:profile-fixture",
+                },
+                "secretState": "available",
+                "restartRequired": False,
+            },
+        ),
+        fixtures_dir / "envelope-setup-hello.json": _domain_success_fixture(
+            request_id="req_setup_hello_fixture",
+            result={"state": "ready", "sessionId": "session_fixture", "reply": "Hello from OpenPPX"},
         ),
     }
     for path, document in documents.items():
@@ -218,6 +253,81 @@ def _command_result_fixture() -> dict[str, Any]:
         target_action_id="system.status",
         result={"state": "ready"},
     ).model_dump(mode="json", by_alias=True)
+
+
+def _setup_request_fixture() -> dict[str, Any]:
+    """Return one complete non-sensitive setup request except for a fixture credential."""
+
+    return {
+        "node": {
+            "apiVersion": "openppx.io/v1alpha1",
+            "kind": "NodeConfig",
+            "metadata": {"name": "local-node"},
+            "spec": {
+                "displayName": "Local Node",
+                "enabledAgents": ["main"],
+                "clientApi": {"listenHost": "127.0.0.1", "port": 18765, "authentication": "disabled"},
+            },
+        },
+        "agent": {
+            "apiVersion": "openppx.io/v1alpha1",
+            "kind": "AgentConfig",
+            "metadata": {"name": "main"},
+            "spec": {
+                "displayName": "Main",
+                "workspace": "/workspace",
+                "ownerPrincipalId": "user_fixture",
+                "privilegeLevel": "medium",
+                "modelPolicy": {"defaultProfile": "primary"},
+            },
+        },
+        "profile": {
+            "apiVersion": "openppx.io/v1alpha1",
+            "kind": "ModelProfile",
+            "metadata": {"name": "primary"},
+            "spec": {
+                "provider": "google",
+                "model": "gemini-2.5-flash",
+                "credential": {"store": "system", "name": "primary-model-api-key"},
+                "executionLocation": "remote",
+                "capabilities": ["text", "tool_calling"],
+            },
+        },
+        "secret": {
+            "ref": {"store": "system", "name": "primary-model-api-key"},
+            "value": "fixture-api-key",
+        },
+        "expectedRevisions": {"node": None, "agent": None, "profile": None},
+    }
+
+
+def _setup_status_fixture() -> dict[str, Any]:
+    """Return the canonical empty-Node setup projection used by every client."""
+
+    return {
+        "state": "needs_configuration",
+        "steps": {
+            "node": "missing",
+            "agent": "missing",
+            "model": "missing",
+            "credential": "not_required",
+            "hello": "not_started",
+        },
+        "revisions": {"node": None, "agent": None, "profile": None},
+        "recommendedWorkspace": "/workspace",
+        "diagnostic": None,
+        "current": {"node": None, "agent": None, "profile": None},
+        "providers": [
+            {
+                "id": "google",
+                "displayName": "Google Gemini",
+                "runtime": "google_adk",
+                "credentialMode": "api_key",
+                "credentialRequired": True,
+                "defaultModel": "gemini-2.5-flash",
+            }
+        ],
+    }
 
 
 def _extension_item_fixture() -> dict[str, Any]:

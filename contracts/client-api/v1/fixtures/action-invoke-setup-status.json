@@ -1,0 +1,7 @@
+{
+  "actionId": "setup.status",
+  "confirmed": false,
+  "correlationId": "req_setup_status_fixture",
+  "input": {},
+  "requestId": "req_setup_status_fixture"
+}

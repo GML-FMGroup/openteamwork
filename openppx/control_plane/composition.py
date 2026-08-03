@@ -7,6 +7,7 @@ from pathlib import Path
 
 from openppx.config import ConfigService, FilesystemConfigRepository, SecretStore, SystemCredentialSecretStore
 from openppx.modeling import ModelCatalog, ModelProfileRepository, ModelProfileSelector
+from openppx.setup import SetupService
 
 from .application import ControlPlaneApplication
 
@@ -20,17 +21,27 @@ def build_control_plane(
     """Assemble the final in-process kernel from one explicit Node root."""
     config_repository = FilesystemConfigRepository(node_root)
     profile_repository = ModelProfileRepository(node_root)
+    secrets = secret_store or SystemCredentialSecretStore()
+    catalog = ModelCatalog()
     selector = ModelProfileSelector(
         profile_repository,
-        ModelCatalog(),
-        secret_store or SystemCredentialSecretStore(),
+        catalog,
+        secrets,
     )
     config_service = ConfigService(config_repository, profile_repository, selector)
+    setup_service = SetupService(
+        config_repository,
+        config_service,
+        profile_repository,
+        catalog,
+        secrets,
+    )
     return ControlPlaneApplication(
         config_repository=config_repository,
         config_service=config_service,
         profile_repository=profile_repository,
         model_selector=selector,
+        setup_service=setup_service,
         product_version=product_version or _product_version(),
     )
 

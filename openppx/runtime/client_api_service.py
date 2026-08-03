@@ -513,10 +513,16 @@ class ClientApiCoordinator:
                 "extension.read",
                 "extension.write",
                 "model.read",
+                "model.write",
                 "model.use",
                 "session.read",
                 "session.write",
                 "run.control",
+                "run.start",
+                "secret.read",
+                "secret.write",
+                "setup.read",
+                "setup.write",
                 "task.read",
             }
         )

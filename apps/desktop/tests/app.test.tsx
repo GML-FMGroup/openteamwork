@@ -163,6 +163,22 @@ function installClient(overrides: Partial<PpxClientApi> = {}): { client: PpxClie
     testConnectionSettings: async () => buildDiagnostics(),
     saveConnectionSettings: async () => buildDiagnostics(),
     runRuntimeCommand: async () => buildBootstrapPayload().runtime,
+    getSetupStatus: async () => ({
+      state: "ready",
+      steps: { node: "complete", agent: "complete", model: "complete", credential: "available", hello: "verified" },
+      revisions: { node: "node-revision", agent: "agent-revision", profile: "profile-revision" },
+      recommendedWorkspace: "/workspace",
+      current: { node: null, agent: null, profile: null },
+      providers: [],
+    }),
+    applySetup: async () => ({
+      state: "configured",
+      revisions: { node: "node-revision", agent: "agent-revision", profile: "profile-revision" },
+      secretState: "available",
+      restartRequired: false,
+    }),
+    runSetupHello: async () => ({ sessionId: "session-fixture", reply: "Hello", state: "ready" }),
+    listModelProfiles: async () => ({ profiles: [] }),
     listSessions: async () => ({ sessions: buildBootstrapPayload().sessions }),
     createSession: async () => ({ session: buildBootstrapPayload().sessions[0] }),
     loadSession: async () => ({ messages: [] }),
@@ -195,6 +211,56 @@ function installClient(overrides: Partial<PpxClientApi> = {}): { client: PpxClie
 }
 
 describe("App sending state", () => {
+  it("completes first-run setup only after a real Hello is verified", async () => {
+    const needsConfiguration = {
+      state: "needs_configuration" as const,
+      steps: { node: "missing", agent: "missing", model: "missing", credential: "missing", hello: "pending" },
+      revisions: { node: null, agent: null, profile: null },
+      recommendedWorkspace: "/workspace/openppx",
+      current: { node: null, agent: null, profile: null },
+      providers: [
+        {
+          id: "google",
+          displayName: "Google Gemini",
+          runtime: "google_adk",
+          credentialMode: "api_key" as const,
+          credentialRequired: true,
+          defaultModel: "gemini-2.5-flash",
+        },
+      ],
+    };
+    const ready = {
+      ...needsConfiguration,
+      state: "ready" as const,
+      steps: { node: "complete", agent: "complete", model: "complete", credential: "available", hello: "verified" },
+      revisions: { node: "node-revision", agent: "agent-revision", profile: "profile-revision" },
+    };
+    const getSetupStatus = vi.fn().mockResolvedValueOnce(needsConfiguration).mockResolvedValue(ready);
+    const applySetup = vi.fn(async () => ({
+      state: "configured" as const,
+      revisions: ready.revisions,
+      secretState: "available",
+      restartRequired: false,
+    }));
+    const runSetupHello = vi.fn(async () => ({ sessionId: "session-first", reply: "Hello", state: "ready" as const }));
+    installClient({ getSetupStatus, applySetup, runSetupHello });
+
+    render(<App />);
+
+    expect(await screen.findByRole("heading", { name: "Set up your agent workspace." })).toBeInTheDocument();
+    expect(screen.getByLabelText("Workspace folder")).toHaveValue("/workspace/openppx");
+    expect(screen.getByLabelText("Model")).toHaveValue("gemini-2.5-flash");
+    fireEvent.change(screen.getByLabelText("API key"), { target: { value: "test-api-key" } });
+    fireEvent.click(screen.getByRole("button", { name: "Set up & say Hello" }));
+
+    await waitFor(() => expect(applySetup).toHaveBeenCalledTimes(1));
+    expect(applySetup).toHaveBeenCalledWith(expect.objectContaining({
+      secret: { ref: { store: "system", name: "primary-model-api-key" }, value: "test-api-key" },
+    }));
+    expect(runSetupHello).toHaveBeenCalledWith("main", "ppx-client-user", "Hello OpenPPX");
+    expect(await screen.findByRole("button", { name: "Send" })).toBeInTheDocument();
+  });
+
   it("jumps to the latest reply when loading a session", async () => {
     const scrollTo = vi.fn();
     Object.defineProperty(HTMLElement.prototype, "scrollTo", {
@@ -453,7 +519,7 @@ describe("App sending state", () => {
 
       expect(screen.queryByLabelText("OpenPPX navigation")).not.toBeInTheDocument();
       expect(await screen.findByRole("button", { name: "Open sidebar" })).toBeInTheDocument();
-      expect(await screen.findByText("Connection config")).toBeInTheDocument();
+      expect(await screen.findByRole("heading", { name: "Connection" })).toBeInTheDocument();
     } finally {
       Object.defineProperty(window, "matchMedia", {
         configurable: true,
@@ -1054,18 +1120,17 @@ describe("App sending state", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Settings" }));
 
-    await screen.findByText("Connection");
+    await screen.findByRole("heading", { name: "Connection" });
     expect(screen.getByText("http://127.0.0.1:8765")).toBeInTheDocument();
     expect(screen.getByText("/tmp/openppx_root")).toBeInTheDocument();
-    expect(screen.getByText("This Mac (local)")).toBeInTheDocument();
-    expect(screen.getByText("v1 / compatible")).toBeInTheDocument();
+    expect(screen.getAllByText("This Mac").length).toBeGreaterThanOrEqual(1);
+    expect(screen.getByText("v1")).toBeInTheDocument();
     expect(screen.getByText("0.5.1")).toBeInTheDocument();
     expect(screen.getByText("0.4")).toBeInTheDocument();
-    const connectionCard = screen.getByText("Connection").closest("section");
-    expect(connectionCard).not.toBeNull();
-    expect(within(connectionCard as HTMLElement).getByText("Node ID")).toBeInTheDocument();
-    expect(within(connectionCard as HTMLElement).getByText("node_test")).toBeInTheDocument();
-    expect(within(connectionCard as HTMLElement).queryByText("Node")).not.toBeInTheDocument();
+    const deviceCard = screen.getByRole("heading", { name: "Device" }).closest("section");
+    expect(deviceCard).not.toBeNull();
+    expect(within(deviceCard as HTMLElement).getByText("Node")).toBeInTheDocument();
+    expect(within(deviceCard as HTMLElement).getAllByText("This Mac")).toHaveLength(2);
   });
 
   it("renders desktop-owned interface copy in English", async () => {
@@ -1091,15 +1156,14 @@ describe("App sending state", () => {
     await screen.findByRole("button", { name: "Send" });
     fireEvent.click(screen.getByRole("button", { name: "Settings" }));
 
-    await screen.findByText("Runtime status");
+    fireEvent.click(screen.getByRole("button", { name: "Operations" }));
+    await screen.findByRole("heading", { name: "Runtime" });
     expect(document.querySelector(".settings-card-runtime")).toBeInTheDocument();
-    expect(document.querySelector(".settings-card-config")).toBeInTheDocument();
-    expect(document.querySelector(".settings-card-connection")).toBeInTheDocument();
     expect(document.querySelector(".settings-card-diagnostics")).toBeInTheDocument();
-    expect(document.querySelector(".settings-card-paths")).toBeInTheDocument();
+    expect(document.querySelector(".settings-card-config")).not.toBeInTheDocument();
     expect(document.querySelectorAll(".settings-column")).toHaveLength(0);
     expect(screen.queryByText("detail")).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Refresh diagnostics" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Refresh" })).toBeInTheDocument();
   });
 
   it("groups Node extensions and changes enablement for the selected agent", async () => {
@@ -1129,6 +1193,7 @@ describe("App sending state", () => {
     render(<App />);
     await screen.findByRole("button", { name: "Settings" });
     fireEvent.click(screen.getByRole("button", { name: "Settings" }));
+    fireEvent.click(screen.getByRole("button", { name: "Extensions" }));
 
     expect(await screen.findByText("Repository guide")).toBeInTheDocument();
     expect(screen.getByRole("region", { name: "plugin extensions" })).toBeInTheDocument();
@@ -1157,10 +1222,12 @@ describe("App sending state", () => {
     fireEvent.click(screen.getByRole("button", { name: "Settings" }));
     const targetName = await screen.findByLabelText("Target name");
     fireEvent.change(targetName, { target: { value: "Draft Node Name" } });
-    fireEvent.click(screen.getByRole("button", { name: "Refresh diagnostics" }));
+    fireEvent.click(screen.getByRole("button", { name: "Operations" }));
+    fireEvent.click(screen.getByRole("button", { name: "Refresh" }));
 
     await waitFor(() => expect(getDiagnostics.mock.calls.length).toBeGreaterThanOrEqual(2));
-    expect(targetName).toHaveValue("Draft Node Name");
+    fireEvent.click(screen.getByRole("button", { name: "General" }));
+    expect(screen.getByLabelText("Target name")).toHaveValue("Draft Node Name");
   });
 
   it("rehydrates Agents and Sessions after retrying an unavailable runtime", async () => {
@@ -1187,6 +1254,7 @@ describe("App sending state", () => {
 
     await screen.findByRole("button", { name: "Settings" });
     fireEvent.click(screen.getByRole("button", { name: "Settings" }));
+    fireEvent.click(screen.getByRole("button", { name: "Operations" }));
     fireEvent.click(await screen.findByRole("button", { name: "Retry" }));
 
     await waitFor(() => expect(bootstrap).toHaveBeenCalledTimes(2));
@@ -1211,8 +1279,10 @@ describe("App sending state", () => {
     await screen.findByRole("button", { name: "Send" });
     fireEvent.click(screen.getByRole("button", { name: "Settings" }));
 
-    await screen.findByText("Ops Gateway (lan)");
-    expect(screen.getByText("external / LAN")).toBeInTheDocument();
+    const deviceCard = (await screen.findByRole("heading", { name: "Device" })).closest("section");
+    expect(deviceCard).not.toBeNull();
+    expect(within(deviceCard as HTMLElement).getByText("Ops Gateway")).toBeInTheDocument();
+    expect(screen.getByDisplayValue("Connect to a Node on the LAN")).toBeInTheDocument();
   });
 
   it("saves connection settings from the settings form", async () => {
@@ -1250,7 +1320,7 @@ describe("App sending state", () => {
     fireEvent.change(screen.getByLabelText("Run location"), {
       target: { value: "lan" },
     });
-    fireEvent.change(screen.getByLabelText("Access Token"), {
+    fireEvent.change(screen.getByLabelText("Access token"), {
       target: { value: "test-token" },
     });
     fireEvent.click(screen.getByRole("button", { name: "Save & apply" }));
@@ -1283,7 +1353,7 @@ describe("App sending state", () => {
     fireEvent.change(screen.getByDisplayValue("http://127.0.0.1:8765"), {
       target: { value: "http://192.168.1.8:8765" },
     });
-    fireEvent.change(screen.getByLabelText("Access Token"), { target: { value: "secret" } });
+    fireEvent.change(screen.getByLabelText("Access token"), { target: { value: "secret" } });
     fireEvent.click(screen.getByRole("button", { name: "Test connection" }));
 
     await screen.findByText(/Connection successful: Studio Node/);

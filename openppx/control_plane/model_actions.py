@@ -10,8 +10,8 @@ from openppx.config import ConfigError
 from openppx.modeling import ModelProfileRepository, ModelProfileSelector, ModelRequirements, ModelSelectionError
 
 from .errors import raise_config_failure, raise_model_failure
-from .input_models import EmptyInput, ModelSelectionInput
-from .projections import project_resolution
+from .input_models import EmptyInput, ModelProfileMutationInput, ModelProfileReadInput, ModelSelectionInput
+from .projections import project_resolution, project_resource
 
 
 def register_model_actions(
@@ -40,6 +40,18 @@ def register_model_actions(
             selector,
             config_repository,
             cast(ModelSelectionInput, input_data),
+        ),
+    )
+    registry.register(
+        _spec("model.profile.read", "Read Model Profile", "Read one strict Model Profile resource.", ModelProfileReadInput, "model.read"),
+        lambda _context, input_data: _profile_call(
+            lambda: project_resource(profiles.read_profile(cast(ModelProfileReadInput, input_data).profile_id))
+        ),
+    )
+    registry.register(
+        _spec("model.profile.apply", "Apply Model Profile", "Create or update one strict Model Profile.", ModelProfileMutationInput, "model.write"),
+        lambda _context, input_data: _profile_call(
+            lambda: _apply_profile(profiles, cast(ModelProfileMutationInput, input_data))
         ),
     )
 
@@ -90,6 +102,22 @@ def _list_profiles(profiles: ModelProfileRepository, selector: ModelProfileSelec
                 }
             )
         return {"items": items}
+    except ConfigError as exc:
+        raise_config_failure(exc)
+
+
+def _apply_profile(profiles: ModelProfileRepository, input_data: ModelProfileMutationInput) -> dict[str, object]:
+    resource = profiles.write_profile(
+        input_data.profile_id,
+        input_data.candidate,
+        expected_revision=input_data.expected_revision,
+    )
+    return project_resource(resource)
+
+
+def _profile_call(operation):
+    try:
+        return operation()
     except ConfigError as exc:
         raise_config_failure(exc)
 

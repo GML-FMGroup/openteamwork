@@ -4,8 +4,51 @@ import {
   validateIdentifier,
   validateRuntimeCommand,
   validateSendMessageInput,
+  validateSetupApplyRequest,
+  validateSetupHelloText,
   validateSlashCommandRequest,
 } from "../electron/main/ipc-validation";
+
+function setupRequest() {
+  return {
+    node: {
+      apiVersion: "openppx.io/v1alpha1",
+      kind: "NodeConfig",
+      metadata: { name: "local-node" },
+      spec: {
+        displayName: "This Mac",
+        enabledAgents: ["main"],
+        clientApi: { listenHost: "127.0.0.1", port: 18765, authentication: "disabled" },
+      },
+    },
+    agent: {
+      apiVersion: "openppx.io/v1alpha1",
+      kind: "AgentConfig",
+      metadata: { name: "main" },
+      spec: {
+        displayName: "Main",
+        workspace: "/workspace",
+        ownerPrincipalId: "desktop-user",
+        privilegeLevel: "medium",
+        modelPolicy: { defaultProfile: "primary" },
+      },
+    },
+    profile: {
+      apiVersion: "openppx.io/v1alpha1",
+      kind: "ModelProfile",
+      metadata: { name: "primary" },
+      spec: {
+        provider: "google",
+        model: "gemini-2.5-flash",
+        credential: { store: "system", name: "primary-api-key" },
+        executionLocation: "remote",
+        capabilities: ["text", "tool_calling"],
+      },
+    },
+    secret: { ref: { store: "system", name: "primary-api-key" }, value: "secret-value" },
+    expectedRevisions: { node: null, agent: null, profile: null },
+  };
+}
 
 describe("Electron IPC validation", () => {
   it("accepts well-formed renderer requests", () => {
@@ -44,6 +87,8 @@ describe("Electron IPC validation", () => {
       clientApiBaseUrl: "http://192.168.1.8:8765",
       accessToken: "secret",
     });
+    expect(validateSetupHelloText("Hello OpenPPX")).toBe("Hello OpenPPX");
+    expect(validateSetupApplyRequest(setupRequest())).toEqual(setupRequest());
   });
 
   it("rejects malformed renderer requests before they reach services", () => {
@@ -54,5 +99,7 @@ describe("Electron IPC validation", () => {
     );
     expect(() => validateConnectionSettings({ targetType: "internet" })).toThrow("targetType");
     expect(() => validateSlashCommandRequest({ rawCommand: "status" })).toThrow("start with '/'");
+    expect(() => validateSetupHelloText("")).toThrow("Setup Hello is required");
+    expect(() => validateSetupApplyRequest({ ...setupRequest(), secret: { ref: { store: "system", name: "Primary Key" }, value: "secret" } })).toThrow("lowercase resource name");
   });
 });

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Literal
 
 from openppx.core.provider_registry import ProviderSpec, find_provider_spec
 
@@ -14,7 +15,9 @@ class CatalogProvider:
     provider_id: str
     display_name: str
     runtime: str
+    credential_mode: Literal["api_key", "oauth", "none"]
     credential_required: bool
+    default_model: str
 
 
 class ModelCatalog:
@@ -27,11 +30,26 @@ class ModelCatalog:
             return None
         return self._project(spec)
 
+    def list(self) -> tuple[CatalogProvider, ...]:
+        """Return the stable provider catalog in product display order."""
+        from openppx.core.provider_registry import PROVIDERS
+
+        return tuple(self._project(spec) for spec in PROVIDERS)
+
     @staticmethod
     def _project(spec: ProviderSpec) -> CatalogProvider:
+        credential_mode: Literal["api_key", "oauth", "none"]
+        if spec.is_oauth:
+            credential_mode = "oauth"
+        elif spec.api_key_env:
+            credential_mode = "api_key"
+        else:
+            credential_mode = "none"
         return CatalogProvider(
             provider_id=spec.name,
             display_name=spec.display_name,
             runtime=spec.runtime,
-            credential_required=spec.is_oauth or bool(spec.api_key_env),
+            credential_mode=credential_mode,
+            credential_required=credential_mode == "api_key",
+            default_model=spec.default_model,
         )

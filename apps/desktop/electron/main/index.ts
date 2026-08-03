@@ -9,6 +9,8 @@ import {
   validateIdentifier,
   validateRuntimeCommand,
   validateSendMessageInput,
+  validateSetupApplyRequest,
+  validateSetupHelloText,
   validateSlashCommandRequest,
 } from "./ipc-validation";
 import { OpenPpxLocalAdapter } from "./openppx-local-adapter";
@@ -81,6 +83,18 @@ app.whenReady().then(() => {
   ipcMain.handle("ppx-client:runtime-command", async (_event, command: unknown) =>
     adapter!.runRuntimeCommand(validateRuntimeCommand(command)),
   );
+  ipcMain.handle("ppx-client:get-setup-status", async () => adapter!.getSetupStatus());
+  ipcMain.handle("ppx-client:apply-setup", async (_event, request: unknown) =>
+    adapter!.applySetup(validateSetupApplyRequest(request)),
+  );
+  ipcMain.handle("ppx-client:run-setup-hello", async (_event, agentId: unknown, userId: unknown, text: unknown) =>
+    adapter!.runSetupHello(
+      validateIdentifier(agentId, "Agent id"),
+      validateIdentifier(userId, "User id"),
+      validateSetupHelloText(text),
+    ),
+  );
+  ipcMain.handle("ppx-client:list-model-profiles", async () => adapter!.listModelProfiles());
   ipcMain.handle("ppx-client:list-sessions", async (_event, agentId: unknown) =>
     adapter!.listSessions(validateIdentifier(agentId, "Agent id")),
   );

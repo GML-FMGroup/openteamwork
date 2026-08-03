@@ -1,0 +1,16 @@
+{
+  "correlationId": "req_setup_apply_fixture",
+  "ok": true,
+  "protocolVersion": 1,
+  "requestId": "req_setup_apply_fixture",
+  "result": {
+    "restartRequired": false,
+    "revisions": {
+      "agent": "sha256:agent-fixture",
+      "node": "sha256:node-fixture",
+      "profile": "sha256:profile-fixture"
+    },
+    "secretState": "available",
+    "state": "configured"
+  }
+}

@@ -1,0 +1,76 @@
+{
+  "actionId": "setup.apply",
+  "confirmed": false,
+  "correlationId": "req_setup_apply_fixture",
+  "input": {
+    "request": {
+      "agent": {
+        "apiVersion": "openppx.io/v1alpha1",
+        "kind": "AgentConfig",
+        "metadata": {
+          "name": "main"
+        },
+        "spec": {
+          "displayName": "Main",
+          "modelPolicy": {
+            "defaultProfile": "primary"
+          },
+          "ownerPrincipalId": "user_fixture",
+          "privilegeLevel": "medium",
+          "workspace": "/workspace"
+        }
+      },
+      "expectedRevisions": {
+        "agent": null,
+        "node": null,
+        "profile": null
+      },
+      "node": {
+        "apiVersion": "openppx.io/v1alpha1",
+        "kind": "NodeConfig",
+        "metadata": {
+          "name": "local-node"
+        },
+        "spec": {
+          "clientApi": {
+            "authentication": "disabled",
+            "listenHost": "127.0.0.1",
+            "port": 18765
+          },
+          "displayName": "Local Node",
+          "enabledAgents": [
+            "main"
+          ]
+        }
+      },
+      "profile": {
+        "apiVersion": "openppx.io/v1alpha1",
+        "kind": "ModelProfile",
+        "metadata": {
+          "name": "primary"
+        },
+        "spec": {
+          "capabilities": [
+            "text",
+            "tool_calling"
+          ],
+          "credential": {
+            "name": "primary-model-api-key",
+            "store": "system"
+          },
+          "executionLocation": "remote",
+          "model": "gemini-2.5-flash",
+          "provider": "google"
+        }
+      },
+      "secret": {
+        "ref": {
+          "name": "primary-model-api-key",
+          "store": "system"
+        },
+        "value": "fixture-api-key"
+      }
+    }
+  },
+  "requestId": "req_setup_apply_fixture"
+}
