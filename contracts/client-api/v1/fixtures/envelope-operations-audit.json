@@ -1,0 +1,9 @@
+{
+  "correlationId": "req_operations_audit_fixture",
+  "ok": true,
+  "protocolVersion": 1,
+  "requestId": "req_operations_audit_fixture",
+  "result": {
+    "items": []
+  }
+}

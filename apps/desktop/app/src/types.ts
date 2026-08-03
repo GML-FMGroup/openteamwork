@@ -13,6 +13,7 @@ import type {
   SetupApplyResult,
   SetupHelloResult,
   SetupStatusResult,
+  OperationsOverviewResult,
 } from "@openppx/client";
 
 export type {
@@ -33,6 +34,10 @@ export type {
   SetupApplyResult,
   SetupHelloResult,
   SetupStatusResult,
+  HealthComponent,
+  HealthState,
+  OperationsHealthResult,
+  OperationsOverviewResult,
 } from "@openppx/client";
 
 export type RuntimeState = "stopped" | "starting" | "reconnecting" | "healthy" | "error";
@@ -140,6 +145,18 @@ export interface ModelProfileSummary {
   credentialState: string;
 }
 
+export interface OperationsAuditItem {
+  id: string;
+  recordedAt: string;
+  completedAt: string | null;
+  actorId: string;
+  actionId: string;
+  risk: "low" | "medium" | "high";
+  decisionCode: string;
+  outcomeCode: string | null;
+  ok: boolean | null;
+}
+
 export interface PpxClientApi {
   bootstrap(): Promise<BootstrapPayload>;
   getDiagnostics(): Promise<ClientDiagnostics>;
@@ -157,6 +174,8 @@ export interface PpxClientApi {
   applySetup(request: SetupApplyRequest): Promise<SetupApplyResult>;
   runSetupHello(agentId: string, userId: string, text: string): Promise<SetupHelloResult>;
   listModelProfiles(): Promise<{ profiles: ModelProfileSummary[] }>;
+  getOperationsOverview(): Promise<OperationsOverviewResult>;
+  listOperationsAudit(limit?: number): Promise<{ items: OperationsAuditItem[] }>;
   listExtensions(): Promise<{ extensions: ExtensionSummary[] }>;
   getExtension(kind: ExtensionSummary["kind"], extensionId: string): Promise<{ extension: ExtensionDetail }>;
   setExtensionAgentEnabled(input: ExtensionEnablementRequest): Promise<{ revision: string; status: string }>;

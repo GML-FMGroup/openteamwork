@@ -12,6 +12,8 @@ const api: PpxClientApi = {
   runSetupHello: (agentId: string, userId: string, text: string) =>
     ipcRenderer.invoke("ppx-client:run-setup-hello", agentId, userId, text),
   listModelProfiles: () => ipcRenderer.invoke("ppx-client:list-model-profiles"),
+  getOperationsOverview: () => ipcRenderer.invoke("ppx-client:get-operations-overview"),
+  listOperationsAudit: (limit?: number) => ipcRenderer.invoke("ppx-client:list-operations-audit", limit),
   listSessions: (agentId: string) => ipcRenderer.invoke("ppx-client:list-sessions", agentId),
   createSession: (agentId: string) => ipcRenderer.invoke("ppx-client:create-session", agentId),
   loadSession: (sessionId: string) => ipcRenderer.invoke("ppx-client:load-session", sessionId),

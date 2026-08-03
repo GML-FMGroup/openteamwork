@@ -179,6 +179,15 @@ function installClient(overrides: Partial<PpxClientApi> = {}): { client: PpxClie
     }),
     runSetupHello: async () => ({ sessionId: "session-fixture", reply: "Hello", state: "ready" }),
     listModelProfiles: async () => ({ profiles: [] }),
+    getOperationsOverview: async () => ({
+      state: "healthy",
+      components: [
+        { component: "runtime", state: "healthy", code: "runtime_ready", reason: "Runtime Supervisor is ready.", remediation: null },
+      ],
+      tasks: { total: 0, byStatus: {} },
+      automation: { cronJobs: 0, heartbeatEnabled: false },
+    }),
+    listOperationsAudit: async () => ({ items: [] }),
     listSessions: async () => ({ sessions: buildBootstrapPayload().sessions }),
     createSession: async () => ({ session: buildBootstrapPayload().sessions[0] }),
     loadSession: async () => ({ messages: [] }),
@@ -1159,7 +1168,10 @@ describe("App sending state", () => {
     fireEvent.click(screen.getByRole("button", { name: "Operations" }));
     await screen.findByRole("heading", { name: "Runtime" });
     expect(document.querySelector(".settings-card-runtime")).toBeInTheDocument();
-    expect(document.querySelector(".settings-card-diagnostics")).toBeInTheDocument();
+    expect(document.querySelector(".settings-card-health")).toBeInTheDocument();
+    expect(document.querySelector(".settings-card-operations-summary")).toBeInTheDocument();
+    expect(document.querySelector(".settings-card-audit")).toBeInTheDocument();
+    expect(document.querySelector(".settings-card-diagnostics")).not.toBeInTheDocument();
     expect(document.querySelector(".settings-card-config")).not.toBeInTheDocument();
     expect(document.querySelectorAll(".settings-column")).toHaveLength(0);
     expect(screen.queryByText("detail")).not.toBeInTheDocument();
@@ -1213,9 +1225,14 @@ describe("App sending state", () => {
     });
   });
 
-  it("preserves unsaved connection edits during a diagnostics refresh", async () => {
-    const getDiagnostics = vi.fn(async () => ({ ...buildDiagnostics() }));
-    installClient({ getDiagnostics });
+  it("preserves unsaved connection edits during an Operations refresh", async () => {
+    const getOperationsOverview = vi.fn(async () => ({
+      state: "healthy" as const,
+      components: [],
+      tasks: { total: 0, byStatus: {} },
+      automation: { cronJobs: 0, heartbeatEnabled: false },
+    }));
+    installClient({ getOperationsOverview });
     render(<App />);
 
     await screen.findByRole("button", { name: "Settings" });
@@ -1225,7 +1242,7 @@ describe("App sending state", () => {
     fireEvent.click(screen.getByRole("button", { name: "Operations" }));
     fireEvent.click(screen.getByRole("button", { name: "Refresh" }));
 
-    await waitFor(() => expect(getDiagnostics.mock.calls.length).toBeGreaterThanOrEqual(2));
+    await waitFor(() => expect(getOperationsOverview.mock.calls.length).toBeGreaterThanOrEqual(2));
     fireEvent.click(screen.getByRole("button", { name: "General" }));
     expect(screen.getByLabelText("Target name")).toHaveValue("Draft Node Name");
   });

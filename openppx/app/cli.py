@@ -4628,6 +4628,48 @@ def _dispatch_action_command(args: argparse.Namespace, parser: argparse.Argument
     return 2
 
 
+def _dispatch_operations_command(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
+    """Project stable read-only Operations commands onto the shared Action API."""
+    command = args.operations_command
+    action_id = {
+        "status": "operations.overview",
+        "health": "operations.health",
+        "tasks": "operations.task.list",
+        "cron": "operations.cron.list",
+        "heartbeat": "operations.heartbeat.status",
+        "usage": "operations.usage.read",
+        "audit": "operations.audit.list",
+    }.get(command)
+    if action_id is None:
+        parser.print_help()
+        return 2
+    raw_input: dict[str, object] = {}
+    if command == "tasks":
+        raw_input = {"sessionId": args.session_id, "limit": args.limit}
+    elif command == "cron":
+        raw_input = {"includeDisabled": args.include_disabled, "historyLimit": args.history_limit}
+    elif command == "usage":
+        raw_input = {"limit": args.limit, "provider": args.provider}
+    elif command == "audit":
+        raw_input = {
+            "limit": args.limit,
+            "actorId": args.actor_id,
+            "agentId": args.agent_id,
+            "runId": args.run_id,
+            "extensionId": args.extension_id,
+            "actionId": args.action_id,
+            "outcome": args.outcome,
+        }
+    return _cmd_extension_action(
+        action_id,
+        raw_input,
+        base_url=args.client_api_url,
+        access_token=args.access_token,
+        confirmed=False,
+        output_json=args.output_json,
+    )
+
+
 def _dispatch_slash_command(args: argparse.Namespace) -> int:
     """Invoke one Action-backed slash command against a running Node."""
     return _cmd_extension_action(
@@ -4861,7 +4903,7 @@ def _should_require_agent_config_for_gateway(args: argparse.Namespace) -> bool:
 def _should_bootstrap_single_agent_env(args: argparse.Namespace) -> bool:
     """Return true when startup should hydrate one explicit config into process env."""
 
-    if args.command in {"install", "create", "client-api", "extension", "action", "command", "node", "sandbox", "setup"}:
+    if args.command in {"install", "create", "client-api", "extension", "action", "operations", "command", "node", "sandbox", "setup"}:
         return False
     return True
 
@@ -5332,6 +5374,40 @@ def main(argv: list[str] | None = None) -> None:
     action_invoke_parser.add_argument("--yes", action="store_true", help="Confirm an Action that requires confirmation.")
     _add_extension_transport_args(action_invoke_parser)
 
+    operations_parser = subparsers.add_parser(
+        "operations",
+        help="Inspect Node health, durable work, automation, usage, and audit facts.",
+    )
+    operations_subparsers = operations_parser.add_subparsers(dest="operations_command", required=True)
+    for command_name, command_help in (
+        ("status", "Show the compact Node Operations overview."),
+        ("health", "Show unified component health."),
+        ("heartbeat", "Show Node heartbeat status."),
+    ):
+        command_parser = operations_subparsers.add_parser(command_name, help=command_help)
+        _add_extension_transport_args(command_parser)
+    operations_tasks_parser = operations_subparsers.add_parser("tasks", help="List durable Node Tasks.")
+    operations_tasks_parser.add_argument("--session", dest="session_id", default=None)
+    operations_tasks_parser.add_argument("--limit", type=int, default=20)
+    _add_extension_transport_args(operations_tasks_parser)
+    operations_cron_parser = operations_subparsers.add_parser("cron", help="List Node-owned Cron jobs and history.")
+    operations_cron_parser.add_argument("--enabled-only", dest="include_disabled", action="store_false", default=True)
+    operations_cron_parser.add_argument("--history-limit", type=int, default=20)
+    _add_extension_transport_args(operations_cron_parser)
+    operations_usage_parser = operations_subparsers.add_parser("usage", help="Read Node-local model usage.")
+    operations_usage_parser.add_argument("--limit", type=int, default=20)
+    operations_usage_parser.add_argument("--provider", default=None)
+    _add_extension_transport_args(operations_usage_parser)
+    operations_audit_parser = operations_subparsers.add_parser("audit", help="Read redacted Action audit facts.")
+    operations_audit_parser.add_argument("--limit", type=int, default=50)
+    operations_audit_parser.add_argument("--actor", dest="actor_id", default=None)
+    operations_audit_parser.add_argument("--agent", dest="agent_id", default=None)
+    operations_audit_parser.add_argument("--run", dest="run_id", default=None)
+    operations_audit_parser.add_argument("--extension", dest="extension_id", default=None)
+    operations_audit_parser.add_argument("--action", dest="action_id", default=None)
+    operations_audit_parser.add_argument("--outcome", default=None)
+    _add_extension_transport_args(operations_audit_parser)
+
     command_parser = subparsers.add_parser(
         "command",
         help="Invoke one Action-backed slash command.",
@@ -5766,6 +5842,8 @@ def main(argv: list[str] | None = None) -> None:
         code = _dispatch_extension_command(args, extension_parser)
     elif args.command == "action":
         code = _dispatch_action_command(args, action_parser)
+    elif args.command == "operations":
+        code = _dispatch_operations_command(args, operations_parser)
     elif args.command == "command":
         code = _dispatch_slash_command(args)
     elif args.command == "channels":

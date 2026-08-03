@@ -7,6 +7,8 @@ from typing import Any
 
 from pydantic import BaseModel, ValidationError
 
+from openppx.governance import ActionAuditSink, ActionPolicy, NullActionAuditSink, PolicyDecision
+
 from .models import ActionContext, ActionError, ActionFailure, ActionOutcome
 from .registry import ActionRegistry
 
@@ -14,8 +16,16 @@ from .registry import ActionRegistry
 class ActionExecutor:
     """Validate, authorize, confirm, and invoke Actions in one deterministic order."""
 
-    def __init__(self, registry: ActionRegistry) -> None:
+    def __init__(
+        self,
+        registry: ActionRegistry,
+        *,
+        policy: ActionPolicy | None = None,
+        audit: ActionAuditSink | None = None,
+    ) -> None:
         self.registry = registry
+        self.policy = policy or ActionPolicy()
+        self.audit = audit or NullActionAuditSink()
 
     def execute(
         self,
@@ -36,7 +46,8 @@ class ActionExecutor:
             "capability_required",
             "permission_denied",
         }:
-            return ActionOutcome.failure(
+            policy_context, _ = self.policy.evaluate(spec, context, raw_input)
+            outcome = ActionOutcome.failure(
                 action_id,
                 ActionError(
                     "action_unavailable",
@@ -44,38 +55,38 @@ class ActionExecutor:
                     details={"reason": availability_reason},
                 ),
             )
-        missing_capabilities = sorted(spec.required_capabilities.difference(context.capabilities))
-        if missing_capabilities:
+            self._audit_denial(
+                policy_context,
+                PolicyDecision(False, "action_unavailable", "The Action is not currently available."),
+                outcome,
+            )
+            return outcome
+        policy_context, decision = self.policy.evaluate(spec, context, raw_input)
+        if not decision.allow:
+            outcome = ActionOutcome.failure(
+                action_id,
+                ActionError(
+                    decision.code,
+                    decision.reason,
+                    details=decision.detail_dict(),
+                ),
+            )
+            self._audit_denial(policy_context, decision, outcome)
+            return outcome
+        audit_id = self._begin_audit(policy_context, decision)
+        if audit_id is _AUDIT_FAILED and spec.risk == "high":
             return ActionOutcome.failure(
                 action_id,
                 ActionError(
-                    "capability_required",
-                    "The caller does not provide a required capability.",
-                    details={"capabilities": missing_capabilities},
+                    "audit_unavailable",
+                    "The high-risk Action cannot run while audit storage is unavailable.",
                 ),
             )
-        if spec.permission not in context.permissions:
-            return ActionOutcome.failure(
-                action_id,
-                ActionError(
-                    "permission_denied",
-                    "The caller is not permitted to execute this Action.",
-                    details={"permission": spec.permission},
-                ),
-            )
-        if spec.confirmation == "required" and not context.confirmed:
-            return ActionOutcome.failure(
-                action_id,
-                ActionError(
-                    "confirmation_required",
-                    "The Action requires explicit confirmation.",
-                    details={"risk": spec.risk},
-                ),
-            )
+        resolved_audit_id = audit_id if isinstance(audit_id, str) else None
         try:
             input_data = spec.input_model.model_validate(dict(raw_input), strict=True)
         except ValidationError as exc:
-            return ActionOutcome.failure(
+            outcome = ActionOutcome.failure(
                 action_id,
                 ActionError(
                     "invalid_action_input",
@@ -83,17 +94,42 @@ class ActionExecutor:
                     details={"issues": self._validation_issues(exc)},
                 ),
             )
+            self._complete_audit(resolved_audit_id, outcome)
+            return outcome
         try:
             raw_result = registered.handler(context, input_data)
             result = self._json_object(raw_result)
         except ActionFailure as exc:
-            return ActionOutcome.failure(action_id, exc.error)
+            outcome = ActionOutcome.failure(action_id, exc.error)
         except Exception:
-            return ActionOutcome.failure(
+            outcome = ActionOutcome.failure(
                 action_id,
                 ActionError("internal_error", "The Action could not be completed."),
             )
-        return ActionOutcome.success(action_id, result)
+        else:
+            outcome = ActionOutcome.success(action_id, result)
+        self._complete_audit(resolved_audit_id, outcome)
+        return outcome
+
+    def _audit_denial(self, policy_context, decision: PolicyDecision, outcome: ActionOutcome) -> None:
+        """Best-effort persist a denied Action without changing its stable denial."""
+        audit_id = self._begin_audit(policy_context, decision)
+        if isinstance(audit_id, str):
+            self._complete_audit(audit_id, outcome)
+
+    def _begin_audit(self, policy_context, decision: PolicyDecision) -> str | object | None:
+        """Begin an audit record while isolating storage failures from normal reads."""
+        try:
+            return self.audit.begin(policy_context, decision)
+        except Exception:
+            return _AUDIT_FAILED
+
+    def _complete_audit(self, audit_id: str | None, outcome: ActionOutcome) -> None:
+        """Complete an audit fact without replacing the business outcome on failure."""
+        try:
+            self.audit.complete(audit_id, outcome)
+        except Exception:
+            return
 
     @staticmethod
     def _validation_issues(exc: ValidationError) -> list[dict[str, object]]:
@@ -115,3 +151,6 @@ class ActionExecutor:
         if isinstance(value, Mapping):
             return dict(value)
         raise TypeError("Action handlers must return an object-shaped result")
+
+
+_AUDIT_FAILED = object()

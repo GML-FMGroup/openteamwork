@@ -1,0 +1,26 @@
+{
+  "correlationId": "req_operations_overview_fixture",
+  "ok": true,
+  "protocolVersion": 1,
+  "requestId": "req_operations_overview_fixture",
+  "result": {
+    "automation": {
+      "cronJobs": 0,
+      "heartbeatEnabled": false
+    },
+    "components": [
+      {
+        "code": "runtime_ready",
+        "component": "runtime",
+        "reason": "Runtime Supervisor is ready.",
+        "remediation": null,
+        "state": "healthy"
+      }
+    ],
+    "state": "healthy",
+    "tasks": {
+      "byStatus": {},
+      "total": 0
+    }
+  }
+}

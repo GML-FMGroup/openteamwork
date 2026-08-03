@@ -5,6 +5,8 @@ import type {
   ConnectionSettings,
   ExtensionSummary,
   ModelProfileSummary,
+  OperationsAuditItem,
+  OperationsOverviewResult,
   RuntimeState,
   RuntimeStatus,
 } from "../../types";
@@ -25,6 +27,10 @@ interface SettingsViewProps {
   extensionsLoading: boolean;
   extensionsError: string | null;
   extensionMutationId: string | null;
+  operationsOverview: OperationsOverviewResult | null;
+  operationsAudit: OperationsAuditItem[];
+  operationsLoading: boolean;
+  operationsError: string | null;
   selectedAgentId: string;
   sidebarCollapsed: boolean;
   canCreateSession: boolean;
@@ -35,7 +41,7 @@ interface SettingsViewProps {
   onReturnToChat: () => void;
   onRuntimeAction: () => void;
   onStopRuntime: () => void;
-  onRefreshDiagnostics: () => void;
+  onRefreshOperations: () => void;
   onTestConnection: () => void;
   onSaveConnection: () => void;
   onRefreshExtensions: () => void;
@@ -51,6 +57,11 @@ function runtimeActionLabel(state: RuntimeState): string {
 
 function sectionTitle(section: string): string {
   return section[0].toUpperCase() + section.slice(1);
+}
+
+function formatOperationTime(value: string): string {
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
 }
 
 /** Stable five-section Desktop control interface backed only by Node contracts. */
@@ -176,19 +187,40 @@ export function SettingsView(props: SettingsViewProps) {
             <>
               <section className="settings-card settings-card-runtime">
                 <div className="settings-runtime-copy"><h3>Runtime</h3><p>{props.runtime.summary}</p></div>
-                <div className="runtime-actions settings-runtime-actions"><button onClick={props.onRuntimeAction}>{runtimeActionLabel(props.runtime.state)}</button><button className="secondary" onClick={props.onStopRuntime}>Stop</button><button className="secondary" onClick={props.onRefreshDiagnostics}>Refresh</button></div>
+                <div className="runtime-actions settings-runtime-actions"><button onClick={props.onRuntimeAction}>{runtimeActionLabel(props.runtime.state)}</button><button className="secondary" onClick={props.onStopRuntime}>Stop</button><button className="secondary" onClick={props.onRefreshOperations} disabled={props.operationsLoading}>{props.operationsLoading ? "Refreshing" : "Refresh"}</button></div>
               </section>
-              <section className="settings-card settings-card-diagnostics">
-                <h3>Diagnostics</h3>
-                <dl className="diagnostics-grid">
-                  <div><dt>Authentication</dt><dd>{props.diagnostics?.clientApiAuthState ?? "unknown"}</dd></div>
-                  <div><dt>Process</dt><dd>{props.diagnostics?.clientApiProcessRunning ? "running" : "external"}</dd></div>
-                  <div><dt>Debug</dt><dd>{props.diagnostics?.debugEnabled ? "enabled" : "off"}</dd></div>
-                  <div><dt>Fallbacks</dt><dd>{props.diagnostics?.mockEnabled ? "mock" : props.diagnostics?.legacyBridgeEnabled ? "legacy bridge" : "off"}</dd></div>
-                  <div><dt>Session cache</dt><dd>{props.diagnostics?.sessionCacheEntries ?? 0}</dd></div>
-                  <div><dt>Message cache</dt><dd>{props.diagnostics?.messageCacheEntries ?? 0}</dd></div>
-                  <div className="diagnostic-wide"><dt>Last API error</dt><dd>{props.diagnostics?.clientApiLastError || "None"}</dd></div>
+              {props.operationsError ? <p className="settings-inline-error settings-operations-error">{props.operationsError}</p> : null}
+              <section className="settings-card settings-card-health">
+                <div className="settings-card-heading"><div><h3>Node health</h3><p>One authoritative view of runtime, storage, credentials, Extensions, and isolation.</p></div><span className={`operations-state ${props.operationsOverview?.state ?? "unavailable"}`}>{props.operationsOverview?.state ?? "unavailable"}</span></div>
+                <div className="operations-component-list">
+                  {props.operationsOverview?.components.length ? props.operationsOverview.components.map((component) => (
+                    <article className="operations-component" key={component.component}>
+                      <span className={`operations-component-dot ${component.state}`} />
+                      <div><span>{component.component}</span><p>{component.reason}</p>{component.remediation ? <small>{component.remediation}</small> : null}</div>
+                      <em>{component.state}</em>
+                    </article>
+                  )) : <p className="extension-empty">Health information is not available yet.</p>}
+                </div>
+              </section>
+              <section className="settings-card settings-card-operations-summary">
+                <h3>Overview</h3>
+                <dl className="operations-summary-grid">
+                  <div><dt>Durable Tasks</dt><dd>{props.operationsOverview?.tasks.total ?? 0}</dd></div>
+                  <div><dt>Cron jobs</dt><dd>{props.operationsOverview?.automation.cronJobs ?? 0}</dd></div>
+                  <div><dt>Heartbeat</dt><dd>{props.operationsOverview?.automation.heartbeatEnabled ? "enabled" : "disabled"}</dd></div>
                 </dl>
+              </section>
+              <section className="settings-card settings-card-audit">
+                <div className="settings-card-heading"><div><h3>Recent activity</h3><p>Redacted Action decisions and outcomes. Request and result payloads are never stored here.</p></div></div>
+                <div className="operations-audit-list">
+                  {props.operationsAudit.length ? props.operationsAudit.map((item) => (
+                    <article className="operations-audit-row" key={item.id}>
+                      <div><span>{item.actionId}</span><p>{item.actorId} · {formatOperationTime(item.recordedAt)}</p></div>
+                      <span className={`operations-audit-outcome ${item.ok === false ? "failed" : item.ok === true ? "succeeded" : "pending"}`}>{item.outcomeCode ?? item.decisionCode}</span>
+                      <small>{item.risk} risk</small>
+                    </article>
+                  )) : <p className="extension-empty">No Action activity has been recorded yet.</p>}
+                </div>
               </section>
             </>
           ) : null}

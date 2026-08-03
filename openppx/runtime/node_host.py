@@ -8,16 +8,20 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable
 
-from openppx.config import ConfigLoadError, SecretStore, SystemCredentialSecretStore
+from openppx.config import ConfigLoadError, NodeOperationsSpec, SecretStore, SystemCredentialSecretStore
 from openppx.control_plane import ControlPlaneApplication, build_control_plane
 from openppx.extensions import AppManager, ExtensionRegistry, McpManager, PluginManager, SkillManager
 from openppx.extensions.indexes import ExtensionReferenceIndex, ResourceIdentityIndex
 from openppx.extensions.prefixes import ToolPrefixIndex
+from openppx.operations import NodeAutomationExecutor, NodeOperationsRuntime, OperationsService
 
 from .assembly import RuntimeAssembler
 from .client_api_auth import resolve_client_api_access_token, validate_client_api_bind
 from .client_api_service import ClientApiCoordinator, ClientApiHttpServer
 from .node_runtime import NodeRuntimeSupervisor
+from .cron_service import CronService
+from .heartbeat_runner import HeartbeatRunner
+from .task_store import TaskEventStore
 from .task_scheduler import TaskWakeScheduler
 
 
@@ -31,12 +35,17 @@ class NodeComposition:
     control_plane: ControlPlaneApplication
     runtime_supervisor: NodeRuntimeSupervisor
     assembler: RuntimeAssembler
+    operations_service: OperationsService
+    operations_runtime: NodeOperationsRuntime
 
 
 def build_node_composition(
     node_root: Path,
     *,
     secret_store: SecretStore | None = None,
+    task_scheduler: Any | None = None,
+    cron_service: Any | None = None,
+    heartbeat_runner: Any | None = None,
 ) -> NodeComposition:
     """Build the shared business/runtime graph without binding a transport."""
     root = node_root.expanduser().resolve(strict=False)
@@ -103,10 +112,61 @@ def build_node_composition(
         assembler=assembler,
     )
     control_plane.attach_runtime(runtime_supervisor)
+    try:
+        operations_config = control_plane.config_repository.read_node().document.spec.operations
+    except ConfigLoadError as exc:
+        if exc.kind != "not_found":
+            raise
+        operations_config = NodeOperationsSpec()
+    automation = NodeAutomationExecutor(control_plane.config_repository, runtime_supervisor)
+    resolved_scheduler = task_scheduler or TaskWakeScheduler(
+        task_store=assembler.services.task_store,
+    )
+    resolved_cron = cron_service or CronService(
+        root / "database" / "cron.json",
+        on_job=automation.run_cron,
+        task_store=assembler.services.task_store,
+        event_store=TaskEventStore(db_path=assembler.services.task_store.db_path),
+    )
+    heartbeat_config = operations_config.heartbeat
+    resolved_heartbeat = heartbeat_runner or HeartbeatRunner(
+        on_run=automation.run_heartbeat,
+        every=f"{heartbeat_config.every_seconds}s" if heartbeat_config.enabled else "",
+        prompt=heartbeat_config.prompt,
+        active_hours={
+            "start": heartbeat_config.active_hours.start or "",
+            "end": heartbeat_config.active_hours.end or "",
+            "timezone": heartbeat_config.active_hours.timezone,
+        },
+        is_busy=automation.is_busy,
+    )
+    operations_runtime = NodeOperationsRuntime(
+        task_scheduler=resolved_scheduler,
+        cron=resolved_cron,
+        heartbeat=resolved_heartbeat,
+        task_scheduler_enabled=operations_config.task_scheduler_enabled,
+        cron_enabled=operations_config.cron_enabled,
+        heartbeat_enabled=heartbeat_config.enabled,
+    )
+    operations_service = OperationsService(
+        node_root=root,
+        repository=control_plane.config_repository,
+        setup=control_plane.setup_service,
+        extensions=extension_registry,
+        supervisor=runtime_supervisor,
+        task_store=assembler.services.task_store,
+        cron=resolved_cron,
+        heartbeat=resolved_heartbeat,
+        runtime=operations_runtime,
+        audit=control_plane.audit_store,
+    )
+    control_plane.attach_operations(operations_service)
     return NodeComposition(
         control_plane=control_plane,
         runtime_supervisor=runtime_supervisor,
         assembler=assembler,
+        operations_service=operations_service,
+        operations_runtime=operations_runtime,
     )
 
 
@@ -170,17 +230,17 @@ class OpenPpxNodeHost:
     runtime_supervisor: NodeRuntimeSupervisor
     coordinator: ClientApiCoordinator
     server: Any
-    scheduler: Any
+    operations_runtime: NodeOperationsRuntime
     address: tuple[str, int]
     authentication_required: bool
-    _scheduler_thread: _AsyncServiceThread = field(init=False, repr=False)
+    _operations_thread: _AsyncServiceThread = field(init=False, repr=False)
     _closed: bool = field(init=False, default=False, repr=False)
     _started: bool = field(init=False, default=False, repr=False)
 
     def __post_init__(self) -> None:
-        self._scheduler_thread = _AsyncServiceThread(
-            self.scheduler,
-            name="openppx-node-scheduler",
+        self._operations_thread = _AsyncServiceThread(
+            self.operations_runtime,
+            name="openppx-node-operations",
         )
 
     @classmethod
@@ -198,7 +258,11 @@ class OpenPpxNodeHost:
         """Compose one Node from its strict Config and explicit dependencies."""
         root = node_root.expanduser().resolve(strict=False)
         secrets = secret_store or SystemCredentialSecretStore()
-        composition = build_node_composition(root, secret_store=secrets)
+        composition = build_node_composition(
+            root,
+            secret_store=secrets,
+            task_scheduler=scheduler,
+        )
         control_plane = composition.control_plane
         try:
             node_resource = control_plane.config_repository.read_node()
@@ -221,15 +285,11 @@ class OpenPpxNodeHost:
             raise ValueError("Node Client API authentication is required but no access token is configured.")
         validate_client_api_bind(host=resolved_host, access_token=resolved_token)
 
-        assembler = composition.assembler
         runtime_supervisor = composition.runtime_supervisor
         coordinator = ClientApiCoordinator(
             data_dir=root,
             control_plane=control_plane,
             runtime_supervisor=runtime_supervisor,
-        )
-        resolved_scheduler = scheduler or TaskWakeScheduler(
-            task_store=assembler.services.task_store,
         )
         server = server_factory(
             (resolved_host, resolved_port),
@@ -242,7 +302,7 @@ class OpenPpxNodeHost:
             runtime_supervisor=runtime_supervisor,
             coordinator=coordinator,
             server=server,
-            scheduler=resolved_scheduler,
+            operations_runtime=composition.operations_runtime,
             address=(resolved_host, resolved_port),
             authentication_required=authentication_required,
         )
@@ -251,7 +311,7 @@ class OpenPpxNodeHost:
         """Start Node-owned services and block in the Client API server."""
         if self._closed:
             raise RuntimeError("The OpenPPX Node host is already closed.")
-        self._scheduler_thread.start()
+        self._operations_thread.start()
         self._started = True
         try:
             self.server.serve_forever()
@@ -271,7 +331,7 @@ class OpenPpxNodeHost:
         if shutdown_server:
             self.server.shutdown()
         self.server.server_close()
-        self._scheduler_thread.stop()
+        self._operations_thread.stop()
         self.runtime_supervisor.close()
 
 

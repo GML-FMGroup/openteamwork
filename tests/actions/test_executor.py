@@ -125,3 +125,20 @@ def test_executor_does_not_leak_unexpected_handler_exception() -> None:
     assert result.error.code == "internal_error"
     assert "secret backend" not in str(result)
     assert "/private/path" not in str(result)
+
+
+def test_action_spec_requires_confirmation_for_high_risk_actions() -> None:
+    import pytest
+
+    with pytest.raises(ValueError, match="high-risk"):
+        ActionSpec(
+            action_id="system.danger",
+            namespace="system",
+            title="Danger",
+            description="A dangerous operation.",
+            input_model=CountInput,
+            scope="node",
+            required_capabilities=frozenset({"system.write"}),
+            permission="system.write",
+            risk="high",
+        )

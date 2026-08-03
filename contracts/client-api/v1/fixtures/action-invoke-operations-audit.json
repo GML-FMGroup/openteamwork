@@ -1,0 +1,9 @@
+{
+  "actionId": "operations.audit.list",
+  "confirmed": false,
+  "correlationId": "req_operations_audit_fixture",
+  "input": {
+    "limit": 50
+  },
+  "requestId": "req_operations_audit_fixture"
+}

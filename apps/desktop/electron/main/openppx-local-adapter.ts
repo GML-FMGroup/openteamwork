@@ -9,6 +9,7 @@ import {
   CommandClient,
   ExtensionClient,
   ModelClient,
+  OperationsClient,
   SetupClient,
   normalizeClientApiMessage,
   normalizeClientApiPart,
@@ -41,6 +42,8 @@ import type {
   ExtensionEnablementRequest,
   ExtensionSummary,
   ModelProfileSummary,
+  OperationsAuditItem,
+  OperationsOverviewResult,
   MessagePart,
   PpxClientApi,
   RunEvent,
@@ -172,6 +175,8 @@ export class OpenPpxLocalAdapter implements PpxClientApi {
 
   private readonly models: ModelClient;
 
+  private readonly operations: OperationsClient;
+
   private readonly nodeSupervisor: LocalNodeSupervisor;
 
   private readonly legacyBridge: LegacyBridgeClient;
@@ -203,6 +208,7 @@ export class OpenPpxLocalAdapter implements PpxClientApi {
     this.commands = new CommandClient(this.actions);
     this.setup = new SetupClient(this.actions);
     this.models = new ModelClient(this.actions);
+    this.operations = new OperationsClient(this.actions);
     this.nodeSupervisor = new LocalNodeSupervisor({
       openppxRoot: this.openppxRoot,
       nodeRoot: dataRootPath(),
@@ -639,6 +645,40 @@ export class OpenPpxLocalAdapter implements PpxClientApi {
       credentialState: String(item.credentialState ?? "unknown"),
     }));
     return { profiles };
+  }
+
+  public async getOperationsOverview(): Promise<OperationsOverviewResult> {
+    if (this.shouldUseMock()) {
+      return {
+        state: "healthy",
+        components: [],
+        tasks: { total: 0, byStatus: {} },
+        automation: { cronJobs: 0, heartbeatEnabled: false },
+      };
+    }
+    await this.ensureClientApiAvailable();
+    return (await this.operations.overview()).result;
+  }
+
+  public async listOperationsAudit(limit = 20): Promise<{ items: OperationsAuditItem[] }> {
+    if (this.shouldUseMock()) {
+      return { items: [] };
+    }
+    await this.ensureClientApiAvailable();
+    const result = await this.operations.audit({ limit });
+    return {
+      items: result.result.items.map((item) => ({
+        id: String(item.id ?? ""),
+        recordedAt: String(item.recordedAt ?? ""),
+        completedAt: typeof item.completedAt === "string" ? item.completedAt : null,
+        actorId: String(item.actorId ?? ""),
+        actionId: String(item.actionId ?? ""),
+        risk: item.risk === "high" || item.risk === "medium" ? item.risk : "low",
+        decisionCode: String(item.decisionCode ?? "unknown"),
+        outcomeCode: typeof item.outcomeCode === "string" ? item.outcomeCode : null,
+        ok: typeof item.ok === "boolean" ? item.ok : null,
+      })),
+    };
   }
 
   public async listExtensions(): Promise<{ extensions: ExtensionSummary[] }> {

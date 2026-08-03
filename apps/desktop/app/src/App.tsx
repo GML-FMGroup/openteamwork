@@ -295,6 +295,10 @@ export function App() {
           extensionsLoading={workspace.extensionsLoading}
           extensionsError={workspace.extensionsError}
           extensionMutationId={workspace.extensionMutationId}
+          operationsOverview={workspace.operationsOverview}
+          operationsAudit={workspace.operationsAudit}
+          operationsLoading={workspace.operationsLoading}
+          operationsError={workspace.operationsError}
           selectedAgentId={workspace.selectedAgentId}
           sidebarCollapsed={leftSidebarCollapsed}
           setConnectionForm={workspace.setConnectionForm}
@@ -305,7 +309,7 @@ export function App() {
           onReturnToChat={() => setView("chat")}
           onRuntimeAction={() => void workspace.runRuntimeAction()}
           onStopRuntime={() => void workspace.stopRuntime()}
-          onRefreshDiagnostics={() => void workspace.refreshDiagnostics()}
+          onRefreshOperations={() => void workspace.refreshOperations()}
           onTestConnection={() => void workspace.testConnection()}
           onSaveConnection={() => void workspace.saveConnection()}
           onRefreshExtensions={() => void workspace.refreshExtensions()}

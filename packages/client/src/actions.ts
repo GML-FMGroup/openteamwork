@@ -175,6 +175,43 @@ export interface SetupHelloResult extends Record<string, unknown> {
   state: "ready";
 }
 
+export type HealthState = "healthy" | "degraded" | "unavailable" | "disabled";
+
+export interface HealthComponent {
+  component: string;
+  state: HealthState;
+  code: string;
+  reason: string;
+  remediation: string | null;
+}
+
+export interface OperationsHealthResult extends Record<string, unknown> {
+  state: "healthy" | "degraded" | "unavailable";
+  components: HealthComponent[];
+}
+
+export interface OperationsOverviewResult extends OperationsHealthResult {
+  tasks: { total: number; byStatus: Record<string, number> };
+  automation: { cronJobs: number; heartbeatEnabled: boolean };
+}
+
+export interface CronScheduleInput extends Record<string, unknown> {
+  kind: "every" | "cron" | "at";
+  everySeconds?: number;
+  cronExpression?: string;
+  atMs?: number;
+  timezone?: string;
+}
+
+export interface CronCreateInput extends Record<string, unknown> {
+  name: string;
+  agentId: string;
+  userId: string;
+  message: string;
+  schedule: CronScheduleInput;
+  deleteAfterRun?: boolean;
+}
+
 export interface ActionClientOptions {
   idFactory?: () => string;
 }
@@ -341,6 +378,59 @@ export class SecretClient {
   }
 }
 
+/** Typed Node Operations facade shared by Desktop and future Mobile clients. */
+export class OperationsClient {
+  public constructor(private readonly actions: ActionClient) {}
+
+  public overview(): Promise<ActionEnvelope<OperationsOverviewResult>> {
+    return this.actions.invoke("operations.overview", {});
+  }
+
+  public health(): Promise<ActionEnvelope<OperationsHealthResult>> {
+    return this.actions.invoke("operations.health", {});
+  }
+
+  public tasks(sessionId: string | null = null, limit = 20): Promise<ActionEnvelope<{ items: Array<Record<string, unknown>> }>> {
+    return this.actions.invoke("operations.task.list", { sessionId, limit });
+  }
+
+  public cron(includeDisabled = true, historyLimit = 20): Promise<ActionEnvelope<Record<string, unknown>>> {
+    return this.actions.invoke("operations.cron.list", { includeDisabled, historyLimit });
+  }
+
+  public createCron(input: CronCreateInput, confirmed = false): Promise<ActionEnvelope<Record<string, unknown>>> {
+    return this.actions.invoke("operations.cron.create", input, { confirmed });
+  }
+
+  public setCronEnabled(jobId: string, enabled: boolean, confirmed = false): Promise<ActionEnvelope<Record<string, unknown>>> {
+    return this.actions.invoke("operations.cron.enable", { jobId, enabled }, { confirmed });
+  }
+
+  public removeCron(jobId: string, confirmed = false): Promise<ActionEnvelope<Record<string, unknown>>> {
+    return this.actions.invoke("operations.cron.remove", { jobId }, { confirmed });
+  }
+
+  public runCron(jobId: string, force = false, confirmed = false): Promise<ActionEnvelope<Record<string, unknown>>> {
+    return this.actions.invoke("operations.cron.run", { jobId, force }, { confirmed });
+  }
+
+  public heartbeat(): Promise<ActionEnvelope<Record<string, unknown>>> {
+    return this.actions.invoke("operations.heartbeat.status", {});
+  }
+
+  public runHeartbeat(reason = "manual", confirmed = false): Promise<ActionEnvelope<Record<string, unknown>>> {
+    return this.actions.invoke("operations.heartbeat.run", { reason }, { confirmed });
+  }
+
+  public usage(limit = 20, provider: string | null = null): Promise<ActionEnvelope<Record<string, unknown>>> {
+    return this.actions.invoke("operations.usage.read", { limit, provider });
+  }
+
+  public audit(input: Record<string, unknown> = {}): Promise<ActionEnvelope<{ items: Array<Record<string, unknown>> }>> {
+    return this.actions.invoke("operations.audit.list", { limit: 50, ...input });
+  }
+}
+
 export class SessionClient {
   public constructor(private readonly actions: ActionClient) {}
 
@@ -416,6 +506,8 @@ export class OpenPpxClient {
 
   public readonly secrets: SecretClient;
 
+  public readonly operations: OperationsClient;
+
   public constructor(options: ClientApiHttpTransportOptions & ActionClientOptions) {
     this.transport = new ClientApiHttpTransport(options);
     this.actions = new ActionClient(this.transport, options);
@@ -427,5 +519,6 @@ export class OpenPpxClient {
     this.commands = new CommandClient(this.actions);
     this.setup = new SetupClient(this.actions);
     this.secrets = new SecretClient(this.actions);
+    this.operations = new OperationsClient(this.actions);
   }
 }

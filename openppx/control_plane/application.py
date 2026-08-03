@@ -9,10 +9,12 @@ from openppx.actions import ActionError, ActionFailure, SlashCommandError, Slash
 from openppx.config import ConfigService, FilesystemConfigRepository
 from openppx.modeling import ModelProfileRepository, ModelProfileSelector
 from openppx.setup import SetupService
+from openppx.governance import ActionAuditStore, ActionPolicy
 
 from .config_actions import register_config_actions
 from .extension_actions import register_extension_actions
 from .model_actions import register_model_actions
+from .operations_actions import register_operations_actions
 from .runtime_actions import register_runtime_actions
 from .system_actions import register_system_actions
 from .setup_actions import register_setup_actions, register_setup_runtime_actions
@@ -30,6 +32,7 @@ class ControlPlaneApplication:
         profile_repository: ModelProfileRepository,
         model_selector: ModelProfileSelector,
         setup_service: SetupService,
+        audit_store: ActionAuditStore,
         product_version: str,
     ) -> None:
         self.config_repository = config_repository
@@ -37,9 +40,10 @@ class ControlPlaneApplication:
         self.profile_repository = profile_repository
         self.model_selector = model_selector
         self.setup_service = setup_service
+        self.audit_store = audit_store
         self.product_version = product_version
         registry = ActionRegistry()
-        executor = ActionExecutor(registry)
+        executor = ActionExecutor(registry, policy=ActionPolicy(), audit=audit_store)
         register_config_actions(registry, config_repository, config_service)
         register_model_actions(registry, profile_repository, model_selector, config_repository)
         register_setup_actions(registry, setup_service)
@@ -63,6 +67,7 @@ class ControlPlaneApplication:
         self.executor = executor
         self.runtime_supervisor = None
         self.extension_registry = None
+        self.operations_service = None
 
     @staticmethod
     def _invoke_slash_command(
@@ -145,6 +150,13 @@ class ControlPlaneApplication:
         register_runtime_actions(self.registry, supervisor, task_controller=task_controller)
         register_setup_runtime_actions(self.registry, self.setup_service, supervisor)
         self.runtime_supervisor = supervisor
+
+    def attach_operations(self, service) -> None:
+        """Attach the one Node-owned Operations facade and its Actions."""
+        if self.operations_service is not None:
+            raise RuntimeError("An Operations Service is already attached.")
+        register_operations_actions(self.registry, service)
+        self.operations_service = service
 
     def status(self, context: ActionContext) -> ActionOutcome:
         """Return system readiness through the same Action path used by clients."""

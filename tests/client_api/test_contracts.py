@@ -104,6 +104,8 @@ def test_contract_export_is_deterministic_and_fixtures_round_trip(tmp_path: Path
         "envelope-setup-status.json",
         "envelope-setup-apply.json",
         "envelope-setup-hello.json",
+        "envelope-operations-overview.json",
+        "envelope-operations-audit.json",
     ):
         payload = json.loads((first / "fixtures" / fixture_name).read_text(encoding="utf-8"))
         assert adapter.validate_python(payload)
@@ -119,6 +121,8 @@ def test_contract_export_is_deterministic_and_fixtures_round_trip(tmp_path: Path
         "action-invoke-setup-status.json",
         "action-invoke-setup-apply.json",
         "action-invoke-setup-hello.json",
+        "action-invoke-operations-overview.json",
+        "action-invoke-operations-audit.json",
     ):
         payload = json.loads((first / "fixtures" / fixture_name).read_text(encoding="utf-8"))
         assert invocation_adapter.validate_python(payload)

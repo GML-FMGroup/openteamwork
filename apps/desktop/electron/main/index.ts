@@ -95,6 +95,12 @@ app.whenReady().then(() => {
     ),
   );
   ipcMain.handle("ppx-client:list-model-profiles", async () => adapter!.listModelProfiles());
+  ipcMain.handle("ppx-client:get-operations-overview", async () => adapter!.getOperationsOverview());
+  ipcMain.handle("ppx-client:list-operations-audit", async (_event, limit: unknown) =>
+    adapter!.listOperationsAudit(
+      typeof limit === "number" && Number.isInteger(limit) && limit > 0 && limit <= 200 ? limit : 20,
+    ),
+  );
   ipcMain.handle("ppx-client:list-sessions", async (_event, agentId: unknown) =>
     adapter!.listSessions(validateIdentifier(agentId, "Agent id")),
   );

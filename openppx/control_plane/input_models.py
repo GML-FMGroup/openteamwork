@@ -5,7 +5,7 @@ from __future__ import annotations
 from decimal import Decimal, InvalidOperation
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, SecretStr, StrictInt, StringConstraints, field_validator
+from pydantic import BaseModel, ConfigDict, Field, SecretStr, StrictBool, StrictInt, StringConstraints, field_validator, model_validator
 from pydantic.alias_generators import to_camel
 
 from openppx.config import AgentConfig, NodeConfig
@@ -208,6 +208,91 @@ class TaskListInput(ActionInput):
 
     session_id: RunId | None = None
     limit: StrictInt = Field(default=20, ge=1, le=100)
+
+
+class OperationsCronListInput(ActionInput):
+    """Read Cron jobs and bounded recent history."""
+
+    include_disabled: StrictBool = False
+    history_limit: StrictInt = Field(default=20, ge=1, le=100)
+
+
+class OperationsCronScheduleInput(ActionInput):
+    """One strict interval, cron-expression, or one-shot schedule."""
+
+    kind: Literal["every", "cron", "at"]
+    every_seconds: StrictInt | None = Field(default=None, ge=1, le=31_536_000)
+    cron_expression: Annotated[str, StringConstraints(min_length=1, max_length=256)] | None = None
+    at_ms: StrictInt | None = Field(default=None, ge=1)
+    timezone: Annotated[str, StringConstraints(min_length=1, max_length=128)] | None = None
+
+    @model_validator(mode="after")
+    def exactly_one_schedule_shape(self) -> "OperationsCronScheduleInput":
+        """Reject ambiguous or incomplete Cron schedule inputs."""
+        present = {
+            "every": self.every_seconds is not None,
+            "cron": self.cron_expression is not None,
+            "at": self.at_ms is not None,
+        }
+        if not present[self.kind] or sum(present.values()) != 1:
+            raise ValueError("schedule fields must match kind exactly")
+        if self.timezone is not None and self.kind != "cron":
+            raise ValueError("timezone is only valid for cron schedules")
+        return self
+
+
+class OperationsCronCreateInput(ActionInput):
+    """Create one Agent-scoped Node Cron job."""
+
+    name: Annotated[str, StringConstraints(min_length=1, max_length=120)]
+    agent_id: ResourceId
+    user_id: PrincipalId
+    message: Annotated[str, StringConstraints(min_length=1, max_length=8000)]
+    schedule: OperationsCronScheduleInput
+    delete_after_run: StrictBool = False
+
+
+class OperationsCronIdentityInput(ActionInput):
+    """Identify one Node-owned Cron job."""
+
+    job_id: Annotated[str, StringConstraints(min_length=1, max_length=64, pattern=r"^[A-Za-z0-9._:-]+$")]
+
+
+class OperationsCronEnableInput(OperationsCronIdentityInput):
+    """Set one Cron job enabled state."""
+
+    enabled: StrictBool
+
+
+class OperationsCronRunInput(OperationsCronIdentityInput):
+    """Run one Cron job immediately."""
+
+    force: StrictBool = False
+
+
+class OperationsHeartbeatRunInput(ActionInput):
+    """Trigger one Node heartbeat for an operator-provided reason."""
+
+    reason: Annotated[str, StringConstraints(min_length=1, max_length=120)] = "manual"
+
+
+class OperationsUsageReadInput(ActionInput):
+    """Read bounded Node-local model token usage."""
+
+    limit: StrictInt = Field(default=20, ge=1, le=100)
+    provider: ResourceId | None = None
+
+
+class OperationsAuditListInput(ActionInput):
+    """Read bounded redacted Action audit facts."""
+
+    limit: StrictInt = Field(default=50, ge=1, le=200)
+    actor_id: PrincipalId | None = None
+    agent_id: ResourceId | None = None
+    run_id: RunId | None = None
+    extension_id: ResourceId | None = None
+    action_id: Annotated[str, StringConstraints(pattern=r"^[a-z][a-z0-9_]*(?:\.[a-z][a-z0-9_]*)+$")] | None = None
+    outcome: Annotated[str, StringConstraints(min_length=1, max_length=80)] | None = None
 
 
 ExtensionKind = Literal["plugin", "app", "mcp", "skill"]

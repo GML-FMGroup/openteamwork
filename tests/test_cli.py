@@ -284,6 +284,44 @@ class CLITests(unittest.TestCase):
                 output.assert_called_once_with("Error: --input-json must contain one JSON object.")
                 mocked_bootstrap.assert_not_called()
 
+    def test_operations_audit_is_a_thin_shared_action_projection(self) -> None:
+        from openppx import cli
+
+        with patch.object(cli, "bootstrap_env_from_config") as mocked_bootstrap:
+            with patch.object(cli, "_cmd_extension_action", return_value=0) as mocked:
+                with self.assertRaises(SystemExit) as ctx:
+                    cli.main([
+                        "operations",
+                        "audit",
+                        "--limit",
+                        "12",
+                        "--action",
+                        "operations.cron.create",
+                        "--url",
+                        "http://10.0.0.8:18765",
+                        "--token",
+                        "secret",
+                        "--json",
+                    ])
+                self.assertEqual(ctx.exception.code, 0)
+                mocked.assert_called_once_with(
+                    "operations.audit.list",
+                    {
+                        "limit": 12,
+                        "actorId": None,
+                        "agentId": None,
+                        "runId": None,
+                        "extensionId": None,
+                        "actionId": "operations.cron.create",
+                        "outcome": None,
+                    },
+                    base_url="http://10.0.0.8:18765",
+                    access_token="secret",
+                    confirmed=False,
+                    output_json=True,
+                )
+                mocked_bootstrap.assert_not_called()
+
     def test_command_dispatches_context_to_system_command_action(self) -> None:
         from openppx import cli
 

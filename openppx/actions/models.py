@@ -96,6 +96,8 @@ class ActionSpec:
             raise ValueError("risk is not supported")
         if self.confirmation not in {"never", "required"}:
             raise ValueError("confirmation is not supported")
+        if self.risk == "high" and self.confirmation != "required":
+            raise ValueError("high-risk Actions must require confirmation")
         if self.execution not in {"sync", "long_running"}:
             raise ValueError("execution is not supported")
         invalid_capabilities = [
@@ -124,6 +126,8 @@ class ActionContext:
     actor_id: str
     capabilities: frozenset[str]
     permissions: frozenset[str]
+    client_id: str | None = None
+    device_id: str | None = None
     confirmed: bool = False
     node_id: str | None = None
     agent_id: str | None = None
@@ -137,6 +141,10 @@ class ActionContext:
             value = getattr(self, field_name)
             if not value.strip() or any(ord(character) < 32 for character in value):
                 raise ValueError(f"{field_name} must contain visible text")
+        for field_name in ("client_id", "device_id"):
+            value = getattr(self, field_name)
+            if value is not None and (not value.strip() or any(ord(character) < 32 for character in value)):
+                raise ValueError(f"{field_name} must contain visible text when provided")
 
 
 @dataclass(frozen=True, slots=True)

@@ -117,12 +117,53 @@ class NodeClientApiSpec(StrictConfigModel):
         return self
 
 
+class NodeHeartbeatActiveHours(StrictConfigModel):
+    """Optional local-time window in which Node heartbeat turns may run."""
+
+    start: Annotated[str, StringConstraints(pattern=r"^(?:[01]\d|2[0-3]):[0-5]\d$")] | None = None
+    end: Annotated[str, StringConstraints(pattern=r"^(?:[01]\d|2[0-3]):[0-5]\d$")] | None = None
+    timezone: Annotated[str, StringConstraints(min_length=1, max_length=128)] = "user"
+
+    @model_validator(mode="after")
+    def start_and_end_must_be_declared_together(self) -> "NodeHeartbeatActiveHours":
+        """Reject half-configured active-hour windows."""
+        if (self.start is None) != (self.end is None):
+            raise ValueError("heartbeat activeHours start and end must be configured together")
+        return self
+
+
+class NodeHeartbeatSpec(StrictConfigModel):
+    """Typed Node-owned heartbeat settings without environment fallbacks."""
+
+    enabled: StrictBool = False
+    every_seconds: StrictInt = Field(default=1800, ge=30, le=604800)
+    prompt: Annotated[str, StringConstraints(min_length=1, max_length=4000)] = (
+        "Review current tasks and report only information that needs operator attention."
+    )
+    active_hours: NodeHeartbeatActiveHours = Field(default_factory=NodeHeartbeatActiveHours)
+
+    @field_validator("prompt")
+    @classmethod
+    def prompt_must_be_visible(cls, value: str) -> str:
+        """Reject blank or control-bearing automation prompts."""
+        return _visible_text(value)
+
+
+class NodeOperationsSpec(StrictConfigModel):
+    """Lifecycle configuration for Node-owned schedulers and automation."""
+
+    task_scheduler_enabled: StrictBool = True
+    cron_enabled: StrictBool = True
+    heartbeat: NodeHeartbeatSpec = Field(default_factory=NodeHeartbeatSpec)
+
+
 class NodeSpec(StrictConfigModel):
     """Settings owned by a single OpenPPX Node."""
 
     display_name: DisplayName
     enabled_agents: list[ResourceName] = Field(default_factory=list)
     client_api: NodeClientApiSpec = Field(default_factory=NodeClientApiSpec)
+    operations: NodeOperationsSpec = Field(default_factory=NodeOperationsSpec)
 
     @field_validator("enabled_agents")
     @classmethod

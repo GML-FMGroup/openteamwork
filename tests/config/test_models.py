@@ -50,7 +50,38 @@ def test_node_config_parses_aliases_and_typed_defaults() -> None:
     assert resource.metadata.name == "local-node"
     assert resource.spec.enabled_agents == ["low-main"]
     assert resource.spec.client_api.port == 18765
+    assert resource.spec.operations.task_scheduler_enabled is True
+    assert resource.spec.operations.cron_enabled is True
+    assert resource.spec.operations.heartbeat.enabled is False
     assert resource.model_dump(mode="json", by_alias=True)["apiVersion"] == "openppx.io/v1alpha1"
+
+
+def test_node_operations_config_is_strict_and_validates_heartbeat_window() -> None:
+    document = deepcopy(node_document())
+    document["spec"]["operations"] = {  # type: ignore[index]
+        "taskSchedulerEnabled": False,
+        "cronEnabled": True,
+        "heartbeat": {
+            "enabled": True,
+            "everySeconds": 120,
+            "prompt": "Inspect pending work.",
+            "activeHours": {"start": "08:30", "end": "20:00", "timezone": "Asia/Shanghai"},
+        },
+    }
+
+    resource = NodeConfig.model_validate(document)
+
+    assert resource.spec.operations.task_scheduler_enabled is False
+    assert resource.spec.operations.heartbeat.every_seconds == 120
+    assert resource.spec.operations.heartbeat.active_hours.timezone == "Asia/Shanghai"
+
+    document["spec"]["operations"]["heartbeat"]["activeHours"] = {  # type: ignore[index]
+        "start": "08:30",
+        "end": None,
+        "timezone": "user",
+    }
+    with pytest.raises(ValidationError, match="configured together"):
+        NodeConfig.model_validate(document)
 
 
 def test_agent_config_parses_minimal_resource() -> None:

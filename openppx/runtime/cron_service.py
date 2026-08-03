@@ -155,6 +155,8 @@ class CronPayload:
     """Execution payload for a cron job."""
 
     message: str
+    agent_id: str | None = None
+    user_id: str | None = None
     deliver: bool = False
     channel: str | None = None
     to: str | None = None
@@ -363,6 +365,8 @@ class CronService:
                 )
                 payload = CronPayload(
                     message=str(payload_raw.get("message", "")),
+                    agent_id=payload_raw.get("agent_id"),
+                    user_id=payload_raw.get("user_id"),
                     deliver=bool(payload_raw.get("deliver", False)),
                     channel=payload_raw.get("channel"),
                     to=payload_raw.get("to"),
@@ -424,6 +428,8 @@ class CronService:
             },
             "payload": {
                 "message": job.payload.message,
+                "agent_id": job.payload.agent_id,
+                "user_id": job.payload.user_id,
                 "deliver": job.payload.deliver,
                 "channel": job.payload.channel,
                 "to": job.payload.to,
@@ -719,6 +725,8 @@ class CronService:
                     "job_id": job.id,
                     "job_name": job.name,
                     "schedule": _schedule_payload(job.schedule),
+                    "agent_id": job.payload.agent_id,
+                    "user_id": job.payload.user_id,
                     "deliver": job.payload.deliver,
                     "channel": job.payload.channel,
                     "to": job.payload.to,
@@ -812,6 +820,8 @@ class CronService:
         name: str,
         schedule: CronSchedule,
         message: str,
+        agent_id: str | None = None,
+        user_id: str | None = None,
         deliver: bool = False,
         channel: str | None = None,
         to: str | None = None,
@@ -824,7 +834,14 @@ class CronService:
             name=name,
             enabled=True,
             schedule=schedule,
-            payload=CronPayload(message=message, deliver=deliver, channel=channel, to=to),
+            payload=CronPayload(
+                message=message,
+                agent_id=agent_id,
+                user_id=user_id,
+                deliver=deliver,
+                channel=channel,
+                to=to,
+            ),
             state=CronJobState(next_run_at_ms=_compute_next_run(schedule, now_ms)),
             created_at_ms=now_ms,
             updated_at_ms=now_ms,

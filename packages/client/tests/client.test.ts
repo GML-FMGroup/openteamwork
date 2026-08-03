@@ -21,6 +21,8 @@ import actionInvokeCommand from "../../../contracts/client-api/v1/fixtures/actio
 import actionInvokeSetupApply from "../../../contracts/client-api/v1/fixtures/action-invoke-setup-apply.json";
 import actionInvokeSetupHello from "../../../contracts/client-api/v1/fixtures/action-invoke-setup-hello.json";
 import actionInvokeSetupStatus from "../../../contracts/client-api/v1/fixtures/action-invoke-setup-status.json";
+import actionInvokeOperationsOverview from "../../../contracts/client-api/v1/fixtures/action-invoke-operations-overview.json";
+import actionInvokeOperationsAudit from "../../../contracts/client-api/v1/fixtures/action-invoke-operations-audit.json";
 import actionError from "../../../contracts/client-api/v1/fixtures/envelope-error.json";
 import modelListSuccess from "../../../contracts/client-api/v1/fixtures/envelope-model-list.json";
 import runStopSuccess from "../../../contracts/client-api/v1/fixtures/envelope-run-stop.json";
@@ -31,6 +33,8 @@ import commandStatusSuccess from "../../../contracts/client-api/v1/fixtures/enve
 import setupApplySuccess from "../../../contracts/client-api/v1/fixtures/envelope-setup-apply.json";
 import setupHelloSuccess from "../../../contracts/client-api/v1/fixtures/envelope-setup-hello.json";
 import setupStatusSuccess from "../../../contracts/client-api/v1/fixtures/envelope-setup-status.json";
+import operationsOverviewSuccess from "../../../contracts/client-api/v1/fixtures/envelope-operations-overview.json";
+import operationsAuditSuccess from "../../../contracts/client-api/v1/fixtures/envelope-operations-audit.json";
 import healthIncompatible from "../../../contracts/client-api/fixtures/health-incompatible.json";
 import healthV1 from "../../../contracts/client-api/fixtures/health-v1.json";
 import nodeV1 from "../../../contracts/client-api/fixtures/node-v1.json";
@@ -288,6 +292,29 @@ describe("OpenPPX Client public contract", () => {
       expect(url).toBe("http://127.0.0.1:18765/api/v1/actions/invoke");
       expect(JSON.parse(String(init.body))).toEqual(expected);
     }
+  });
+
+  it("routes Node Operations through the shared Action boundary", async () => {
+    const requests = [actionInvokeOperationsOverview, actionInvokeOperationsAudit];
+    const responses = [operationsOverviewSuccess, operationsAuditSuccess];
+    let responseIndex = 0;
+    const fetchMock = vi.fn(async () => new Response(
+      JSON.stringify(responses[responseIndex++]),
+      { status: 200, headers: { "Content-Type": "application/json" } },
+    ));
+    const client = new OpenPpxClient({
+      baseUrl: "http://127.0.0.1:18765",
+      fetch: fetchMock as unknown as typeof fetch,
+      idFactory: () => requests[responseIndex].requestId,
+    });
+
+    await expect(client.operations.overview()).resolves.toEqual(responses[0]);
+    await expect(client.operations.audit()).resolves.toEqual(responses[1]);
+
+    const firstBody = JSON.parse(String((fetchMock.mock.calls[0] as unknown as [string, RequestInit])[1].body));
+    const secondBody = JSON.parse(String((fetchMock.mock.calls[1] as unknown as [string, RequestInit])[1].body));
+    expect(firstBody).toEqual(actionInvokeOperationsOverview);
+    expect(secondBody).toEqual(actionInvokeOperationsAudit);
   });
 
   it("preserves the common Action error metadata", async () => {

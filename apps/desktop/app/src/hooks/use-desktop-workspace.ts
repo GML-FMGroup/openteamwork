@@ -7,6 +7,8 @@ import type {
   ConnectionSettings,
   ExtensionSummary,
   ModelProfileSummary,
+  OperationsAuditItem,
+  OperationsOverviewResult,
   RuntimeStatus,
   SessionSummary,
   ProjectedSlashCommand,
@@ -277,6 +279,10 @@ export function useDesktopWorkspace() {
   const [setupSubmitting, setSetupSubmitting] = useState(false);
   const [setupError, setSetupError] = useState<string | null>(null);
   const [modelProfiles, setModelProfiles] = useState<ModelProfileSummary[]>([]);
+  const [operationsOverview, setOperationsOverview] = useState<OperationsOverviewResult | null>(null);
+  const [operationsAudit, setOperationsAudit] = useState<OperationsAuditItem[]>([]);
+  const [operationsLoading, setOperationsLoading] = useState(false);
+  const [operationsError, setOperationsError] = useState<string | null>(null);
   const [transcriptResetKey, setTranscriptResetKey] = useState(0);
   const switchRequestIdRef = useRef(0);
   const selectedAgentIdRef = useRef("");
@@ -408,7 +414,23 @@ export function useDesktopWorkspace() {
               setModelProfiles(nextDiagnostics.profiles);
             }
           })
-          .catch(() => undefined);
+          .catch(() => {
+            if (mounted) setModelProfiles([]);
+          });
+        if (nextSetupStatus.state === "ready") void Promise.all([
+          window.ppxClient.getOperationsOverview(),
+          window.ppxClient.listOperationsAudit(20),
+        ])
+          .then(([overview, audit]) => {
+            if (mounted) {
+              setOperationsOverview(overview);
+              setOperationsAudit(audit.items);
+              setOperationsError(null);
+            }
+          })
+          .catch((error: unknown) => {
+            if (mounted) setOperationsError(error instanceof Error ? error.message : String(error));
+          });
       })
       .catch((error: unknown) => {
         if (mounted) {
@@ -561,8 +583,21 @@ export function useDesktopWorkspace() {
     setRuntime(await window.ppxClient.runRuntimeCommand("stop"));
   }
 
-  async function refreshDiagnostics(): Promise<void> {
-    setDiagnostics(await window.ppxClient.getDiagnostics());
+  async function refreshOperations(): Promise<void> {
+    setOperationsLoading(true);
+    setOperationsError(null);
+    try {
+      const [overview, audit] = await Promise.all([
+        window.ppxClient.getOperationsOverview(),
+        window.ppxClient.listOperationsAudit(20),
+      ]);
+      setOperationsOverview(overview);
+      setOperationsAudit(audit.items);
+    } catch (error) {
+      setOperationsError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setOperationsLoading(false);
+    }
   }
 
   async function refreshExtensions(): Promise<void> {
@@ -879,12 +914,16 @@ export function useDesktopWorkspace() {
     setupSubmitting,
     setupError,
     modelProfiles,
+    operationsOverview,
+    operationsAudit,
+    operationsLoading,
+    operationsError,
     transcriptResetKey,
     switchAgent,
     switchSession,
     runRuntimeAction,
     stopRuntime,
-    refreshDiagnostics,
+    refreshOperations,
     refreshExtensions,
     refreshModelProfiles,
     completeSetup,

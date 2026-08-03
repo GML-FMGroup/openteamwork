@@ -70,6 +70,15 @@ def export_client_contract(output_dir: Path) -> tuple[Path, ...]:
             action_id="setup.hello",
             input={"agentId": "main", "userId": "user_fixture", "text": "Hello OpenPPX"},
         ),
+        fixtures_dir / "action-invoke-operations-overview.json": _invoke_fixture(
+            request_id="req_operations_overview_fixture",
+            action_id="operations.overview",
+        ),
+        fixtures_dir / "action-invoke-operations-audit.json": _invoke_fixture(
+            request_id="req_operations_audit_fixture",
+            action_id="operations.audit.list",
+            input={"limit": 50},
+        ),
         fixtures_dir / "envelope-model-list.json": _domain_success_fixture(
             request_id="req_model_list_fixture",
             result={"items": []},
@@ -132,6 +141,14 @@ def export_client_contract(output_dir: Path) -> tuple[Path, ...]:
         fixtures_dir / "envelope-setup-hello.json": _domain_success_fixture(
             request_id="req_setup_hello_fixture",
             result={"state": "ready", "sessionId": "session_fixture", "reply": "Hello from OpenPPX"},
+        ),
+        fixtures_dir / "envelope-operations-overview.json": _domain_success_fixture(
+            request_id="req_operations_overview_fixture",
+            result=_operations_overview_fixture(),
+        ),
+        fixtures_dir / "envelope-operations-audit.json": _domain_success_fixture(
+            request_id="req_operations_audit_fixture",
+            result={"items": []},
         ),
     }
     for path, document in documents.items():
@@ -244,6 +261,24 @@ def _command_input_fixture() -> dict[str, Any]:
         session_id="session_fixture",
         run_id=None,
     ).model_dump(mode="json", by_alias=True)
+
+
+def _operations_overview_fixture() -> dict[str, Any]:
+    """Return a stable non-sensitive Node Operations overview fixture."""
+    return {
+        "state": "healthy",
+        "components": [
+            {
+                "component": "runtime",
+                "state": "healthy",
+                "code": "runtime_ready",
+                "reason": "Runtime Supervisor is ready.",
+                "remediation": None,
+            }
+        ],
+        "tasks": {"total": 0, "byStatus": {}},
+        "automation": {"cronJobs": 0, "heartbeatEnabled": False},
+    }
 
 
 def _command_result_fixture() -> dict[str, Any]:

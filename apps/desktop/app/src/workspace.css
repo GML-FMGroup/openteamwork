@@ -2036,6 +2036,148 @@
   grid-column: 7 / -1;
 }
 
+.settings-card-health {
+  grid-column: 1 / 9;
+}
+
+.settings-card-operations-summary {
+  grid-column: 9 / -1;
+}
+
+.settings-card-audit,
+.settings-operations-error {
+  grid-column: 1 / -1;
+}
+
+.settings-operations-error {
+  margin: 0;
+}
+
+.operations-state {
+  padding: 5px 9px;
+  border: 1px solid var(--hairline);
+  border-radius: 999px;
+  color: var(--ink-soft);
+  font-size: 11px;
+  text-transform: capitalize;
+}
+
+.operations-state.healthy {
+  color: var(--success);
+}
+
+.operations-state.degraded {
+  color: var(--amber);
+}
+
+.operations-component-list,
+.operations-audit-list {
+  display: grid;
+  gap: 0;
+  margin-top: 12px;
+}
+
+.operations-component,
+.operations-audit-row {
+  display: grid;
+  align-items: start;
+  gap: 11px;
+  padding: 11px 0;
+  border-top: 1px solid var(--hairline);
+}
+
+.operations-component {
+  grid-template-columns: 8px minmax(0, 1fr) auto;
+}
+
+.operations-component-dot {
+  width: 7px;
+  height: 7px;
+  margin-top: 5px;
+  border-radius: 50%;
+  background: var(--ink-faint);
+}
+
+.operations-component-dot.healthy {
+  background: var(--success);
+}
+
+.operations-component-dot.degraded {
+  background: var(--amber);
+}
+
+.operations-component > div > span,
+.operations-audit-row > div > span {
+  color: var(--ink);
+  font-size: 13px;
+}
+
+.operations-component p,
+.operations-audit-row p {
+  margin: 3px 0 0;
+  color: var(--ink-soft);
+  font-size: 12px;
+}
+
+.operations-component small {
+  display: block;
+  margin-top: 4px;
+  color: var(--ink-faint);
+  font-size: 11px;
+}
+
+.operations-component em {
+  color: var(--ink-faint);
+  font-size: 11px;
+  font-style: normal;
+  text-transform: capitalize;
+}
+
+.operations-summary-grid {
+  display: grid;
+  gap: 8px;
+  margin: 14px 0 0;
+}
+
+.operations-summary-grid div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 11px 0;
+  border-top: 1px solid var(--hairline);
+}
+
+.operations-summary-grid dt,
+.operations-summary-grid dd {
+  margin: 0;
+  color: var(--ink-soft);
+  font-size: 12px;
+  font-weight: 400;
+}
+
+.operations-summary-grid dd {
+  color: var(--ink);
+}
+
+.operations-audit-row {
+  grid-template-columns: minmax(0, 1fr) auto auto;
+}
+
+.operations-audit-outcome,
+.operations-audit-row > small {
+  color: var(--ink-soft);
+  font-size: 11px;
+}
+
+.operations-audit-outcome.failed {
+  color: var(--danger, #a4473b);
+}
+
+.operations-audit-outcome.succeeded {
+  color: var(--success);
+}
+
 .settings-form-grid {
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
@@ -2158,7 +2300,9 @@
   }
 
   .settings-card-connection,
-  .settings-card-diagnostics {
+  .settings-card-diagnostics,
+  .settings-card-health,
+  .settings-card-operations-summary {
     grid-column: 1 / -1;
   }
 
@@ -2265,6 +2409,9 @@
   .settings-card-config,
   .settings-card-connection,
   .settings-card-diagnostics,
+  .settings-card-health,
+  .settings-card-operations-summary,
+  .settings-card-audit,
   .settings-card-paths {
     grid-column: 1;
   }

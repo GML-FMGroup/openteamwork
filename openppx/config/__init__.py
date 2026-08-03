@@ -11,7 +11,15 @@ from .diagnostics import (
     read_json_object,
     validation_issues,
 )
-from .models import AgentConfig, NodeConfig, ResourceName, StrictConfigModel
+from .models import (
+    AgentConfig,
+    NodeConfig,
+    NodeHeartbeatActiveHours,
+    NodeHeartbeatSpec,
+    NodeOperationsSpec,
+    ResourceName,
+    StrictConfigModel,
+)
 from .layers import ConfigOrigin, ConfigSnapshot
 from .repository import ConfigRepository, ConfigSource, FilesystemConfigRepository, VersionedResource
 from .revision import config_revision
@@ -58,6 +66,9 @@ __all__ = [
     "FilesystemConfigRepository",
     "InMemorySecretStore",
     "NodeConfig",
+    "NodeHeartbeatActiveHours",
+    "NodeHeartbeatSpec",
+    "NodeOperationsSpec",
     "ResourceName",
     "SecretBackendUnavailable",
     "SecretError",
