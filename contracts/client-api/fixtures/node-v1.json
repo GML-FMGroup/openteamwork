@@ -17,6 +17,8 @@
       "config.node.write",
       "model.profiles.read",
       "model.select",
+      "run.control",
+      "session.write",
       "system.status",
       "agents.multi",
       "runs.sse",

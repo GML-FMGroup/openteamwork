@@ -40,8 +40,6 @@ export interface ClientDiagnostics {
   openppxRoot: string;
   openppxRootExists: boolean;
   pythonBin: string;
-  globalConfigPath: string;
-  globalConfigExists: boolean;
   clientApiBaseUrl: string;
   clientApiManagedByClient: boolean;
   clientApiHealthy: boolean;

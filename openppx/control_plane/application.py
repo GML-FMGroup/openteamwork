@@ -10,6 +10,7 @@ from openppx.modeling import ModelProfileRepository, ModelProfileSelector
 
 from .config_actions import register_config_actions
 from .model_actions import register_model_actions
+from .runtime_actions import register_runtime_actions
 from .system_actions import register_system_actions
 
 
@@ -41,6 +42,14 @@ class ControlPlaneApplication:
         )
         self.registry = registry
         self.executor = ActionExecutor(registry)
+        self.runtime_supervisor = None
+
+    def attach_runtime(self, supervisor) -> None:
+        """Attach the one Node Runtime Supervisor and register its Actions."""
+        if self.runtime_supervisor is not None:
+            raise RuntimeError("A Runtime Supervisor is already attached.")
+        register_runtime_actions(self.registry, supervisor)
+        self.runtime_supervisor = supervisor
 
     def status(self, context: ActionContext) -> ActionOutcome:
         """Return system readiness through the same Action path used by clients."""

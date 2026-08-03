@@ -1,0 +1,16 @@
+{
+  "correlationId": "req_run_stop_fixture",
+  "ok": true,
+  "protocolVersion": 1,
+  "requestId": "req_run_stop_fixture",
+  "result": {
+    "run": {
+      "agentId": "writer",
+      "id": "run_fixture",
+      "sessionId": "session_fixture",
+      "snapshotRevision": "sha256:snapshot-fixture",
+      "startedAt": "2026-08-03T00:00:00+00:00",
+      "state": "cancelling"
+    }
+  }
+}

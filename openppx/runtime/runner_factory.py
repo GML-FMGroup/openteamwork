@@ -177,9 +177,11 @@ def _build_events_summarizer(agent: Any) -> Any | None:
 def _normalize_runner_profile(profile: str | None) -> RunnerProfile:
     """Normalize one runner profile name."""
     normalized = (profile or "full").strip().lower()
-    if normalized in {"full", "ephemeral"}:
+    if normalized in {"full", "ephemeral", "snapshot"}:
         return normalized
-    raise ValueError(f"unsupported runner profile {profile!r}; expected 'full' or 'ephemeral'")
+    raise ValueError(
+        f"unsupported runner profile {profile!r}; expected 'full', 'ephemeral', or 'snapshot'"
+    )
 
 
 def _runner_profile_policy(profile: RunnerProfile) -> RunnerProfilePolicy:
@@ -216,6 +218,24 @@ def _runner_profile_policy(profile: RunnerProfile) -> RunnerProfilePolicy:
             enable_events_compaction=False,
             enable_context_cache=False,
         )
+    if profile == "snapshot":
+        return RunnerProfilePolicy(
+            profile="snapshot",
+            persistent_session=True,
+            default_memory_service=True,
+            default_artifact_service=True,
+            enable_step_events=True,
+            enable_memory_ingest=True,
+            enable_workspace_bootstrap=False,
+            enable_long_task_context=True,
+            enable_model_callbacks=True,
+            enable_input_file_artifacts=True,
+            enable_resumability=True,
+            # Snapshot-native optional settings do not yet exist in NodeConfig;
+            # keep both features disabled rather than reading ambient env.
+            enable_events_compaction=False,
+            enable_context_cache=False,
+        )
     raise AssertionError(f"unhandled runner profile {profile!r}")
 
 
@@ -225,7 +245,13 @@ def _target_agent_name(agent: Any) -> str | None:
     return name if isinstance(name, str) and name else None
 
 
-def _build_profile_plugins(*, agent: Any, policy: RunnerProfilePolicy) -> list[Any]:
+def _build_profile_plugins(
+    *,
+    agent: Any,
+    policy: RunnerProfilePolicy,
+    task_store: Any | None = None,
+    context_store: Any | None = None,
+) -> list[Any]:
     """Build plugins according to one profile lifecycle policy."""
     target_agent_name = _target_agent_name(agent)
     plugins: list[Any] = []
@@ -236,7 +262,13 @@ def _build_profile_plugins(*, agent: Any, policy: RunnerProfilePolicy) -> list[A
     if policy.enable_workspace_bootstrap:
         plugins.append(OpenPpxWorkspaceBootstrapPlugin(target_agent_name=target_agent_name))
     if policy.enable_long_task_context:
-        plugins.append(LongTaskContextPlugin(target_agent_name=target_agent_name))
+        plugins.append(
+            LongTaskContextPlugin(
+                target_agent_name=target_agent_name,
+                task_store=task_store,
+                context_store=context_store,
+            )
+        )
     if policy.enable_model_callbacks:
         plugins.extend(
             build_openppx_llm_plugins(
@@ -249,7 +281,14 @@ def _build_profile_plugins(*, agent: Any, policy: RunnerProfilePolicy) -> list[A
     return plugins
 
 
-def _build_profile_app(*, agent: Any, app_name: str, policy: RunnerProfilePolicy) -> App:
+def _build_profile_app(
+    *,
+    agent: Any,
+    app_name: str,
+    policy: RunnerProfilePolicy,
+    task_store: Any | None = None,
+    context_store: Any | None = None,
+) -> App:
     """Build an ADK App according to one profile lifecycle policy."""
     resumability_config = None
     if policy.enable_resumability:
@@ -271,7 +310,12 @@ def _build_profile_app(*, agent: Any, app_name: str, policy: RunnerProfilePolicy
         resumability_config=resumability_config,
         events_compaction_config=events_compaction_config,
         context_cache_config=context_cache_config,
-        plugins=_build_profile_plugins(agent=agent, policy=policy),
+        plugins=_build_profile_plugins(
+            agent=agent,
+            policy=policy,
+            task_store=task_store,
+            context_store=context_store,
+        ),
     )
 
 
@@ -310,6 +354,8 @@ def create_runner(
     session_service: Any | None = None,
     memory_service: Any | None = None,
     artifact_service: Any | None = None,
+    task_store: Any | None = None,
+    context_store: Any | None = None,
 ) -> tuple[Runner, Any]:
     """Create a runner with a shared session service contract.
 
@@ -326,7 +372,13 @@ def create_runner(
     service = _build_session_service(policy=policy, explicit_service=session_service)
     memory = _build_memory_service(policy=policy, explicit_service=memory_service)
     artifacts = _build_artifact_service(policy=policy, explicit_service=artifact_service)
-    app = _build_profile_app(agent=agent, app_name=app_name, policy=policy)
+    app = _build_profile_app(
+        agent=agent,
+        app_name=app_name,
+        policy=policy,
+        task_store=task_store,
+        context_store=context_store,
+    )
 
     runner = Runner(
         app=app,

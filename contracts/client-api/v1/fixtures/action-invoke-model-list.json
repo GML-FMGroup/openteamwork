@@ -1,0 +1,7 @@
+{
+  "actionId": "model.list",
+  "confirmed": false,
+  "correlationId": "req_model_list_fixture",
+  "input": {},
+  "requestId": "req_model_list_fixture"
+}

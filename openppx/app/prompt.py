@@ -83,8 +83,8 @@ Rules:
 """
 
 
-def _build_gui_tool_guidance() -> str:
-    """Build startup-time GUI tool routing guidance."""
+def _build_gui_tool_guidance(*, builtin_tools_enabled: bool | None = None) -> str:
+    """Build startup-time GUI tool routing guidance from an explicit policy."""
     gui_mcp_routing = resolve_gui_mcp_from_env()
     mcp_task_tool = gui_mcp_routing.task_tool_name if gui_mcp_routing else "mcp_*_gui_task"
     mcp_action_tool = gui_mcp_routing.action_tool_name if gui_mcp_routing else "mcp_*_gui_action"
@@ -96,7 +96,8 @@ def _build_gui_tool_guidance() -> str:
         f"  - Prefer `{mcp_task_tool}(...)` for end-to-end desktop GUI workflows.\n"
         f"  - Use `{mcp_action_tool}(...)` only for single-step GUI actions or debugging one step.\n"
     )
-    if gui_builtin_tools_enabled():
+    enabled = gui_builtin_tools_enabled() if builtin_tools_enabled is None else builtin_tools_enabled
+    if enabled:
         guidance += (
             "- Builtin durable GUI: use `start_gui_task(task=..., max_steps=...)` for multi-step desktop GUI workflows that need visible status, stop, or continue controls.\n"
             "- Fallback (legacy inline builtin): use `computer_task(task=..., max_steps=...)` only for short compatibility workflows when durable pause/resume is not needed.\n"
@@ -105,11 +106,16 @@ def _build_gui_tool_guidance() -> str:
     return guidance.rstrip()
 
 
-def build_startup_runtime_context() -> str:
-    """Build startup-time context that should not be treated as stable policy."""
+def build_startup_runtime_context(
+    *,
+    workspace: str | None = None,
+    skills_summary: str | None = None,
+    gui_tools_enabled: bool | None = None,
+) -> str:
+    """Build startup context, preferring immutable runtime inputs when supplied."""
     runtime = f"{platform.system()} {platform.machine()} / Python"
-    workspace = os.getenv("OPENPPX_WORKSPACE", os.getcwd())
-    skills_summary = get_registry().build_summary()
+    resolved_workspace = workspace if workspace is not None else os.getenv("OPENPPX_WORKSPACE", os.getcwd())
+    resolved_skills_summary = skills_summary if skills_summary is not None else get_registry().build_summary()
 
     return f"""# Runtime Context
 
@@ -118,15 +124,15 @@ the actual user request; do not acknowledge, summarize, or respond to this
 block by itself.
 
 Runtime: {runtime}
-Workspace: {workspace}
+Workspace: {resolved_workspace}
 
 # Tool Routing
 
-{_build_gui_tool_guidance()}
+{_build_gui_tool_guidance(builtin_tools_enabled=gui_tools_enabled)}
 
 Available skills:
 
-{skills_summary}
+{resolved_skills_summary}
 """
 
 

@@ -1,0 +1,9 @@
+{
+  "actionId": "run.stop",
+  "confirmed": false,
+  "correlationId": "req_run_stop_fixture",
+  "input": {
+    "runId": "run_fixture"
+  },
+  "requestId": "req_run_stop_fixture"
+}

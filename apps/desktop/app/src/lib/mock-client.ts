@@ -278,8 +278,6 @@ export async function getDiagnostics(): Promise<ClientDiagnostics> {
     openppxRoot: "",
     openppxRootExists: false,
     pythonBin: "",
-    globalConfigPath: "",
-    globalConfigExists: false,
     clientApiBaseUrl: "http://127.0.0.1:8765",
     clientApiManagedByClient: false,
     clientApiHealthy: false,

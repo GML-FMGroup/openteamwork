@@ -193,7 +193,6 @@ export function SettingsView({
             <h3>Diagnostics</h3>
             <dl className="diagnostics-grid">
               <div><dt>Root exists</dt><dd>{diagnostics?.openppxRootExists ? "yes" : "no"}</dd></div>
-              <div><dt>Config exists</dt><dd>{diagnostics?.globalConfigExists ? "yes" : "no"}</dd></div>
               <div><dt>Bridge exists</dt><dd>{diagnostics?.bridgeScriptExists ? "yes" : "no"}</dd></div>
               <div><dt>Debug</dt><dd>{diagnostics?.debugEnabled ? "enabled" : "off"}</dd></div>
               <div>
@@ -213,7 +212,6 @@ export function SettingsView({
             <dl className="diagnostics-stack settings-paths-grid">
               <div><dt>openppx root</dt><dd>{diagnostics?.openppxRoot || "-"}</dd></div>
               <div><dt>Python</dt><dd>{diagnostics?.pythonBin || "-"}</dd></div>
-              <div><dt>Global config</dt><dd>{diagnostics?.globalConfigPath || "-"}</dd></div>
               <div><dt>Bridge script</dt><dd>{diagnostics?.bridgeScriptPath || "-"}</dd></div>
             </dl>
           </section>

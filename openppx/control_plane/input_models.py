@@ -15,6 +15,11 @@ ResourceId = Annotated[
     str,
     StringConstraints(min_length=1, max_length=63, pattern=r"^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$"),
 ]
+PrincipalId = Annotated[str, StringConstraints(min_length=1, max_length=128)]
+RunId = Annotated[
+    str,
+    StringConstraints(min_length=1, max_length=128, pattern=r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"),
+]
 
 
 class ActionInput(BaseModel):
@@ -113,3 +118,15 @@ class ModelSelectionInput(AgentReadInput):
             if not parsed.is_finite() or parsed < 0:
                 raise ValueError("cost constraint must be finite and non-negative")
         return value
+
+
+class SessionNewInput(AgentReadInput):
+    """Create one new Session for an Agent and authenticated principal."""
+
+    user_id: PrincipalId
+
+
+class RunStopInput(ActionInput):
+    """Identify one active Run for cooperative cancellation."""
+
+    run_id: RunId

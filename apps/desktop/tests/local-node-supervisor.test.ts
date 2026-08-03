@@ -32,6 +32,7 @@ describe("LocalNodeSupervisor", () => {
     const probe = vi.fn().mockResolvedValueOnce(false).mockResolvedValueOnce(true);
     const supervisor = new LocalNodeSupervisor({
       openppxRoot: "/repo/openppx",
+      nodeRoot: "/data/openppx",
       pythonBin: "/repo/openppx/.venv/bin/python",
       spawnProcess,
       wait,
@@ -52,7 +53,18 @@ describe("LocalNodeSupervisor", () => {
     expect(spawnProcess).toHaveBeenCalledTimes(1);
     expect(spawnProcess).toHaveBeenCalledWith(
       "/repo/openppx/.venv/bin/python",
-      ["-m", "openppx.cli", "client-api", "serve", "--host", "127.0.0.1", "--port", "8765"],
+      [
+        "-m",
+        "openppx.cli",
+        "node",
+        "run",
+        "--node-root",
+        "/data/openppx",
+        "--host",
+        "127.0.0.1",
+        "--port",
+        "8765",
+      ],
       expect.objectContaining({
         cwd: "/repo/openppx",
         env: expect.objectContaining({ OPENPPX_CLIENT_API_TOKEN: "secret" }),
@@ -68,6 +80,7 @@ describe("LocalNodeSupervisor", () => {
     const onExit = vi.fn();
     const supervisor = new LocalNodeSupervisor({
       openppxRoot: "/repo/openppx",
+      nodeRoot: "/data/openppx",
       pythonBin: "python3",
       spawnProcess: vi.fn(() => child) as unknown as typeof spawn,
       wait: async () => undefined,
@@ -96,6 +109,7 @@ describe("LocalNodeSupervisor", () => {
     const spawnProcess = vi.fn();
     const supervisor = new LocalNodeSupervisor({
       openppxRoot: "/repo/openppx",
+      nodeRoot: "/data/openppx",
       pythonBin: "python3",
       spawnProcess: spawnProcess as unknown as typeof spawn,
       enabled: false,
@@ -118,6 +132,7 @@ describe("LocalNodeSupervisor", () => {
     const onExit = vi.fn();
     const supervisor = new LocalNodeSupervisor({
       openppxRoot: "/repo/openppx",
+      nodeRoot: "/data/openppx",
       pythonBin: "missing-python",
       spawnProcess: vi.fn(() => child) as unknown as typeof spawn,
       wait: async () => undefined,

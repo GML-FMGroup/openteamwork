@@ -4458,7 +4458,7 @@ def _should_require_agent_config_for_gateway(args: argparse.Namespace) -> bool:
 def _should_bootstrap_single_agent_env(args: argparse.Namespace) -> bool:
     """Return true when startup should hydrate one explicit config into process env."""
 
-    if args.command in {"install", "create", "client-api", "sandbox"}:
+    if args.command in {"install", "create", "client-api", "node", "sandbox"}:
         return False
     return True
 
@@ -4657,6 +4657,32 @@ def main(argv: list[str] | None = None) -> None:
         dest="output_json",
         action="store_true",
         help="Emit machine-readable JSON for `gateway status`.",
+    )
+    node_parser = subparsers.add_parser(
+        "node",
+        help="Run the long-lived OpenPPX Node service.",
+    )
+    node_subparsers = node_parser.add_subparsers(dest="node_command", required=True)
+    node_run_parser = node_subparsers.add_parser(
+        "run",
+        help="Start the Node control plane, agent runtime, scheduler, and Client API.",
+    )
+    node_run_parser.add_argument(
+        "--node-root",
+        type=Path,
+        default=get_data_dir(),
+        help="Strict Node configuration and data root (default: ~/.openppx).",
+    )
+    node_run_parser.add_argument(
+        "--host",
+        default=None,
+        help="Override the Client API listen host from node.json.",
+    )
+    node_run_parser.add_argument(
+        "--port",
+        type=int,
+        default=None,
+        help="Override the Client API listen port from node.json.",
     )
     client_api_parser = subparsers.add_parser(
         "client-api",
@@ -5064,12 +5090,30 @@ def main(argv: list[str] | None = None) -> None:
         else:
             parser.print_help()
             code = 2
+    elif args.command == "node":
+        from ..runtime.node_host import run_node
+
+        try:
+            run_node(
+                args.node_root,
+                host=args.host,
+                port=args.port,
+            )
+        except ValueError as exc:
+            print(f"Error: {exc}", file=sys.stderr)
+            code = 2
+        else:
+            code = 0
     elif args.command == "client-api":
         if args.client_api_command == "serve":
-            from ..runtime.client_api_service import serve_client_api
+            from ..runtime.node_host import run_node
 
             try:
-                serve_client_api(host=args.host, port=args.port)
+                run_node(
+                    get_data_dir(),
+                    host=args.host,
+                    port=args.port,
+                )
             except ValueError as exc:
                 print(f"Error: {exc}", file=sys.stderr)
                 code = 2

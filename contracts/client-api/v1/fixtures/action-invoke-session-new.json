@@ -1,0 +1,10 @@
+{
+  "actionId": "session.new",
+  "confirmed": false,
+  "correlationId": "req_session_new_fixture",
+  "input": {
+    "agentId": "writer",
+    "userId": "user_fixture"
+  },
+  "requestId": "req_session_new_fixture"
+}

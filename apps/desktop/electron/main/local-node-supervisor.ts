@@ -2,6 +2,7 @@ import type { spawn } from "node:child_process";
 
 export interface LocalNodeSupervisorOptions {
   openppxRoot: string;
+  nodeRoot: string;
   pythonBin: string;
   enabled?: boolean;
   spawnProcess: typeof spawn;
@@ -24,6 +25,8 @@ export interface EnsureLocalNodeReadyOptions {
 export class LocalNodeSupervisor {
   private readonly openppxRoot: string;
 
+  private readonly nodeRoot: string;
+
   private readonly pythonBin: string;
 
   private readonly spawnProcess: typeof spawn;
@@ -40,6 +43,7 @@ export class LocalNodeSupervisor {
 
   public constructor(options: LocalNodeSupervisorOptions) {
     this.openppxRoot = options.openppxRoot;
+    this.nodeRoot = options.nodeRoot;
     this.pythonBin = options.pythonBin;
     this.enabled = options.enabled ?? true;
     this.spawnProcess = options.spawnProcess;
@@ -121,14 +125,17 @@ export class LocalNodeSupervisor {
       baseUrl: options.baseUrl,
       pythonBin: this.pythonBin,
       openppxRoot: this.openppxRoot,
+      nodeRoot: this.nodeRoot,
     });
     const child = this.spawnProcess(
       this.pythonBin,
       [
         "-m",
         "openppx.cli",
-        "client-api",
-        "serve",
+        "node",
+        "run",
+        "--node-root",
+        this.nodeRoot,
         "--host",
         options.host,
         "--port",

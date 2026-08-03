@@ -4,6 +4,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import {
+  ActionClient,
   CLIENT_API_PROTOCOL_VERSION,
   normalizeClientApiMessage,
   normalizeClientApiPart,
@@ -22,10 +23,8 @@ import {
 import { normalizeClientApiRuntime } from "../../app/src/lib/client-api-projection";
 import { isLoopbackClientApiHostname } from "../../app/src/lib/connection-profile";
 import {
-  buildMessagePartsFromSessionEvent,
   mergeAssistantParts,
   projectBridgeEventToStepParts,
-  sessionEventRole,
 } from "../../app/src/lib/openppx-projection";
 import type {
   AgentProfile,
@@ -56,16 +55,6 @@ import { LocalNodeSupervisor } from "./local-node-supervisor";
 type EventSink = (event: RunEvent) => void;
 type StepPart = Extract<MessagePart, { type: "step_ref" }>;
 
-interface GlobalAgentConfigEntry {
-  name?: string;
-  id?: string;
-  enabled?: boolean;
-}
-
-interface GlobalAgentConfig {
-  agents?: GlobalAgentConfigEntry[] | { list?: GlobalAgentConfigEntry[] };
-}
-
 function now(): string {
   return new Date().toISOString();
 }
@@ -93,25 +82,6 @@ function clientDebugLog(tag: string, payload: unknown): void {
   console.log(`[ppx-client][debug] ${tag}`, payload);
 }
 
-function normalizeAgentName(input: string): string {
-  return input
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9_-]+/g, "-")
-    .replace(/^-+|-+$/g, "");
-}
-
-function readJsonFile<T>(filePath: string): T | null {
-  try {
-    if (!fs.existsSync(filePath)) {
-      return null;
-    }
-    return JSON.parse(fs.readFileSync(filePath, "utf-8")) as T;
-  } catch {
-    return null;
-  }
-}
-
 function detectOpenPpxRoot(): string {
   if (process.env.OPENPPX_ROOT?.trim()) {
     return path.resolve(process.env.OPENPPX_ROOT);
@@ -129,14 +99,6 @@ function dataRootPath(): string {
     return openppxDataRoot;
   }
   return path.join(os.homedir(), ".openpipixia");
-}
-
-function globalConfigPath(): string {
-  return path.join(dataRootPath(), "global_config.json");
-}
-
-function agentConfigPath(agentId: string): string {
-  return path.join(dataRootPath(), agentId, "config.json");
 }
 
 function resolvePythonBin(openppxRoot: string): string {
@@ -185,6 +147,8 @@ export class OpenPpxLocalAdapter implements PpxClientApi {
 
   private readonly runStream: ClientApiRunStream;
 
+  private readonly actions: ActionClient;
+
   private readonly nodeSupervisor: LocalNodeSupervisor;
 
   private readonly legacyBridge: LegacyBridgeClient;
@@ -211,8 +175,10 @@ export class OpenPpxLocalAdapter implements PpxClientApi {
     this.runStream = new ClientApiRunStream({
       request: (pathname, init) => this.connection.request(pathname, init),
     });
+    this.actions = new ActionClient(this.connection);
     this.nodeSupervisor = new LocalNodeSupervisor({
       openppxRoot: this.openppxRoot,
+      nodeRoot: dataRootPath(),
       pythonBin: this.pythonBin,
       spawnProcess: spawn,
       log: clientDebugLog,
@@ -401,58 +367,8 @@ export class OpenPpxLocalAdapter implements PpxClientApi {
     };
   }
 
-  private buildMessagesFromSession(sessionId: string, payload: Record<string, unknown>): ChatMessage[] {
-    const events = Array.isArray(payload.events) ? (payload.events as Array<Record<string, unknown>>) : [];
-    return events.map((event) => {
-      const author = String(event.author ?? "");
-      const timestamp = typeof event.timestamp === "number" ? new Date(event.timestamp * 1000).toISOString() : now();
-      return {
-        id: String(event.id ?? crypto.randomUUID()),
-        sessionId,
-        role: sessionEventRole(author),
-        status: "completed",
-        createdAt: timestamp,
-        parts: buildMessagePartsFromSessionEvent(event),
-      };
-    });
-  }
-
   private shouldUseMock(): boolean {
     return this.developmentModes.mockEnabled;
-  }
-
-  private listRealAgents(): AgentProfile[] {
-    if (this.isRemoteTarget()) {
-      return [];
-    }
-    const raw = readJsonFile<GlobalAgentConfig>(globalConfigPath());
-    if (!raw) {
-      return [];
-    }
-
-    const entries = Array.isArray(raw.agents)
-      ? raw.agents
-      : Array.isArray(raw.agents?.list)
-        ? raw.agents.list
-        : [];
-
-    const agents: Array<AgentProfile | null> = entries.map((entry) => {
-      const name = normalizeAgentName(String(entry.name ?? entry.id ?? ""));
-      if (!name || entry.enabled === false) {
-        return null;
-      }
-      const config = readJsonFile<{ agent?: { workspace?: string } }>(agentConfigPath(name));
-      const workspace = config?.agent?.workspace?.trim() ?? "";
-      return {
-        id: name,
-        name,
-        description: workspace ? `Workspace: ${workspace}` : "Local openppx agent",
-        enabled: true,
-        status: "healthy",
-        tags: ["local", "openppx"],
-      };
-    });
-    return agents.filter((item): item is AgentProfile => item !== null);
   }
 
   private getFallbackRuntimeStatus(): RuntimeStatus {
@@ -476,14 +392,6 @@ export class OpenPpxLocalAdapter implements PpxClientApi {
       };
     }
     if (this.canUseLegacyLocalFallback()) {
-      if (!fs.existsSync(globalConfigPath())) {
-        return {
-          target: this.target,
-          state: "starting",
-          summary: "openppx config is not initialized yet.",
-          detail: "Run the openppx setup first so ~/.openppx/global_config.json exists.",
-        };
-      }
       return {
         target: this.target,
         state: "healthy",
@@ -533,7 +441,7 @@ export class OpenPpxLocalAdapter implements PpxClientApi {
       return emptyBootstrap(runtime);
     }
 
-    let agents = this.canUseLegacyLocalFallback() ? this.listRealAgents() : [];
+    let agents: AgentProfile[] = [];
     if (clientApiHealthy) {
       try {
         const payload = await this.fetchClientApiJson("/api/v1/agents");
@@ -564,7 +472,6 @@ export class OpenPpxLocalAdapter implements PpxClientApi {
   }
 
   public async getDiagnostics(): Promise<ClientDiagnostics> {
-    const realAgents = this.listRealAgents();
     const clientApiHealthy = this.shouldUseMock() ? false : await this.isClientApiHealthy();
     const connection = this.connection.getSnapshot();
     const cacheEntries = this.sessionCache.getEntryCounts();
@@ -574,8 +481,6 @@ export class OpenPpxLocalAdapter implements PpxClientApi {
       openppxRoot: this.openppxRoot,
       openppxRootExists: fs.existsSync(this.openppxRoot),
       pythonBin: this.pythonBin,
-      globalConfigPath: globalConfigPath(),
-      globalConfigExists: fs.existsSync(globalConfigPath()),
       clientApiBaseUrl: connection.baseUrl,
       clientApiManagedByClient: !this.shouldUseMock() && Boolean(this.managedClientApiBindAddress()),
       clientApiHealthy,
@@ -590,7 +495,7 @@ export class OpenPpxLocalAdapter implements PpxClientApi {
       clientApiProcessRunning: this.nodeSupervisor.processRunning,
       bridgeScriptPath: this.bridgeScriptPath,
       bridgeScriptExists: fs.existsSync(this.bridgeScriptPath),
-      agentCount: connection.nodeInfo?.agents ?? realAgents.length,
+      agentCount: connection.nodeInfo?.agents ?? 0,
       sessionCacheEntries: cacheEntries.sessions,
       messageCacheEntries: cacheEntries.messages,
       debugEnabled: clientDebugEnabled(),
@@ -700,11 +605,11 @@ export class OpenPpxLocalAdapter implements PpxClientApi {
     }
     if (await this.ensureClientApiAvailable()) {
       try {
-        const payload = await this.fetchClientApiJson(`/api/v1/agents/${agentId}/sessions`, {
-          method: "POST",
-          body: JSON.stringify({}),
-        });
-        const session = normalizeClientApiSession((payload.data as Record<string, unknown> | undefined)?.session);
+        const outcome = await this.actions.invoke<
+          { agentId: string; userId: string },
+          { session: Record<string, unknown> }
+        >("session.new", { agentId, userId: "ppx-client-user" });
+        const session = normalizeClientApiSession(outcome.result.session);
         if (session) {
           this.sessionCache.invalidate(agentId);
           return { session };
@@ -752,26 +657,7 @@ export class OpenPpxLocalAdapter implements PpxClientApi {
         this.rememberClientApiError(error);
       }
     }
-    if (!this.canUseLegacyLocalFallback()) {
-      throw this.clientApiUnavailableError("Loading session messages");
-    }
-    const sessions = await Promise.all(this.listRealAgents().map((agent) => this.listSessionsForAgent(agent.id)));
-    const flat = sessions.flat();
-    const session = flat.find((item) => item.id === sessionId);
-    if (!session) {
-      return { messages: [] };
-    }
-    const response = await this.legacyBridge.request<{ session?: Record<string, unknown> | null }>(
-      "get_session",
-      session.agentId,
-      ["--session-id", sessionId],
-    );
-    if (!response?.session) {
-      return { messages: [] };
-    }
-    const messages = this.buildMessagesFromSession(sessionId, response.session);
-    this.sessionCache.writeMessages(sessionId, messages);
-    return { messages };
+    throw this.clientApiUnavailableError("Loading session messages");
   }
 
   public async sendMessage(input: SendMessageInput): Promise<{ runId: string }> {
@@ -975,11 +861,11 @@ export class OpenPpxLocalAdapter implements PpxClientApi {
     if (!(await this.ensureClientApiAvailable())) {
       throw this.clientApiUnavailableError("Cancelling a Run");
     }
-    const payload = await this.fetchClientApiJson(`/api/v1/runs/${runId}/cancel`, {
-      method: "POST",
-      body: "{}",
-    });
-    const run = ((payload.data as Record<string, unknown> | undefined)?.run ?? {}) as Record<string, unknown>;
+    const outcome = await this.actions.invoke<
+      { runId: string },
+      { run: Record<string, unknown> }
+    >("run.stop", { runId });
+    const run = outcome.result.run;
     return { runId: String(run.id ?? runId), status: "cancelled" };
   }
 

@@ -1,0 +1,17 @@
+{
+  "correlationId": "req_session_new_fixture",
+  "ok": true,
+  "protocolVersion": 1,
+  "requestId": "req_session_new_fixture",
+  "result": {
+    "session": {
+      "agentId": "writer",
+      "archived": false,
+      "id": "session_fixture",
+      "lastMessagePreview": "",
+      "subjectPrincipalId": "user_fixture",
+      "title": "New chat",
+      "updatedAt": "2026-08-03T00:00:00+00:00"
+    }
+  }
+}

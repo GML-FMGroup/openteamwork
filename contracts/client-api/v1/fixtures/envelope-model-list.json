@@ -1,0 +1,9 @@
+{
+  "correlationId": "req_model_list_fixture",
+  "ok": true,
+  "protocolVersion": 1,
+  "requestId": "req_model_list_fixture",
+  "result": {
+    "items": []
+  }
+}

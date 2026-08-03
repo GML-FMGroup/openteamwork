@@ -1,16 +1,16 @@
 from __future__ import annotations
 
 import asyncio
-import io
 import json
-import time
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from google.adk.events.event import Event
 from google.adk.memory.memory_entry import MemoryEntry
 from google.genai import types
 
+from openppx.config import AgentConfig, FilesystemConfigRepository, NodeConfig
 from openppx.runtime.access_policy import AccessPolicy
 from openppx.runtime.agent_access_store import AgentAccessStore, AgentMembership
 from openppx.runtime.client_api_service import (
@@ -23,49 +23,102 @@ from openppx.runtime.identity_store import IdentityStore
 from openppx.runtime.memory_query_service import MemoryQueryService
 from openppx.runtime.session_service import SessionConfig, create_session_service
 from openppx.runtime.sqlite_memory_service import SQLiteMemoryService
+from openppx.control_plane import build_control_plane
+from openppx.runtime.node_runtime import ManagedRunSnapshot, RunNotActiveError, RunNotFoundError
 
 
-class _FakeProcess:
-    def __init__(self, stdout_text: str, stderr_text: str = "", returncode: int = 0) -> None:
-        self.stdout = io.StringIO(stdout_text)
-        self.stderr = io.StringIO(stderr_text)
-        self._returncode = returncode
-        self.terminated = False
+class _FakeRuntimeSupervisor:
+    """Deterministic in-process Runtime Supervisor test double."""
 
-    def poll(self) -> int | None:
-        return None if not self.terminated else self._returncode
+    def __init__(self, *, run_mode: str = "complete") -> None:
+        self.run_mode = run_mode
+        self.sessions: dict[tuple[str, str], list[SimpleNamespace]] = {}
+        self.runs: dict[str, ManagedRunSnapshot] = {}
+        self.callbacks: dict[str, object] = {}
 
-    def terminate(self) -> None:
-        self.terminated = True
+    def create_session_sync(self, agent_id: str, *, user_id: str, session_id: str | None = None):
+        session = SimpleNamespace(
+            id=session_id or f"{agent_id}-session-{len(self.sessions) + 1}",
+            last_update_time=1_700_000_001,
+            events=[],
+        )
+        self.sessions.setdefault((agent_id, user_id), []).append(session)
+        return session
 
-    def wait(self) -> int:
-        self.terminated = True
-        return self._returncode
+    def list_sessions_sync(self, agent_id: str, *, user_id: str):
+        return list(self.sessions.get((agent_id, user_id), []))
+
+    def get_session_sync(self, agent_id: str, *, user_id: str, session_id: str):
+        return next(
+            (item for item in self.sessions.get((agent_id, user_id), []) if item.id == session_id),
+            None,
+        )
+
+    def start_run(self, **kwargs):
+        run_id = kwargs["run_id"]
+        snapshot = ManagedRunSnapshot(
+            run_id=run_id,
+            agent_id=kwargs["agent_id"],
+            session_id=kwargs["session_id"],
+            snapshot_revision="sha256:" + "1" * 64,
+            started_at="2026-08-03T00:00:00+00:00",
+            state="running",
+        )
+        self.runs[run_id] = snapshot
+        self.callbacks[run_id] = kwargs
+        if self.run_mode == "pending":
+            return snapshot
+        event_payload = {
+            "long_running_tool_ids": None,
+            "content": {
+                "parts": [
+                    {"function_call": {"id": "call_1", "name": "inspect_repo", "args": {"path": "."}}},
+                    {"function_response": {"id": "call_1", "name": "inspect_repo", "response": {"ok": True}}},
+                ]
+            },
+        }
+        kwargs["on_event"](SimpleNamespace(model_dump=lambda **_options: event_payload))
+        if self.run_mode == "empty":
+            kwargs["on_complete"]("")
+        else:
+            kwargs["on_text_update"]("hello", "hello")
+            kwargs["on_complete"]("hello world")
+        return snapshot
+
+    def stop_run(self, run_id: str):
+        current = self.runs.get(run_id)
+        if current is None:
+            raise RunNotFoundError(run_id)
+        if current.state != "running":
+            raise RunNotActiveError(run_id)
+        updated = ManagedRunSnapshot(
+            run_id=current.run_id,
+            agent_id=current.agent_id,
+            session_id=current.session_id,
+            snapshot_revision=current.snapshot_revision,
+            started_at=current.started_at,
+            state="cancelling",
+        )
+        self.runs[run_id] = updated
+        self.callbacks[run_id]["on_cancelled"]()
+        return updated
 
 
-class _PendingProcess:
-    def __init__(self) -> None:
-        self.stdout = self
-        self.stderr = io.StringIO("")
-        self.terminated = False
-
-    def __iter__(self) -> "_PendingProcess":
-        return self
-
-    def __next__(self) -> str:
-        while not self.terminated:
-            time.sleep(0.01)
-        raise StopIteration
-
-    def poll(self) -> int | None:
-        return None if not self.terminated else 0
-
-    def terminate(self) -> None:
-        self.terminated = True
-
-    def wait(self) -> int:
-        self.terminated = True
-        return 0
+def _coordinator_with_runtime(
+    root: Path,
+    *,
+    supervisor: _FakeRuntimeSupervisor | None = None,
+    **kwargs,
+) -> tuple[ClientApiCoordinator, _FakeRuntimeSupervisor]:
+    runtime = supervisor or _FakeRuntimeSupervisor()
+    control_plane = build_control_plane(root, product_version="test")
+    coordinator = ClientApiCoordinator(
+        data_dir=root,
+        control_plane=control_plane,
+        runtime_supervisor=runtime,
+        **kwargs,
+    )
+    return coordinator, runtime
 
 
 def _principal(*, principal_id: str, privilege_level: str = "minimal") -> ResolvedPrincipal:
@@ -282,13 +335,9 @@ def test_create_run_streams_replayable_events(tmp_path: Path, monkeypatch) -> No
         ]
     )
 
-    monkeypatch.setattr(
-        "openppx.runtime.client_api_service.subprocess.Popen",
-        lambda *args, **kwargs: _FakeProcess(stdout_lines),
-    )
-
-    coordinator = ClientApiCoordinator(data_dir=tmp_path)
-    payload = coordinator.create_run("writer", "session_1", "hi")
+    coordinator, runtime = _coordinator_with_runtime(tmp_path)
+    runtime.create_session_sync("writer", user_id="owner", session_id="session_1")
+    payload = coordinator.create_run("writer", "session_1", "hi", user_id="owner")
     assert payload["ok"] is True
     run_id = payload["data"]["run"]["id"]
 
@@ -313,6 +362,25 @@ def test_create_run_streams_replayable_events(tmp_path: Path, monkeypatch) -> No
     assert "run.finished" in events
 
 
+def test_create_run_rejects_a_session_that_the_node_does_not_own(tmp_path: Path) -> None:
+    (tmp_path / "global_config.json").write_text(
+        json.dumps({"agents": [{"name": "writer", "enabled": True}]}),
+        encoding="utf-8",
+    )
+    agent_dir = tmp_path / "writer"
+    agent_dir.mkdir()
+    (agent_dir / "config.json").write_text(
+        json.dumps({"agent": {"workspace": "workspace/writer"}}),
+        encoding="utf-8",
+    )
+    coordinator, _runtime = _coordinator_with_runtime(tmp_path)
+
+    payload = coordinator.create_run("writer", "missing-session", "hi", user_id="owner")
+
+    assert payload["ok"] is False
+    assert payload["error"]["code"] == "SESSION_NOT_FOUND"
+
+
 def test_create_run_treats_empty_final_as_failed_message(tmp_path: Path, monkeypatch) -> None:
     (tmp_path / "global_config.json").write_text(
         json.dumps({"agents": [{"name": "writer", "enabled": True}]}),
@@ -324,13 +392,12 @@ def test_create_run_treats_empty_final_as_failed_message(tmp_path: Path, monkeyp
 
     stdout_lines = json.dumps({"type": "final", "text": ""})
 
-    monkeypatch.setattr(
-        "openppx.runtime.client_api_service.subprocess.Popen",
-        lambda *args, **kwargs: _FakeProcess(stdout_lines),
+    coordinator, runtime = _coordinator_with_runtime(
+        tmp_path,
+        supervisor=_FakeRuntimeSupervisor(run_mode="empty"),
     )
-
-    coordinator = ClientApiCoordinator(data_dir=tmp_path)
-    payload = coordinator.create_run("writer", "session_empty_final", "hi")
+    runtime.create_session_sync("writer", user_id="owner", session_id="session_empty_final")
+    payload = coordinator.create_run("writer", "session_empty_final", "hi", user_id="owner")
     assert payload["ok"] is True
 
     run_id = payload["data"]["run"]["id"]
@@ -383,13 +450,9 @@ def test_create_run_emits_normalized_event_context(tmp_path: Path, monkeypatch) 
         ]
     )
 
-    monkeypatch.setattr(
-        "openppx.runtime.client_api_service.subprocess.Popen",
-        lambda *args, **kwargs: _FakeProcess(stdout_lines),
-    )
-
-    coordinator = ClientApiCoordinator(data_dir=tmp_path)
-    payload = coordinator.create_run("writer", "session_ctx", "hi")
+    coordinator, runtime = _coordinator_with_runtime(tmp_path)
+    runtime.create_session_sync("writer", user_id="owner", session_id="session_ctx")
+    payload = coordinator.create_run("writer", "session_ctx", "hi", user_id="owner")
     run_id = payload["data"]["run"]["id"]
     handle = coordinator._runs[run_id]
     assert handle.done.wait(timeout=1.0)
@@ -424,13 +487,12 @@ def test_cancel_run_emits_cancelled_message_and_run(tmp_path: Path, monkeypatch)
     agent_dir.mkdir()
     (agent_dir / "config.json").write_text(json.dumps({"agent": {"workspace": "workspace/writer"}}), encoding="utf-8")
 
-    monkeypatch.setattr(
-        "openppx.runtime.client_api_service.subprocess.Popen",
-        lambda *args, **kwargs: _PendingProcess(),
+    coordinator, runtime = _coordinator_with_runtime(
+        tmp_path,
+        supervisor=_FakeRuntimeSupervisor(run_mode="pending"),
     )
-
-    coordinator = ClientApiCoordinator(data_dir=tmp_path)
-    payload = coordinator.create_run("writer", "session_cancel", "hi")
+    runtime.create_session_sync("writer", user_id="owner", session_id="session_cancel")
+    payload = coordinator.create_run("writer", "session_cancel", "hi", user_id="owner")
     run_id = payload["data"]["run"]["id"]
     cancel_payload = coordinator.cancel_run(run_id)
 
@@ -452,8 +514,7 @@ def test_cancel_run_emits_cancelled_message_and_run(tmp_path: Path, monkeypatch)
 
 
 def test_run_event_replay_uses_sequence_after_two_digit_event_id() -> None:
-    process = _PendingProcess()
-    handle = RunHandle(run_id="run_resume", agent_id="writer", session_id="session_resume", process=process)
+    handle = RunHandle(run_id="run_resume", agent_id="writer", session_id="session_resume")
     for index in range(12):
         handle.publish("message.delta", {"index": index + 1})
     handle.finish()
@@ -497,13 +558,9 @@ def test_create_run_tolerates_null_long_running_tool_ids(tmp_path: Path, monkeyp
         ]
     )
 
-    monkeypatch.setattr(
-        "openppx.runtime.client_api_service.subprocess.Popen",
-        lambda *args, **kwargs: _FakeProcess(stdout_lines),
-    )
-
-    coordinator = ClientApiCoordinator(data_dir=tmp_path)
-    payload = coordinator.create_run("writer", "session_2", "hi")
+    coordinator, runtime = _coordinator_with_runtime(tmp_path)
+    runtime.create_session_sync("writer", user_id="owner", session_id="session_2")
+    payload = coordinator.create_run("writer", "session_2", "hi", user_id="owner")
     assert payload["ok"] is True
 
     handle = coordinator._runs[payload["data"]["run"]["id"]]
@@ -564,18 +621,35 @@ def test_client_api_reads_sessions_directly_without_worker(tmp_path: Path, monke
 
     asyncio.run(_seed())
 
-    monkeypatch.setattr(
-        "openppx.runtime.client_api_service._run_worker_command",
-        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("worker path should not be used")),
-    )
-
-    coordinator = ClientApiCoordinator(data_dir=tmp_path)
-    sessions = coordinator.list_sessions("writer")
+    runtime = _FakeRuntimeSupervisor()
+    runtime.sessions[("writer", "owner")] = [
+        SimpleNamespace(
+            id="writer-seeded",
+            last_update_time=1_700_000_000,
+            events=[
+                Event(
+                    invocation_id="inv-user-runtime",
+                    author="user",
+                    content=types.Content(
+                        role="user",
+                        parts=[types.Part.from_text(text="帮我查一下深圳到青岛的火车和费用")],
+                    ),
+                ),
+                Event(
+                    invocation_id="inv-assistant-runtime",
+                    author="assistant",
+                    content=types.Content(role="model", parts=[types.Part.from_text(text="Hello direct path")]),
+                ),
+            ],
+        )
+    ]
+    coordinator, _runtime = _coordinator_with_runtime(tmp_path, supervisor=runtime)
+    sessions = coordinator.list_sessions("writer", user_id="owner")
     assert sessions["ok"] is True
     assert sessions["data"]["items"][0]["id"] == "writer-seeded"
     assert sessions["data"]["items"][0]["title"] == "帮我查一下深圳到青岛的火车和费用"
 
-    messages = coordinator.get_session_messages("writer-seeded")
+    messages = coordinator.get_session_messages("writer-seeded", user_id="owner")
     assert messages["ok"] is True
     assert messages["data"]["items"][0]["parts"][0]["text"] == "帮我查一下深圳到青岛的火车和费用"
     assert messages["data"]["items"][1]["parts"][0]["text"] == "Hello direct path"
@@ -596,11 +670,11 @@ def test_list_sessions_uses_short_cache(tmp_path: Path, monkeypatch) -> None:
         calls["count"] += 1
         return [{"id": "session-1", "last_update_time": 1_700_000_000, "last_preview": "cached"}]
 
-    monkeypatch.setattr(ClientApiCoordinator, "_read_sessions_direct", _fake_read)
+    monkeypatch.setattr(ClientApiCoordinator, "_read_sessions_for_principal", _fake_read)
 
-    coordinator = ClientApiCoordinator(data_dir=tmp_path)
-    first = coordinator.list_sessions("writer")
-    second = coordinator.list_sessions("writer")
+    coordinator, _runtime = _coordinator_with_runtime(tmp_path)
+    first = coordinator.list_sessions("writer", user_id="owner")
+    second = coordinator.list_sessions("writer", user_id="owner")
 
     assert first["ok"] is True
     assert second["ok"] is True
@@ -621,12 +695,12 @@ def test_list_sessions_does_not_synthesize_a_preview(tmp_path: Path, monkeypatch
 
     monkeypatch.setattr(
         ClientApiCoordinator,
-        "_read_sessions_direct",
+        "_read_sessions_for_principal",
         lambda self, config_path, *, user_id: [{"id": "session-1", "last_update_time": 1_700_000_000}],
     )
 
-    coordinator = ClientApiCoordinator(data_dir=tmp_path)
-    sessions = coordinator.list_sessions("writer")
+    coordinator, _runtime = _coordinator_with_runtime(tmp_path)
+    sessions = coordinator.list_sessions("writer", user_id="owner")
 
     assert sessions["ok"] is True
     assert sessions["data"]["items"][0]["last_message_preview"] == ""
@@ -647,17 +721,12 @@ def test_create_session_invalidates_session_list_cache(tmp_path: Path, monkeypat
         calls["count"] += 1
         return [{"id": f"session-{calls['count']}", "last_update_time": 1_700_000_000, "last_preview": "cached"}]
 
-    monkeypatch.setattr(ClientApiCoordinator, "_read_sessions_direct", _fake_read)
-    monkeypatch.setattr(
-        ClientApiCoordinator,
-        "_create_session_direct",
-        lambda self, config_path, *, user_id, session_id: {"id": session_id, "last_update_time": 1_700_000_001},
-    )
+    monkeypatch.setattr(ClientApiCoordinator, "_read_sessions_for_principal", _fake_read)
 
-    coordinator = ClientApiCoordinator(data_dir=tmp_path)
-    before = coordinator.list_sessions("writer")
-    created = coordinator.create_session("writer")
-    after = coordinator.list_sessions("writer")
+    coordinator, _runtime = _coordinator_with_runtime(tmp_path)
+    before = coordinator.list_sessions("writer", user_id="owner")
+    created = coordinator.create_session("writer", user_id="owner")
+    after = coordinator.list_sessions("writer", user_id="owner")
 
     assert before["data"]["items"][0]["id"] == "session-1"
     assert created["ok"] is True
@@ -717,8 +786,23 @@ def test_client_api_owner_can_list_participant_sessions(tmp_path: Path) -> None:
 
     asyncio.run(_seed())
 
-    coordinator = ClientApiCoordinator(
-        data_dir=tmp_path,
+    runtime = _FakeRuntimeSupervisor()
+    runtime.sessions[("writer", participant.principal_id)] = [
+        SimpleNamespace(
+            id="participant-session",
+            last_update_time=1_700_000_000,
+            events=[
+                Event(
+                    invocation_id="inv-participant-runtime",
+                    author="assistant",
+                    content=types.Content(role="model", parts=[types.Part.from_text(text="Participant history")]),
+                )
+            ],
+        )
+    ]
+    coordinator, _runtime = _coordinator_with_runtime(
+        tmp_path,
+        supervisor=runtime,
         identity_store=identity_store,
         agent_access_store=access_store,
         access_policy=policy,
@@ -774,8 +858,13 @@ def test_client_api_owner_cannot_run_in_participant_session(tmp_path: Path) -> N
 
     asyncio.run(_seed())
 
-    coordinator = ClientApiCoordinator(
-        data_dir=tmp_path,
+    runtime = _FakeRuntimeSupervisor(run_mode="pending")
+    runtime.sessions[("writer", participant.principal_id)] = [
+        SimpleNamespace(id="participant-session", last_update_time=1_700_000_000, events=[])
+    ]
+    coordinator, _runtime = _coordinator_with_runtime(
+        tmp_path,
+        supervisor=runtime,
         identity_store=identity_store,
         agent_access_store=access_store,
         access_policy=policy,
@@ -837,7 +926,7 @@ def test_client_api_owner_can_query_participant_memory(tmp_path: Path) -> None:
     assert "launch checklist" in payload["data"]["items"][0]["text"]
 
 
-def test_client_api_get_agent_access_bootstraps_owner_from_config(tmp_path: Path) -> None:
+def test_client_api_get_agent_access_uses_strict_agent_resource(tmp_path: Path) -> None:
     (tmp_path / "global_config.json").write_text(
         json.dumps({"agents": [{"name": "writer", "enabled": True}]}),
         encoding="utf-8",
@@ -861,7 +950,7 @@ def test_client_api_get_agent_access_bootstraps_owner_from_config(tmp_path: Path
     payload = coordinator.get_agent_access("writer", user_id="owner")
 
     assert payload["ok"] is True
-    assert payload["data"]["agent"]["privilege_level"] == "high"
+    assert payload["data"]["agent"]["privilege_level"] == "low"
     assert payload["data"]["agent"]["owner_principal_id"] == "owner"
     assert payload["data"]["agent"]["owner_configured"] is True
     assert payload["data"]["agent"]["metadata"]["owner_source"] == "config"
@@ -1361,4 +1450,3 @@ def test_client_api_participant_memory_audit_stays_self_scoped(tmp_path: Path) -
     assert payload["ok"] is True
     assert payload["data"]["requester"]["scope_kind"] == "self"
     assert [item["requester_principal_id"] for item in payload["data"]["items"]] == [participant.principal_id]
-from openppx.config import AgentConfig, FilesystemConfigRepository, NodeConfig

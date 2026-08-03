@@ -9,5 +9,7 @@ CONTROL_PLANE_CAPABILITIES: tuple[str, ...] = (
     "config.node.write",
     "model.profiles.read",
     "model.select",
+    "run.control",
+    "session.write",
     "system.status",
 )

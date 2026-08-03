@@ -85,22 +85,29 @@ from .prompt import (
     gui_builtin_tools_enabled,
 )
 
+if False:  # pragma: no cover - import-only typing without a runtime cycle
+    from openppx.config.layers import ConfigSnapshot
+
 
 def _gui_builtin_tools_enabled() -> bool:
     """Return whether legacy builtin GUI tools should be exposed."""
     return gui_builtin_tools_enabled()
 
 
-def _agent_privilege_level() -> str:
-    """Return the current agent privilege level from environment."""
+def _agent_privilege_level(explicit: str | None = None) -> str:
+    """Return an explicit privilege level or the legacy environment value."""
+    if explicit is not None:
+        return normalize_agent_privilege_level(explicit)
     raw = os.getenv("OPENPPX_AGENT_PRIVILEGE_LEVEL", "").strip().lower()
     if not raw:
         return ""
     return normalize_agent_privilege_level(raw)
 
 
-def _can_delegate() -> bool:
-    """Return whether the current agent may delegate to sub-agents."""
+def _can_delegate(explicit: bool | None = None) -> bool:
+    """Return an explicit delegation policy or the legacy environment value."""
+    if explicit is not None:
+        return explicit
     return env_enabled("OPENPPX_CAN_DELEGATE", default=True)
 
 
@@ -166,8 +173,14 @@ def _build_dynamic_instruction() -> str:
     return build_startup_runtime_context()
 
 
-def _build_tools() -> list[Any]:
-    """Assemble builtin tools plus optional MCP toolsets from env config."""
+def _build_tools(
+    *,
+    privilege_level: str | None = None,
+    can_delegate: bool | None = None,
+    include_gui_tools: bool | None = None,
+    extension_tools: tuple[Any, ...] | None = None,
+) -> list[Any]:
+    """Assemble tools from explicit snapshot policy or the legacy env path."""
     base_tools: list[Any] = [
         PreloadMemoryTool(),
         load_artifacts,
@@ -228,13 +241,14 @@ def _build_tools() -> list[Any]:
         _confirmation_tool(message_file, _message_file_requires_confirmation),
         _confirmation_tool(cron, _cron_requires_confirmation),
     ]
-    if _can_delegate():
+    if _can_delegate(can_delegate):
         base_tools.append(LongRunningFunctionTool(func=spawn_subagent))
-    if _gui_builtin_tools_enabled():
+    gui_enabled = _gui_builtin_tools_enabled() if include_gui_tools is None else include_gui_tools
+    if gui_enabled:
         base_tools.extend([start_gui_task, computer_task, computer_use])
 
-    privilege_level = _agent_privilege_level()
-    if privilege_level == "low":
+    resolved_privilege_level = _agent_privilege_level(privilege_level)
+    if resolved_privilege_level == "low":
         allowed_names = {
             "list_skills",
             "read_skill",
@@ -253,21 +267,72 @@ def _build_tools() -> list[Any]:
         tools = [tool for tool in base_tools if _tool_name(tool) in allowed_names or isinstance(tool, PreloadMemoryTool)]
         return tools
 
-    if privilege_level == "medium":
+    if resolved_privilege_level == "medium":
         blocked_names = {"message", "message_image", "message_file"}
         tools = [tool for tool in base_tools if _tool_name(tool) not in blocked_names]
-        tools.extend(build_mcp_toolsets_from_env())
+        tools.extend(build_mcp_toolsets_from_env() if extension_tools is None else extension_tools)
         return tools
 
     tools = list(base_tools)
-    tools.extend(build_mcp_toolsets_from_env())
+    tools.extend(build_mcp_toolsets_from_env() if extension_tools is None else extension_tools)
     return tools
 
 
-root_agent = LlmAgent(
-    name="openppx",
-    model=build_adk_model_from_env(),
-    static_instruction=_build_static_instruction(),
-    instruction=_build_dynamic_instruction(),
-    tools=_build_tools(),
-)
+def build_root_agent(
+    snapshot: "ConfigSnapshot",
+    *,
+    model: Any,
+    extension_tools: tuple[Any, ...] = (),
+    include_gui_tools: bool = False,
+) -> LlmAgent:
+    """Build one ADK Agent from an immutable Config snapshot.
+
+    The function intentionally accepts the resolved model and extension tools
+    so it never discovers Provider credentials or MCP configuration itself.
+    """
+    agent_config = snapshot.agent
+    delegation_override = agent_config.spec.permission_overrides.can_delegate
+    if delegation_override is None:
+        delegation_override = agent_config.spec.privilege_level in {"medium", "high", "root"}
+    return LlmAgent(
+        name="openppx",
+        model=model,
+        static_instruction=_build_static_instruction(),
+        instruction=build_startup_runtime_context(
+            workspace=agent_config.spec.workspace,
+            gui_tools_enabled=include_gui_tools,
+        ),
+        tools=_build_tools(
+            privilege_level=agent_config.spec.privilege_level,
+            can_delegate=delegation_override,
+            include_gui_tools=include_gui_tools,
+            extension_tools=extension_tools,
+        ),
+    )
+
+
+_legacy_root_agent: LlmAgent | None = None
+
+
+def build_legacy_root_agent() -> LlmAgent:
+    """Build the legacy single-Agent runtime only when an old surface requests it."""
+    return LlmAgent(
+        name="openppx",
+        model=build_adk_model_from_env(),
+        static_instruction=_build_static_instruction(),
+        instruction=_build_dynamic_instruction(),
+        tools=_build_tools(),
+    )
+
+
+def __getattr__(name: str) -> Any:
+    """Lazily expose ADK's legacy ``root_agent`` discovery contract."""
+    global _legacy_root_agent
+    if name != "root_agent":
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    if _legacy_root_agent is None:
+        _legacy_root_agent = build_legacy_root_agent()
+    return _legacy_root_agent
+
+
+__all__ = ["build_legacy_root_agent", "build_root_agent", "root_agent"]

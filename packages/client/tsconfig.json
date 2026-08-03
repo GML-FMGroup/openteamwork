@@ -6,6 +6,7 @@
     "skipLibCheck": true,
     "module": "ESNext",
     "moduleResolution": "Bundler",
+    "resolveJsonModule": true,
     "isolatedModules": true,
     "noEmit": true,
     "types": ["vitest/globals"]

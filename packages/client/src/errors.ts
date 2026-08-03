@@ -4,6 +4,10 @@ export class ClientApiRequestError extends Error {
     message: string,
     public readonly status: number,
     public readonly code: string,
+    public readonly details: Record<string, unknown> = {},
+    public readonly retryable = false,
+    public readonly requestId?: string,
+    public readonly correlationId?: string,
   ) {
     super(message);
     this.name = "ClientApiRequestError";

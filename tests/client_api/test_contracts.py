@@ -11,6 +11,7 @@ from pydantic import TypeAdapter, ValidationError
 
 from openppx.actions import ActionError, ActionOutcome
 from openppx.client_api.contracts import (
+    ActionInvokeRequest,
     ClientEnvelope,
     ContractMapper,
     ErrorEnvelope,
@@ -87,9 +88,25 @@ def test_contract_export_is_deterministic_and_fixtures_round_trip(tmp_path: Path
     assert tracked_files == first_files
 
     adapter = TypeAdapter(ClientEnvelope)
-    for fixture_name in ("envelope-success.json", "envelope-error.json"):
+    for fixture_name in (
+        "envelope-success.json",
+        "envelope-error.json",
+        "envelope-model-list.json",
+        "envelope-session-new.json",
+        "envelope-run-stop.json",
+    ):
         payload = json.loads((first / "fixtures" / fixture_name).read_text(encoding="utf-8"))
         assert adapter.validate_python(payload)
+
+    invocation_adapter = TypeAdapter(ActionInvokeRequest)
+    for fixture_name in (
+        "action-invoke-status.json",
+        "action-invoke-model-list.json",
+        "action-invoke-session-new.json",
+        "action-invoke-run-stop.json",
+    ):
+        payload = json.loads((first / "fixtures" / fixture_name).read_text(encoding="utf-8"))
+        assert invocation_adapter.validate_python(payload)
 
     schema = json.loads((first / "schema.json").read_text(encoding="utf-8"))
     Draft202012Validator.check_schema(schema)

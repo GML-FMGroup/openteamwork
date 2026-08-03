@@ -73,14 +73,46 @@ class CLITests(unittest.TestCase):
         from openppx import cli
 
         with patch(
-            "openppx.runtime.client_api_service.serve_client_api",
+            "openppx.runtime.node_host.run_node",
             side_effect=ValueError("unsafe bind"),
         ) as mocked_serve:
             with self.assertRaises(SystemExit) as ctx:
                 cli.main(["client-api", "serve", "--host", "0.0.0.0"])
 
         self.assertEqual(ctx.exception.code, 2)
-        mocked_serve.assert_called_once_with(host="0.0.0.0", port=8765)
+        mocked_serve.assert_called_once_with(
+            cli.get_data_dir(),
+            host="0.0.0.0",
+            port=8765,
+        )
+
+    def test_node_run_dispatches_without_legacy_environment_bootstrap(self) -> None:
+        from openppx import cli
+
+        with tempfile.TemporaryDirectory() as tmp:
+            with patch.object(cli, "bootstrap_env_from_config") as mocked_bootstrap:
+                with patch("openppx.runtime.node_host.run_node") as mocked_run:
+                    with self.assertRaises(SystemExit) as ctx:
+                        cli.main(
+                            [
+                                "node",
+                                "run",
+                                "--node-root",
+                                tmp,
+                                "--host",
+                                "127.0.0.1",
+                                "--port",
+                                "19455",
+                            ]
+                        )
+
+        self.assertEqual(ctx.exception.code, 0)
+        mocked_bootstrap.assert_not_called()
+        mocked_run.assert_called_once_with(
+            Path(tmp),
+            host="127.0.0.1",
+            port=19455,
+        )
 
     def test_message_mode_dispatch(self) -> None:
         from openppx import cli

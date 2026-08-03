@@ -7,8 +7,6 @@ import asyncio
 import json
 import os
 import queue
-import subprocess
-import sys
 import threading
 import urllib.parse
 from dataclasses import dataclass
@@ -20,6 +18,7 @@ from pydantic import ValidationError
 
 from ..actions import ActionContext, ActionError, ActionOutcome
 from ..client_api.contracts import ActionInvokeRequest, ContractMapper
+from ..config import ConfigError
 from ..control_plane import CONTROL_PLANE_CAPABILITIES, ControlPlaneApplication, build_control_plane
 from ..core.config import get_data_dir
 from ..core.logging_utils import debug_logging_enabled, emit_debug
@@ -42,7 +41,6 @@ from .identity_models import ResolvedPrincipal
 from .identity_store import IdentityStore
 from .memory_query_service import MemoryQueryService
 from .memory_shared import memory_entry_text
-from .session_service import SessionConfig, create_session_service
 from .sqlite_memory_service import SQLiteMemoryService
 
 
@@ -131,40 +129,6 @@ def _actions_for_access_audit_category(category: str) -> tuple[str, ...] | None:
     if normalized == "all":
         return None
     return _MUTATION_AUDIT_ACTIONS
-
-
-def agent_config_path(agent_name: str, data_dir: Path | None = None) -> Path:
-    """Return the legacy per-Agent runtime config path pending runtime cutover."""
-
-    root = data_dir or get_data_dir()
-    return root / agent_name / "config.json"
-
-
-def _run_worker_command(*, config_path: Path, args: list[str]) -> dict[str, Any]:
-    """Run one worker action and parse its final NDJSON line."""
-
-    cmd = [sys.executable, "-m", "openppx.runtime.client_api_worker", *args]
-    proc = subprocess.run(
-        cmd,
-        capture_output=True,
-        text=True,
-        cwd=str(config_path.parent),
-    )
-    if proc.returncode != 0:
-        message = proc.stderr.strip() or proc.stdout.strip() or f"worker exited with code {proc.returncode}"
-        raise RuntimeError(message)
-    lines = [line.strip() for line in proc.stdout.splitlines() if line.strip()]
-    if not lines:
-        return {}
-    return json.loads(lines[-1])
-
-
-def _session_db_url_for_config_path(config_path: Path) -> str:
-    """Build the per-agent SQLite session DB URL without mutating process env."""
-
-    db_path = config_path.parent / "database" / "sessions.db"
-    db_path.parent.mkdir(parents=True, exist_ok=True)
-    return f"sqlite+aiosqlite:///{db_path}"
 
 
 def _preview_value(value: Any, fallback: str) -> str:
@@ -416,19 +380,23 @@ class _TimedCacheEntry:
 
 
 class RunHandle:
-    """Track one running worker subprocess and its replayable SSE events."""
+    """Track one Node-owned Run and its replayable SSE events."""
 
-    def __init__(self, *, run_id: str, agent_id: str, session_id: str, process: subprocess.Popen[str]) -> None:
+    def __init__(
+        self,
+        *,
+        run_id: str,
+        agent_id: str,
+        session_id: str,
+    ) -> None:
         self.run_id = run_id
         self.agent_id = agent_id
         self.session_id = session_id
-        self.process = process
         self.assistant_message_id = f"msg_{run_id}_assistant"
         self._history: list[RunEnvelope] = []
         self._subscribers: list[queue.Queue[RunEnvelope | None]] = []
         self._lock = threading.Lock()
         self._seq = 0
-        self._stderr_lines: list[str] = []
         self.done = threading.Event()
         self.failed = False
 
@@ -457,50 +425,6 @@ class RunHandle:
             self._subscribers.clear()
         for subscriber in subscribers:
             subscriber.put(None)
-
-    def append_stderr_line(self, line: str) -> None:
-        """Retain a bounded stderr history for later debug reporting."""
-
-        with self._lock:
-            self._stderr_lines.append(line)
-            if len(self._stderr_lines) > 20:
-                self._stderr_lines = self._stderr_lines[-20:]
-
-    def stderr_text(self) -> str:
-        """Return the retained stderr snapshot."""
-
-        with self._lock:
-            return "\n".join(self._stderr_lines)
-
-    def cancel(self) -> bool:
-        """Terminate the subprocess if it is still running."""
-
-        if self.done.is_set():
-            return False
-        if self.process.poll() is None:
-            self.process.terminate()
-        self.publish(
-            "message.cancelled",
-            {
-                "run_id": self.run_id,
-                "agent_id": self.agent_id,
-                "session_id": self.session_id,
-                "message_id": self.assistant_message_id,
-                "status": "cancelled",
-            },
-        )
-        self.publish(
-            "run.cancelled",
-            {
-                "run_id": self.run_id,
-                "agent_id": self.agent_id,
-                "session_id": self.session_id,
-                "message_id": self.assistant_message_id,
-                "status": "cancelled",
-            },
-        )
-        self.finish()
-        return True
 
     def subscribe(self, last_event_id: str | None = None) -> queue.Queue[RunEnvelope | None]:
         """Create one subscriber queue and replay retained history."""
@@ -536,6 +460,7 @@ class ClientApiCoordinator:
         access_policy: AccessPolicy | None = None,
         memory_query_service: MemoryQueryService | None = None,
         control_plane: ControlPlaneApplication | None = None,
+        runtime_supervisor: Any | None = None,
     ) -> None:
         self.data_dir = data_dir or get_data_dir()
         default_identity_db_path = self.data_dir / "database" / "identity.db"
@@ -562,6 +487,13 @@ class ClientApiCoordinator:
         self._sessions_cache: dict[tuple[str, str], _TimedCacheEntry] = {}
         self._messages_cache: dict[tuple[str, str], _TimedCacheEntry] = {}
         self._control_plane = control_plane or build_control_plane(self.data_dir)
+        self._runtime_supervisor = runtime_supervisor
+        if runtime_supervisor is not None:
+            attached = self._control_plane.runtime_supervisor
+            if attached is None:
+                self._control_plane.attach_runtime(runtime_supervisor)
+            elif attached is not runtime_supervisor:
+                raise ValueError("Control Plane and Client API must share one Runtime Supervisor.")
 
     def _control_context(
         self,
@@ -572,7 +504,17 @@ class ClientApiCoordinator:
         confirmed: bool = False,
     ) -> ActionContext:
         """Build the trusted transport-service context for current Client API projections."""
-        permissions = frozenset({"system.read", "config.read", "config.write", "model.read", "model.use"})
+        permissions = frozenset(
+            {
+                "system.read",
+                "config.read",
+                "config.write",
+                "model.read",
+                "model.use",
+                "session.write",
+                "run.control",
+            }
+        )
         return ActionContext(
             request_id=request_id,
             correlation_id=correlation_id or request_id,
@@ -667,21 +609,41 @@ class ClientApiCoordinator:
         return self._identity_store.put_principal(principal)
 
     def _ensure_agent_access_state(self, agent_id: str) -> Path | None:
-        """Ensure access rows exist for one configured agent before evaluation."""
+        """Project strict Agent ownership into the access store before evaluation."""
         if agent_id not in self._enabled_agent_ids():
             return None
-        config_path = agent_config_path(agent_id, self.data_dir)
-        if not config_path.exists():
+        try:
+            resource = self._control_plane.config_repository.read_agent(agent_id)
+        except ConfigError:
             return None
-        ensure_agent_access_record(
-            agent_id=agent_id,
-            agent_name=agent_id,
-            identity_store=self._identity_store,
-            agent_access_store=self._agent_access_store,
-            config_path=config_path,
-            apply_env_overrides=False,
+        agent = resource.document
+        existing = self._agent_access_store.get_agent_record(agent_id)
+        owner_source = str(existing.metadata.get("owner_source", "")) if existing is not None else ""
+        owner_principal_id = agent.spec.owner_principal_id
+        if existing is not None and existing.owner_principal_id and owner_source not in {"", "config"}:
+            owner_principal_id = existing.owner_principal_id
+        ensure_access_principal(
+            self._identity_store,
+            principal_id=owner_principal_id,
+            source=owner_source or "config",
+            account_kind="configured_owner" if owner_source in {"", "config"} else "managed_access",
         )
-        return config_path
+        self._agent_access_store.upsert_agent_record(
+            AgentRecord(
+                agent_id=agent_id,
+                name=agent.spec.display_name,
+                privilege_level=agent.spec.privilege_level,
+                owner_principal_id=owner_principal_id,
+                status=existing.status if existing is not None else "active",
+                config_ref=str(resource.source.path),
+                metadata={
+                    **(existing.metadata if existing is not None else {}),
+                    "owner_source": owner_source or "config",
+                    "config_revision": resource.revision,
+                },
+            )
+        )
+        return resource.source.path
 
     def _visible_principal_ids(self, requester_principal_id: str, *, agent_id: str, access_kind: str) -> tuple[Any, tuple[str, ...]]:
         """Resolve the effective visible principal ids for one request."""
@@ -800,117 +762,29 @@ class ClientApiCoordinator:
             {"reason": decision.reason},
         )
 
-    def _read_sessions_direct(self, config_path: Path, *, user_id: str) -> list[dict[str, Any]]:
-        """Read session summaries directly from the per-agent SQLite store."""
-
-        async def _load() -> list[dict[str, Any]]:
-            service = create_session_service(SessionConfig(db_url=_session_db_url_for_config_path(config_path)))
-            async with service:
-                response = await service.list_sessions(app_name="openppx", user_id=user_id)
-                items: list[dict[str, Any]] = []
-                for session in response.sessions:
-                    detail = await service.get_session(
-                        app_name="openppx",
-                        user_id=user_id,
-                        session_id=session.id,
-                    )
-                    events = [event.model_dump(mode="json") for event in (detail.events if detail else [])]
-                    items.append(
-                        {
-                            "id": session.id,
-                            "last_update_time": (detail.last_update_time if detail else session.last_update_time),
-                            "title": _session_title_from_events(events),
-                            "last_preview": _event_preview_text(events[-1]) if events else "",
-                        }
-                    )
-                return items
-
-        return asyncio.run(_load())
-
-    def _read_sessions_worker(self, config_path: Path, *, user_id: str) -> list[dict[str, Any]]:
-        """Read session summaries through the worker fallback path."""
-        response = _run_worker_command(
-            config_path=config_path,
-            args=[
-                "list_sessions",
-                "--config-path",
-                str(config_path),
-                "--user-id",
-                user_id,
-            ],
-        )
-        return [item for item in response.get("sessions", []) if isinstance(item, dict)]
-
-    def _create_session_direct(self, config_path: Path, *, user_id: str, session_id: str) -> dict[str, Any]:
-        """Create one session directly in the per-agent SQLite store."""
-
-        async def _create() -> dict[str, Any]:
-            service = create_session_service(SessionConfig(db_url=_session_db_url_for_config_path(config_path)))
-            async with service:
-                session = await service.create_session(
-                    app_name="openppx",
-                    user_id=user_id,
-                    session_id=session_id,
-                )
-            return {
-                "id": session.id,
-                "last_update_time": session.last_update_time,
-            }
-
-        return asyncio.run(_create())
-
-    def _get_session_direct(self, config_path: Path, *, user_id: str, session_id: str) -> dict[str, Any] | None:
-        """Read one session with events directly from the per-agent SQLite store."""
-
-        async def _load() -> dict[str, Any] | None:
-            service = create_session_service(SessionConfig(db_url=_session_db_url_for_config_path(config_path)))
-            async with service:
-                session = await service.get_session(
-                    app_name="openppx",
-                    user_id=user_id,
-                    session_id=session_id,
-                )
-            if session is None:
-                return None
-            return {
-                "id": session.id,
-                "last_update_time": session.last_update_time,
-                "events": [event.model_dump(mode="json") for event in session.events],
-            }
-
-        return asyncio.run(_load())
-
-    def _get_session_worker(self, config_path: Path, *, user_id: str, session_id: str) -> dict[str, Any] | None:
-        """Read one session through the worker fallback path."""
-        response = _run_worker_command(
-            config_path=config_path,
-            args=[
-                "get_session",
-                "--config-path",
-                str(config_path),
-                "--session-id",
-                session_id,
-                "--user-id",
-                user_id,
-            ],
-        )
-        session = response.get("session")
-        return session if isinstance(session, dict) else None
-
     def _read_sessions_for_principal(self, config_path: Path, *, user_id: str) -> list[dict[str, Any]]:
-        """Read one principal-scoped session list with worker fallback."""
-        try:
-            return self._read_sessions_direct(config_path, user_id=user_id)
-        except Exception as exc:
-            _debug(
-                "client_api.list_sessions.direct_failed",
-                {
-                    "config_path": str(config_path),
-                    "user_id": user_id,
-                    "error": str(exc),
-                },
+        """Read principal-scoped Sessions from the Node Runtime Supervisor."""
+        if self._runtime_supervisor is None:
+            raise RuntimeError("The Node Runtime Supervisor is not attached.")
+        agent_id = config_path.parent.name
+        sessions = self._runtime_supervisor.list_sessions_sync(agent_id, user_id=user_id)
+        items: list[dict[str, Any]] = []
+        for session in sessions:
+            detail = self._runtime_supervisor.get_session_sync(
+                agent_id,
+                user_id=user_id,
+                session_id=str(session.id),
             )
-            return self._read_sessions_worker(config_path, user_id=user_id)
+            events = [event.model_dump(mode="json") for event in (detail.events if detail else [])]
+            items.append(
+                {
+                    "id": str(session.id),
+                    "last_update_time": detail.last_update_time if detail else session.last_update_time,
+                    "title": _session_title_from_events(events),
+                    "last_preview": _event_preview_text(events[-1]) if events else "",
+                }
+            )
+        return items
 
     def _get_session_for_principal(
         self,
@@ -919,20 +793,21 @@ class ClientApiCoordinator:
         user_id: str,
         session_id: str,
     ) -> dict[str, Any] | None:
-        """Read one principal-scoped session with worker fallback."""
-        try:
-            return self._get_session_direct(config_path, user_id=user_id, session_id=session_id)
-        except Exception as exc:
-            _debug(
-                "client_api.get_session.direct_failed",
-                {
-                    "config_path": str(config_path),
-                    "session_id": session_id,
-                    "user_id": user_id,
-                    "error": str(exc),
-                },
-            )
-            return self._get_session_worker(config_path, user_id=user_id, session_id=session_id)
+        """Read one principal-scoped Session from the Node Runtime Supervisor."""
+        if self._runtime_supervisor is None:
+            raise RuntimeError("The Node Runtime Supervisor is not attached.")
+        session = self._runtime_supervisor.get_session_sync(
+            config_path.parent.name,
+            user_id=user_id,
+            session_id=session_id,
+        )
+        if session is None:
+            return None
+        return {
+            "id": str(session.id),
+            "last_update_time": session.last_update_time,
+            "events": [event.model_dump(mode="json") for event in session.events],
+        }
 
     def _collect_visible_sessions(
         self,
@@ -1078,7 +953,9 @@ class ClientApiCoordinator:
         requester = self._ensure_requester_principal(user_id)
         if agent_id not in self._enabled_agent_ids():
             return _error("AGENT_NOT_FOUND", f"Agent '{agent_id}' was not found.")
-        config_path = agent_config_path(agent_id, self.data_dir)
+        config_path = self._ensure_agent_access_state(agent_id)
+        if config_path is None:
+            return _error("AGENT_NOT_FOUND", f"Agent '{agent_id}' was not found.")
         if not config_path.exists():
             return _error("RUNTIME_NOT_CONFIGURED", f"Agent '{agent_id}' runtime is not configured.")
         cache_key = (agent_id, requester.principal_id)
@@ -1128,54 +1005,33 @@ class ClientApiCoordinator:
         return _ok({"items": items})
 
     def create_session(self, agent_id: str, *, user_id: str = "ppx-client-user") -> dict[str, Any]:
-        """Create one session for the target agent."""
+        """Create one Session through the shared Control Plane Action."""
 
         requester = self._ensure_requester_principal(user_id)
-        config_path = self._ensure_agent_access_state(agent_id)
-        if config_path is None:
+        if self._ensure_agent_access_state(agent_id) is None:
             return _error("AGENT_NOT_FOUND", f"Agent '{agent_id}' was not found.")
-        session_id = f"{agent_id}-{os.urandom(8).hex()}"
-        try:
-            session = self._create_session_direct(
-                config_path,
-                user_id=requester.principal_id,
-                session_id=session_id,
+        outcome = self._invoke_control(
+            "session.new",
+            {"agentId": agent_id, "userId": requester.principal_id},
+        )
+        if not outcome.ok or outcome.data is None:
+            error = outcome.error
+            return _error(
+                str(error.code if error is not None else "RUNTIME_UNAVAILABLE").upper(),
+                error.message if error is not None else "The Node runtime is unavailable.",
+                error.details if error is not None else None,
             )
-        except Exception as exc:
-            _debug(
-                "client_api.create_session.direct_failed",
-                {
-                    "agent_id": agent_id,
-                    "session_id": session_id,
-                    "error": str(exc),
-                },
-            )
-            try:
-                response = _run_worker_command(
-                    config_path=config_path,
-                    args=[
-                        "create_session",
-                        "--config-path",
-                        str(config_path),
-                        "--session-id",
-                        session_id,
-                        "--user-id",
-                        requester.principal_id,
-                    ],
-                )
-                session = response.get("session") if isinstance(response.get("session"), dict) else {}
-            except Exception as fallback_exc:
-                return _error("RUNTIME_UNAVAILABLE", str(fallback_exc))
-        session_id = str(session.get("id") or session_id)
+        session = outcome.data.get("session")
+        if not isinstance(session, dict):
+            return _error("RUNTIME_UNAVAILABLE", "The Session Action returned an invalid result.")
+        session_id = str(session.get("id") or "")
+        if not session_id:
+            return _error("RUNTIME_UNAVAILABLE", "The Session Action returned no Session id.")
         self._session_agents[session_id] = agent_id
         self._session_owners[session_id] = requester.principal_id
         self._invalidate_agent_cache(agent_id, user_id=requester.principal_id)
         self._invalidate_session_cache(session_id, user_id=requester.principal_id)
-        updated_raw = session.get("last_update_time")
-        if isinstance(updated_raw, (int, float)):
-            updated_at = dt.datetime.fromtimestamp(updated_raw, tz=dt.timezone.utc).astimezone().isoformat()
-        else:
-            updated_at = _iso_now()
+        updated_at = str(session.get("updatedAt") or _iso_now())
         return _ok(
             {
                 "session": {
@@ -1213,7 +1069,9 @@ class ClientApiCoordinator:
         if isinstance(location, dict):
             return location
         agent_id, subject_principal_id = location
-        config_path = agent_config_path(agent_id, self.data_dir)
+        config_path = self._ensure_agent_access_state(agent_id)
+        if config_path is None:
+            return _error("AGENT_NOT_FOUND", f"Agent '{agent_id}' was not found.")
         try:
             session = self._get_session_for_principal(
                 config_path,
@@ -1730,57 +1588,30 @@ class ClientApiCoordinator:
         )
 
     def create_run(self, agent_id: str, session_id: str, text: str, *, user_id: str = "ppx-client-user") -> dict[str, Any]:
-        """Create one streaming run and start consuming worker events in background."""
+        """Create one streaming Run inside the shared Node Runtime Supervisor."""
 
         requester = self._ensure_requester_principal(user_id)
-        config_path = self._ensure_agent_access_state(agent_id)
-        if config_path is None:
+        if self._ensure_agent_access_state(agent_id) is None:
             return _error("AGENT_NOT_FOUND", f"Agent '{agent_id}' was not found.")
+        if self._runtime_supervisor is None:
+            return _error("RUNTIME_UNAVAILABLE", "The Node Runtime Supervisor is not attached.")
         location = self._find_session_owner(
             session_id=session_id,
             requester_principal_id=requester.principal_id,
         )
         if isinstance(location, dict):
-            error_code = location.get("error", {}).get("code")
-            if error_code == "SESSION_NOT_FOUND":
-                located_agent_id = agent_id
-                subject_principal_id = requester.principal_id
-            else:
-                return location
-        else:
-            located_agent_id, subject_principal_id = location
-            if located_agent_id != agent_id:
-                return _error("SESSION_NOT_FOUND", f"Session '{session_id}' was not found for agent '{agent_id}'.")
-            if subject_principal_id != requester.principal_id:
-                return _error(
-                    "ACCESS_DENIED",
-                    f"Principal '{requester.principal_id}' cannot start a run in session '{session_id}'.",
-                    {"reason": "run_requires_session_owner"},
-                )
+            return location
+        located_agent_id, subject_principal_id = location
+        if located_agent_id != agent_id:
+            return _error("SESSION_NOT_FOUND", f"Session '{session_id}' was not found for agent '{agent_id}'.")
+        if subject_principal_id != requester.principal_id:
+            return _error(
+                "ACCESS_DENIED",
+                f"Principal '{requester.principal_id}' cannot start a run in session '{session_id}'.",
+                {"reason": "run_requires_session_owner"},
+            )
         run_id = f"run_{os.urandom(8).hex()}"
-        cmd = [
-            sys.executable,
-            "-m",
-            "openppx.runtime.client_api_worker",
-            "run",
-            "--config-path",
-            str(config_path),
-            "--session-id",
-            session_id,
-            "--message",
-            text,
-            "--user-id",
-            requester.principal_id,
-        ]
-        process = subprocess.Popen(
-            cmd,
-            cwd=str(config_path.parent),
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            bufsize=1,
-        )
-        handle = RunHandle(run_id=run_id, agent_id=agent_id, session_id=session_id, process=process)
+        handle = RunHandle(run_id=run_id, agent_id=agent_id, session_id=session_id)
         with self._lock:
             self._runs[run_id] = handle
         self._session_agents[session_id] = agent_id
@@ -1795,7 +1626,7 @@ class ClientApiCoordinator:
                 "session_id": session_id,
                 "user_id": requester.principal_id,
                 "text_preview": text[:240] + ("..." if len(text) > 240 else ""),
-                "worker_cmd": cmd,
+                "runtime": "node-in-process",
             },
         )
         handle.publish(
@@ -1823,18 +1654,23 @@ class ClientApiCoordinator:
                 ),
             },
         )
-        thread = threading.Thread(
-            target=self._consume_run_process,
-            args=(handle,),
-            daemon=True,
-        )
-        thread.start()
-        stderr_thread = threading.Thread(
-            target=self._consume_run_stderr,
-            args=(handle,),
-            daemon=True,
-        )
-        stderr_thread.start()
+        try:
+            self._runtime_supervisor.start_run(
+                run_id=run_id,
+                agent_id=agent_id,
+                session_id=session_id,
+                user_id=requester.principal_id,
+                text=text,
+                on_event=lambda event: self._publish_adk_run_event(handle, event),
+                on_text_update=lambda merged, _delta: self._publish_run_text(handle, merged),
+                on_complete=lambda final_text: self._complete_node_run(handle, final_text),
+                on_error=lambda error: self._fail_node_run(handle, error),
+                on_cancelled=lambda: self._cancel_node_run(handle),
+            )
+        except Exception as exc:
+            with self._lock:
+                self._runs.pop(run_id, None)
+            return _error("RUNTIME_UNAVAILABLE", str(exc))
         return _ok(
             {
                 "run": {
@@ -2024,233 +1860,143 @@ class ClientApiCoordinator:
         )
         return payload
 
-    def _consume_run_stderr(self, handle: RunHandle) -> None:
-        """Continuously collect worker stderr for debug visibility."""
-
-        assert handle.process.stderr is not None
-        for raw_line in handle.process.stderr:
-            line = raw_line.strip()
-            if not line:
+    def _publish_adk_run_event(self, handle: RunHandle, event: Any) -> None:
+        """Project one raw ADK event into transport-stable tool-step events."""
+        payload = event.model_dump(mode="json")
+        content = payload.get("content") if isinstance(payload.get("content"), dict) else {}
+        raw_parts = content.get("parts") if isinstance(content.get("parts"), list) else []
+        raw_long_running_ids = payload.get("long_running_tool_ids") or []
+        long_running_ids = {str(item) for item in raw_long_running_ids if item is not None}
+        for raw_part in raw_parts:
+            if not isinstance(raw_part, dict):
                 continue
-            handle.append_stderr_line(line)
-            _debug(
-                "client_api.worker.stderr",
-                {
-                    "run_id": handle.run_id,
-                    "line_preview": line[:400] + ("..." if len(line) > 400 else ""),
-                },
-            )
-
-    def _consume_run_process(self, handle: RunHandle) -> None:
-        """Translate worker NDJSON lines into replayable SSE events."""
-
-        assert handle.process.stdout is not None
-        final_text = ""
-
-        def _publish_run_failure(error_message: str, *, code: str = "RUN_FAILED") -> None:
-            handle.failed = True
-            _debug(
-                "client_api.message.failed",
-                {
-                    "run_id": handle.run_id,
-                    "message": error_message,
-                },
-            )
-            handle.publish(
-                "message.failed",
-                {
-                    "run_id": handle.run_id,
-                    "agent_id": handle.agent_id,
-                    "session_id": handle.session_id,
-                    "message_id": handle.assistant_message_id,
-                    "status": "failed",
-                    "error": _error_part_payload(code=code, text=error_message),
-                },
-            )
-            handle.publish(
-                "error",
-                {
-                    "run_id": handle.run_id,
-                    "code": code,
-                    "message": error_message,
-                },
-            )
-
-        for line in handle.process.stdout:
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                payload = json.loads(line)
-            except Exception:
-                _debug(
-                    "client_api.worker.invalid_json",
-                    {
-                        "run_id": handle.run_id,
-                        "line_preview": line[:320],
-                    },
-                )
-                continue
-            event_type = str(payload.get("type") or "")
-            _debug(
-                "client_api.worker.payload",
-                {
-                    "run_id": handle.run_id,
-                    "event_type": event_type or "unknown",
-                    "keys": sorted(payload.keys()),
-                },
-            )
-            if event_type == "event":
-                event = payload.get("event")
-                if isinstance(event, dict):
-                    content = event.get("content") if isinstance(event.get("content"), dict) else {}
-                    raw_parts = content.get("parts") if isinstance(content, dict) and isinstance(content.get("parts"), list) else []
-                    raw_long_running_ids = event.get("long_running_tool_ids") or []
-                    long_running_ids = set(str(item) for item in raw_long_running_ids if item is not None)
-                    for raw_part in raw_parts:
-                        if not isinstance(raw_part, dict):
-                            continue
-                        function_call = raw_part.get("function_call")
-                        if isinstance(function_call, dict):
-                            step_id = str(function_call.get("id") or "step")
-                            _debug(
-                                "client_api.step.updated",
-                                {
-                                    "run_id": handle.run_id,
-                                    "step_id": step_id,
-                                    "title": str(function_call.get("name") or "tool"),
-                                    "status": "running",
-                                    "long_running": step_id in long_running_ids,
-                                },
-                            )
-                            handle.publish(
-                                "step.updated",
-                                {
-                                    "run_id": handle.run_id,
-                                    "agent_id": handle.agent_id,
-                                    "session_id": handle.session_id,
-                                    "message_id": handle.assistant_message_id,
-                                    "step": _step_ref_payload(
-                                        step_id=step_id,
-                                        title=str(function_call.get("name") or "tool"),
-                                        status="running",
-                                        detail=(
-                                            "Background task is running.\n\n" + _preview_value(function_call.get("args"), "No tool arguments")
-                                            if step_id in long_running_ids
-                                            else _preview_value(function_call.get("args"), "No tool arguments")
-                                        ),
-                                    ),
-                                },
-                            )
-                        function_response = raw_part.get("function_response")
-                        if isinstance(function_response, dict):
-                            _debug(
-                                "client_api.step.updated",
-                                {
-                                    "run_id": handle.run_id,
-                                    "step_id": str(function_response.get("id") or "step"),
-                                    "title": str(function_response.get("name") or "tool"),
-                                    "status": "completed",
-                                },
-                            )
-                            handle.publish(
-                                "step.updated",
-                                {
-                                    "run_id": handle.run_id,
-                                    "agent_id": handle.agent_id,
-                                    "session_id": handle.session_id,
-                                    "message_id": handle.assistant_message_id,
-                                    "step": _step_ref_payload(
-                                        step_id=str(function_response.get("id") or "step"),
-                                        title=str(function_response.get("name") or "tool"),
-                                        status="completed",
-                                        detail=_preview_value(function_response.get("response"), "Tool returned without a payload"),
-                                    ),
-                                },
-                            )
-            elif event_type == "delta":
-                final_text = str(payload.get("text") or final_text)
-                _debug(
-                    "client_api.message.delta",
-                    {
-                        "run_id": handle.run_id,
-                        "text_length": len(final_text),
-                    },
-                )
+            function_call = raw_part.get("function_call")
+            if isinstance(function_call, dict):
+                step_id = str(function_call.get("id") or "step")
+                detail = _preview_value(function_call.get("args"), "No tool arguments")
+                if step_id in long_running_ids:
+                    detail = "Background task is running.\n\n" + detail
                 handle.publish(
-                    "message.delta",
+                    "step.updated",
                     {
                         "run_id": handle.run_id,
                         "agent_id": handle.agent_id,
                         "session_id": handle.session_id,
                         "message_id": handle.assistant_message_id,
-                        "status": "streaming",
-                        "part": {
-                            "type": "markdown",
-                            "text": final_text,
-                        },
-                    },
-                )
-            elif event_type == "final":
-                final_text = str(payload.get("text") or final_text)
-                if not final_text.strip():
-                    _publish_run_failure(
-                        "Worker finished without returning a final reply.",
-                        code="RUN_EMPTY_FINAL",
-                    )
-                    continue
-                _debug(
-                    "client_api.message.completed",
-                    {
-                        "run_id": handle.run_id,
-                        "text_length": len(final_text),
-                    },
-                )
-                handle.publish(
-                    "message.completed",
-                    {
-                        "run_id": handle.run_id,
-                        "agent_id": handle.agent_id,
-                        "session_id": handle.session_id,
-                        "message_id": handle.assistant_message_id,
-                        "status": "completed",
-                        "message": _message_payload(
-                            message_id=handle.assistant_message_id,
-                            session_id=handle.session_id,
-                            role="assistant",
-                            parts=[{"type": "markdown", "text": final_text}],
-                            status="completed",
+                        "step": _step_ref_payload(
+                            step_id=step_id,
+                            title=str(function_call.get("name") or "tool"),
+                            status="running",
+                            detail=detail,
                         ),
                     },
                 )
-            elif event_type == "error":
-                error_message = str(payload.get("message") or "Unknown worker error")
-                _publish_run_failure(error_message)
-        exit_code = handle.process.wait()
-        stderr_text = handle.stderr_text()
-        _debug(
-            "client_api.worker.exit",
-            {
-                "run_id": handle.run_id,
-                "exit_code": exit_code,
-                "failed": handle.failed,
-                "stderr_preview": stderr_text[:400] + ("..." if len(stderr_text) > 400 else ""),
-            },
-        )
-        if exit_code != 0 and not handle.failed:
-            _publish_run_failure(
-                stderr_text or "worker exited unexpectedly",
-                code="WORKER_EXIT_ERROR",
-            )
-        _debug(
-            "client_api.run.finished",
+            function_response = raw_part.get("function_response")
+            if isinstance(function_response, dict):
+                handle.publish(
+                    "step.updated",
+                    {
+                        "run_id": handle.run_id,
+                        "agent_id": handle.agent_id,
+                        "session_id": handle.session_id,
+                        "message_id": handle.assistant_message_id,
+                        "step": _step_ref_payload(
+                            step_id=str(function_response.get("id") or "step"),
+                            title=str(function_response.get("name") or "tool"),
+                            status="completed",
+                            detail=_preview_value(
+                                function_response.get("response"),
+                                "Tool returned without a payload",
+                            ),
+                        ),
+                    },
+                )
+
+    def _publish_run_text(self, handle: RunHandle, merged: str) -> None:
+        """Publish one merged assistant-text snapshot for SSE consumers."""
+        handle.publish(
+            "message.delta",
             {
                 "run_id": handle.run_id,
                 "agent_id": handle.agent_id,
                 "session_id": handle.session_id,
-                "status": "failed" if handle.failed else "completed",
+                "message_id": handle.assistant_message_id,
+                "status": "streaming",
+                "part": {"type": "markdown", "text": merged},
             },
         )
+
+    def _complete_node_run(self, handle: RunHandle, final_text: str) -> None:
+        """Publish one successful terminal state from the Node Runtime."""
+        if not final_text.strip():
+            self._fail_node_run(handle, RuntimeError("Run finished without returning a final reply."))
+            return
+        handle.publish(
+            "message.completed",
+            {
+                "run_id": handle.run_id,
+                "agent_id": handle.agent_id,
+                "session_id": handle.session_id,
+                "message_id": handle.assistant_message_id,
+                "status": "completed",
+                "message": _message_payload(
+                    message_id=handle.assistant_message_id,
+                    session_id=handle.session_id,
+                    role="assistant",
+                    parts=[{"type": "markdown", "text": final_text}],
+                    status="completed",
+                ),
+            },
+        )
+        self._finish_node_run(handle, status="completed")
+
+    def _fail_node_run(self, handle: RunHandle, error: BaseException) -> None:
+        """Publish one redacted failed terminal state from the Node Runtime."""
+        handle.failed = True
+        message = str(error).strip() or "The Run failed."
+        handle.publish(
+            "message.failed",
+            {
+                "run_id": handle.run_id,
+                "agent_id": handle.agent_id,
+                "session_id": handle.session_id,
+                "message_id": handle.assistant_message_id,
+                "status": "failed",
+                "error": _error_part_payload(code="RUN_FAILED", text=message),
+            },
+        )
+        handle.publish(
+            "error",
+            {"run_id": handle.run_id, "code": "RUN_FAILED", "message": message},
+        )
+        self._finish_node_run(handle, status="failed")
+
+    def _cancel_node_run(self, handle: RunHandle) -> None:
+        """Publish one cooperative cancellation terminal state."""
+        handle.publish(
+            "message.cancelled",
+            {
+                "run_id": handle.run_id,
+                "agent_id": handle.agent_id,
+                "session_id": handle.session_id,
+                "message_id": handle.assistant_message_id,
+                "status": "cancelled",
+            },
+        )
+        handle.publish(
+            "run.cancelled",
+            {
+                "run_id": handle.run_id,
+                "agent_id": handle.agent_id,
+                "session_id": handle.session_id,
+                "message_id": handle.assistant_message_id,
+                "status": "cancelled",
+            },
+        )
+        self._finish_node_run(handle, status="cancelled")
+
+    def _finish_node_run(self, handle: RunHandle, *, status: str) -> None:
+        """Close one Run stream after publishing its common terminal event."""
         handle.publish(
             "run.finished",
             {
@@ -2258,20 +2004,25 @@ class ClientApiCoordinator:
                 "agent_id": handle.agent_id,
                 "session_id": handle.session_id,
                 "message_id": handle.assistant_message_id,
-                "status": "failed" if handle.failed else "completed",
+                "status": status,
             },
         )
         handle.finish()
 
     def cancel_run(self, run_id: str) -> dict[str, Any]:
-        """Cancel one active run."""
+        """Cancel one active Run through the shared Control Plane Action."""
 
         handle = self._runs.get(run_id)
         if handle is None:
             return _error("RUN_NOT_FOUND", f"Run '{run_id}' was not found.")
-        cancelled = handle.cancel()
-        if not cancelled:
-            return _error("RUN_ALREADY_FINISHED", f"Run '{run_id}' has already finished.")
+        outcome = self._invoke_control("run.stop", {"runId": run_id})
+        if not outcome.ok:
+            error = outcome.error
+            return _error(
+                str(error.code if error is not None else "run_not_active").upper(),
+                error.message if error is not None else "The Run is not active.",
+                error.details if error is not None else None,
+            )
         _debug("client_api.cancel_run", {"run_id": run_id})
         return _ok({"run": {"id": run_id, "status": "cancelled"}})
 

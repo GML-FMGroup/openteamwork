@@ -79,6 +79,10 @@ export class ClientApiHttpTransport {
         String(error?.message ?? `Client API request failed: ${response.status}`),
         response.status,
         String(error?.code ?? "CLIENT_API_REQUEST_FAILED"),
+        asRecord(error?.details) ?? {},
+        error?.retryable === true,
+        typeof payload.requestId === "string" ? payload.requestId : undefined,
+        typeof payload.correlationId === "string" ? payload.correlationId : undefined,
       );
     }
     return payload;

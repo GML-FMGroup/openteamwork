@@ -62,8 +62,6 @@ function buildDiagnostics(): ClientDiagnostics {
     openppxRoot: "/tmp/openppx_root",
     openppxRootExists: true,
     pythonBin: "/tmp/openppx_root/.venv/bin/python",
-    globalConfigPath: "/tmp/.openppx/global_config.json",
-    globalConfigExists: true,
     clientApiBaseUrl: "http://127.0.0.1:8765",
     clientApiManagedByClient: true,
     clientApiHealthy: true,

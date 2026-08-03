@@ -20,6 +20,51 @@ def export_client_contract(output_dir: Path) -> tuple[Path, ...]:
         fixtures_dir / "envelope-error.json": _error_fixture(),
         fixtures_dir / "action-catalog.json": _catalog_fixture(),
         fixtures_dir / "action-invoke-status.json": _invoke_fixture(),
+        fixtures_dir / "action-invoke-model-list.json": _invoke_fixture(
+            request_id="req_model_list_fixture",
+            action_id="model.list",
+        ),
+        fixtures_dir / "action-invoke-session-new.json": _invoke_fixture(
+            request_id="req_session_new_fixture",
+            action_id="session.new",
+            input={"agentId": "writer", "userId": "user_fixture"},
+        ),
+        fixtures_dir / "action-invoke-run-stop.json": _invoke_fixture(
+            request_id="req_run_stop_fixture",
+            action_id="run.stop",
+            input={"runId": "run_fixture"},
+        ),
+        fixtures_dir / "envelope-model-list.json": _domain_success_fixture(
+            request_id="req_model_list_fixture",
+            result={"items": []},
+        ),
+        fixtures_dir / "envelope-session-new.json": _domain_success_fixture(
+            request_id="req_session_new_fixture",
+            result={
+                "session": {
+                    "id": "session_fixture",
+                    "agentId": "writer",
+                    "subjectPrincipalId": "user_fixture",
+                    "title": "New chat",
+                    "updatedAt": "2026-08-03T00:00:00+00:00",
+                    "lastMessagePreview": "",
+                    "archived": False,
+                }
+            },
+        ),
+        fixtures_dir / "envelope-run-stop.json": _domain_success_fixture(
+            request_id="req_run_stop_fixture",
+            result={
+                "run": {
+                    "id": "run_fixture",
+                    "agentId": "writer",
+                    "sessionId": "session_fixture",
+                    "snapshotRevision": "sha256:snapshot-fixture",
+                    "startedAt": "2026-08-03T00:00:00+00:00",
+                    "state": "cancelling",
+                }
+            },
+        ),
     }
     for path, document in documents.items():
         path.write_text(_canonical_json(document), encoding="utf-8")
@@ -83,11 +128,30 @@ def _catalog_fixture() -> dict[str, Any]:
     ).model_dump(mode="json", by_alias=True)
 
 
-def _invoke_fixture() -> dict[str, Any]:
+def _domain_success_fixture(*, request_id: str, result: dict[str, Any]) -> dict[str, Any]:
+    """Return one canonical successful domain Action envelope."""
+
+    return {
+        "protocolVersion": 1,
+        "requestId": request_id,
+        "correlationId": request_id,
+        "ok": True,
+        "result": result,
+    }
+
+
+def _invoke_fixture(
+    *,
+    request_id: str = "req_status_fixture",
+    action_id: str = "system.status",
+    input: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Return one canonical Action invocation request."""
+
     return ActionInvokeRequest(
-        request_id="req_status_fixture",
-        correlation_id="corr_status_fixture",
-        action_id="system.status",
-        input={},
+        request_id=request_id,
+        correlation_id=request_id,
+        action_id=action_id,
+        input=input or {},
         confirmed=False,
     ).model_dump(mode="json", by_alias=True)
