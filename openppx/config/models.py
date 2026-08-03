@@ -150,6 +150,7 @@ ToolAccess: TypeAlias = Literal["safe", "task_scoped", "broad"]
 SecretAccess: TypeAlias = Literal["none", "limited"]
 HighRiskActionAccess: TypeAlias = Literal["denied", "conditional"]
 PrivilegeLevel: TypeAlias = Literal["low", "medium", "high", "root"]
+ModelRole: TypeAlias = Literal["fast", "reasoning", "vision"]
 
 
 class PermissionOverrides(StrictConfigModel):
@@ -164,6 +165,16 @@ class PermissionOverrides(StrictConfigModel):
     can_delegate: StrictBool | None = None
     can_approve_privilege_escalation: StrictBool | None = None
     high_risk_action_access: HighRiskActionAccess | None = None
+
+
+class AgentModelPolicy(StrictConfigModel):
+    """Persistent Model Profile assignments for one Agent.
+
+    Per-run overrides intentionally do not belong in this persisted policy.
+    """
+
+    default_profile: ResourceName | None = None
+    role_profiles: dict[ModelRole, ResourceName] = Field(default_factory=dict)
 
 
 _PERMISSION_PROFILES: dict[str, dict[str, str | bool]] = {
@@ -232,6 +243,7 @@ class AgentSpec(StrictConfigModel):
     owner_principal_id: Annotated[str, StringConstraints(min_length=1, max_length=128)]
     privilege_level: PrivilegeLevel = "low"
     permission_overrides: PermissionOverrides = Field(default_factory=PermissionOverrides)
+    model_policy: AgentModelPolicy = Field(default_factory=AgentModelPolicy)
 
     @field_validator("workspace", "owner_principal_id")
     @classmethod

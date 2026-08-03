@@ -701,7 +701,7 @@ def save_config(config: dict[str, Any], config_path: Path | None = None) -> Path
     """Save config to disk and return the output path."""
     path = config_path or get_config_path()
     config_to_write = deepcopy(config)
-    legacy_env = config_to_write.pop("env", None)
+    config_to_write.pop("env", None)
     path.parent.mkdir(parents=True, exist_ok=True)
     normalized = normalize_config(config_to_write)
     path.write_text(json.dumps(normalized, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
@@ -711,17 +711,6 @@ def save_config(config: dict[str, Any], config_path: Path | None = None) -> Path
         path.chmod(0o600)
     except OSError:
         pass
-
-    # Backward compatibility: migrate legacy config.json `env` into runtime.json.
-    if isinstance(legacy_env, dict):
-        runtime_path = _runtime_config_path_for_config_path(path)
-        existing_runtime = load_runtime_config(runtime_config_path=runtime_path)
-        merged_runtime_env = {}
-        raw_existing_env = existing_runtime.get("env")
-        if isinstance(raw_existing_env, dict):
-            merged_runtime_env.update(raw_existing_env)
-        merged_runtime_env.update(legacy_env)
-        save_runtime_config({"env": merged_runtime_env}, runtime_config_path=runtime_path)
 
     return path
 
@@ -995,7 +984,6 @@ def _env_overrides_from_mapping(raw: Any) -> dict[str, str]:
     """Read optional env override mapping from one mapping payload.
 
     Runtime overrides live in `runtime.json` by default.
-    Legacy `config.json.env` is still supported for backward compatibility.
     """
     if not isinstance(raw, dict):
         return {}
@@ -1203,9 +1191,8 @@ def bootstrap_env_from_config(config_path: Path | None = None) -> dict[str, Any]
         raise _legacy_schema_error(path, "legacy-config", exc) from exc
     runtime_path = _runtime_config_path_for_config_path(path)
     runtime_overrides = _env_overrides(load_runtime_config(runtime_config_path=runtime_path))
-    legacy_overrides = _env_overrides_from_mapping(raw.get("env"))
     default_overrides = _env_overrides(default_runtime_config())
-    merged_runtime_overrides = {**default_overrides, **legacy_overrides, **runtime_overrides}
+    merged_runtime_overrides = {**default_overrides, **runtime_overrides}
     merged_runtime_overrides = _normalize_runtime_memory_dir_override(
         merged_runtime_overrides,
         config_path=path,

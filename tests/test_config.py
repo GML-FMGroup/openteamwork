@@ -479,11 +479,11 @@ class ConfigTests(unittest.TestCase):
         apply_config_to_env(cfg, overwrite=True)
         self.assertEqual(os.environ["OPENPPX_HEARTBEAT_ACK_MAX_CHARS"], "0")
 
-    def test_bootstrap_env_supports_env_override_map_for_runtime_knobs(self) -> None:
+    def test_bootstrap_env_supports_runtime_override_map_for_runtime_knobs(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "config.json"
-            cfg = default_config()
-            cfg["env"] = {
+            runtime_path = Path(tmp) / "runtime.json"
+            runtime_env = {
                 "OPENPPX_MEMORY_ENABLED": "0",
                 "OPENPPX_MEMORY_BACKEND": "in_memory",
                 "OPENPPX_MEMORY_MARKDOWN_DIR": "/tmp/custom-memory",
@@ -494,7 +494,8 @@ class ConfigTests(unittest.TestCase):
                 "OPENPPX_DEBUG_MAX_CHARS": 4000,
                 "OPENPPX_WHATSAPP_BRIDGE_PRECHECK": False,
             }
-            save_config(cfg, path)
+            save_config(default_config(), path)
+            save_runtime_config({"env": runtime_env}, runtime_path)
 
             os.environ.pop("OPENPPX_MEMORY_ENABLED", None)
             os.environ.pop("OPENPPX_MEMORY_BACKEND", None)
@@ -517,7 +518,7 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(os.environ["OPENPPX_DEBUG_MAX_CHARS"], "4000")
         self.assertEqual(os.environ["OPENPPX_WHATSAPP_BRIDGE_PRECHECK"], "0")
 
-    def test_save_config_migrates_legacy_env_to_runtime_file(self) -> None:
+    def test_save_config_does_not_migrate_legacy_env_to_runtime_file(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             config_path = Path(tmp) / "config.json"
             runtime_path = Path(tmp) / "runtime.json"
@@ -530,11 +531,9 @@ class ConfigTests(unittest.TestCase):
             save_config(cfg, config_path)
 
             saved_cfg = json.loads(config_path.read_text(encoding="utf-8"))
-            saved_runtime = load_runtime_config(runtime_path)
 
         self.assertNotIn("env", saved_cfg)
-        self.assertEqual(saved_runtime["env"]["OPENPPX_MEMORY_BACKEND"], "in_memory")
-        self.assertEqual(saved_runtime["env"]["OPENPPX_DEBUG_MAX_CHARS"], 4096)
+        self.assertFalse(runtime_path.exists())
 
     def test_bootstrap_env_prefers_runtime_file_over_legacy_config_env(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -616,12 +615,11 @@ class ConfigTests(unittest.TestCase):
     def test_env_override_map_is_final_layer(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "config.json"
+            runtime_path = Path(tmp) / "runtime.json"
             cfg = default_config()
             cfg["providers"]["google"]["apiKey"] = "google-key-from-provider"
-            cfg["env"] = {
-                "GOOGLE_API_KEY": "google-key-from-env-map",
-            }
             save_config(cfg, path)
+            save_runtime_config({"env": {"GOOGLE_API_KEY": "google-key-from-env-map"}}, runtime_path)
 
             os.environ.pop("GOOGLE_API_KEY", None)
             bootstrap_env_from_config(path)

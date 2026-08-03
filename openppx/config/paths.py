@@ -28,12 +28,27 @@ class ConfigPaths:
         """Return the controlled Agent resource directory."""
         return self._contained(self.node_root / "agents", source="agents")
 
+    @property
+    def model_profiles_dir(self) -> Path:
+        """Return the controlled Model Profile resource directory."""
+        return self._contained(self.node_root / "model-profiles", source="model-profiles")
+
     def agent_file(self, agent_id: str) -> Path:
         """Return a contained Agent file path for a validated resource name."""
         source = f"agent:{agent_id}" if _RESOURCE_NAME_PATTERN.fullmatch(agent_id) else "agent"
         if not _RESOURCE_NAME_PATTERN.fullmatch(agent_id):
             self._outside_error(source)
         return self._contained(self.node_root / "agents" / agent_id / "agent.json", source=source)
+
+    def model_profile_file(self, profile_id: str) -> Path:
+        """Return a contained Model Profile file for a validated resource name."""
+        source = f"model-profile:{profile_id}" if _RESOURCE_NAME_PATTERN.fullmatch(profile_id) else "model-profile"
+        if not _RESOURCE_NAME_PATTERN.fullmatch(profile_id):
+            self._outside_error(source)
+        return self._contained(
+            self.node_root / "model-profiles" / profile_id / "profile.json",
+            source=source,
+        )
 
     def _contained(self, candidate: Path, *, source: str) -> Path:
         resolved = candidate.resolve(strict=False)

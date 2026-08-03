@@ -19,6 +19,9 @@ ConfigErrorKind: TypeAlias = Literal[
     "name_mismatch",
     "path_outside_root",
     "io_error",
+    "revision_conflict",
+    "lock_timeout",
+    "write_failed",
 ]
 ConfigPathSegment: TypeAlias = str | int
 
@@ -72,8 +75,8 @@ class ConfigDiagnostics:
         )
 
 
-class ConfigLoadError(ValueError):
-    """Raised when a configuration source cannot be loaded safely."""
+class ConfigError(ValueError):
+    """Base class for safe structured configuration failures."""
 
     def __init__(
         self,
@@ -87,6 +90,41 @@ class ConfigLoadError(ValueError):
         self.summary = summary
         self.issues = issues
         super().__init__(f"{summary} ({kind}) at {path}")
+
+
+class ConfigLoadError(ConfigError):
+    """Raised when a configuration source cannot be loaded safely."""
+
+
+class ConfigWriteError(ConfigError):
+    """Raised when a validated resource cannot be persisted safely."""
+
+
+class ConfigRevisionConflict(ConfigWriteError):
+    """Raised when create/update expectations do not match current state."""
+
+    def __init__(
+        self,
+        path: Path,
+        *,
+        source: str,
+        expected_revision: str | None,
+        actual_revision: str | None,
+    ) -> None:
+        self.expected_revision = expected_revision
+        self.actual_revision = actual_revision
+        issue = ConfigIssue(
+            "revision_conflict",
+            (),
+            "Configuration revision does not match current state.",
+            source,
+        )
+        super().__init__(
+            path,
+            "revision_conflict",
+            "Configuration revision conflict",
+            (issue,),
+        )
 
 
 _VALIDATION_CODE_MAP: dict[str, str] = {

@@ -16,6 +16,7 @@ from .diagnostics import (
     read_json_object,
     validation_issues,
 )
+from .atomic import atomic_write_resource
 from .models import AgentConfig, NodeConfig
 from .paths import ConfigPaths
 from .revision import config_revision
@@ -28,7 +29,7 @@ ResourceT = TypeVar("ResourceT", bound=BaseModel)
 class ConfigSource:
     """Filesystem provenance for one loaded configuration resource."""
 
-    kind: Literal["defaults", "node_file", "agent_file"]
+    kind: Literal["defaults", "node_file", "agent_file", "model_profile_file"]
     path: Path
 
 
@@ -57,12 +58,28 @@ class ConfigRepository(Protocol):
 
     def diagnose_agent(self, agent_id: str) -> ConfigDiagnostics: ...
 
+    def write_node(
+        self,
+        document: NodeConfig,
+        *,
+        expected_revision: str | None,
+    ) -> VersionedResource[NodeConfig]: ...
+
+    def write_agent(
+        self,
+        agent_id: str,
+        document: AgentConfig,
+        *,
+        expected_revision: str | None,
+    ) -> VersionedResource[AgentConfig]: ...
+
 
 class FilesystemConfigRepository:
     """Load strict Node and Agent resources from one explicit Node root."""
 
-    def __init__(self, node_root: Path) -> None:
+    def __init__(self, node_root: Path, *, lock_timeout: float = 5.0) -> None:
         self.paths = ConfigPaths(node_root)
+        self.lock_timeout = lock_timeout
 
     def read_node(self) -> VersionedResource[NodeConfig]:
         """Load and validate the Node resource without runtime side effects."""
@@ -113,6 +130,51 @@ class FilesystemConfigRepository:
     def diagnose_agent(self, agent_id: str) -> ConfigDiagnostics:
         """Return a non-raising diagnostic snapshot for one Agent resource."""
         return self._diagnose(f"agent:{agent_id}", lambda: self.read_agent(agent_id))
+
+    def write_node(
+        self,
+        document: NodeConfig,
+        *,
+        expected_revision: str | None,
+    ) -> VersionedResource[NodeConfig]:
+        """Create or update the Node resource under a revision precondition."""
+        path = self.paths.node_file
+        atomic_write_resource(
+            path,
+            document,
+            source="node",
+            expected_revision=expected_revision,
+            current_revision=lambda: self._current_revision(self.read_node),
+            lock_timeout=self.lock_timeout,
+        )
+        return self.read_node()
+
+    def write_agent(
+        self,
+        agent_id: str,
+        document: AgentConfig,
+        *,
+        expected_revision: str | None,
+    ) -> VersionedResource[AgentConfig]:
+        """Create or update an Agent resource under a revision precondition."""
+        path = self.paths.agent_file(agent_id)
+        if document.metadata.name != agent_id:
+            issue = ConfigIssue(
+                "name_mismatch",
+                ("metadata", "name"),
+                "Agent metadata.name must match its resource path.",
+                f"agent:{agent_id}",
+            )
+            raise ConfigLoadError(path, "name_mismatch", "Agent identity does not match its path", (issue,))
+        atomic_write_resource(
+            path,
+            document,
+            source=f"agent:{agent_id}",
+            expected_revision=expected_revision,
+            current_revision=lambda: self._current_revision(lambda: self.read_agent(agent_id)),
+            lock_timeout=self.lock_timeout,
+        )
+        return self.read_agent(agent_id)
 
     @staticmethod
     def _read_model(
@@ -168,3 +230,13 @@ class FilesystemConfigRepository:
                 error_kind=exc.kind,
             )
         return resource.diagnostics
+
+    @staticmethod
+    def _current_revision(reader: Callable[[], VersionedResource[ResourceT]]) -> str | None:
+        """Read the current revision while treating only absence as create state."""
+        try:
+            return reader().revision
+        except ConfigLoadError as exc:
+            if exc.kind == "not_found":
+                return None
+            raise

@@ -1,30 +1,75 @@
 """Long-term strict configuration boundary for OpenPPX."""
 
 from .diagnostics import (
+    ConfigError,
     ConfigDiagnostics,
     ConfigErrorKind,
     ConfigIssue,
     ConfigLoadError,
+    ConfigRevisionConflict,
+    ConfigWriteError,
     read_json_object,
     validation_issues,
 )
 from .models import AgentConfig, NodeConfig, ResourceName
+from .layers import ConfigOrigin, ConfigSnapshot
 from .repository import ConfigRepository, ConfigSource, FilesystemConfigRepository, VersionedResource
 from .revision import config_revision
 from .schema import export_config_schemas
+from .secrets import (
+    InMemorySecretStore,
+    SecretBackendUnavailable,
+    SecretError,
+    SecretNotFound,
+    SecretRef,
+    SecretState,
+    SecretStatus,
+    SecretStore,
+    SecretValue,
+    SystemCredentialSecretStore,
+)
+from .service import (
+    ConfigApplyResult,
+    ConfigChange,
+    ConfigEffect,
+    ConfigPreview,
+    ConfigService,
+    ValidationResult,
+)
 
 __all__ = [
     "AgentConfig",
     "ConfigDiagnostics",
+    "ConfigApplyResult",
+    "ConfigChange",
+    "ConfigEffect",
+    "ConfigError",
     "ConfigErrorKind",
     "ConfigIssue",
     "ConfigLoadError",
+    "ConfigOrigin",
+    "ConfigPreview",
+    "ConfigRevisionConflict",
     "ConfigRepository",
     "ConfigSource",
+    "ConfigSnapshot",
+    "ConfigService",
+    "ConfigWriteError",
     "FilesystemConfigRepository",
+    "InMemorySecretStore",
     "NodeConfig",
     "ResourceName",
+    "SecretBackendUnavailable",
+    "SecretError",
+    "SecretNotFound",
+    "SecretRef",
+    "SecretState",
+    "SecretStatus",
+    "SecretStore",
+    "SecretValue",
+    "SystemCredentialSecretStore",
     "VersionedResource",
+    "ValidationResult",
     "config_revision",
     "export_config_schemas",
     "read_json_object",
