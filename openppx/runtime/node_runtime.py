@@ -86,7 +86,7 @@ class NodeRuntimeSupervisor:
     def __init__(self, *, config_service: ConfigService, assembler: RuntimeAssembler) -> None:
         self.config_service = config_service
         self.assembler = assembler
-        self._runtimes: dict[tuple[str, str], AssembledRuntime] = {}
+        self._runtimes: dict[tuple[str, str, str], AssembledRuntime] = {}
         self._runs: dict[str, _ManagedRun] = {}
         self._lock = threading.RLock()
         self._stopped = False
@@ -105,12 +105,13 @@ class NodeRuntimeSupervisor:
             role=role,
             run_override=run_override,
         )
-        key = (agent_id, snapshot.revision)
+        skill_snapshot = self.assembler.skill_snapshot_for_agent(agent_id)
+        key = (agent_id, snapshot.revision, skill_snapshot.revision)
         with self._lock:
             current = self._runtimes.get(key)
             if current is not None:
                 return current
-        assembled = self.assembler.assemble(snapshot)
+        assembled = self.assembler.assemble(snapshot, skill_snapshot=skill_snapshot)
         with self._lock:
             return self._runtimes.setdefault(key, assembled)
 

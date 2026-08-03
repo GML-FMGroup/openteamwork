@@ -10,6 +10,7 @@ from typing import Any, Callable
 
 from openppx.config import SecretStore, SystemCredentialSecretStore
 from openppx.control_plane import ControlPlaneApplication, build_control_plane
+from openppx.extensions import SkillManager
 
 from .assembly import RuntimeAssembler
 from .client_api_auth import resolve_client_api_access_token, validate_client_api_bind
@@ -120,7 +121,11 @@ class OpenPpxNodeHost:
             raise ValueError("Node Client API authentication is required but no access token is configured.")
         validate_client_api_bind(host=resolved_host, access_token=resolved_token)
 
-        assembler = RuntimeAssembler(node_root=root, secret_store=secrets)
+        assembler = RuntimeAssembler(
+            node_root=root,
+            secret_store=secrets,
+            skill_manager=SkillManager(root, builtin_skills=_builtin_skill_roots()),
+        )
         runtime_supervisor = NodeRuntimeSupervisor(
             config_service=control_plane.config_service,
             assembler=assembler,
@@ -199,6 +204,16 @@ def run_node(
         flush=True,
     )
     node.serve_forever()
+
+
+def _builtin_skill_roots() -> dict[str, Path]:
+    """Return the packaged Skill roots registered by the Node composition root."""
+    package_root = Path(__file__).resolve().parent.parent / "skills"
+    return {
+        child.name: child
+        for child in sorted(package_root.iterdir(), key=lambda item: item.name)
+        if child.is_dir() and child.joinpath("SKILL.md").is_file()
+    }
 
 
 __all__ = ["OpenPpxNodeHost", "run_node"]

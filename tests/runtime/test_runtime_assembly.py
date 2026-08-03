@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 import threading
 from pathlib import Path
@@ -23,6 +24,7 @@ from openppx.config import (
 )
 from openppx.actions import ActionContext
 from openppx.control_plane import build_control_plane
+from openppx.extensions import ExtensionSourceRef, SkillManager
 from openppx.modeling import ModelCatalog, ModelProfile, ModelProfileRepository, ModelProfileSelector
 from openppx.runtime.assembly import RuntimeAssembler
 from openppx.runtime.node_runtime import NodeRuntimeSupervisor, RunNotActiveError, RunNotFoundError
@@ -109,6 +111,25 @@ def _configured(tmp_path: Path) -> tuple[ConfigService, InMemorySecretStore]:
     return service, secrets
 
 
+def _skill(root: Path, *, description: str, body: str) -> Path:
+    """Write one installable Skill fixture."""
+    root.mkdir(parents=True, exist_ok=True)
+    root.joinpath("SKILL.md").write_text(
+        f"---\nname: runtime-skill\ndescription: {description}\n---\n\n{body}\n",
+        encoding="utf-8",
+    )
+    return root
+
+
+def _tool_function(agent: object, name: str):
+    """Return a callable from one ADK Agent tool declaration."""
+    for tool in agent.tools:  # type: ignore[attr-defined]
+        candidate = getattr(tool, "func", tool)
+        if getattr(candidate, "__name__", "") == name:
+            return candidate
+    raise AssertionError(f"Tool {name!r} was not attached to the Agent.")
+
+
 def test_snapshot_builds_real_adk_runner_and_completes_hello_without_env_projection(tmp_path: Path) -> None:
     config_service, secrets = _configured(tmp_path)
     snapshot = config_service.snapshot("low-main")
@@ -156,6 +177,55 @@ def test_supervisor_reuses_exact_snapshot_and_refreshes_after_config_change(tmp_
     assert same is first
     assert refreshed is not first
     assert refreshed.metadata.snapshot_revision != first.metadata.snapshot_revision
+
+
+def test_supervisor_rebuilds_runtime_for_a_new_immutable_skill_snapshot(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config_service, secrets = _configured(tmp_path)
+    source = _skill(tmp_path / "source", description="First runtime skill.", body="# First")
+    manager = SkillManager(tmp_path)
+    installed = manager.install(
+        manager.stage(ExtensionSourceRef(type="local_directory", locator=str(source))),
+        expected_revision=None,
+    )
+    enabled = manager.enable("runtime-skill", "low-main", expected_revision=installed.revision)
+    assembler = RuntimeAssembler(
+        node_root=tmp_path,
+        secret_store=secrets,
+        model_factory=lambda _resolution: _HelloLlm(model="hello-model"),
+        skill_manager=manager,
+    )
+    supervisor = NodeRuntimeSupervisor(config_service=config_service, assembler=assembler)
+
+    def _reject_ambient_discovery():
+        raise AssertionError("snapshot-native Runtime must not discover ambient Skills")
+
+    monkeypatch.setattr("openppx.tooling.skills_adapter.get_registry", _reject_ambient_discovery)
+    first = supervisor.runtime_for("low-main")
+    listed = json.loads(_tool_function(first.agent, "list_skills")())
+    read_first = _tool_function(first.agent, "read_skill")("runtime-skill")
+
+    assert first.metadata.extension_revision == manager.snapshot_for_agent("low-main").revision
+    assert "First runtime skill." in first.agent.instruction
+    assert listed[0]["name"] == "runtime-skill"
+    assert "location" not in listed[0]
+    assert "# First" in read_first
+
+    _skill(tmp_path / "source", description="Second runtime skill.", body="# Second")
+    updated = manager.install(
+        manager.stage(ExtensionSourceRef(type="local_directory", locator=str(source))),
+        expected_revision=enabled.revision,
+    )
+    second = supervisor.runtime_for("low-main")
+
+    assert updated.record.spec.enabled_agent_ids == ["low-main"]
+    assert second is not first
+    assert second.metadata.snapshot_revision == first.metadata.snapshot_revision
+    assert second.metadata.extension_revision != first.metadata.extension_revision
+    assert "# First" in _tool_function(first.agent, "read_skill")("runtime-skill")
+    assert "# Second" in _tool_function(second.agent, "read_skill")("runtime-skill")
 
 
 def test_supervisor_owns_run_stop_state_and_close_is_idempotent(tmp_path: Path) -> None:

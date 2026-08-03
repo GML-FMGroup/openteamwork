@@ -1,3 +1,14 @@
+---
+name: summarize
+description: Extract the main text from web pages and generate concise summaries.
+metadata:
+  openppx:
+    version: 1.0.0
+    risk: low
+    dependencies:
+      executables: [trafilatura]
+---
+
 # summarize
 
 Use `trafilatura` to extract the main text from web pages and generate concise summaries.

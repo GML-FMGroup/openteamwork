@@ -10,6 +10,7 @@ from google.genai import types
 
 from openppx.app.agent import build_root_agent
 from openppx.config import ConfigSnapshot, SecretStore
+from openppx.extensions import SkillManager, SkillSnapshot
 from openppx.modeling import ModelResolution
 
 from .adk_utils import run_text_async
@@ -33,6 +34,7 @@ class RuntimeMetadata:
     model: str
     workspace: str
     snapshot_revision: str
+    extension_revision: str
     origin_revisions: tuple[tuple[str, str], ...]
 
 
@@ -127,6 +129,7 @@ class RuntimeAssembler:
         model_factory: ModelFactory | None = None,
         agent_factory: AgentFactory = build_root_agent,
         runner_factory: RunnerFactory = create_runner,
+        skill_manager: SkillManager | None = None,
     ) -> None:
         self.node_root = node_root.expanduser().resolve(strict=False)
         self.secret_store = secret_store
@@ -135,20 +138,32 @@ class RuntimeAssembler:
         self._model_factory = model_factory or adapter_factory.build
         self._agent_factory = agent_factory
         self._runner_factory = runner_factory
+        self._skill_manager = skill_manager
+
+    def skill_snapshot_for_agent(self, agent_id: str) -> SkillSnapshot:
+        """Capture the immutable Skill set used to key and assemble a Runtime."""
+        if self._skill_manager is None:
+            return SkillSnapshot.empty()
+        return self._skill_manager.snapshot_for_agent(agent_id)
 
     def assemble(
         self,
         snapshot: ConfigSnapshot,
         *,
         extension_tools: tuple[Any, ...] = (),
+        skill_snapshot: SkillSnapshot | None = None,
     ) -> AssembledRuntime:
         """Build a snapshot-native Agent and Runner with explicit dependencies."""
+        resolved_skill_snapshot = skill_snapshot or self.skill_snapshot_for_agent(
+            snapshot.agent.metadata.name
+        )
         model = self._model_factory(snapshot.model)
         agent = self._agent_factory(
             snapshot,
             model=model,
             extension_tools=extension_tools,
             include_gui_tools=False,
+            skill_snapshot=resolved_skill_snapshot,
         )
         runner, session_service = self._runner_factory(
             agent=agent,
@@ -168,6 +183,7 @@ class RuntimeAssembler:
             model=snapshot.model.model,
             workspace=snapshot.agent.spec.workspace,
             snapshot_revision=snapshot.revision,
+            extension_revision=resolved_skill_snapshot.revision,
             origin_revisions=tuple(
                 (origin.resource_id, origin.revision) for origin in snapshot.origins
             ),

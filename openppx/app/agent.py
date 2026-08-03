@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 from typing import Any
 
@@ -15,6 +16,7 @@ from ..core.config import normalize_agent_privilege_level
 from ..core.env_utils import env_enabled
 from ..core.mcp_registry import build_mcp_toolsets_from_env
 from ..core.provider import build_adk_model_from_env
+from ..extensions import ExtensionError, SkillSnapshot
 from ..tooling.skills_adapter import list_skills, read_skill
 from ..tooling.registry import (
     browser,
@@ -179,13 +181,14 @@ def _build_tools(
     can_delegate: bool | None = None,
     include_gui_tools: bool | None = None,
     extension_tools: tuple[Any, ...] | None = None,
+    skill_tools: tuple[Any, ...] | None = None,
 ) -> list[Any]:
     """Assemble tools from explicit snapshot policy or the legacy env path."""
+    resolved_skill_tools = (list_skills, read_skill) if skill_tools is None else skill_tools
     base_tools: list[Any] = [
         PreloadMemoryTool(),
         load_artifacts,
-        list_skills,
-        read_skill,
+        *resolved_skill_tools,
         list_skill_api_runners,
         read_file,
         write_file,
@@ -284,6 +287,7 @@ def build_root_agent(
     model: Any,
     extension_tools: tuple[Any, ...] = (),
     include_gui_tools: bool = False,
+    skill_snapshot: SkillSnapshot | None = None,
 ) -> LlmAgent:
     """Build one ADK Agent from an immutable Config snapshot.
 
@@ -291,6 +295,7 @@ def build_root_agent(
     so it never discovers Provider credentials or MCP configuration itself.
     """
     agent_config = snapshot.agent
+    resolved_skill_snapshot = skill_snapshot or SkillSnapshot.empty()
     delegation_override = agent_config.spec.permission_overrides.can_delegate
     if delegation_override is None:
         delegation_override = agent_config.spec.privilege_level in {"medium", "high", "root"}
@@ -300,6 +305,7 @@ def build_root_agent(
         static_instruction=_build_static_instruction(),
         instruction=build_startup_runtime_context(
             workspace=agent_config.spec.workspace,
+            skills_summary=resolved_skill_snapshot.build_summary(),
             gui_tools_enabled=include_gui_tools,
         ),
         tools=_build_tools(
@@ -307,8 +313,47 @@ def build_root_agent(
             can_delegate=delegation_override,
             include_gui_tools=include_gui_tools,
             extension_tools=extension_tools,
+            skill_tools=_snapshot_skill_tools(resolved_skill_snapshot),
         ),
     )
+
+
+def _snapshot_skill_tools(snapshot: SkillSnapshot) -> tuple[Any, Any]:
+    """Build Skill tools that cannot observe lifecycle changes after assembly."""
+
+    def list_runtime_skills() -> str:
+        """List Skills pinned to this Agent Runtime as JSON."""
+        payload = [
+            {
+                "name": skill.name,
+                "description": skill.description,
+                "source": skill.source,
+                "digest": skill.digest,
+            }
+            for skill in snapshot.skills
+        ]
+        return json.dumps(payload, ensure_ascii=False, indent=2)
+
+    def read_runtime_skill(name: str) -> str:
+        """Read one SKILL.md pinned to this Agent Runtime."""
+        try:
+            return snapshot.read_skill(name)
+        except ExtensionError as exc:
+            return json.dumps(
+                {
+                    "ok": False,
+                    "error_type": exc.code,
+                    "error": str(exc),
+                    "available_skills": list(snapshot.names),
+                },
+                ensure_ascii=False,
+                indent=2,
+            )
+
+    # Preserve the public tool names expected by the prompt and permission filters.
+    list_runtime_skills.__name__ = "list_skills"
+    read_runtime_skill.__name__ = "read_skill"
+    return list_runtime_skills, read_runtime_skill
 
 
 _legacy_root_agent: LlmAgent | None = None
