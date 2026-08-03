@@ -16,12 +16,14 @@ import actionInvokeRunStop from "../../../contracts/client-api/v1/fixtures/actio
 import actionInvokeSessionNew from "../../../contracts/client-api/v1/fixtures/action-invoke-session-new.json";
 import actionInvokeStatus from "../../../contracts/client-api/v1/fixtures/action-invoke-status.json";
 import actionInvokeExtensionList from "../../../contracts/client-api/v1/fixtures/action-invoke-extension-list.json";
+import actionInvokeCommand from "../../../contracts/client-api/v1/fixtures/action-invoke-command.json";
 import actionError from "../../../contracts/client-api/v1/fixtures/envelope-error.json";
 import modelListSuccess from "../../../contracts/client-api/v1/fixtures/envelope-model-list.json";
 import runStopSuccess from "../../../contracts/client-api/v1/fixtures/envelope-run-stop.json";
 import sessionNewSuccess from "../../../contracts/client-api/v1/fixtures/envelope-session-new.json";
 import actionSuccess from "../../../contracts/client-api/v1/fixtures/envelope-success.json";
 import extensionListSuccess from "../../../contracts/client-api/v1/fixtures/envelope-extension-list.json";
+import commandStatusSuccess from "../../../contracts/client-api/v1/fixtures/envelope-command-status.json";
 import healthIncompatible from "../../../contracts/client-api/fixtures/health-incompatible.json";
 import healthV1 from "../../../contracts/client-api/fixtures/health-v1.json";
 import nodeV1 from "../../../contracts/client-api/fixtures/node-v1.json";
@@ -209,6 +211,51 @@ describe("OpenPPX Client public contract", () => {
     const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
     expect(url).toBe("http://127.0.0.1:8765/api/v1/actions/invoke");
     expect(JSON.parse(String(init.body))).toEqual(actionInvokeExtensionList);
+  });
+
+  it("discovers and invokes Action-backed slash commands", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            protocolVersion: 1,
+            requestId: "req_commands_fixture",
+            correlationId: "req_commands_fixture",
+            ok: true,
+            result: actionCatalog,
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify(commandStatusSuccess), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      );
+    const client = new OpenPpxClient({
+      baseUrl: "http://127.0.0.1:8765",
+      fetch: fetchMock as unknown as typeof fetch,
+      idFactory: () => actionInvokeCommand.requestId,
+    });
+
+    await expect(client.commands.list()).resolves.toMatchObject([
+      { command: "/status", actionId: "system.status", available: true },
+    ]);
+    await expect(
+      client.commands.invoke("/status", {
+        userId: "user_fixture",
+        agentId: "writer",
+        sessionId: "session_fixture",
+      }),
+    ).resolves.toEqual(commandStatusSuccess);
+
+    const [catalogUrl] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect(catalogUrl).toBe("http://127.0.0.1:8765/api/v1/actions?projection=slash");
+    const [invokeUrl, invokeInit] = fetchMock.mock.calls[1] as unknown as [string, RequestInit];
+    expect(invokeUrl).toBe("http://127.0.0.1:8765/api/v1/actions/invoke");
+    expect(JSON.parse(String(invokeInit.body))).toEqual(actionInvokeCommand);
   });
 
   it("preserves the common Action error metadata", async () => {

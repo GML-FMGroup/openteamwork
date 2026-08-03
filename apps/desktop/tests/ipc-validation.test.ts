@@ -4,6 +4,7 @@ import {
   validateIdentifier,
   validateRuntimeCommand,
   validateSendMessageInput,
+  validateSlashCommandRequest,
 } from "../electron/main/ipc-validation";
 
 describe("Electron IPC validation", () => {
@@ -14,6 +15,19 @@ describe("Electron IPC validation", () => {
       agentId: "writer",
       sessionId: "session-1",
       text: "hello",
+    });
+    expect(
+      validateSlashCommandRequest({
+        rawCommand: "/history 5",
+        agentId: "writer",
+        sessionId: "session-1",
+        runId: null,
+      }),
+    ).toEqual({
+      rawCommand: "/history 5",
+      agentId: "writer",
+      sessionId: "session-1",
+      runId: null,
     });
     expect(
       validateConnectionSettings({
@@ -39,5 +53,6 @@ describe("Electron IPC validation", () => {
       "Session id must be a string",
     );
     expect(() => validateConnectionSettings({ targetType: "internet" })).toThrow("targetType");
+    expect(() => validateSlashCommandRequest({ rawCommand: "status" })).toThrow("start with '/'");
   });
 });

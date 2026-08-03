@@ -6,6 +6,7 @@ import path from "node:path";
 import {
   ActionClient,
   CLIENT_API_PROTOCOL_VERSION,
+  CommandClient,
   ExtensionClient,
   normalizeClientApiMessage,
   normalizeClientApiPart,
@@ -44,6 +45,9 @@ import type {
   RuntimeStatus,
   SendMessageInput,
   SessionSummary,
+  SlashCommandRequest,
+  ProjectedSlashCommand,
+  SlashCommandResult,
 } from "../../app/src/types";
 import {
   canUseLegacyBridge,
@@ -155,6 +159,8 @@ export class OpenPpxLocalAdapter implements PpxClientApi {
 
   private readonly extensions: ExtensionClient;
 
+  private readonly commands: CommandClient;
+
   private readonly nodeSupervisor: LocalNodeSupervisor;
 
   private readonly legacyBridge: LegacyBridgeClient;
@@ -183,6 +189,7 @@ export class OpenPpxLocalAdapter implements PpxClientApi {
     });
     this.actions = new ActionClient(this.connection);
     this.extensions = new ExtensionClient(this.actions);
+    this.commands = new CommandClient(this.actions);
     this.nodeSupervisor = new LocalNodeSupervisor({
       openppxRoot: this.openppxRoot,
       nodeRoot: dataRootPath(),
@@ -915,6 +922,31 @@ export class OpenPpxLocalAdapter implements PpxClientApi {
     >("run.stop", { runId });
     const run = outcome.result.run;
     return { runId: String(run.id ?? runId), status: "cancelled" };
+  }
+
+  public async listSlashCommands(): Promise<{ commands: ProjectedSlashCommand[] }> {
+    if (this.shouldUseMock()) {
+      return { commands: [] };
+    }
+    await this.ensureClientApiAvailable();
+    return { commands: await this.commands.list() };
+  }
+
+  public async invokeSlashCommand(input: SlashCommandRequest): Promise<SlashCommandResult> {
+    if (this.shouldUseMock()) {
+      throw new Error("Slash commands require a running OpenPPX Node.");
+    }
+    await this.ensureClientApiAvailable();
+    const envelope = await this.commands.invoke(input.rawCommand, {
+      userId: "ppx-client-user",
+      agentId: input.agentId,
+      sessionId: input.sessionId,
+      runId: input.runId,
+    });
+    if (input.agentId) {
+      this.sessionCache.invalidate(input.agentId, input.sessionId ?? undefined);
+    }
+    return envelope.result;
   }
 
   private async sendMessageViaBridge(input: SendMessageInput): Promise<{ runId: string }> {

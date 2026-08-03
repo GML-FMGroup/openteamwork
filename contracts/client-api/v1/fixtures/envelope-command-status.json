@@ -1,0 +1,14 @@
+{
+  "correlationId": "req_command_status_fixture",
+  "ok": true,
+  "protocolVersion": 1,
+  "requestId": "req_command_status_fixture",
+  "result": {
+    "command": "/status",
+    "lifecycle": "side_channel",
+    "result": {
+      "state": "ready"
+    },
+    "targetActionId": "system.status"
+  }
+}

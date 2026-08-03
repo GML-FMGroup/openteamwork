@@ -7,6 +7,8 @@ import type {
   ExtensionDetail,
   ExtensionSummary,
   AgentEnablementKind,
+  ProjectedSlashCommand,
+  SlashCommandResult,
 } from "@openppx/client";
 
 export type {
@@ -21,6 +23,8 @@ export type {
   ExtensionDetail,
   ExtensionSummary,
   AgentEnablementKind,
+  ProjectedSlashCommand,
+  SlashCommandResult,
 } from "@openppx/client";
 
 export type RuntimeState = "stopped" | "starting" | "reconnecting" | "healthy" | "error";
@@ -95,6 +99,13 @@ export interface ExtensionEnablementRequest {
   enabled: boolean;
 }
 
+export interface SlashCommandRequest {
+  rawCommand: string;
+  agentId?: string | null;
+  sessionId?: string | null;
+  runId?: string | null;
+}
+
 export interface PpxClientApi {
   bootstrap(): Promise<BootstrapPayload>;
   getDiagnostics(): Promise<ClientDiagnostics>;
@@ -106,6 +117,8 @@ export interface PpxClientApi {
   loadSession(sessionId: string): Promise<{ messages: ChatMessage[] }>;
   sendMessage(input: SendMessageInput): Promise<{ runId: string }>;
   cancelRun(runId: string): Promise<{ runId: string; status: "cancelled" }>;
+  listSlashCommands(): Promise<{ commands: ProjectedSlashCommand[] }>;
+  invokeSlashCommand(input: SlashCommandRequest): Promise<SlashCommandResult>;
   listExtensions(): Promise<{ extensions: ExtensionSummary[] }>;
   getExtension(kind: ExtensionSummary["kind"], extensionId: string): Promise<{ extension: ExtensionDetail }>;
   setExtensionAgentEnabled(input: ExtensionEnablementRequest): Promise<{ revision: string; status: string }>;

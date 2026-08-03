@@ -18,6 +18,8 @@ from openppx.client_api.contracts import (
     ExtensionDetailPayload,
     ExtensionListPayload,
     ExtensionPreviewPayload,
+    SlashCommandInvokeInput,
+    SlashCommandInvokeResult,
     SuccessEnvelope,
     export_client_contract,
 )
@@ -98,6 +100,7 @@ def test_contract_export_is_deterministic_and_fixtures_round_trip(tmp_path: Path
         "envelope-session-new.json",
         "envelope-run-stop.json",
         "envelope-extension-list.json",
+        "envelope-command-status.json",
     ):
         payload = json.loads((first / "fixtures" / fixture_name).read_text(encoding="utf-8"))
         assert adapter.validate_python(payload)
@@ -109,6 +112,7 @@ def test_contract_export_is_deterministic_and_fixtures_round_trip(tmp_path: Path
         "action-invoke-session-new.json",
         "action-invoke-run-stop.json",
         "action-invoke-extension-list.json",
+        "action-invoke-command.json",
     ):
         payload = json.loads((first / "fixtures" / fixture_name).read_text(encoding="utf-8"))
         assert invocation_adapter.validate_python(payload)
@@ -119,6 +123,8 @@ def test_contract_export_is_deterministic_and_fixtures_round_trip(tmp_path: Path
         "envelope": json.loads((first / "fixtures" / "envelope-success.json").read_text(encoding="utf-8")),
         "actionCatalog": json.loads((first / "fixtures" / "action-catalog.json").read_text(encoding="utf-8")),
         "actionInvoke": json.loads((first / "fixtures" / "action-invoke-status.json").read_text(encoding="utf-8")),
+        "slashCommandInput": json.loads((first / "fixtures" / "action-invoke-command.json").read_text(encoding="utf-8"))["input"],
+        "slashCommandResult": json.loads((first / "fixtures" / "envelope-command-status.json").read_text(encoding="utf-8"))["result"],
         "extensionList": json.loads((first / "fixtures" / "extension-list.json").read_text(encoding="utf-8")),
         "extensionDetail": json.loads((first / "fixtures" / "extension-detail.json").read_text(encoding="utf-8")),
         "extensionPreview": json.loads((first / "fixtures" / "extension-preview.json").read_text(encoding="utf-8")),
@@ -128,3 +134,5 @@ def test_contract_export_is_deterministic_and_fixtures_round_trip(tmp_path: Path
     assert ExtensionListPayload.model_validate(bundle["extensionList"])
     assert ExtensionDetailPayload.model_validate(bundle["extensionDetail"])
     assert ExtensionPreviewPayload.model_validate(bundle["extensionPreview"])
+    assert SlashCommandInvokeInput.model_validate(bundle["slashCommandInput"])
+    assert SlashCommandInvokeResult.model_validate(bundle["slashCommandResult"])

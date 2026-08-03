@@ -211,6 +211,80 @@ class CLITests(unittest.TestCase):
                 )
                 mocked_bootstrap.assert_not_called()
 
+    def test_action_invoke_parses_json_and_dispatches_shared_action(self) -> None:
+        from openppx import cli
+
+        with patch.object(cli, "bootstrap_env_from_config") as mocked_bootstrap:
+            with patch.object(cli, "_cmd_extension_action", return_value=0) as mocked:
+                with self.assertRaises(SystemExit) as ctx:
+                    cli.main([
+                        "action",
+                        "invoke",
+                        "model.select",
+                        "--input-json",
+                        '{"agentId":"writer"}',
+                        "--yes",
+                        "--url",
+                        "http://10.0.0.8:8765",
+                    ])
+                self.assertEqual(ctx.exception.code, 0)
+                mocked.assert_called_once_with(
+                    "model.select",
+                    {"agentId": "writer"},
+                    base_url="http://10.0.0.8:8765",
+                    access_token="",
+                    confirmed=True,
+                    output_json=False,
+                )
+                mocked_bootstrap.assert_not_called()
+
+    def test_action_invoke_rejects_non_object_json_without_calling_node(self) -> None:
+        from openppx import cli
+
+        with patch.object(cli, "bootstrap_env_from_config") as mocked_bootstrap:
+            with patch.object(cli, "_cmd_extension_action", return_value=0) as mocked:
+                with patch.object(cli, "_stdout_line") as output:
+                    with self.assertRaises(SystemExit) as ctx:
+                        cli.main(["action", "invoke", "model.list", "--input-json", "[]"])
+                self.assertEqual(ctx.exception.code, 2)
+                mocked.assert_not_called()
+                output.assert_called_once_with("Error: --input-json must contain one JSON object.")
+                mocked_bootstrap.assert_not_called()
+
+    def test_command_dispatches_context_to_system_command_action(self) -> None:
+        from openppx import cli
+
+        with patch.object(cli, "bootstrap_env_from_config") as mocked_bootstrap:
+            with patch.object(cli, "_cmd_extension_action", return_value=0) as mocked:
+                with self.assertRaises(SystemExit) as ctx:
+                    cli.main([
+                        "command",
+                        "/history 5",
+                        "--user-id",
+                        "user-1",
+                        "--agent",
+                        "writer",
+                        "--session",
+                        "session-1",
+                        "--json",
+                    ])
+                self.assertEqual(ctx.exception.code, 0)
+                mocked.assert_called_once_with(
+                    "system.command.invoke",
+                    {
+                        "rawCommand": "/history 5",
+                        "userId": "user-1",
+                        "agentId": "writer",
+                        "sessionId": "session-1",
+                        "runId": None,
+                    },
+                    base_url="http://127.0.0.1:8765",
+                    access_token="",
+                    confirmed=False,
+                    output_json=True,
+                )
+                mocked_bootstrap.assert_not_called()
+
     def test_extension_install_requires_preview_digest_and_explicit_confirmation(self) -> None:
         from openppx import cli
 

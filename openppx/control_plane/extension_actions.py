@@ -4,7 +4,14 @@ from __future__ import annotations
 
 from typing import cast
 
-from openppx.actions import ActionError, ActionFailure, ActionRegistry, ActionSpec
+from openppx.actions import (
+    ActionError,
+    ActionFailure,
+    ActionRegistry,
+    ActionSpec,
+    SlashCommandSpec,
+    SlashInvocationContext,
+)
 from openppx.extensions import (
     AppManager,
     ExtensionError,
@@ -46,6 +53,7 @@ def register_extension_actions(
     actions.register(
         _spec("extension.list", "List Extensions", "List installed Extension resources.", ExtensionListInput, "extension.read"),
         lambda _context, value: _call(lambda: _list(inventory, cast(ExtensionListInput, value))),
+        slash_input=_extension_list_slash_input,
     )
     actions.register(
         _spec("extension.get", "Get Extension", "Read one installed Extension resource.", ExtensionIdentityInput, "extension.read"),
@@ -123,6 +131,26 @@ def register_extension_actions(
 
 
 def _spec(action_id, title, description, input_model, permission, *, risk="low", confirmation="never") -> ActionSpec:
+    slash_commands = ()
+    projections = ("cli", "desktop", "mobile")
+    if action_id == "extension.list":
+        projections = ("cli", "slash", "desktop", "mobile")
+        slash_commands = (
+            SlashCommandSpec(
+                command="/skills",
+                title="Show skills",
+                description="List Skills available to the selected Agent.",
+                icon="sparkles",
+                order=80,
+            ),
+            SlashCommandSpec(
+                command="/extensions",
+                title="Show extensions",
+                description="List installed Plugins, Apps, MCP servers, and Skills.",
+                icon="blocks",
+                order=90,
+            ),
+        )
     return ActionSpec(
         action_id=action_id,
         namespace="extension",
@@ -134,8 +162,19 @@ def _spec(action_id, title, description, input_model, permission, *, risk="low",
         permission=permission,
         risk=risk,
         confirmation=confirmation,
-        projections=("cli", "desktop", "mobile"),
+        projections=projections,
+        slash_commands=slash_commands,
     )
+
+
+def _extension_list_slash_input(
+    command: SlashCommandSpec,
+    _args: str,
+    context: SlashInvocationContext,
+) -> dict[str, object]:
+    if command.command == "/skills":
+        return {"kind": "skill", "agentId": context.agent_id}
+    return {"kind": None, "agentId": None}
 
 
 def _domain_spec(action_id, title, description, input_model, permission, *, risk="low", confirmation="never") -> ActionSpec:

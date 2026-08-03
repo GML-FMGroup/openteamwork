@@ -15,6 +15,9 @@ from .models import (
     ExtensionListPayload,
     ExtensionPreviewPayload,
     ExtensionSummaryItem,
+    SlashCommandInvokeInput,
+    SlashCommandInvokeResult,
+    SlashCommandItem,
 )
 
 
@@ -47,6 +50,11 @@ def export_client_contract(output_dir: Path) -> tuple[Path, ...]:
             request_id="req_extension_list_fixture",
             action_id="extension.list",
             input={"kind": None, "agentId": None},
+        ),
+        fixtures_dir / "action-invoke-command.json": _invoke_fixture(
+            request_id="req_command_status_fixture",
+            action_id="system.command.invoke",
+            input=_command_input_fixture(),
         ),
         fixtures_dir / "envelope-model-list.json": _domain_success_fixture(
             request_id="req_model_list_fixture",
@@ -85,6 +93,10 @@ def export_client_contract(output_dir: Path) -> tuple[Path, ...]:
         fixtures_dir / "envelope-extension-list.json": _domain_success_fixture(
             request_id="req_extension_list_fixture",
             result=_extension_list_fixture(),
+        ),
+        fixtures_dir / "envelope-command-status.json": _domain_success_fixture(
+            request_id="req_command_status_fixture",
+            result=_command_result_fixture(),
         ),
     }
     for path, document in documents.items():
@@ -143,6 +155,17 @@ def _catalog_fixture() -> dict[str, Any]:
                 confirmation="never",
                 execution="sync",
                 projections=["cli", "slash", "desktop", "mobile"],
+                slash_commands=[
+                    SlashCommandItem(
+                        command="/status",
+                        title="Show status",
+                        description="Display Node and Agent readiness.",
+                        icon="activity",
+                        lifecycle="side_channel",
+                        accepts_args=False,
+                        order=40,
+                    )
+                ],
                 available=True,
             )
         ]
@@ -175,6 +198,25 @@ def _invoke_fixture(
         action_id=action_id,
         input=input or {},
         confirmed=False,
+    ).model_dump(mode="json", by_alias=True)
+
+
+def _command_input_fixture() -> dict[str, Any]:
+    return SlashCommandInvokeInput(
+        raw_command="/status",
+        user_id="user_fixture",
+        agent_id="writer",
+        session_id="session_fixture",
+        run_id=None,
+    ).model_dump(mode="json", by_alias=True)
+
+
+def _command_result_fixture() -> dict[str, Any]:
+    return SlashCommandInvokeResult(
+        command="/status",
+        lifecycle="side_channel",
+        target_action_id="system.status",
+        result={"state": "ready"},
     ).model_dump(mode="json", by_alias=True)
 
 

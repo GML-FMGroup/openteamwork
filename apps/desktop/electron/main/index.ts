@@ -9,6 +9,7 @@ import {
   validateIdentifier,
   validateRuntimeCommand,
   validateSendMessageInput,
+  validateSlashCommandRequest,
 } from "./ipc-validation";
 import { OpenPpxLocalAdapter } from "./openppx-local-adapter";
 import {
@@ -94,6 +95,10 @@ app.whenReady().then(() => {
   );
   ipcMain.handle("ppx-client:cancel-run", async (_event, runId: unknown) =>
     adapter!.cancelRun(validateIdentifier(runId, "Run id")),
+  );
+  ipcMain.handle("ppx-client:list-slash-commands", async () => adapter!.listSlashCommands());
+  ipcMain.handle("ppx-client:invoke-slash-command", async (_event, input: unknown) =>
+    adapter!.invokeSlashCommand(validateSlashCommandRequest(input)),
   );
   ipcMain.handle("ppx-client:list-extensions", async () => adapter!.listExtensions());
   ipcMain.handle("ppx-client:get-extension", async (_event, kind: unknown, extensionId: unknown) =>

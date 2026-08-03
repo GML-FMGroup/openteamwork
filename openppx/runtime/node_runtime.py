@@ -12,6 +12,8 @@ from openppx.config import ConfigService
 
 from .assembly import AssembledRuntime, RuntimeAssembler
 from .message_time import inject_request_time
+from .session_history import project_visible_history
+from .session_rewind import RewindTarget, resolve_rewind_target
 
 
 RunState = Literal["running", "cancelling", "completed", "failed", "cancelled"]
@@ -172,6 +174,80 @@ class NodeRuntimeSupervisor:
         return _run_sync(
             self.get_session(agent_id, user_id=user_id, session_id=session_id)
         )
+
+    async def session_history(
+        self,
+        agent_id: str,
+        *,
+        user_id: str,
+        session_id: str,
+        limit: int = 20,
+    ) -> list[dict[str, object]]:
+        """Read recent ADK-visible text history for one principal-scoped Session."""
+        session = await self.get_session(agent_id, user_id=user_id, session_id=session_id)
+        if session is None:
+            raise RuntimeSupervisorError(f"Session '{session_id}' was not found.")
+        return project_visible_history(session, limit=limit)
+
+    def session_history_sync(
+        self,
+        agent_id: str,
+        *,
+        user_id: str,
+        session_id: str,
+        limit: int = 20,
+    ) -> list[dict[str, object]]:
+        """Read visible Session history from synchronous Action boundaries."""
+        return _run_sync(
+            self.session_history(
+                agent_id,
+                user_id=user_id,
+                session_id=session_id,
+                limit=limit,
+            )
+        )  # type: ignore[return-value]
+
+    async def rewind_session(
+        self,
+        agent_id: str,
+        *,
+        user_id: str,
+        session_id: str,
+        before_invocation_id: str | None = None,
+    ) -> RewindTarget:
+        """Append an ADK-native rewind marker before the resolved invocation."""
+        runtime = self.runtime_for(agent_id)
+        target = await resolve_rewind_target(
+            runtime.session_service,
+            app_name=runtime.agent.name,
+            user_id=user_id,
+            session_id=session_id,
+            before_invocation_id=before_invocation_id,
+        )
+        await runtime.runner.rewind_async(
+            user_id=user_id,
+            session_id=session_id,
+            rewind_before_invocation_id=target.invocation_id,
+        )
+        return target
+
+    def rewind_session_sync(
+        self,
+        agent_id: str,
+        *,
+        user_id: str,
+        session_id: str,
+        before_invocation_id: str | None = None,
+    ) -> RewindTarget:
+        """Rewind one Session from synchronous Action boundaries."""
+        return _run_sync(
+            self.rewind_session(
+                agent_id,
+                user_id=user_id,
+                session_id=session_id,
+                before_invocation_id=before_invocation_id,
+            )
+        )  # type: ignore[return-value]
 
     async def hello(
         self,

@@ -217,7 +217,11 @@ def test_action_catalog_and_invoke_use_common_contract_envelope(tmp_path: Path) 
 
     assert catalog["ok"] is True
     assert catalog["requestId"] == "req_catalog"
-    assert {item["actionId"] for item in catalog["result"]["items"]} == {"system.help", "system.status"}
+    assert {item["actionId"] for item in catalog["result"]["items"]} == {
+        "system.command.invoke",
+        "system.help",
+        "system.status",
+    }
     assert invoked["ok"] is True
     assert invoked["result"]["state"] == "ready"
     assert "data" not in invoked

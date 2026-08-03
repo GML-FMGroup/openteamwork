@@ -240,6 +240,7 @@ export function App() {
                       : "")
                   }
                   agentName={workspaceAgentName}
+                  commands={workspace.slashCommands}
                   onChange={workspace.setComposer}
                   onKeyDown={handleComposerKeyDown}
                   onSend={() => {

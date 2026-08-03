@@ -46,6 +46,17 @@ class SystemHelpInput(ActionInput):
     """Optional namespace filter for the caller-aware Action catalog."""
 
     namespace: Annotated[str, StringConstraints(pattern=r"^[a-z][a-z0-9_]*$")] | None = None
+    projection: Literal["cli", "slash", "desktop", "mobile"] | None = None
+
+
+class SlashCommandInvokeInput(ActionInput):
+    """One raw slash command plus explicit client resource context."""
+
+    raw_command: Annotated[str, StringConstraints(min_length=1, max_length=512)]
+    user_id: PrincipalId
+    agent_id: ResourceId | None = None
+    session_id: RunId | None = None
+    run_id: RunId | None = None
 
 
 class NodeValidateInput(ActionInput):
@@ -130,10 +141,33 @@ class SessionNewInput(AgentReadInput):
     user_id: PrincipalId
 
 
+class SessionHistoryInput(AgentReadInput):
+    """Read bounded visible conversation history for one Session."""
+
+    user_id: PrincipalId
+    session_id: RunId
+    limit: StrictInt = Field(default=20, ge=1, le=100)
+
+
+class SessionRewindInput(AgentReadInput):
+    """Rewind one Session before an explicit or latest visible invocation."""
+
+    user_id: PrincipalId
+    session_id: RunId
+    before_invocation_id: RunId | None = None
+
+
 class RunStopInput(ActionInput):
     """Identify one active Run for cooperative cancellation."""
 
     run_id: RunId
+
+
+class TaskListInput(ActionInput):
+    """Read bounded durable Tasks, optionally scoped to one Session."""
+
+    session_id: RunId | None = None
+    limit: StrictInt = Field(default=20, ge=1, le=100)
 
 
 ExtensionKind = Literal["plugin", "app", "mcp", "skill"]

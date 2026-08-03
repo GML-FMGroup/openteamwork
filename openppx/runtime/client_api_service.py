@@ -514,8 +514,10 @@ class ClientApiCoordinator:
                 "extension.write",
                 "model.read",
                 "model.use",
+                "session.read",
                 "session.write",
                 "run.control",
+                "task.read",
             }
         )
         return ActionContext(
@@ -540,6 +542,7 @@ class ClientApiCoordinator:
         self,
         *,
         namespace: str | None = None,
+        projection: str | None = None,
         request_id: str | None = None,
         correlation_id: str | None = None,
     ) -> dict[str, Any]:
@@ -550,7 +553,11 @@ class ClientApiCoordinator:
             request_id=resolved_request_id,
             correlation_id=resolved_correlation_id,
         )
-        outcome = self._control_plane.catalog(context, namespace=namespace)
+        outcome = self._control_plane.catalog(
+            context,
+            namespace=namespace,
+            projection=projection,
+        )
         envelope = ContractMapper().from_outcome(
             outcome,
             request_id=resolved_request_id,
@@ -2126,6 +2133,7 @@ class _ClientApiHandler(BaseHTTPRequestHandler):
                 200,
                 self.coordinator.action_catalog(
                     namespace=query.get("namespace"),
+                    projection=query.get("projection"),
                     request_id=self.headers.get("X-Request-ID"),
                     correlation_id=self.headers.get("X-Correlation-ID"),
                 ),

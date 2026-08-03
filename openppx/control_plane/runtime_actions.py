@@ -5,22 +5,41 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import cast
 
-from openppx.actions import ActionError, ActionFailure, ActionRegistry, ActionSpec
+from openppx.actions import (
+    ActionError,
+    ActionFailure,
+    ActionRegistry,
+    ActionSpec,
+    SlashCommandError,
+    SlashCommandSpec,
+    SlashInvocationContext,
+)
 from openppx.runtime.node_runtime import (
     NodeRuntimeSupervisor,
     RunNotActiveError,
     RunNotFoundError,
     RuntimeSupervisorError,
 )
+from openppx.runtime.session_rewind import SessionRewindError
+from openppx.runtime.task_execution import TaskController
 
-from .input_models import RunStopInput, SessionNewInput
+from .input_models import (
+    RunStopInput,
+    SessionHistoryInput,
+    SessionNewInput,
+    SessionRewindInput,
+    TaskListInput,
+)
 
 
 def register_runtime_actions(
     registry: ActionRegistry,
     supervisor: NodeRuntimeSupervisor,
+    *,
+    task_controller: TaskController | None = None,
 ) -> None:
-    """Register the first shared Session and Run control Actions."""
+    """Register shared Session, Run, and durable Task control Actions."""
+    tasks = task_controller or _task_controller_from_supervisor(supervisor)
     registry.register(
         ActionSpec(
             action_id="session.new",
@@ -32,11 +51,82 @@ def register_runtime_actions(
             required_capabilities=frozenset({"session.write"}),
             permission="session.write",
             projections=("cli", "slash", "desktop", "mobile"),
+            slash_commands=(
+                SlashCommandSpec(
+                    command="/new",
+                    title="New session",
+                    description="Create and switch to a fresh conversation Session.",
+                    icon="square-pen",
+                    lifecycle="finalize_active_turn",
+                    order=20,
+                ),
+            ),
         ),
         lambda _context, input_data: _new_session(
             supervisor,
             cast(SessionNewInput, input_data),
         ),
+        slash_input=_new_session_slash_input,
+    )
+    registry.register(
+        ActionSpec(
+            action_id="session.history",
+            namespace="session",
+            title="Session history",
+            description="Read recent visible conversation messages.",
+            input_model=SessionHistoryInput,
+            scope="session",
+            required_capabilities=frozenset({"session.read"}),
+            permission="session.read",
+            projections=("cli", "slash", "desktop", "mobile"),
+            slash_commands=(
+                SlashCommandSpec(
+                    command="/history",
+                    title="Show history",
+                    description="Show recent visible messages in this Session.",
+                    icon="history",
+                    arg_hint="[limit]",
+                    accepts_args=True,
+                    order=60,
+                ),
+            ),
+        ),
+        lambda _context, input_data: _session_history(
+            supervisor,
+            cast(SessionHistoryInput, input_data),
+        ),
+        slash_input=_session_history_slash_input,
+    )
+    registry.register(
+        ActionSpec(
+            action_id="session.rewind",
+            namespace="session",
+            title="Rewind session",
+            description="Rewind model context before one visible invocation.",
+            input_model=SessionRewindInput,
+            scope="session",
+            required_capabilities=frozenset({"session.write"}),
+            permission="session.write",
+            risk="medium",
+            projections=("cli", "slash", "desktop", "mobile"),
+            slash_commands=(
+                SlashCommandSpec(
+                    command="/rewind",
+                    title="Rewind conversation",
+                    description="Hide the latest turn, or a selected invocation, from future model context.",
+                    icon="undo-2",
+                    arg_hint="[last|invocation-id]",
+                    accepts_args=True,
+                    lifecycle="finalize_active_turn",
+                    order=25,
+                ),
+            ),
+        ),
+        lambda _context, input_data: _rewind_session(
+            supervisor,
+            cast(SessionRewindInput, input_data),
+        ),
+        slash_input=_rewind_session_slash_input,
     )
     registry.register(
         ActionSpec(
@@ -50,12 +140,128 @@ def register_runtime_actions(
             permission="run.control",
             risk="medium",
             projections=("cli", "slash", "desktop", "mobile"),
+            slash_commands=(
+                SlashCommandSpec(
+                    command="/stop",
+                    title="Stop current run",
+                    description="Request cooperative cancellation of the active Run.",
+                    icon="square",
+                    lifecycle="stop_active_turn",
+                    order=30,
+                ),
+            ),
         ),
         lambda _context, input_data: _stop_run(
             supervisor,
             cast(RunStopInput, input_data),
         ),
+        slash_input=_stop_run_slash_input,
     )
+    registry.register(
+        ActionSpec(
+            action_id="task.list",
+            namespace="task",
+            title="List tasks",
+            description="List recent durable Tasks and their current state.",
+            input_model=TaskListInput,
+            scope="task",
+            required_capabilities=frozenset({"task.read"}),
+            permission="task.read",
+            projections=("cli", "slash", "desktop", "mobile"),
+            slash_commands=(
+                SlashCommandSpec(
+                    command="/tasks",
+                    title="Show tasks",
+                    description="Show recent Tasks for this Session.",
+                    icon="list-checks",
+                    arg_hint="[limit]",
+                    accepts_args=True,
+                    order=70,
+                ),
+            ),
+        ),
+        lambda _context, input_data: _list_tasks(
+            tasks,
+            cast(TaskListInput, input_data),
+        ),
+        availability=lambda _context: None if tasks is not None else "runtime_unavailable",
+        slash_input=_task_list_slash_input,
+    )
+
+
+def _required_context(value: str | None, field: str) -> str:
+    if value:
+        return value
+    raise SlashCommandError("command_context_required", f"The slash command requires {field} context.")
+
+
+def _new_session_slash_input(
+    _command: SlashCommandSpec,
+    _args: str,
+    context: SlashInvocationContext,
+) -> dict[str, object]:
+    return {
+        "agentId": _required_context(context.agent_id, "Agent"),
+        "userId": context.user_id,
+    }
+
+
+def _stop_run_slash_input(
+    _command: SlashCommandSpec,
+    _args: str,
+    context: SlashInvocationContext,
+) -> dict[str, object]:
+    return {"runId": _required_context(context.run_id, "active Run")}
+
+
+def _bounded_limit(args: str, *, default: int = 20) -> int:
+    if not args:
+        return default
+    try:
+        value = int(args)
+    except ValueError as exc:
+        raise SlashCommandError("command_arguments_invalid", "The command limit must be an integer.") from exc
+    if value < 1 or value > 100:
+        raise SlashCommandError("command_arguments_invalid", "The command limit must be between 1 and 100.")
+    return value
+
+
+def _session_history_slash_input(
+    _command: SlashCommandSpec,
+    args: str,
+    context: SlashInvocationContext,
+) -> dict[str, object]:
+    return {
+        "agentId": _required_context(context.agent_id, "Agent"),
+        "userId": context.user_id,
+        "sessionId": _required_context(context.session_id, "Session"),
+        "limit": _bounded_limit(args),
+    }
+
+
+def _rewind_session_slash_input(
+    _command: SlashCommandSpec,
+    args: str,
+    context: SlashInvocationContext,
+) -> dict[str, object]:
+    selector = args.strip()
+    return {
+        "agentId": _required_context(context.agent_id, "Agent"),
+        "userId": context.user_id,
+        "sessionId": _required_context(context.session_id, "Session"),
+        "beforeInvocationId": None if not selector or selector.lower() == "last" else selector,
+    }
+
+
+def _task_list_slash_input(
+    _command: SlashCommandSpec,
+    args: str,
+    context: SlashInvocationContext,
+) -> dict[str, object]:
+    return {
+        "sessionId": context.session_id,
+        "limit": _bounded_limit(args),
+    }
 
 
 def _new_session(
@@ -113,6 +319,60 @@ def _stop_run(
             "state": run.state,
         }
     }
+
+
+def _session_history(
+    supervisor: NodeRuntimeSupervisor,
+    input_data: SessionHistoryInput,
+) -> dict[str, object]:
+    try:
+        items = supervisor.session_history_sync(
+            input_data.agent_id,
+            user_id=input_data.user_id,
+            session_id=input_data.session_id,
+            limit=input_data.limit,
+        )
+    except RuntimeSupervisorError as exc:
+        raise ActionFailure(ActionError("session_not_found", "The requested Session was not found.")) from exc
+    return {"items": items}
+
+
+def _rewind_session(
+    supervisor: NodeRuntimeSupervisor,
+    input_data: SessionRewindInput,
+) -> dict[str, object]:
+    try:
+        target = supervisor.rewind_session_sync(
+            input_data.agent_id,
+            user_id=input_data.user_id,
+            session_id=input_data.session_id,
+            before_invocation_id=input_data.before_invocation_id,
+        )
+    except SessionRewindError as exc:
+        raise ActionFailure(ActionError("session_rewind_unavailable", str(exc))) from exc
+    except RuntimeSupervisorError as exc:
+        raise ActionFailure(ActionError("runtime_unavailable", "The Node runtime is not available.")) from exc
+    return {
+        "sessionId": input_data.session_id,
+        "rewindBeforeInvocationId": target.invocation_id,
+        "explicit": target.explicit,
+        "visibleEventCount": target.visible_event_count,
+    }
+
+
+def _task_controller_from_supervisor(supervisor: NodeRuntimeSupervisor) -> TaskController | None:
+    """Resolve the Node-owned Task store without making registration depend on internals."""
+    assembler = getattr(supervisor, "assembler", None)
+    services = getattr(assembler, "services", None)
+    task_store = getattr(services, "task_store", None)
+    return TaskController(task_store=task_store) if task_store is not None else None
+
+
+def _list_tasks(controller: TaskController | None, input_data: TaskListInput) -> dict[str, object]:
+    if controller is None:
+        raise ActionFailure(ActionError("runtime_unavailable", "Task storage is not available."))
+    result = controller.list_tasks(session_id=input_data.session_id, limit=input_data.limit)
+    return {"items": result.get("items", [])}
 
 
 __all__ = ["register_runtime_actions"]

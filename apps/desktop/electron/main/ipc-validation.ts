@@ -1,4 +1,4 @@
-import type { ConnectionSettings, ExtensionEnablementRequest, RuntimeCommand, SendMessageInput } from "../../app/src/types";
+import type { ConnectionSettings, ExtensionEnablementRequest, RuntimeCommand, SendMessageInput, SlashCommandRequest } from "../../app/src/types";
 
 function record(value: unknown, label: string): Record<string, unknown> {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
@@ -56,6 +56,27 @@ export function validateSendMessageInput(value: unknown): SendMessageInput {
     agentId: validateIdentifier(input.agentId, "Agent id"),
     sessionId: validateIdentifier(input.sessionId, "Session id"),
     text: string(input.text, "Message text", 1_000_000),
+  };
+}
+
+/** Validate one command plus optional resource context crossing the IPC boundary. */
+export function validateSlashCommandRequest(value: unknown): SlashCommandRequest {
+  const input = record(value, "Slash command input");
+  const optionalIdentifier = (item: unknown, label: string): string | null => {
+    if (item === undefined || item === null || item === "") {
+      return null;
+    }
+    return validateIdentifier(item, label);
+  };
+  const rawCommand = string(input.rawCommand, "Slash command", 512);
+  if (!rawCommand.trim().startsWith("/")) {
+    throw new TypeError("Slash command must start with '/'.");
+  }
+  return {
+    rawCommand,
+    agentId: optionalIdentifier(input.agentId, "Agent id"),
+    sessionId: optionalIdentifier(input.sessionId, "Session id"),
+    runId: optionalIdentifier(input.runId, "Run id"),
   };
 }
 

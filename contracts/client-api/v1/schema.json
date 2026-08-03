@@ -110,6 +110,13 @@
           "title": "Scope",
           "type": "string"
         },
+        "slashCommands": {
+          "items": {
+            "$ref": "#/$defs/SlashCommandItem"
+          },
+          "title": "Slashcommands",
+          "type": "array"
+        },
         "title": {
           "maxLength": 120,
           "minLength": 1,
@@ -549,6 +556,175 @@
       "title": "ExtensionSummaryItem",
       "type": "object"
     },
+    "SlashCommandInvokeInput": {
+      "additionalProperties": false,
+      "description": "Structured context for the shared command invocation Action.",
+      "properties": {
+        "agentId": {
+          "anyOf": [
+            {
+              "maxLength": 128,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Agentid"
+        },
+        "rawCommand": {
+          "maxLength": 512,
+          "minLength": 1,
+          "title": "Rawcommand",
+          "type": "string"
+        },
+        "runId": {
+          "anyOf": [
+            {
+              "maxLength": 128,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Runid"
+        },
+        "sessionId": {
+          "anyOf": [
+            {
+              "maxLength": 128,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Sessionid"
+        },
+        "userId": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Userid",
+          "type": "string"
+        }
+      },
+      "required": [
+        "rawCommand",
+        "userId"
+      ],
+      "title": "SlashCommandInvokeInput",
+      "type": "object"
+    },
+    "SlashCommandInvokeResult": {
+      "additionalProperties": false,
+      "description": "Structured command outcome retaining target Action provenance.",
+      "properties": {
+        "command": {
+          "pattern": "^/[a-z][a-z0-9-]*$",
+          "title": "Command",
+          "type": "string"
+        },
+        "lifecycle": {
+          "enum": [
+            "side_channel",
+            "finalize_active_turn",
+            "stop_active_turn"
+          ],
+          "title": "Lifecycle",
+          "type": "string"
+        },
+        "result": {
+          "additionalProperties": true,
+          "title": "Result",
+          "type": "object"
+        },
+        "targetActionId": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Targetactionid",
+          "type": "string"
+        }
+      },
+      "required": [
+        "command",
+        "lifecycle",
+        "targetActionId",
+        "result"
+      ],
+      "title": "SlashCommandInvokeResult",
+      "type": "object"
+    },
+    "SlashCommandItem": {
+      "additionalProperties": false,
+      "description": "Client-safe command alias projected from one Action.",
+      "properties": {
+        "acceptsArgs": {
+          "default": false,
+          "title": "Acceptsargs",
+          "type": "boolean"
+        },
+        "argHint": {
+          "default": "",
+          "maxLength": 120,
+          "title": "Arghint",
+          "type": "string"
+        },
+        "command": {
+          "pattern": "^/[a-z][a-z0-9-]*$",
+          "title": "Command",
+          "type": "string"
+        },
+        "description": {
+          "maxLength": 512,
+          "minLength": 1,
+          "title": "Description",
+          "type": "string"
+        },
+        "icon": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Icon",
+          "type": "string"
+        },
+        "lifecycle": {
+          "enum": [
+            "side_channel",
+            "finalize_active_turn",
+            "stop_active_turn"
+          ],
+          "title": "Lifecycle",
+          "type": "string"
+        },
+        "order": {
+          "minimum": 0,
+          "title": "Order",
+          "type": "integer"
+        },
+        "title": {
+          "maxLength": 120,
+          "minLength": 1,
+          "title": "Title",
+          "type": "string"
+        }
+      },
+      "required": [
+        "command",
+        "title",
+        "description",
+        "icon",
+        "lifecycle",
+        "order"
+      ],
+      "title": "SlashCommandItem",
+      "type": "object"
+    },
     "StableError": {
       "additionalProperties": false,
       "description": "Redacted stable error shared by HTTP and future transports.",
@@ -660,12 +836,20 @@
     },
     "extensionPreview": {
       "$ref": "#/$defs/ExtensionPreviewPayload"
+    },
+    "slashCommandInput": {
+      "$ref": "#/$defs/SlashCommandInvokeInput"
+    },
+    "slashCommandResult": {
+      "$ref": "#/$defs/SlashCommandInvokeResult"
     }
   },
   "required": [
     "envelope",
     "actionCatalog",
     "actionInvoke",
+    "slashCommandInput",
+    "slashCommandResult",
     "extensionList",
     "extensionDetail",
     "extensionPreview"

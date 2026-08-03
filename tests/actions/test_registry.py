@@ -10,6 +10,9 @@ from openppx.actions import (
     ActionRegistrationError,
     ActionRegistry,
     ActionSpec,
+    SlashCommandError,
+    SlashCommandSpec,
+    SlashInvocationContext,
 )
 
 
@@ -105,3 +108,91 @@ def test_catalog_marks_missing_permission_without_client_side_rules() -> None:
 
     assert item.available is False
     assert item.availability_reason == "permission_denied"
+
+
+def test_registry_owns_unique_slash_commands_and_projection_filtering() -> None:
+    registry = ActionRegistry()
+    command_spec = ActionSpec(
+        action_id="system.status",
+        namespace="system",
+        title="Status",
+        description="Return Node status.",
+        input_model=EmptyInput,
+        scope="node",
+        required_capabilities=frozenset({"system.read"}),
+        permission="system.read",
+        projections=("cli", "slash", "desktop"),
+        slash_commands=(
+            SlashCommandSpec(
+                command="/status",
+                title="Show status",
+                description="Display Node readiness.",
+                icon="activity",
+            ),
+        ),
+    )
+    registry.register(
+        command_spec,
+        lambda _context, _input: {},
+        slash_input=lambda _command, _args, _context: {},
+    )
+    registry.register(spec("system.doctor"), lambda _context, _input: {})
+
+    resolved = registry.resolve_slash("/STATUS@openppx")
+    slash_catalog = registry.catalog(context(), projection="slash")
+
+    assert resolved.registered.spec.action_id == "system.status"
+    assert resolved.command.command == "/status"
+    assert [item.spec.action_id for item in slash_catalog] == ["system.status"]
+
+    with pytest.raises(ActionRegistrationError, match="already registered"):
+        registry.register(
+            ActionSpec(
+                action_id="system.health",
+                namespace="system",
+                title="Health",
+                description="Return health.",
+                input_model=EmptyInput,
+                scope="node",
+                required_capabilities=frozenset({"system.read"}),
+                permission="system.read",
+                projections=("slash",),
+                slash_commands=command_spec.slash_commands,
+            ),
+            lambda _context, _input: {},
+            slash_input=lambda _command, _args, _context: {},
+        )
+
+
+def test_registry_rejects_slash_arguments_without_mutating_action_input() -> None:
+    registry = ActionRegistry()
+    command_spec = ActionSpec(
+        action_id="system.help",
+        namespace="system",
+        title="Help",
+        description="Return commands.",
+        input_model=EmptyInput,
+        scope="node",
+        required_capabilities=frozenset({"system.read"}),
+        permission="system.read",
+        projections=("slash",),
+        slash_commands=(
+            SlashCommandSpec(
+                command="/help",
+                title="Help",
+                description="Return commands.",
+                icon="circle-help",
+            ),
+        ),
+    )
+    registry.register(
+        command_spec,
+        lambda _context, _input: {},
+        slash_input=lambda _command, _args, _context: {},
+    )
+
+    with pytest.raises(SlashCommandError) as exc_info:
+        registry.resolve_slash("/help unexpected")
+
+    assert exc_info.value.code == "command_arguments_not_allowed"
+    assert SlashInvocationContext(user_id="local:user").session_id is None

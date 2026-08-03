@@ -13,6 +13,8 @@ CONTROL_PLANE_CAPABILITIES: tuple[str, ...] = (
     "model.profiles.read",
     "model.select",
     "run.control",
+    "session.read",
     "session.write",
+    "task.read",
     "system.status",
 )

@@ -1,4 +1,6 @@
+import { useEffect, useMemo, useState } from "react";
 import type { KeyboardEvent, RefObject } from "react";
+import type { ProjectedSlashCommand } from "../../types";
 
 interface ComposerProps {
   value: string;
@@ -9,6 +11,7 @@ interface ComposerProps {
   stopping: boolean;
   helperText: string;
   agentName: string;
+  commands: ProjectedSlashCommand[];
   onChange: (value: string) => void;
   onKeyDown: (event: KeyboardEvent<HTMLTextAreaElement>) => void;
   onSend: () => void;
@@ -25,15 +28,102 @@ export function Composer({
   stopping,
   helperText,
   agentName,
+  commands,
   onChange,
   onKeyDown,
   onSend,
   onStop,
 }: ComposerProps) {
+  const [selectedCommandIndex, setSelectedCommandIndex] = useState(0);
+  const [dismissedValue, setDismissedValue] = useState<string | null>(null);
+  const commandToken = value.trimStart().split(/\s/, 1)[0]?.toLowerCase() ?? "";
+  const matchingCommands = useMemo(
+    () =>
+      commandToken.startsWith("/")
+        ? commands.filter((command) => command.available && command.command.startsWith(commandToken))
+        : [],
+    [commandToken, commands],
+  );
+  const commandMenuOpen = matchingCommands.length > 0 && dismissedValue !== value;
+
+  useEffect(() => {
+    setSelectedCommandIndex(0);
+  }, [commandToken]);
+
+  useEffect(() => {
+    if (dismissedValue !== null && dismissedValue !== value) {
+      setDismissedValue(null);
+    }
+  }, [dismissedValue, value]);
+
+  function chooseCommand(command: ProjectedSlashCommand): void {
+    const nextValue = `${command.command}${command.acceptsArgs ? " " : ""}`;
+    onChange(nextValue);
+    setDismissedValue(nextValue);
+    queueMicrotask(() => textareaRef.current?.focus());
+  }
+
+  function handleKeyDown(event: KeyboardEvent<HTMLTextAreaElement>): void {
+    if (commandMenuOpen && event.key === "ArrowDown") {
+      event.preventDefault();
+      setSelectedCommandIndex((current) => (current + 1) % matchingCommands.length);
+      return;
+    }
+    if (commandMenuOpen && event.key === "ArrowUp") {
+      event.preventDefault();
+      setSelectedCommandIndex((current) => (current - 1 + matchingCommands.length) % matchingCommands.length);
+      return;
+    }
+    if (commandMenuOpen && event.key === "Escape") {
+      event.preventDefault();
+      setDismissedValue(value);
+      return;
+    }
+    if (commandMenuOpen && event.key === "Enter" && !event.shiftKey) {
+      const selected = matchingCommands[selectedCommandIndex] ?? matchingCommands[0];
+      const normalized = value.trim();
+      const alreadySelected = normalized === selected.command || normalized.startsWith(`${selected.command} `);
+      if (!alreadySelected) {
+        event.preventDefault();
+        chooseCommand(selected);
+        return;
+      }
+    }
+    onKeyDown(event);
+  }
+
   const actionLabel = busy ? (stopping ? "Stopping" : canStop ? "Stop" : "Running") : "Send";
   const actionEnabled = busy ? canStop && !stopping : canSend;
   return (
     <footer className="composer-shell">
+      {commandMenuOpen ? (
+        <div className="command-palette" role="listbox" aria-label="Slash commands">
+          <div className="command-palette-heading">
+            <span>Commands</span>
+            <kbd>↑↓ Enter</kbd>
+          </div>
+          <div className="command-palette-list">
+            {matchingCommands.map((command, index) => (
+              <button
+                type="button"
+                role="option"
+                aria-selected={index === selectedCommandIndex}
+                className={index === selectedCommandIndex ? "command-option selected" : "command-option"}
+                key={command.command}
+                onMouseDown={(event) => event.preventDefault()}
+                onClick={() => chooseCommand(command)}
+              >
+                <span className="command-glyph">/</span>
+                <span className="command-copy">
+                  <strong>{command.command}</strong>
+                  <small>{command.description}</small>
+                </span>
+                {command.argHint ? <code>{command.argHint}</code> : null}
+              </button>
+            ))}
+          </div>
+        </div>
+      ) : null}
       <div className="composer-context">
         <span>{agentName}</span>
       </div>
@@ -41,7 +131,7 @@ export function Composer({
         ref={textareaRef}
         value={value}
         onChange={(event) => onChange(event.target.value)}
-        onKeyDown={onKeyDown}
+        onKeyDown={handleKeyDown}
         placeholder="Describe the outcome you want..."
         rows={2}
       />

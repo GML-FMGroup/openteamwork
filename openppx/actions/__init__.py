@@ -8,8 +8,10 @@ from .models import (
     ActionFailure,
     ActionOutcome,
     ActionSpec,
+    SlashCommandSpec,
+    SlashInvocationContext,
 )
-from .registry import ActionRegistrationError, ActionRegistry
+from .registry import ActionRegistrationError, ActionRegistry, ResolvedSlashCommand, SlashCommandError
 
 __all__ = [
     "ActionCatalogEntry",
@@ -21,4 +23,8 @@ __all__ = [
     "ActionRegistrationError",
     "ActionRegistry",
     "ActionSpec",
+    "ResolvedSlashCommand",
+    "SlashCommandError",
+    "SlashCommandSpec",
+    "SlashInvocationContext",
 ]

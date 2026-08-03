@@ -92,6 +92,37 @@ function buildDiagnostics(): ClientDiagnostics {
   };
 }
 
+function buildSlashCommands() {
+  return [
+    {
+      command: "/help",
+      title: "Show commands",
+      description: "List commands available to this client.",
+      icon: "circle-help",
+      argHint: "",
+      lifecycle: "side_channel" as const,
+      acceptsArgs: false,
+      order: 10,
+      actionId: "system.help",
+      available: true,
+      availabilityReason: null,
+    },
+    {
+      command: "/status",
+      title: "Show status",
+      description: "Display Node and Agent readiness.",
+      icon: "activity",
+      argHint: "",
+      lifecycle: "side_channel" as const,
+      acceptsArgs: false,
+      order: 40,
+      actionId: "system.status",
+      available: true,
+      availabilityReason: null,
+    },
+  ];
+}
+
 function installLocalStorage(): { storage: Storage; restore: () => void } {
   const values = new Map<string, string>();
   const previousDescriptor = Object.getOwnPropertyDescriptor(window, "localStorage");
@@ -137,6 +168,10 @@ function installClient(overrides: Partial<PpxClientApi> = {}): { client: PpxClie
     loadSession: async () => ({ messages: [] }),
     sendMessage: async () => new Promise<{ runId: string }>(() => undefined),
     cancelRun: async (runId) => ({ runId, status: "cancelled" }),
+    listSlashCommands: async () => ({ commands: [] }),
+    invokeSlashCommand: async () => {
+      throw new Error("No fixture slash command configured.");
+    },
     listExtensions: async () => ({ extensions: [] }),
     getExtension: async () => {
       throw new Error("No fixture Extension configured.");
@@ -534,6 +569,69 @@ describe("App sending state", () => {
     fireEvent.keyDown(composer, { key: "Enter", code: "Enter", charCode: 13, shiftKey: true });
 
     expect(sendMessage).toHaveBeenCalledTimes(1);
+  });
+
+  it("navigates the slash command palette and invokes structured commands", async () => {
+    const invokeSlashCommand = vi.fn(async () => ({
+      command: "/status",
+      lifecycle: "side_channel" as const,
+      targetActionId: "system.status",
+      result: { state: "ready", node: { displayName: "Studio Node" } },
+    }));
+    installClient({
+      listSlashCommands: async () => ({ commands: buildSlashCommands() }),
+      invokeSlashCommand,
+    });
+    render(<App />);
+
+    const composer = await screen.findByPlaceholderText("Describe the outcome you want...");
+    fireEvent.change(composer, { target: { value: "/" } });
+    const palette = await screen.findByRole("listbox", { name: "Slash commands" });
+    expect(within(palette).getAllByRole("option")).toHaveLength(2);
+
+    fireEvent.keyDown(composer, { key: "ArrowDown" });
+    fireEvent.keyDown(composer, { key: "Enter" });
+    expect(composer).toHaveValue("/status");
+    fireEvent.keyDown(composer, { key: "Enter" });
+
+    await waitFor(() => {
+      expect(invokeSlashCommand).toHaveBeenCalledWith({
+        rawCommand: "/status",
+        agentId: "agent-1",
+        sessionId: "session-a",
+        runId: null,
+      });
+    });
+    expect(await screen.findByText("Node status: ready · Studio Node")).toBeInTheDocument();
+  });
+
+  it("switches to the Session returned by the new command", async () => {
+    const created: SessionSummary = {
+      id: "session-command",
+      agentId: "agent-1",
+      title: "New chat",
+      updatedAt: "2026-08-03T00:00:00.000Z",
+      lastMessagePreview: "",
+    };
+    installClient({
+      listSlashCommands: async () => ({ commands: buildSlashCommands() }),
+      invokeSlashCommand: async () => ({
+        command: "/new",
+        lifecycle: "finalize_active_turn",
+        targetActionId: "session.new",
+        result: { session: created },
+      }),
+    });
+    render(<App />);
+
+    const composer = await screen.findByPlaceholderText("Describe the outcome you want...");
+    fireEvent.change(composer, { target: { value: "/new" } });
+    fireEvent.keyDown(composer, { key: "Enter" });
+
+    await waitFor(() => {
+      expect(screen.getAllByText("New chat").length).toBeGreaterThan(0);
+    });
+    expect(screen.getByText("Agent 1 is ready")).toBeInTheDocument();
   });
 
   it("creates a session on startup when the selected agent has none", async () => {

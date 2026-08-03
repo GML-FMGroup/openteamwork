@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from "electron";
-import type { ConnectionSettings, ExtensionEnablementRequest, PpxClientApi, RunEvent, RuntimeCommand, SendMessageInput } from "../../app/src/types";
+import type { ConnectionSettings, ExtensionEnablementRequest, PpxClientApi, RunEvent, RuntimeCommand, SendMessageInput, SlashCommandRequest } from "../../app/src/types";
 
 const api: PpxClientApi = {
   bootstrap: () => ipcRenderer.invoke("ppx-client:bootstrap"),
@@ -12,6 +12,8 @@ const api: PpxClientApi = {
   loadSession: (sessionId: string) => ipcRenderer.invoke("ppx-client:load-session", sessionId),
   sendMessage: (input: SendMessageInput) => ipcRenderer.invoke("ppx-client:send-message", input),
   cancelRun: (runId: string) => ipcRenderer.invoke("ppx-client:cancel-run", runId),
+  listSlashCommands: () => ipcRenderer.invoke("ppx-client:list-slash-commands"),
+  invokeSlashCommand: (input: SlashCommandRequest) => ipcRenderer.invoke("ppx-client:invoke-slash-command", input),
   listExtensions: () => ipcRenderer.invoke("ppx-client:list-extensions"),
   getExtension: (kind, extensionId) => ipcRenderer.invoke("ppx-client:get-extension", kind, extensionId),
   setExtensionAgentEnabled: (input: ExtensionEnablementRequest) => ipcRenderer.invoke("ppx-client:set-extension-agent-enabled", input),

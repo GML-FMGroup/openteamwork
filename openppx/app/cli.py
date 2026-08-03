@@ -4348,6 +4348,85 @@ def _cmd_extension_action(
     return _emit_client_api_payload(payload, output_json=output_json)
 
 
+def _cmd_action_catalog(
+    *,
+    namespace: str | None,
+    projection: str | None,
+    base_url: str,
+    access_token: str,
+    output_json: bool,
+) -> int:
+    """Read the shared Action catalog from one running OpenPPX Node."""
+    from ..runtime.client_api_client import ClientApiClient
+
+    try:
+        payload = ClientApiClient(base_url=base_url, access_token=access_token).action_catalog(
+            namespace=namespace,
+            projection=projection,
+        )
+    except (OSError, TimeoutError, ValueError) as exc:
+        _stdout_line(f"Error: unable to reach OpenPPX Node at {base_url}: {exc}")
+        return 1
+    return _emit_client_api_payload(payload, output_json=output_json)
+
+
+def _parse_action_input(raw: str) -> dict[str, object]:
+    """Parse a strict JSON object for generic Action invocation."""
+    try:
+        value = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"--input-json must be valid JSON: {exc.msg}") from exc
+    if not isinstance(value, dict):
+        raise ValueError("--input-json must contain one JSON object.")
+    return value
+
+
+def _dispatch_action_command(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
+    """Dispatch catalog and generic invoke operations over the shared Action API."""
+    if args.action_command == "list":
+        return _cmd_action_catalog(
+            namespace=args.namespace,
+            projection=args.projection,
+            base_url=args.client_api_url,
+            access_token=args.access_token,
+            output_json=args.output_json,
+        )
+    if args.action_command == "invoke":
+        try:
+            raw_input = _parse_action_input(args.input_json)
+        except ValueError as exc:
+            _stdout_line(f"Error: {exc}")
+            return 2
+        return _cmd_extension_action(
+            args.action_id,
+            raw_input,
+            base_url=args.client_api_url,
+            access_token=args.access_token,
+            confirmed=args.yes,
+            output_json=args.output_json,
+        )
+    parser.print_help()
+    return 2
+
+
+def _dispatch_slash_command(args: argparse.Namespace) -> int:
+    """Invoke one Action-backed slash command against a running Node."""
+    return _cmd_extension_action(
+        "system.command.invoke",
+        {
+            "rawCommand": args.raw_command,
+            "userId": args.user_id,
+            "agentId": args.agent_id,
+            "sessionId": args.session_id,
+            "runId": args.run_id,
+        },
+        base_url=args.client_api_url,
+        access_token=args.access_token,
+        confirmed=False,
+        output_json=args.output_json,
+    )
+
+
 def _extension_source_input(args: argparse.Namespace) -> dict[str, object]:
     """Build one strict wire-format Extension source from CLI arguments."""
     return {
@@ -4563,7 +4642,7 @@ def _should_require_agent_config_for_gateway(args: argparse.Namespace) -> bool:
 def _should_bootstrap_single_agent_env(args: argparse.Namespace) -> bool:
     """Return true when startup should hydrate one explicit config into process env."""
 
-    if args.command in {"install", "create", "client-api", "extension", "node", "sandbox"}:
+    if args.command in {"install", "create", "client-api", "extension", "action", "command", "node", "sandbox"}:
         return False
     return True
 
@@ -4967,6 +5046,36 @@ def main(argv: list[str] | None = None) -> None:
             action="store_true",
             help="Emit the common Action envelope as JSON.",
         )
+
+    action_parser = subparsers.add_parser(
+        "action",
+        help="Discover and invoke shared product Actions.",
+    )
+    action_subparsers = action_parser.add_subparsers(dest="action_command", required=True)
+    action_list_parser = action_subparsers.add_parser("list", help="List caller-visible Actions.")
+    action_list_parser.add_argument("--namespace", default=None)
+    action_list_parser.add_argument(
+        "--projection",
+        choices=["cli", "slash", "desktop", "mobile"],
+        default=None,
+    )
+    _add_extension_transport_args(action_list_parser)
+    action_invoke_parser = action_subparsers.add_parser("invoke", help="Invoke one Action by stable id.")
+    action_invoke_parser.add_argument("action_id")
+    action_invoke_parser.add_argument("--input-json", default="{}", help="Strict JSON object used as Action input.")
+    action_invoke_parser.add_argument("--yes", action="store_true", help="Confirm an Action that requires confirmation.")
+    _add_extension_transport_args(action_invoke_parser)
+
+    command_parser = subparsers.add_parser(
+        "command",
+        help="Invoke one Action-backed slash command.",
+    )
+    command_parser.add_argument("raw_command", help="Slash command, quoting arguments when present (for example '/history 10').")
+    command_parser.add_argument("--user-id", default="ppx-client-user")
+    command_parser.add_argument("--agent", dest="agent_id", default=None)
+    command_parser.add_argument("--session", dest="session_id", default=None)
+    command_parser.add_argument("--run", dest="run_id", default=None)
+    _add_extension_transport_args(command_parser)
 
     def _add_extension_source_args(command_parser: argparse.ArgumentParser) -> None:
         command_parser.add_argument("kind", choices=["plugin", "skill"], help="Installable extension kind.")
@@ -5387,6 +5496,10 @@ def main(argv: list[str] | None = None) -> None:
             code = 2
     elif args.command == "extension":
         code = _dispatch_extension_command(args, extension_parser)
+    elif args.command == "action":
+        code = _dispatch_action_command(args, action_parser)
+    elif args.command == "command":
+        code = _dispatch_slash_command(args)
     elif args.command == "channels":
         code = _dispatch_channels_command(args, parser)
     elif args.command == "provider":

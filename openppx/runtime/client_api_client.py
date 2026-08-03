@@ -89,6 +89,19 @@ class ClientApiClient:
             },
         )
 
+    def action_catalog(
+        self,
+        *,
+        namespace: str | None = None,
+        projection: str | None = None,
+    ) -> dict[str, Any]:
+        """Read the caller-aware Action catalog through the shared HTTP contract."""
+        return self._request(
+            "GET",
+            "/api/v1/actions",
+            query={"namespace": namespace, "projection": projection},
+        )
+
     def get_agent_access(self, agent_id: str, *, user_id: str = "ppx-client-user") -> dict[str, Any]:
         """Fetch one agent access snapshot."""
         return self._request(

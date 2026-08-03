@@ -5,7 +5,7 @@ from __future__ import annotations
 from decimal import Decimal, InvalidOperation
 from typing import cast
 
-from openppx.actions import ActionError, ActionFailure, ActionRegistry, ActionSpec
+from openppx.actions import ActionError, ActionFailure, ActionRegistry, ActionSpec, SlashCommandSpec
 from openppx.config import ConfigError
 from openppx.modeling import ModelProfileRepository, ModelProfileSelector, ModelRequirements, ModelSelectionError
 
@@ -24,6 +24,7 @@ def register_model_actions(
     registry.register(
         _spec("model.list", "List Model Profiles", "List configured Model Profiles.", EmptyInput, "model.read"),
         lambda _context, _input: _list_profiles(profiles, selector),
+        slash_input=lambda _command, _args, _context: {},
     )
     registry.register(
         _spec("model.readiness", "Check model readiness", "Check Model selection without starting a Run.", ModelSelectionInput, "model.read"),
@@ -44,6 +45,19 @@ def register_model_actions(
 
 
 def _spec(action_id: str, title: str, description: str, input_model, permission: str) -> ActionSpec:
+    slash_commands = ()
+    projections = ("cli", "desktop", "mobile")
+    if action_id == "model.list":
+        projections = ("cli", "slash", "desktop", "mobile")
+        slash_commands = (
+            SlashCommandSpec(
+                command="/model",
+                title="Show models",
+                description="List configured Model Profiles and credential readiness.",
+                icon="brain",
+                order=50,
+            ),
+        )
     return ActionSpec(
         action_id=action_id,
         namespace="model",
@@ -53,7 +67,8 @@ def _spec(action_id: str, title: str, description: str, input_model, permission:
         scope="agent" if action_id != "model.list" else "node",
         required_capabilities=frozenset({permission}),
         permission=permission,
-        projections=("cli", "slash", "desktop", "mobile"),
+        projections=projections,
+        slash_commands=slash_commands,
     )
 
 

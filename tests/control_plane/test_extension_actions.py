@@ -14,8 +14,8 @@ from tests.extensions.test_skill_registry import _skill
 
 
 def _context(*, confirmed: bool = False, write: bool = True) -> ActionContext:
-    capabilities = frozenset({"extension.read", "extension.write", "extension.auth"})
-    permissions = capabilities if write else frozenset({"extension.read"})
+    capabilities = frozenset({"system.read", "extension.read", "extension.write", "extension.auth"})
+    permissions = capabilities if write else frozenset({"system.read", "extension.read"})
     return ActionContext(
         request_id="req_extensions",
         correlation_id="corr_extensions",
@@ -62,6 +62,35 @@ def _application(tmp_path: Path):
         plugins=plugins,
     )
     return application
+
+
+def test_extension_inventory_projects_skills_and_extensions_commands(tmp_path: Path) -> None:
+    application = _application(tmp_path)
+
+    catalog = application.catalog(_context(), projection="slash")
+    skills = application.invoke(
+        "system.command.invoke",
+        {
+            "rawCommand": "/skills",
+            "userId": "local:test",
+            "agentId": "writer",
+        },
+        _context(),
+    )
+    extensions = application.invoke(
+        "system.command.invoke",
+        {"rawCommand": "/extensions", "userId": "local:test"},
+        _context(),
+    )
+
+    extension_item = next(item for item in catalog.data["items"] if item["actionId"] == "extension.list")
+    assert [command["command"] for command in extension_item["slashCommands"]] == [
+        "/skills",
+        "/extensions",
+    ]
+    assert skills.ok is True
+    assert skills.data["targetActionId"] == "extension.list"
+    assert extensions.ok is True
 
 
 def test_skill_preview_install_list_enable_disable_remove_use_one_action_path(tmp_path: Path) -> None:

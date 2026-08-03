@@ -6,6 +6,18 @@ import { ExtensionClient } from "./extensions";
 export type ActionScope = "node" | "agent" | "session" | "run" | "task" | "extension";
 export type ActionRisk = "low" | "medium" | "high";
 export type ActionProjection = "cli" | "slash" | "desktop" | "mobile";
+export type SlashCommandLifecycle = "side_channel" | "finalize_active_turn" | "stop_active_turn";
+
+export interface SlashCommandItem {
+  command: string;
+  title: string;
+  description: string;
+  icon: string;
+  argHint: string;
+  lifecycle: SlashCommandLifecycle;
+  acceptsArgs: boolean;
+  order: number;
+}
 
 export interface ActionCatalogItem {
   actionId: string;
@@ -20,6 +32,7 @@ export interface ActionCatalogItem {
   confirmation: "never" | "required";
   execution: "sync" | "long_running";
   projections: ActionProjection[];
+  slashCommands: SlashCommandItem[];
   available: boolean;
   availabilityReason: string | null;
 }
@@ -59,6 +72,26 @@ export interface RunStopResult extends Record<string, unknown> {
     startedAt: string;
     state: string;
   };
+}
+
+export interface SlashCommandContext {
+  userId: string;
+  agentId?: string | null;
+  sessionId?: string | null;
+  runId?: string | null;
+}
+
+export interface SlashCommandResult extends Record<string, unknown> {
+  command: string;
+  lifecycle: SlashCommandLifecycle;
+  targetActionId: string;
+  result: Record<string, unknown>;
+}
+
+export interface ProjectedSlashCommand extends SlashCommandItem {
+  actionId: string;
+  available: boolean;
+  availabilityReason: string | null;
 }
 
 export interface ModelSelectionInput extends Record<string, unknown> {
@@ -134,8 +167,11 @@ export class ActionClient {
     this.idFactory = options.idFactory ?? nextWireId;
   }
 
-  public async catalog(namespace?: string): Promise<ActionCatalogItem[]> {
-    const query = namespace ? `?namespace=${encodeURIComponent(namespace)}` : "";
+  public async catalog(namespace?: string, projection?: ActionProjection): Promise<ActionCatalogItem[]> {
+    const params = new URLSearchParams();
+    if (namespace) params.set("namespace", namespace);
+    if (projection) params.set("projection", projection);
+    const query = params.size ? `?${params.toString()}` : "";
     const envelope = parseActionEnvelope<{ items: ActionCatalogItem[] }>(
       await this.transport.requestJson(`/api/v1/actions${query}`),
     );
@@ -207,6 +243,43 @@ export class RunClient {
   }
 }
 
+/** Action-backed slash command discovery and invocation for any client surface. */
+export class CommandClient {
+  public constructor(private readonly actions: ActionClient) {}
+
+  public async list(namespace?: string): Promise<ProjectedSlashCommand[]> {
+    const catalog = await this.actions.catalog(namespace, "slash");
+    return catalog
+      .flatMap((action) =>
+        action.slashCommands.map((command) => ({
+          ...command,
+          actionId: action.actionId,
+          available: action.available,
+          availabilityReason: action.availabilityReason,
+        })),
+      )
+      .sort((left, right) => left.order - right.order || left.command.localeCompare(right.command));
+  }
+
+  public invoke(
+    rawCommand: string,
+    context: SlashCommandContext,
+    options: ActionInvocationOptions = {},
+  ): Promise<ActionEnvelope<SlashCommandResult>> {
+    return this.actions.invoke(
+      "system.command.invoke",
+      {
+        rawCommand,
+        userId: context.userId,
+        agentId: context.agentId ?? null,
+        sessionId: context.sessionId ?? null,
+        runId: context.runId ?? null,
+      },
+      options,
+    );
+  }
+}
+
 /** Public TypeScript SDK facade shared by Desktop and future Mobile clients. */
 export class OpenPpxClient {
   public readonly transport: ClientApiHttpTransport;
@@ -223,6 +296,8 @@ export class OpenPpxClient {
 
   public readonly extensions: ExtensionClient;
 
+  public readonly commands: CommandClient;
+
   public constructor(options: ClientApiHttpTransportOptions & ActionClientOptions) {
     this.transport = new ClientApiHttpTransport(options);
     this.actions = new ActionClient(this.transport, options);
@@ -231,5 +306,6 @@ export class OpenPpxClient {
     this.session = new SessionClient(this.actions);
     this.run = new RunClient(this.actions);
     this.extensions = new ExtensionClient(this.actions);
+    this.commands = new CommandClient(this.actions);
   }
 }

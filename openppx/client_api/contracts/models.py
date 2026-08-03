@@ -70,8 +70,22 @@ class ActionCatalogItem(WireModel):
     confirmation: Literal["never", "required"]
     execution: Literal["sync", "long_running"]
     projections: list[Literal["cli", "slash", "desktop", "mobile"]]
+    slash_commands: list["SlashCommandItem"] = Field(default_factory=list)
     available: StrictBool
     availability_reason: Identifier | None = None
+
+
+class SlashCommandItem(WireModel):
+    """Client-safe command alias projected from one Action."""
+
+    command: Annotated[str, StringConstraints(pattern=r"^/[a-z][a-z0-9-]*$")]
+    title: Annotated[str, StringConstraints(min_length=1, max_length=120)]
+    description: Annotated[str, StringConstraints(min_length=1, max_length=512)]
+    icon: Identifier
+    arg_hint: Annotated[str, StringConstraints(max_length=120)] = ""
+    lifecycle: Literal["side_channel", "finalize_active_turn", "stop_active_turn"]
+    accepts_args: StrictBool = False
+    order: StrictInt = Field(ge=0)
 
 
 class ActionCatalogPayload(WireModel):
@@ -88,6 +102,25 @@ class ActionInvokeRequest(WireModel):
     action_id: Identifier
     input: dict[str, Any] = Field(default_factory=dict)
     confirmed: StrictBool = False
+
+
+class SlashCommandInvokeInput(WireModel):
+    """Structured context for the shared command invocation Action."""
+
+    raw_command: Annotated[str, StringConstraints(min_length=1, max_length=512)]
+    user_id: Identifier
+    agent_id: Identifier | None = None
+    session_id: Identifier | None = None
+    run_id: Identifier | None = None
+
+
+class SlashCommandInvokeResult(WireModel):
+    """Structured command outcome retaining target Action provenance."""
+
+    command: Annotated[str, StringConstraints(pattern=r"^/[a-z][a-z0-9-]*$")]
+    lifecycle: Literal["side_channel", "finalize_active_turn", "stop_active_turn"]
+    target_action_id: Identifier
+    result: dict[str, Any]
 
 
 class ExtensionSourceSummary(WireModel):
@@ -146,6 +179,8 @@ class ClientContractBundle(WireModel):
     envelope: ClientEnvelope
     action_catalog: ActionCatalogPayload
     action_invoke: ActionInvokeRequest
+    slash_command_input: SlashCommandInvokeInput
+    slash_command_result: SlashCommandInvokeResult
     extension_list: ExtensionListPayload
     extension_detail: ExtensionDetailPayload
     extension_preview: ExtensionPreviewPayload

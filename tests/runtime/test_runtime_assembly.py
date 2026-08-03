@@ -478,7 +478,9 @@ def test_session_and_run_actions_use_the_same_runtime_supervisor(tmp_path: Path)
     )
     application = build_control_plane(tmp_path, secret_store=secrets, product_version="test")
     application.attach_runtime(supervisor)
-    permissions = frozenset({"session.write", "run.control"})
+    permissions = frozenset(
+        {"system.read", "session.read", "session.write", "run.control", "task.read"}
+    )
     context = ActionContext(
         request_id="req-runtime",
         correlation_id="corr-runtime",
@@ -495,6 +497,30 @@ def test_session_and_run_actions_use_the_same_runtime_supervisor(tmp_path: Path)
     assert created.ok is True
     assert created.data["session"]["agentId"] == "low-main"
 
+    history = application.invoke(
+        "system.command.invoke",
+        {
+            "rawCommand": "/history 5",
+            "userId": "local:test",
+            "agentId": "low-main",
+            "sessionId": created.data["session"]["id"],
+        },
+        context,
+    )
+    tasks = application.invoke(
+        "system.command.invoke",
+        {
+            "rawCommand": "/tasks 5",
+            "userId": "local:test",
+            "sessionId": created.data["session"]["id"],
+        },
+        context,
+    )
+    assert history.ok is True
+    assert history.data["result"] == {"items": []}
+    assert tasks.ok is True
+    assert tasks.data["result"] == {"items": []}
+
     supervisor.register_run(
         run_id="run-action",
         agent_id="low-main",
@@ -502,11 +528,22 @@ def test_session_and_run_actions_use_the_same_runtime_supervisor(tmp_path: Path)
         snapshot_revision=supervisor.runtime_for("low-main").metadata.snapshot_revision,
         cancel=lambda: None,
     )
-    stopped = application.invoke("run.stop", {"runId": "run-action"}, context)
+    stopped = application.invoke(
+        "system.command.invoke",
+        {
+            "rawCommand": "/stop",
+            "userId": "local:test",
+            "agentId": "low-main",
+            "sessionId": created.data["session"]["id"],
+            "runId": "run-action",
+        },
+        context,
+    )
     missing = application.invoke("run.stop", {"runId": "missing"}, context)
 
     assert stopped.ok is True
-    assert stopped.data["run"]["state"] == "cancelling"
+    assert stopped.data["targetActionId"] == "run.stop"
+    assert stopped.data["result"]["run"]["state"] == "cancelling"
     assert missing.error is not None
     assert missing.error.code == "run_not_found"
 

@@ -25,6 +25,18 @@
       ],
       "risk": "low",
       "scope": "node",
+      "slashCommands": [
+        {
+          "acceptsArgs": false,
+          "argHint": "",
+          "command": "/status",
+          "description": "Display Node and Agent readiness.",
+          "icon": "activity",
+          "lifecycle": "side_channel",
+          "order": 40,
+          "title": "Show status"
+        }
+      ],
       "title": "System status"
     }
   ]

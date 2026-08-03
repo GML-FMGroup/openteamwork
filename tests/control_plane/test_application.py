@@ -186,3 +186,59 @@ def test_model_actions_return_readiness_without_secret_material(tmp_path: Path) 
     assert selection.data["profileId"] == "primary"
     assert selection.data["provider"] == "openai"
     assert "never-visible" not in str(selection)
+
+
+def test_slash_command_catalog_and_invocation_share_action_authorization(tmp_path: Path) -> None:
+    application = configured_application(tmp_path)
+    authorized = context()
+
+    commands = application.catalog(authorized, projection="slash")
+    status = application.invoke(
+        "system.command.invoke",
+        {"rawCommand": "/status", "userId": "local:test"},
+        authorized,
+    )
+    help_result = application.invoke(
+        "system.command.invoke",
+        {"rawCommand": "/help", "userId": "local:test"},
+        authorized,
+    )
+
+    assert commands.ok is True
+    assert all(item["slashCommands"] for item in commands.data["items"])
+    assert status.ok is True
+    assert status.data["targetActionId"] == "system.status"
+    assert status.data["result"]["state"] == "ready"
+    assert help_result.ok is True
+    assert {item["actionId"] for item in help_result.data["result"]["items"]} >= {
+        "system.help",
+        "system.status",
+        "model.list",
+    }
+
+
+def test_slash_command_reports_unknown_command_and_rechecks_target_permission(tmp_path: Path) -> None:
+    application = configured_application(tmp_path)
+    system_only = ActionContext(
+        request_id="req_command",
+        correlation_id="corr_command",
+        actor_id="local:test",
+        capabilities=frozenset({"system.read"}),
+        permissions=frozenset({"system.read"}),
+    )
+
+    unknown = application.invoke(
+        "system.command.invoke",
+        {"rawCommand": "/missing", "userId": "local:test"},
+        system_only,
+    )
+    denied = application.invoke(
+        "system.command.invoke",
+        {"rawCommand": "/model", "userId": "local:test"},
+        system_only,
+    )
+
+    assert unknown.error is not None
+    assert unknown.error.code == "command_not_found"
+    assert denied.error is not None
+    assert denied.error.code == "capability_required"

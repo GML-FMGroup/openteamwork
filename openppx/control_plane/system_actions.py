@@ -4,11 +4,11 @@ from __future__ import annotations
 
 from typing import Callable, cast
 
-from openppx.actions import ActionCatalogEntry, ActionContext, ActionRegistry, ActionSpec
+from openppx.actions import ActionCatalogEntry, ActionContext, ActionRegistry, ActionSpec, SlashCommandSpec
 from openppx.config import ConfigError, FilesystemConfigRepository
 
 from .capabilities import CONTROL_PLANE_CAPABILITIES
-from .input_models import EmptyInput, SystemHelpInput
+from .input_models import EmptyInput, SlashCommandInvokeInput, SystemHelpInput
 from .projections import project_diagnostics
 
 
@@ -17,7 +17,8 @@ def register_system_actions(
     repository: FilesystemConfigRepository,
     *,
     product_version: str,
-    catalog_provider: Callable[[ActionContext, str | None], tuple[ActionCatalogEntry, ...]],
+    catalog_provider: Callable[[ActionContext, str | None, str | None], tuple[ActionCatalogEntry, ...]],
+    command_invoker: Callable[[ActionContext, SlashCommandInvokeInput], dict[str, object]],
 ) -> None:
     """Register system status and help after all domain Actions are available."""
     registry.register(
@@ -31,8 +32,18 @@ def register_system_actions(
             required_capabilities=frozenset({"system.read"}),
             permission="system.read",
             projections=("cli", "slash", "desktop", "mobile"),
+            slash_commands=(
+                SlashCommandSpec(
+                    command="/status",
+                    title="Show status",
+                    description="Display Node and Agent readiness.",
+                    icon="activity",
+                    order=40,
+                ),
+            ),
         ),
         lambda _context, _input: _status(repository, product_version=product_version),
+        slash_input=lambda _command, _args, _context: {},
     )
     registry.register(
         ActionSpec(
@@ -45,13 +56,44 @@ def register_system_actions(
             required_capabilities=frozenset({"system.read"}),
             permission="system.read",
             projections=("cli", "slash", "desktop", "mobile"),
+            slash_commands=(
+                SlashCommandSpec(
+                    command="/help",
+                    title="Show commands",
+                    description="List commands available to this client.",
+                    icon="circle-help",
+                    order=10,
+                ),
+            ),
         ),
         lambda context, input_data: {
             "items": [
                 project_catalog_entry(item)
-                for item in catalog_provider(context, cast(SystemHelpInput, input_data).namespace)
+                for item in catalog_provider(
+                    context,
+                    cast(SystemHelpInput, input_data).namespace,
+                    cast(SystemHelpInput, input_data).projection,
+                )
             ]
         },
+        slash_input=lambda _command, _args, _context: {"namespace": None, "projection": "slash"},
+    )
+    registry.register(
+        ActionSpec(
+            action_id="system.command.invoke",
+            namespace="system",
+            title="Invoke slash command",
+            description="Resolve and invoke one Action-backed slash command.",
+            input_model=SlashCommandInvokeInput,
+            scope="session",
+            required_capabilities=frozenset({"system.read"}),
+            permission="system.read",
+            projections=("cli", "desktop", "mobile"),
+        ),
+        lambda context, input_data: command_invoker(
+            context,
+            cast(SlashCommandInvokeInput, input_data),
+        ),
     )
 
 
@@ -134,6 +176,19 @@ def project_catalog_entry(item: ActionCatalogEntry) -> dict[str, object]:
         "confirmation": spec.confirmation,
         "execution": spec.execution,
         "projections": list(spec.projections),
+        "slashCommands": [
+            {
+                "command": command.command,
+                "title": command.title,
+                "description": command.description,
+                "icon": command.icon,
+                "argHint": command.arg_hint,
+                "lifecycle": command.lifecycle,
+                "acceptsArgs": command.accepts_args,
+                "order": command.order,
+            }
+            for command in spec.slash_commands
+        ],
         "available": item.available,
         "availabilityReason": item.availability_reason,
     }

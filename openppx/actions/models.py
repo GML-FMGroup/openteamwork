@@ -14,10 +14,48 @@ ActionRisk = Literal["low", "medium", "high"]
 ActionConfirmation = Literal["never", "required"]
 ActionExecution = Literal["sync", "long_running"]
 ActionProjection = Literal["cli", "slash", "desktop", "mobile"]
+SlashCommandLifecycle = Literal["side_channel", "finalize_active_turn", "stop_active_turn"]
 
 _ACTION_ID_PATTERN = re.compile(r"^[a-z][a-z0-9_]*(?:\.[a-z][a-z0-9_]*)+$")
 _NAMESPACE_PATTERN = re.compile(r"^[a-z][a-z0-9_]*$")
 _PERMISSION_PATTERN = re.compile(r"^[a-z][a-z0-9_]*(?:\.[a-z][a-z0-9_]*)+$")
+_SLASH_COMMAND_PATTERN = re.compile(r"^/[a-z][a-z0-9-]*$")
+
+
+@dataclass(frozen=True, slots=True)
+class SlashCommandSpec:
+    """Client-safe presentation and turn-lifecycle metadata for one Action alias."""
+
+    command: str
+    title: str
+    description: str
+    icon: str
+    arg_hint: str = ""
+    lifecycle: SlashCommandLifecycle = "side_channel"
+    accepts_args: bool = False
+    order: int = 100
+
+    def __post_init__(self) -> None:
+        if _SLASH_COMMAND_PATTERN.fullmatch(self.command) is None:
+            raise ValueError("slash command must be a lowercase slash identifier")
+        if not self.title.strip() or not self.description.strip() or not self.icon.strip():
+            raise ValueError("slash command presentation fields must contain visible text")
+        if self.lifecycle not in {"side_channel", "finalize_active_turn", "stop_active_turn"}:
+            raise ValueError("slash command lifecycle is not supported")
+        if self.arg_hint and not self.accepts_args:
+            raise ValueError("slash command arg_hint requires accepts_args")
+        if self.order < 0:
+            raise ValueError("slash command order must be non-negative")
+
+
+@dataclass(frozen=True, slots=True)
+class SlashInvocationContext:
+    """Explicit resource identities supplied by a slash-capable client."""
+
+    user_id: str
+    agent_id: str | None = None
+    session_id: str | None = None
+    run_id: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -36,6 +74,7 @@ class ActionSpec:
     confirmation: ActionConfirmation = "never"
     execution: ActionExecution = "sync"
     projections: tuple[ActionProjection, ...] = ()
+    slash_commands: tuple[SlashCommandSpec, ...] = ()
 
     def __post_init__(self) -> None:
         """Reject ambiguous metadata before it reaches any client catalog."""
@@ -70,6 +109,10 @@ class ActionSpec:
             raise ValueError("projections must be unique")
         if any(projection not in {"cli", "slash", "desktop", "mobile"} for projection in self.projections):
             raise ValueError("projection is not supported")
+        if bool(self.slash_commands) != ("slash" in self.projections):
+            raise ValueError("slash projection and slash_commands must be declared together")
+        if len({command.command for command in self.slash_commands}) != len(self.slash_commands):
+            raise ValueError("slash commands must be unique within one Action")
 
 
 @dataclass(frozen=True, slots=True)

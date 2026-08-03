@@ -8,6 +8,8 @@ import type {
   ExtensionSummary,
   RuntimeStatus,
   SessionSummary,
+  ProjectedSlashCommand,
+  SlashCommandResult,
 } from "../types";
 import { normalizeConnectionSettings } from "../lib/connection-profile";
 import { useActiveRuns } from "./use-active-runs";
@@ -64,6 +66,78 @@ function buildConnectionSettings(diagnostics: ClientDiagnostics | null): Connect
   };
 }
 
+function record(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
+function compactText(value: unknown, limit = 180): string {
+  const text = String(value ?? "").replace(/\s+/g, " ").trim();
+  return text.length > limit ? `${text.slice(0, limit - 3).trimEnd()}...` : text;
+}
+
+/** Render structured command data only at the Desktop presentation boundary. */
+function formatSlashCommandResult(outcome: SlashCommandResult): string {
+  const result = record(outcome.result);
+  if (outcome.targetActionId === "system.status") {
+    const node = record(result.node);
+    return `Node status: ${String(result.state ?? "unknown")} · ${String(node.displayName ?? node.id ?? "OpenPPX Node")}`;
+  }
+  if (outcome.targetActionId === "system.help") {
+    const commands = (Array.isArray(result.items) ? result.items : []).flatMap((item) => {
+      const action = record(item);
+      return Array.isArray(action.slashCommands)
+        ? action.slashCommands.map((command) => String(record(command).command ?? "")).filter(Boolean)
+        : [];
+    });
+    return commands.length ? `Available commands: ${commands.join(", ")}` : "No commands are available.";
+  }
+  if (outcome.targetActionId === "model.list") {
+    const items = Array.isArray(result.items) ? result.items : [];
+    return items.length
+      ? items.map((item) => {
+          const model = record(item);
+          return `${String(model.id ?? "model")} · ${String(model.model ?? model.provider ?? "unknown")} · ${String(model.credentialState ?? "unknown")}`;
+        }).join("\n")
+      : "No Model Profiles are configured.";
+  }
+  if (outcome.targetActionId === "session.history") {
+    const items = Array.isArray(result.items) ? result.items : [];
+    return items.length
+      ? items.map((item) => {
+          const message = record(item);
+          return `${String(message.role ?? "message")}: ${compactText(message.text)}`;
+        }).join("\n")
+      : "This Session has no visible history yet.";
+  }
+  if (outcome.targetActionId === "task.list") {
+    const items = Array.isArray(result.items) ? result.items : [];
+    return items.length
+      ? items.map((item) => {
+          const task = record(item);
+          return `${String(task.status ?? "unknown")} · ${String(task.title ?? task.taskId ?? "Task")}`;
+        }).join("\n")
+      : "No Tasks were found for this Session.";
+  }
+  if (outcome.targetActionId === "extension.list") {
+    const items = Array.isArray(result.items) ? result.items : [];
+    return items.length
+      ? items.map((item) => {
+          const extension = record(item);
+          return `${String(extension.kind ?? "extension")} · ${String(extension.displayName ?? extension.id ?? "unknown")} · ${String(extension.status ?? "unknown")}`;
+        }).join("\n")
+      : "No matching Extensions are installed.";
+  }
+  if (outcome.targetActionId === "session.rewind") {
+    return `Conversation rewound before invocation ${String(result.rewindBeforeInvocationId ?? "unknown")}. External side effects were not rolled back.`;
+  }
+  if (outcome.targetActionId === "run.stop") {
+    return "Stop requested for the active Run.";
+  }
+  return JSON.stringify(result, null, 2);
+}
+
 /** Own Desktop bootstrap, connection, Agent/Session, message, and active-Run state. */
 export function useDesktopWorkspace() {
   const [ready, setReady] = useState(false);
@@ -86,6 +160,7 @@ export function useDesktopWorkspace() {
   const [extensionsLoading, setExtensionsLoading] = useState(false);
   const [extensionsError, setExtensionsError] = useState<string | null>(null);
   const [extensionMutationId, setExtensionMutationId] = useState<string | null>(null);
+  const [slashCommands, setSlashCommands] = useState<ProjectedSlashCommand[]>([]);
   const [transcriptResetKey, setTranscriptResetKey] = useState(0);
   const switchRequestIdRef = useRef(0);
   const selectedAgentIdRef = useRef("");
@@ -186,6 +261,18 @@ export function useDesktopWorkspace() {
           .catch((error: unknown) => {
             if (mounted) {
               setExtensionsError(error instanceof Error ? error.message : String(error));
+            }
+          });
+        void window.ppxClient
+          .listSlashCommands()
+          .then((result) => {
+            if (mounted) {
+              setSlashCommands(result.commands);
+            }
+          })
+          .catch(() => {
+            if (mounted) {
+              setSlashCommands([]);
             }
           });
         void window.ppxClient
@@ -477,9 +564,72 @@ export function useDesktopWorkspace() {
     );
   }
 
-  async function sendMessage(): Promise<void> {
-    const text = composer.trim();
+  function appendCommandNotice(outcome: SlashCommandResult): void {
+    if (!selectedSessionIdRef.current) {
+      return;
+    }
+    const text = formatSlashCommandResult(outcome);
+    if (!text) {
+      return;
+    }
+    setMessages((current) => [
+      ...current,
+      {
+        id: `local-command-${crypto.randomUUID()}`,
+        sessionId: selectedSessionIdRef.current,
+        role: "system",
+        status: "completed",
+        createdAt: new Date().toISOString(),
+        parts: [{ type: "markdown", text }],
+      },
+    ]);
+  }
+
+  async function executeSlashCommand(rawCommand: string): Promise<void> {
+    setSendError(null);
+    setComposer("");
+    try {
+      const outcome = await window.ppxClient.invokeSlashCommand({
+        rawCommand,
+        agentId: selectedAgentIdRef.current || null,
+        sessionId: selectedSessionIdRef.current || null,
+        runId: activeRunId ?? null,
+      });
+      if (outcome.targetActionId === "session.new") {
+        const payload = record(record(outcome.result).session);
+        const session: SessionSummary = {
+          id: String(payload.id ?? ""),
+          agentId: String(payload.agentId ?? selectedAgentIdRef.current),
+          title: String(payload.title ?? "New chat"),
+          updatedAt: String(payload.updatedAt ?? new Date().toISOString()),
+          lastMessagePreview: String(payload.lastMessagePreview ?? ""),
+        };
+        if (session.id) {
+          setSessions((current) => [session, ...current.filter((item) => item.id !== session.id)]);
+          selectSessionId(session.id);
+          replaceMessages([]);
+        }
+        return;
+      }
+      if (outcome.targetActionId === "session.rewind" && selectedSessionIdRef.current) {
+        replaceMessages((await window.ppxClient.loadSession(selectedSessionIdRef.current)).messages);
+      }
+      if (outcome.targetActionId === "run.stop" && activeRunId) {
+        setCancellingRunId(activeRunId);
+      }
+      appendCommandNotice(outcome);
+    } catch (error) {
+      setSendError(error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  async function sendMessage(rawText?: string): Promise<void> {
+    const text = (rawText ?? composer).trim();
     if (!text || !selectedAgentId) {
+      return;
+    }
+    if (text.startsWith("/")) {
+      await executeSlashCommand(text);
       return;
     }
     setSendError(null);
@@ -556,6 +706,7 @@ export function useDesktopWorkspace() {
     extensionsLoading,
     extensionsError,
     extensionMutationId,
+    slashCommands,
     transcriptResetKey,
     switchAgent,
     switchSession,
