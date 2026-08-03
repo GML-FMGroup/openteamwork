@@ -1,153 +1,71 @@
-# Available Tools
+# Tool Guidance
 
-This document describes the tools available to openppx.
+OpenPPX supplies tool names, descriptions, and parameter schemas through ADK
+function calling. This file records usage patterns and safety boundaries; it is
+not a second copy of the runtime schema.
 
-Tool signatures are provided automatically via function calling.
-Use this file for non-obvious constraints, safety boundaries, and practical usage patterns.
+## Files and commands
 
-## File Operations
+- Use `read_file`, `list_dir`, `glob`, and `grep` to inspect before editing.
+- Use `write_file` for a complete file and `edit_file` for a targeted change.
+- `exec_command` supports foreground, background, PTY, timeout, scope, and
+  sandbox options. Prefer the least-privileged execution mode that can finish
+  the task.
+- Commands and paths are checked against the active security policy. A denied
+  operation is a boundary to explain, not something to bypass.
+- Destructive or high-risk commands may require explicit confirmation.
 
-### read_file
-Read text from a file, with optional line windowing.
-```
-read_file(path: str = None, offset: int = None, limit: int = None, file_path: str = None) -> str
-```
+## Skills and extension APIs
 
-### write_file
-Write content to a file (creates parent directories if needed).
-```
-write_file(path: str, content: str) -> str
-```
+- Call `list_skills`, then `read_skill`, before relying on a Skill's workflow.
+- `invoke_skill_api` executes APIs declared by a Skill. A fast call may return
+  inline; a longer call returns a durable `task_id`.
+- `list_skill_api_runners` shows the declarative API recipe types supported by
+  this installation.
+- Additional MCP, Plugin, and provider tools come from the immutable extension
+  snapshot selected by the Node for the current request.
 
-### edit_file
-Edit a file by replacing specific text.
-```
-edit_file(path: str, old_text: str, new_text: str) -> str
-```
+## Durable tasks
 
-### list_dir
-List contents of a directory.
-```
-list_dir(path: str) -> str
-```
+- Inspect work with `list_tasks`, `show_task`, `task_control_snapshot`,
+  `task_runtime_status`, and `task_output`.
+- Use `pause_task`, `resume_task`, `interrupt_task`, `cancel_task`, or
+  `restart_task` only when their reported task capabilities permit it.
+- Prefer an existing `task_id` over launching duplicate work.
+- Maintenance cleanup tools default to a dry run and require confirmation for
+  destructive changes.
 
-## Shell Execution
+## Planning and context
 
-### exec
-Execute a shell command and return output.
-```
-exec(command: str, working_dir: str = None) -> str
-```
+- `long_task` keeps the current objective visible across turns; it is not proof
+  that execution completed.
+- `write_todos` is suitable for a short ordered checklist.
+- Task-flow tools model dependent steps and can synchronize durable task IDs.
+- Context summary tools preserve bounded, inspectable state for long sessions.
 
-**Safety Notes:**
-- Commands have a configurable timeout (default 60s)
-- Dangerous commands are blocked (rm -rf, format, dd, shutdown, etc.)
-- Output is truncated at 10,000 characters
-- Optional `restrictToWorkspace` config to limit paths
+## Web and browser
 
-## Web Access
+- `web_search` discovers sources; `web_fetch` extracts a known URL.
+- The `browser` tool controls the configured host, Node, or sandbox browser
+  target. Inspect status and tabs before mutating browser state.
+- Network and private-address access remain subject to the active security
+  policy and Node configuration.
 
-### web_search
-Search the web using Brave Search API.
-```
-web_search(query: str, count: int = 5) -> str
-```
+## Scheduled Actions
 
-Returns search results with titles, URLs, and snippets. Requires `tools.web.search.apiKey` in config.
+Use the `cron` function tool rather than invoking a CLI command:
 
-### web_fetch
-Fetch and extract main content from a URL.
-```
-web_fetch(url: str, extractMode: str = "markdown", maxChars: int = 50000) -> str
-```
+- `action="add"` requires a clear instruction in `message` and exactly one of
+  `every_seconds`, `cron_expr`, or an absolute ISO datetime in `at`.
+- `cron_expr` may include an IANA timezone through `tz`.
+- `action="list"` returns persisted jobs.
+- `action="remove"` requires `job_id` and confirmation.
 
-**Notes:**
-- Content is extracted using readability
-- Supports markdown or plain text extraction
-- Output is truncated at 50,000 characters by default
+The Node owns scheduling and persistence. Writing a reminder into a workspace
+file does not schedule it.
 
-## Communication
+## Delegation and GUI
 
-### message
-Send a message to the user (used internally).
-```
-message(content: str, channel: str = None, chat_id: str = None) -> str
-```
-
-## Background Tasks
-
-### spawn
-Spawn a subagent to handle a task in the background.
-```
-spawn(task: str, label: str = None) -> str
-```
-
-Use for complex or time-consuming tasks that can run independently. The subagent will complete the task and report back when done.
-
-## Scheduled Reminders (Cron)
-
-Use the `exec` tool to create scheduled reminders with `openppx cron add`:
-
-### Set a recurring reminder
-```bash
-# Every day at 9am
-openppx cron add --name "morning" --message "Good morning! ☀️" --cron "0 9 * * *"
-
-# Every 2 hours
-openppx cron add --name "water" --message "Drink water! 💧" --every 7200
-```
-
-### Set a one-time reminder
-```bash
-# At a specific time (ISO format)
-openppx cron add --name "meeting" --message "Meeting starts now!" --at "2025-01-31T15:00:00"
-```
-
-### Manage reminders
-```bash
-openppx cron list              # List all jobs
-openppx cron remove <job_id>   # Remove a job
-```
-
-## Heartbeat Task Management
-
-The `HEARTBEAT.md` file in the workspace is checked every 30 minutes.
-Use file operations to manage periodic tasks:
-
-### Add a heartbeat task
-```python
-# Append a new task
-edit_file(
-    path="HEARTBEAT.md",
-    old_text="## Example Tasks",
-    new_text="- [ ] New periodic task here\n\n## Example Tasks"
-)
-```
-
-### Remove a heartbeat task
-```python
-# Remove a specific task
-edit_file(
-    path="HEARTBEAT.md",
-    old_text="- [ ] Task to remove\n",
-    new_text=""
-)
-```
-
-### Rewrite all tasks
-```python
-# Replace the entire file
-write_file(
-    path="HEARTBEAT.md",
-    content="# Heartbeat Tasks\n\n- [ ] Task 1\n- [ ] Task 2\n"
-)
-```
-
----
-
-## Adding Custom Tools
-
-To add custom tools:
-1. Create a class that extends `Tool` in `openppx/tooling/`
-2. Implement `name`, `description`, `parameters`, and `execute`
-3. Register it in `AgentLoop._register_default_tools()`
+`spawn_subagent` and GUI/computer tools appear only when enabled by the active
+security and capability snapshot. Check the actual tool catalog instead of
+assuming they are available.

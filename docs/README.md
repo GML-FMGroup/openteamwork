@@ -1,17 +1,12 @@
-# openppx Docs
+# OpenPPX Documentation
 
-## Documentation Index
+- [PROJECT_OVERVIEW.md](./PROJECT_OVERVIEW.md): Node-centered product architecture and dependency direction
+- [CONFIGURATION.md](./CONFIGURATION.md): strict Node, Agent, Model Profile, Secret, revision, and apply semantics
+- [OPERATIONS.md](./OPERATIONS.md): Node lifecycle, Tasks, Cron, Heartbeat, usage, audit, and troubleshooting
+- [MCP_SECURITY.md](./MCP_SECURITY.md): Plugin/App/MCP/Skill lifecycle and security boundaries
+- [SANDBOX.md](./SANDBOX.md): trusted Docker execution policy and verification
+- [USE_CASES.md](./USE_CASES.md): representative Agent tasks and prompt templates
+- [Client API contract](../contracts/client-api/README.md): versioned protocol, schemas, and cross-language fixtures
+- [Desktop](../apps/desktop/README.md): development, local/LAN operation, packaging, and troubleshooting
 
-- [PROJECT_OVERVIEW.md](./PROJECT_OVERVIEW.md): project overview, architecture, sessions, memory, compaction, and tool capabilities
-- [USE_CASES.md](./USE_CASES.md): real task examples and copy-ready prompt templates
-- [OPERATIONS.md](./OPERATIONS.md): runtime commands, gateway modes, WhatsApp Bridge, cron, sandbox, and testing
-- [CONFIGURATION.md](./CONFIGURATION.md): configuration model, environment variables, examples, and platform notes
-- [SANDBOX.md](./SANDBOX.md): Docker sandbox build, usage, security boundary, diagnostics, and testing
-- [MCP_SECURITY.md](./MCP_SECURITY.md): MCP integration and security policy
-- [OpenPPX Desktop v0.5.0-beta.1](./releases/v0.5.0-beta.1.md): Developer Preview scope, validation, and known limitations
-- [OpenPPX v0.5.1](./releases/v0.5.1.md): Desktop/Node resilience, TypeScript Client, refined workspace, and prerelease limitations
-
-## Maintenance Guidance
-
-- When adding a feature, update the matching section in `PROJECT_OVERVIEW.md` first.
-- When one topic grows too large, split it into a focused document such as `MEMORY.md` or `MCP_INTEGRATION.md`.
+Release notes describe the state of their tagged artifacts and may differ from the current development architecture.

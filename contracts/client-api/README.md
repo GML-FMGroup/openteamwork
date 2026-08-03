@@ -2,7 +2,7 @@
 
 This directory is the versioned boundary between OpenPPX Node and its clients, including OpenPPX Desktop.
 
-- `protocol-v1.md` defines the compatibility rules and the subset of endpoints used by Desktop.
+- `protocol-v1.md` defines transport, authentication, Action, setup, Run-event, and future compatibility rules.
 - `fixtures/health-v1.json` is a canonical compatible health handshake.
 - `fixtures/health-incompatible.json` represents a well-formed but unsupported future protocol.
 - `fixtures/node-v1.json` is authenticated Node identity and capability metadata.
@@ -11,3 +11,5 @@ This directory is the versioned boundary between OpenPPX Node and its clients, i
 - `v1/fixtures/action-invoke-setup-*.json` and `v1/fixtures/envelope-setup-*.json` define first-run configuration and verified-Hello exchanges.
 
 The fixtures are consumed by both Python and TypeScript tests. Contract changes must update the documentation, fixtures, and both test suites together.
+
+The current development baseline intentionally has no compatibility adapter for earlier pre-release implementations. Compatibility commitments begin after the first stable protocol is declared.

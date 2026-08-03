@@ -1,353 +1,197 @@
-# openppx Operations Guide
+# Node Operations
 
-## Install
+One long-lived OpenPPX Node owns the Client API, Runtime Supervisor, Task scheduler, Cron, Heartbeat, usage facts, and Action audit lifecycle.
 
-```bash
-cd openppx
-pip install -e .
-```
+## Start a Node
 
-## Initialize
-
-The install wizard module is currently not exposed for normal use. Use `doctor` plus manual configuration:
+Foreground operation:
 
 ```bash
-# Initialize or repair the minimal runnable configuration.
-ppx doctor --fix
-
-# Show the full diagnostic report.
-ppx doctor
+ppx node run --node-root ~/.openppx
 ```
 
-## Gateway Background Process
+The listener comes from `node.json` unless `--host` or `--port` is supplied as an explicit deployment override. The conventional local endpoint is `http://127.0.0.1:18765`.
+
+Check the shared Operations projection from another terminal:
 
 ```bash
-# Start the gateway in the background and write pid/meta/log files to ~/.openppx/log.
-ppx gateway start --channels local,feishu
-
-# Inspect status. Add --json for machine-readable output.
-ppx gateway status
-ppx gateway status --json
-
-# Restart or stop.
-ppx gateway restart --channels local,feishu
-ppx gateway stop
+ppx operations status
+ppx operations health
 ```
 
-Background runtime files:
-
-- `~/.openppx/log/gateway.pid`
-- `~/.openppx/log/gateway.meta.json`
-- `~/.openppx/log/gateway.out.log`
-- `~/.openppx/log/gateway.err.log`
-- `~/.openppx/log/gateway.debug.log`
-
-One-command smoke checks:
+For a protected or remote Node:
 
 ```bash
-scripts/install_smoke.sh
-scripts/install_smoke.sh --force
-scripts/install_smoke.sh --with-gateway
+ppx operations health \
+  --url http://<node-address>:18765 \
+  --token '<bearer-token>'
 ```
 
-Gateway service manifest management:
+## User service
+
+OpenPPX can write a launchd user manifest on macOS or a systemd user unit on Linux:
 
 ```bash
-# Write a user-level service manifest without directly running launchctl or systemctl.
-ppx gateway-service install
-ppx gateway-service install --force --channels local,feishu
-
-# Write, enable, and start immediately. This calls launchctl or systemctl --user.
-ppx gateway-service install --enable
-
-# Inspect manifest status for the current platform.
-ppx gateway-service status
-ppx gateway-service status --json
+ppx node service install --node-root ~/.openppx
+ppx node service status
 ```
 
-## Docker Sandbox
+The installer does not silently enable or start the service. Review the generated manifest, then use `launchctl` or `systemctl --user` explicitly. Logs are written below `<node-root>/logs/`.
 
-Dangerous commands can explicitly opt in to the Docker sandbox. Declarative Command/Python/Node skill APIs must not depend on recipe self-declaration for safety. Production or high-risk environments should use trusted runtime configuration:
+## Unified status and health
+
+`operations.status` reports Node identity, setup state, Runtime state, enabled Agents, extension readiness, and automation lifecycle. `operations.health` reports bounded component health without exposing paths or credentials.
 
 ```bash
-export OPENPPX_SKILL_API_SANDBOX=docker
+ppx operations status --json
+ppx operations health --json
 ```
 
-You can also configure it in `runtime.json`:
+The Desktop Operations screen consumes these exact Actions.
 
-```json
-{
-  "env": {
-    "OPENPPX_SKILL_API_SANDBOX": "docker",
-    "OPENPPX_SANDBOX_IMAGE": "openppx-sandbox:dev"
-  }
-}
-```
+## Tasks
 
-Default execution behavior stays unchanged unless this trusted configuration is set or the caller explicitly requests a sandbox.
-
-Build the local sandbox image first:
+Persistent `TaskRun` facts represent supervised background work, subagents, Cron turns, remote jobs, and other long operations.
 
 ```bash
-ppx sandbox build-image --image openppx-sandbox:dev
+ppx operations tasks --limit 20
+ppx operations tasks --session <session-id> --limit 50
 ```
 
-Run real Docker integration tests:
+Task state, events, artifacts, checkpoints, cancellation controls, and delivery facts remain durable below the Node root. A terminal state is based on runner evidence, not a model claim.
+
+## Cron
+
+Cron belongs to the Node process. Jobs execute only while Node automation is running.
+
+List jobs and recent history:
 
 ```bash
-OPENPPX_RUN_DOCKER_SANDBOX_TESTS=1 \
-python -m pytest tests/test_docker_sandbox_integration.py -q
+ppx operations cron list --history-limit 20
 ```
 
-Diagnostics and cleanup:
+Create one interval job:
 
 ```bash
-ppx doctor
-ppx sandbox prune
+ppx operations cron create \
+  --name daily-review \
+  --agent main \
+  --message 'Review open tasks and summarize blockers.' \
+  --every-seconds 86400 \
+  --yes
 ```
 
-See [`SANDBOX.md`](./SANDBOX.md) for full configuration, controlled network/image enablement, and security boundaries.
-
-### Common Missing Fields
-
-- provider: `<provider>.apiKey`
-  - Fill `providers.<provider>.apiKey`.
-- Feishu: `channels.feishu.appId` / `channels.feishu.appSecret`
-- Telegram: `channels.telegram.token`
-- Discord: `channels.discord.token`
-- DingTalk: `channels.dingtalk.clientId` / `channels.dingtalk.clientSecret`
-- Slack: `channels.slack.botToken`
-- WhatsApp: `channels.whatsapp.bridgeUrl`
-- Email: `channels.email.consentGranted` / `channels.email.smtpHost` / `channels.email.smtpUsername` / `channels.email.smtpPassword`
-- QQ: `channels.qq.appId` / `channels.qq.secret`
-
-### Install and Repair Rule Sources
-
-The core `doctor --fix` repair rules are intentionally table-driven:
-
-- Channel environment backfill rules: `CHANNEL_ENV_BACKFILL_MAPPINGS` -> `DOCTOR_CHANNEL_ENV_BACKFILL_RULES`
-- Provider doctor environment backfill: driven by `INSTALL_PROVIDER_SUMMARY_REQUIREMENTS`
-
-Relevant code:
-
-- `openppx/doctor_rules.py`: shared doctor/install rule tables and doctor backfill metadata
-- `openppx/onboarding_adapters.py`: provider/channel onboarding adapter protocol, default adapter, and registry
-- `openppx/cli.py`: command orchestration layer
-
-When adding fields, prefer updating the rule table and tests instead of adding hard-coded branches in orchestration functions.
-
-### Troubleshooting
-
-- `Missing ... API key`
-  - Open the target agent config at `~/.openppx/<agent_name>/config.json`, fill the enabled provider's `apiKey`, and run `ppx doctor` again.
-  - If a local environment variable is already configured, run `ppx doctor --fix` to backfill the missing field.
-
-- Missing `channels....` credential fields
-  - Fill the matching field in the `channels` section of the target agent config and run `ppx doctor`.
-  - Use `ppx doctor --json` if you are unsure which field is missing.
-
-- `MCP server ... health check failed`
-  - Confirm the MCP service process is reachable.
-  - Use `ppx doctor --json` and inspect `mcp.health` details.
-
-- All providers or channels are disabled
-  - Run `ppx doctor --fix`. It enables the default provider and `channels.local` as the minimal runnable repair.
-
-### `doctor --fix --json` Fields
-
-Use this when feeding repair results into automation such as alerting, retries, or policy loops:
+Other schedules:
 
 ```bash
-ppx doctor --fix --json
+ppx operations cron create \
+  --name weekday-review \
+  --agent main \
+  --message 'Review open tasks.' \
+  --cron-expression '0 9 * * 1-5' \
+  --timezone Asia/Shanghai \
+  --yes
+
+ppx operations cron create \
+  --name one-time \
+  --agent main \
+  --message 'Prepare the release checklist.' \
+  --at-ms <unix-time-ms> \
+  --delete-after-run \
+  --yes
 ```
 
-Key fields in the `fix` node:
-
-- `fix.changes`: text list of changes applied in this run
-- `fix.summary.counts`: counts by `defaults`, `env_backfill`, `legacy_migration`, and `other`
-- `fix.reasonCodes`: counts grouped by standard reason code
-- `fix.byRule`: per-rule aggregation with `applied`, `skipped`, `failed`, and `total`
-
-Example:
-
-```json
-{
-  "fix": {
-    "applied": true,
-    "dryRun": false,
-    "changes": ["providers.google.apiKey <- GOOGLE_API_KEY"],
-    "reasonCodes": {
-      "provider.env.api_key_backfilled": 1,
-      "channel.env.source_missing": 1
-    },
-    "byRule": {
-      "provider_env_backfill": {"applied": 1, "skipped": 0, "failed": 0, "total": 1},
-      "channel_env_backfill": {"applied": 0, "skipped": 1, "failed": 0, "total": 1}
-    },
-    "summary": {
-      "counts": {"defaults": 0, "env_backfill": 1, "legacy_migration": 0, "other": 0}
-    }
-  }
-}
-```
-
-## Runtime Modes
-
-### Single-Turn Call
+Lifecycle controls:
 
 ```bash
-python -m openppx.cli -m "Describe what you can do"
+ppx operations cron disable <job-id> --yes
+ppx operations cron enable <job-id> --yes
+ppx operations cron run <job-id> --force --yes
+ppx operations cron remove <job-id> --yes
 ```
 
-Use explicit session identifiers when needed:
+The stored job payload contains only message, Agent, and user identity. Execution and results appear as Node-owned Task and audit facts.
+
+## Heartbeat
+
+Heartbeat periodically asks the configured Agent to inspect current work and report only items that need operator attention. Its schedule and prompt come from `NodeConfig.spec.operations.heartbeat`.
 
 ```bash
-python -m openppx.cli -m "Describe what you can do" --user-id local --session-id demo001
+ppx operations heartbeat status
+ppx operations heartbeat run --reason manual
 ```
 
-Use ADK-native rewind when you need to roll back the current model-visible session context:
+Heartbeat can be disabled, interval-bounded, and restricted to configured active hours. It skips work when the runtime reports that it is busy.
+
+## Usage
 
 ```bash
-ppx rewind --user-id local --session-id demo001
-ppx rewind --user-id local --session-id demo001 --before-invocation-id <invocation_id>
+ppx operations usage --limit 20
+ppx operations usage --provider google --limit 100
 ```
 
-`rewind` makes later model context ignore rewound ADK events. It does not undo external side effects such as file writes, messages, command execution, or cron changes.
+Usage facts are operational observations. They do not include model credentials or message bodies.
 
-### ADK CLI Mode
+## Action audit
 
 ```bash
-adk run openppx
+ppx operations audit --limit 50
+ppx operations audit --actor <principal-id>
+ppx operations audit --agent main
+ppx operations audit --action extension.install
+ppx operations audit --outcome denied
 ```
 
-### Wrapper CLI
+Audit rows contain bounded Action identity, actor, policy decision, targets, timestamps, and outcome. Inputs, outputs, Secrets, prompts, and model text are deliberately excluded. High-risk mutations fail closed if the audit start record cannot be written; read-only queries remain fault tolerant.
+
+## Logs and data
+
+Current Node-owned locations:
+
+```text
+<node-root>/logs/node.out.log
+<node-root>/logs/node.err.log
+<node-root>/database/
+<node-root>/artifacts/
+<node-root>/memory/
+```
+
+The exact database layout is an implementation detail. Use Operations and Action projections rather than querying SQLite from clients.
+
+## Troubleshooting
+
+### Address already in use
 
 ```bash
-ppx run
+lsof -nP -iTCP:18765 -sTCP:LISTEN
 ```
 
-### Common Tool Commands
+Keep exactly one process bound to a Node root and listener. Do not start a second Node merely to run another Agent; one Node can own multiple enabled Agents.
+
+### Node needs configuration
 
 ```bash
-ppx skills
-ppx doctor
-ppx doctor --fix
-ppx doctor --fix-dry-run
-ppx heartbeat status
-ppx heartbeat status --json
-ppx token stats
-ppx token stats --provider google --limit 50
-ppx token stats --json
-ppx gateway-service install
-ppx gateway-service status
-ppx provider list
-ppx provider status
-ppx provider status --json
-ppx provider login github-copilot
-ppx provider login openai-codex
-ppx provider login codex
-ppx channels login
-ppx channels bridge start
-ppx channels bridge status
-ppx channels bridge stop
+ppx setup
 ```
 
-## Gateway Modes
+If setup is intentionally incomplete, inspect the state with Desktop onboarding or `setup.status` through `ppx action invoke`.
 
-### Local Channel
+### Node is configured but not ready
+
+Run the first real Hello again after fixing model readiness:
 
 ```bash
-python -m openppx.cli gateway run --channels local --interactive-local
+ppx setup --provider <provider> --model <model-id>
 ```
 
-### Multi-Channel Mode with Feishu
+### LAN request is unauthorized
 
-```bash
-ppx gateway run --channels local,feishu --interactive-local
-```
+Confirm that the Node process and client use the same bearer token. Tokens cannot contain whitespace, do not belong in URLs, and are never accepted as query parameters.
 
-You can also set the default channels by environment variable:
+### Extension or model changes are not visible in an active Run
 
-```bash
-export OPENPPX_CHANNELS=feishu
-ppx gateway
-```
+This is expected. Runs pin immutable Config and Extension snapshots. Start a new Run after the change; do not mutate a live runtime in place.
 
-## WhatsApp Bridge
+## Graceful shutdown
 
-`openppx` uses a local Node.js Bridge, Baileys plus WebSocket, for WhatsApp login and messaging.
-
-```bash
-# Foreground QR login.
-ppx channels login
-
-# Background bridge lifecycle.
-ppx channels bridge start
-ppx channels bridge status
-ppx channels bridge stop
-```
-
-Quick checks:
-
-```bash
-scripts/whatsapp_bridge_e2e.sh full
-scripts/whatsapp_bridge_e2e.sh smoke
-```
-
-## Cron Scheduling
-
-`openppx` cron is an in-process scheduler and does not write system crontab entries. Jobs run only while the gateway is running.
-
-- Storage file: `OPENPPX_WORKSPACE/.openppx/cron_jobs.json`
-- Supported schedules: `every`, `cron` with optional `tz`, and `at`
-
-Common commands:
-
-```bash
-ppx cron list
-ppx cron add --name weather --message "check weather and summarize" --every 300
-ppx cron add --name daily --message "daily report" --cron "0 9 * * 1-5" --tz Asia/Shanghai
-ppx cron add --name reminder --message "remind me to review PR" --at 2026-02-19T09:30:00
-ppx cron add --name push --message "send update" --every 600 --deliver --channel feishu --to ou_xxx
-ppx cron run <job_id>
-ppx cron enable <job_id>
-ppx cron enable <job_id> --disable
-ppx cron remove <job_id>
-ppx cron status
-```
-
-## Token Statistics
-
-`openppx` records token usage after each LLM call, including request/response, text/image, and timestamp information.
-
-- Storage location: `~/.openppx/token_usage.db`, SQLite
-- Granularity: one event per request/response
-- Query commands:
-
-```bash
-ppx token stats
-ppx token stats --provider google --limit 50
-ppx token stats --provider openai --json
-```
-
-Notes:
-
-- `token stats` prints summary statistics plus recent records by default.
-- `--provider` filters by provider, such as `google` or `openai`.
-- `--limit` controls the number of recent records, default `20`.
-- `--json` emits machine-readable JSON for scripts or monitoring.
-- Calls without provider usage information are not counted.
-
-## Testing
-
-```bash
-source .venv/bin/activate
-pytest -q
-```
-
-## Examples
-
-```bash
-python -m openppx.cli -m "search for the latest research progress today, and create a PPT for me."
-python -m openppx.cli -m "download all PDF files from this page: https://bbs.kangaroo.study/forum.php?mod=viewthread&tid=467"
-```
+Interrupt the foreground Node with `Ctrl+C`. Shutdown stops accepting requests, stops Node-owned automation, closes extension connections, and then closes Runtime instances. The durable Session, Task, Config, Extension, audit, and usage facts reopen on the next Node start.

@@ -1,181 +1,159 @@
 # Sandbox
 
-openppx supports a Docker sandbox for dangerous local execution. The default
-runtime behavior is unchanged: commands and skill APIs only enter the sandbox
-when trusted runtime configuration or the caller explicitly requests it.
+OpenPPX provides a Docker execution backend for dangerous local commands and declarative Skill APIs. Sandbox policy is a trusted Node deployment concern; model-authored recipes may request stricter isolation but cannot silently weaken the configured baseline.
 
-## Build the sandbox image
+Docker is a pragmatic isolation layer, not a perfect security boundary. Anyone who controls the Docker daemon is effectively host-privileged.
 
-```bash
-ppx sandbox build-image --image openppx-sandbox:dev
-```
+## Build the image
 
-If Docker Hub is not reachable, pre-pull or mirror the base image and pass it
-explicitly:
+From the repository root:
 
 ```bash
-ppx sandbox build-image \
-  --image openppx-sandbox:dev \
-  --base-image registry.example/python:3.14-slim
+docker build \
+  --tag openppx-sandbox:dev \
+  --file docker/sandbox/Dockerfile \
+  docker/sandbox
 ```
 
-Python and Node dependencies should be installed at trusted image build time,
-not by runtime recipes:
+To use a mirrored Python base image:
 
 ```bash
-ppx sandbox build-image \
-  --image openppx-sandbox:dev \
-  --python-requirements requirements.txt \
-  --node-package-json package.json \
-  --node-package-lock package-lock.json
+docker build \
+  --build-arg PYTHON_BASE_IMAGE=registry.example/python:3.14-slim \
+  --tag openppx-sandbox:dev \
+  --file docker/sandbox/Dockerfile \
+  docker/sandbox
 ```
 
-The dependency build path uses a temporary Docker context and copies only the
-explicit manifest files above.
+Install Python or Node dependencies into a reviewed derived image at build time. Runtime recipes must not become arbitrary package installers.
 
-## Exec opt-in
+## Execution behavior
 
-```python
-exec_command("python --version", sandbox="docker")
-exec_command("sh", sandbox="docker", pty=True, background=True)
+Docker-sandboxed execution uses:
+
+- the workspace mounted at the same absolute path;
+- `.git` metadata mounted read-only;
+- credential-style workspace files masked;
+- no network by default;
+- bounded CPU, memory, PIDs, temporary storage, timeout, and output;
+- labeled containers with best-effort cleanup after timeout, kill, or removal.
+
+Background and PTY commands use the persistent process-session controls for polling, logs, input, cancellation, and cleanup.
+
+## Trusted baseline
+
+Set the minimum backend before starting the Node:
+
+```bash
+export OPENPPX_SANDBOX_BACKEND=docker
+export OPENPPX_SANDBOX_IMAGE=openppx-sandbox:dev
+ppx node run
 ```
 
-Docker sandboxed exec uses:
+`OPENPPX_SANDBOX_BACKEND=docker` prevents a tool request from downgrading to a weaker backend without the normal confirmation path.
 
-- same-path workspace bind mounts
-- `.git` read-only mount
-- `.env` and credential-style files masked from reads
-- no network by default
-- bounded CPU, memory, PID, tmpfs, timeout, and output limits
-- named/labeled containers with best-effort cleanup on timeout, kill, or remove
-
-`background=True`, `yield_ms`, and `pty=True` all use `process_session` for
-follow-up `poll`, `log`, `write`, `send-keys`, `kill`, and `remove` actions.
-
-## Skill API sandbox policy
-
-Do not rely on skill recipes as the security boundary. Skill files are regular
-project content and may be edited by the model or by third-party code. To force
-local declarative skill APIs into Docker, set trusted runtime configuration:
+To force declarative Command, Python, and Node Skill APIs into Docker even when their recipe does not opt in:
 
 ```bash
 export OPENPPX_SKILL_API_SANDBOX=docker
 ```
 
-This applies to Command, Python, and Node declarative skill APIs even when the
-recipe has no `sandbox` field or sets `sandbox` to `false` / `none`. Recipe
-fields can only request options that fit within trusted runtime gates, such as
-an approved network or image option. They cannot disable or weaken the sandbox
-backend. A recipe request for a weaker backend such as `bwrap` is rejected under
-this policy.
+Skill files are ordinary extension content and are not the security authority. Trusted Node policy wins over a recipe field.
 
-Recipes may still explicitly request Docker sandboxing when no trusted default
-is configured:
+## Network policy
 
-```json
-{
-  "module": "demo_sdk",
-  "function": "search",
-  "sandbox": {"required": true}
-}
-```
-
-Command API recipes use the same field:
-
-```json
-{
-  "argv": ["python", "-c", "print('hello')"],
-  "allow_system_executable": true,
-  "sandbox": {"required": true}
-}
-```
-
-Python and Node recipes run a small in-container runner shim. The recipe and
-args payload is delivered through stdin, not through a large environment
-variable.
-
-## Network and image policy
-
-Sandbox networking is disabled by default. A recipe may request
-`"network": "enabled"`, but it is honored only when trusted configuration
-allows it:
+Network is disabled by default. A recipe request for enabled networking is honored only when trusted deployment policy allows it:
 
 ```bash
 export OPENPPX_SANDBOX_ALLOW_NETWORK=1
 ```
 
-A hard lock overrides all recipe requests:
+A hard lock overrides every recipe request:
 
 ```bash
 export OPENPPX_SANDBOX_NETWORK_LOCK=disabled
 ```
 
-Runtime recipes cannot choose arbitrary images. A recipe `sandbox.image` is
-accepted only when it equals the configured default image or matches the
-trusted allowlist:
+Grant network access narrowly. A sandbox with network access can still exfiltrate any data made available inside it.
+
+## Image policy
+
+Recipes cannot select arbitrary images. An image request must equal the configured default or match a trusted allowlist:
 
 ```bash
 export OPENPPX_SANDBOX_IMAGE=openppx-sandbox:dev
 export OPENPPX_SANDBOX_TRUSTED_IMAGES='registry.example/openppx-sandbox:*'
 ```
 
-Keep this allowlist narrow. Image selection is trusted configuration, not a
-model-controlled capability.
+Keep the allowlist narrow and pin reviewed image digests for sensitive deployments.
 
-## Environment variables
+## Resource policy
+
+Trusted deployment settings:
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `OPENPPX_SANDBOX_BACKEND` | `none` | Baseline backend. `docker` prevents model-requested downgrade without confirmation. |
-| `OPENPPX_EXEC_SANDBOX` | unset | Optional default sandbox for `exec_command`; keep unset unless deliberately enabling. |
-| `OPENPPX_SKILL_API_SANDBOX` | unset | Optional trusted default sandbox for Command/Python/Node declarative skill APIs. Use `docker` to force local skill API code into Docker regardless of recipe opt-in. |
-| `OPENPPX_SANDBOX_DOCKER_BIN` | `docker` | Docker CLI path/name. |
-| `OPENPPX_SANDBOX_IMAGE` | `openppx-sandbox:dev` | Default sandbox image. |
-| `OPENPPX_SANDBOX_PYTHON_BASE_IMAGE` | `python:3.14-slim` | Base image for `ppx sandbox build-image`. |
-| `OPENPPX_SANDBOX_PYTHON_REQUIREMENTS` | unset | Optional requirements file for image build. |
-| `OPENPPX_SANDBOX_NODE_PACKAGE_JSON` | unset | Optional Node package manifest for image build. |
-| `OPENPPX_SANDBOX_NODE_PACKAGE_LOCK` | unset | Optional lockfile; requires package.json. |
-| `OPENPPX_SANDBOX_ALLOW_NETWORK` | unset | Allows recipe `network=enabled` when truthy. |
-| `OPENPPX_SANDBOX_NETWORK_LOCK` | unset | `disabled` hard-locks network off. |
-| `OPENPPX_SANDBOX_TRUSTED_IMAGES` | unset | Comma-separated image allowlist for recipe `sandbox.image`. |
-| `OPENPPX_SANDBOX_TIMEOUT_MAX_SECONDS` | `60` for exec, `3600` for API runners | Trusted timeout cap. |
+| `OPENPPX_SANDBOX_BACKEND` | `none` | Minimum execution backend. |
+| `OPENPPX_EXEC_SANDBOX` | unset | Optional default requested by direct command execution. |
+| `OPENPPX_SKILL_API_SANDBOX` | unset | Minimum backend for declarative Skill APIs. |
+| `OPENPPX_SANDBOX_DOCKER_BIN` | `docker` | Docker executable. |
+| `OPENPPX_SANDBOX_IMAGE` | `openppx-sandbox:dev` | Default reviewed image. |
+| `OPENPPX_SANDBOX_ALLOW_NETWORK` | unset | Allows an explicitly requested network-enabled recipe. |
+| `OPENPPX_SANDBOX_NETWORK_LOCK` | unset | `disabled` locks network off. |
+| `OPENPPX_SANDBOX_TRUSTED_IMAGES` | unset | Comma-separated trusted image patterns. |
+| `OPENPPX_SANDBOX_TIMEOUT_MAX_SECONDS` | 60 for command execution | Trusted timeout cap. |
 | `OPENPPX_SANDBOX_MEMORY` | `1024m` | Docker memory and memory-swap limit. |
 | `OPENPPX_SANDBOX_CPUS` | `2` | Docker CPU limit. |
-| `OPENPPX_SANDBOX_PIDS_LIMIT` | `256` | Docker PID limit. |
-| `OPENPPX_SANDBOX_TMPFS_SIZE` | `256m` | `/tmp` tmpfs size. |
+| `OPENPPX_SANDBOX_PIDS_LIMIT` | `256` | Process limit. |
+| `OPENPPX_SANDBOX_TMPFS_SIZE` | `256m` | Temporary filesystem size. |
 
-## Diagnostics and cleanup
+These environment values configure the trusted execution backend, not Node business resources. Long-term product controls can project the same policy through strict Node Config without changing the sandbox enforcement boundary.
 
-```bash
-ppx doctor
-ppx sandbox prune
+## Recipe opt-in
+
+A declarative Skill API may request Docker when the trusted baseline is weaker:
+
+```json
+{
+  "module": "demo_sdk",
+  "function": "search",
+  "sandbox": {
+    "required": true,
+    "network": "disabled"
+  }
+}
 ```
 
-`doctor` reports Docker availability and leaked openppx sandbox containers.
-`sandbox prune` explicitly removes containers labeled as openppx sandbox runs.
+Command recipes use the same field. Recipe arguments and API input are delivered as structured stdin, not as a large environment variable.
 
-## Testing
+A recipe can request stricter limits or approved network/image settings only within the trusted policy. It cannot disable masking, add host mounts, request privileged mode, pass raw Docker flags, or select an untrusted image.
 
-Regular tests do not require Docker:
+## Verification
 
-```bash
-python -m pytest tests/test_runtime_sandbox.py tests/test_cli_sandbox.py tests/test_tools.py -q
-```
-
-Real Docker integration tests are opt-in:
+Regular sandbox unit tests do not require Docker:
 
 ```bash
-OPENPPX_RUN_DOCKER_SANDBOX_TESTS=1 \
-python -m pytest tests/test_docker_sandbox_integration.py -q
+python -m pytest -q \
+  tests/test_runtime_sandbox.py \
+  tests/test_runtime_command_api_runner.py \
+  tests/test_runtime_long_tasks.py \
+  tests/test_tools.py
 ```
 
-Run `ppx sandbox build-image` first so the configured image exists locally.
+Real Docker tests are opt-in:
 
-## Threat model notes
+```bash
+export OPENPPX_RUN_DOCKER_SANDBOX_TESTS=1
+export OPENPPX_SANDBOX_IMAGE=openppx-sandbox:dev
+python -m pytest -q tests/test_docker_sandbox_integration.py
+```
 
-- Docker is used as a pragmatic isolation layer, not a perfect security
-  boundary.
-- Access to the Docker daemon is trusted and effectively host-powerful.
-- Backend argv construction is part of the trusted computing base.
-- Model-controlled inputs must not become raw Docker flags, arbitrary mounts,
-  privileged mode, or unrestricted image selection.
+The integration suite verifies workspace masking, read-only Git metadata, default network denial, PTY/background cleanup, Skill API execution, and trusted network/image controls.
+
+## Operational cautions
+
+- Review every host path made visible to a container.
+- Keep the Docker socket outside the sandbox.
+- Treat an enabled network and a writable workspace as meaningful privileges.
+- Remove leaked containers by their OpenPPX labels only after inspecting active tasks.
+- Sandbox evidence complements Action policy, confirmation, extension trust, and audit; it does not replace them.

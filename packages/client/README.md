@@ -1,23 +1,38 @@
 # @openppx/client
 
-Private workspace package containing transport-neutral TypeScript primitives for the OpenPPX Client API.
+Private workspace package implementing the transport-neutral TypeScript client for the OpenPPX Client API.
 
-## Current responsibilities
+## Responsibilities
 
-- Public Agent, Session, Message, and Run event models.
-- Client API protocol version and compatibility parsing.
-- Bearer authorization header construction.
-- Wire-format projection for shared Client API models.
-- A Fetch-based JSON/SSE-capable HTTP transport with structured request errors.
+- Protocol version, health, Node identity, capability, and authentication projections.
+- Fetch-based JSON transport and structured request errors.
+- SSE parsing helpers used by Desktop Run streaming.
+- Typed Agent, Session, Message, and Run models.
+- Common Action catalog/invocation envelopes and clients.
+- System, Model, Setup, Command, Extension, and Operations facades.
+- Canonical fixture validation shared with the Python contract exporter.
 
-## Security boundary
+## Boundary
 
-This package accepts credentials but does not persist them. Desktop keeps long-lived credentials in the Electron main process and uses this package there; the sandboxed renderer continues to communicate through the preload bridge.
+This package talks to one already-selected Node endpoint. It does not:
 
-## Out of scope for this slice
+- persist credentials;
+- start a local Node;
+- expose Electron IPC or native APIs;
+- own React state or UI projections;
+- read Node files or databases;
+- implement domain validation or mutation policy.
 
-- Electron IPC and native APIs.
-- Local OpenPPX Node process management.
-- React state and UI projections.
-- Browser login/session-token policy.
-- Public npm publication.
+Desktop keeps long-lived LAN credentials in Electron Main and calls this package there. The sandboxed Renderer communicates only through typed preload IPC.
+
+## Development
+
+```bash
+cd packages/client
+./node_modules/.bin/vitest run
+./node_modules/.bin/tsc --noEmit
+```
+
+Any client-visible contract change must update `contracts/client-api/v1`, Python contract tests, this package's fixtures/tests, and Desktop consumers together.
+
+Public npm publication is not part of the current developer preview.

@@ -1,395 +1,245 @@
-<div align="center">
- <img src="assets/openppx_logo_3.png" alt="openppx" width="500">
-  <h1>OpenPPX: A Lightweight Personal AI Assistant 🚀</h1>
-</div>
+# OpenPPX
 
-## ✨ News
+OpenPPX is an open platform for running and managing personal AI agents. One OpenPPX Node owns the durable state, policies, extensions, automation, and Google ADK runtimes; CLI, Desktop, and future clients consume the same versioned contract.
 
-- 2026-08-02: v0.5.1 Developer Preview adds a reusable TypeScript Client, resilient Desktop/Node reconnection and task cancellation, and a quieter resizable three-column Desktop workspace. It is published as a prerelease while real two-machine LAN validation and macOS signing/notarization remain outstanding.
+The current source tree is a developer preview. It is not yet a stable or production-ready release.
 
-- 2026-08-02: v0.5.0-beta.1 released with the new OpenPPX Desktop for managing multiple agents, a separated Desktop/Node architecture for same-machine or LAN deployment, secure Client API connections, a refined three-column workspace with session/activity/artifact visibility, Docker-backed skill API sandboxing, and hardened desktop packaging.
+## News
 
-- 2026-06-10: v0.4 released with supervised long-task execution, persistent task runs, pause/resume/cancel controls, checkpoint and provider migration support, client API session titles based on the first user message, and lower-noise Feishu task updates.
+- **2026-08-04 — Node architecture baseline:** the development branch now uses one Node, Action, Config, Extension, Operations, and Client Contract architecture. First setup, model profiles, Plugin/App/MCP/Skill management, slash commands, audit, usage, Cron, Heartbeat, Desktop onboarding, and LAN access share the same backend facts. The previous parallel runtime and configuration paths have been removed rather than retained as compatibility layers.
+- **2026-08-02 — Desktop v0.5.1 Developer Preview:** published a prerelease with the three-column workspace, local/LAN Node connection, resizable panels, improved Run streaming, and the reusable TypeScript client.
 
-- 2026-06-02: v0.3 released with the ADK 2.1 runtime upgrade, profile-based runner lifecycle, deterministic and live eval baselines, MCP runtime headers/progress events, native high-risk tool confirmation, prompt layering with optional context cache, and ADK-native session rewind.
+## Architecture
 
-- 2026-04-18: v0.2.1 released with Weixin and WeCom channel support, improved Feishu guidance, gateway streaming and realtime feedback, local client API service, and the new privilege-level-based agent lifecycle.
+```text
+CLI          OpenPPX Desktop          Future clients
+ |                  |                       |
+ +------------------+-----------------------+
+                    |
+           Shared Client Contract
+             HTTP + SSE + Actions
+                    |
+              OpenPPX Node
+  Config / Models / Extensions / Operations / Audit
+                    |
+       Runtime Supervisor + immutable snapshots
+                    |
+              Google ADK runtime
+```
 
-- 2026-02-18: v0.2 released with multi-agent and GUI operation support.
+The Node is the source of truth. Clients may keep device-local preferences such as window layout, but they do not read or rewrite Node business files.
 
-- 2026-02-12: Initial version released with single-agent support, including Feishu image and file sending/receiving.
+## What is implemented
 
-## 🔧 Key Features
+- Strict Node and Agent Config resources with validation, revision conflicts, preview/apply, and redacted diagnostics.
+- Model Profiles with explicit provider, model, capabilities, credential reference, workload role, and fallback policy.
+- A governed Extension Platform for Product Plugins, Apps, direct MCP servers, and Skills.
+- Builtin, local-directory, local-archive, fixed-Git, and injected-catalog extension sources with staging, digest validation, risk checks, and immutable installed content.
+- A typed Action Registry shared by CLI, Desktop, slash commands, and future clients.
+- Persistent sessions, artifacts, memory, TaskRuns, checkpoints, supervised long tasks, and workflow facts.
+- Node-owned Task scheduling, Cron, Heartbeat, usage, health, and redacted Action audit facts.
+- A thin TypeScript client and an Electron/React Desktop workspace that can connect to a Node on the same computer or a trusted LAN machine.
+- Google ADK-native Agent, Runner, Session, Artifact, Memory, MCP, confirmation, rewind, compaction, and evaluation integration.
 
-- Multi-agent support and compatibility with common providers.
-- Agents can operate the OS with computer-use tools.
+## Requirements
 
+- Python 3.14
+- Node.js and pnpm for Desktop development
+- A supported model provider account or local model endpoint
+- macOS or Linux for the current user-service installer
 
-## 🧭 Quick Start
+## Install from source
 
-### 🛠️ 1. Set Up the Environment and Create an Agent
 ```bash
-git clone https://github.com/pipixia-labs/openppx
-cd openppx
 python3.14 -m venv .venv
 source .venv/bin/activate
-pip install -r requirements.txt 
-pip install .
-ppx create --name "low-main"
-# Follow the `ppx create` output and edit the generated config files.
+python -m pip install -e .
 ```
 
-`ppx create` creates one privilege-level-based agent at a time. By default:
-
-- the privilege level is `low`
-- the workspace is a new directory under the system temp directory
-- the new agent is added to and enabled in `~/.openppx/global_config.json`
-
-Example agent files:
-
-- `~/.openppx/low-main/config.json`
-- `~/.openppx/low-main/runtime.json`
-- `~/.openppx/global_config.json`
-
-You can also create higher-privilege agents explicitly:
+For an offline checkout whose build dependencies are already installed, use:
 
 ```bash
-ppx create --name "medium-main" --privilege-level medium
-ppx create --name "high-main" --privilege-level high
-ppx create --name "root-main" --privilege-level root --workspace ~/work/openppx-root
+python -m pip install --no-build-isolation -e .
 ```
 
-Each agent has a per-agent config home under `~/.openppx/<agent_name>/` that includes:
+## First setup
 
-- `AGENTS.md`, `SOUL.md`, `TOOLS.md`, `IDENTITY.md`, `USER.md`
-- `HEARTBEAT.md`
-- `skills/`
-- `memory/MEMORY.md`, `memory/HISTORY.md`
-
-The `workspace` is separate and is only for code, task outputs, temporary files, and other working artifacts.
-
-### 🔑 2. Configure Provider Keys
-
-Review and edit your configuration files:
-
-- `global_config.json`
-- Each agent's config/runtime/agent-home files, for example:
-  `~/.openppx/low-main/config.json`
-
-Fill in required provider keys and assign per-agent security settings.
-You can leave channel-specific keys (for example Telegram, Feishu, Weixin, or WeCom) empty at this stage.
-
-Important:
-
-- `ppx create` only creates and enables an agent. It does not automatically turn on Feishu, Telegram, or other channels.
-- Channel settings must be edited in the `config.json` of the agent that is actually enabled and running.
-- If you created new agents such as `low-main` / `medium-main` / `high-main` / `root-main`, but only updated old agent configs like `agent_name_1`, gateway will not use those old channel settings.
-- Before troubleshooting a Feishu connection issue, first run `ppx list` and confirm which agent is enabled, then check that agent's `channels.feishu.enabled`, `appId`, and `appSecret`.
-
-### 💬 3. Try Local Interactive Mode
+`ppx setup` configures a Node, one Agent, one Model Profile, protected credentials, and a real first model turn. By default it uses `~/.openppx` as the Node root and asks for an API key with a hidden prompt when the provider requires one.
 
 ```bash
-ppx --config-path ~/.openppx/low-main/config.json gateway run --channels local --interactive-local
+ppx setup \
+  --provider google \
+  --model <provider-model-id> \
+  --agent-id main \
+  --workspace <workspace-directory>
 ```
 
-### 🛰️ 4. Enable Channel Chat and Start Background Service
+Use `--no-hello` only when configuration must be saved before the model is reachable. A configured Node is not reported as ready until `setup.hello` succeeds for the exact Config revisions.
 
-For channel keys and secrets, see [`docs/CHANNELS.md`](./docs/CHANNELS.md). After filling in channel keys, start the background gateway for regular usage:
-
-Example for Feishu: if `low-main` is the agent you want to connect to Feishu, edit `~/.openppx/low-main/config.json` and set:
-
-```json
-{
-  "channels": {
-    "feishu": {
-      "enabled": true,
-      "appId": "cli_xxx",
-      "appSecret": "xxx"
-    }
-  }
-}
-```
-
-Do not only update another disabled agent's config, or gateway will still fail to connect that channel for your active agent.
+Start the Node:
 
 ```bash
-ppx gateway start
+ppx node run
 ```
 
+The default local endpoint is `http://127.0.0.1:18765`.
 
+## Desktop
 
-## 🧪 Command Discovery
-
-```bash
-ppx --help
-ppx list
-ppx enable low-main
-ppx disable low-main
-ppx delete low-main
-ppx gateway --help
-ppx gateway-service --help
-ppx provider --help
-ppx channels --help
-ppx cron --help
-ppx heartbeat --help
-ppx token --help
-```
-
-## 🌉 Gateway Usage
-
-- `ppx gateway run`: run the gateway in the foreground
-- `ppx gateway start|stop|restart|status`: start, stop, restart, and inspect the background gateway process
-- `ppx gateway-service`: manage OS user-service manifests (launchd/systemd)
-
-Examples:
-
-```bash
-ppx gateway run --channels local,feishu --interactive-local
-ppx gateway status
-ppx gateway-service install --channels local,feishu --enable
-ppx gateway-service status
-```
-
-Weixin login helper:
-
-```bash
-ppx channels login weixin
-ppx gateway run --channels local,weixin --interactive-local
-```
-
-WeCom optional dependency:
-
-```bash
-pip install -e .[wecom]
-```
-
-Weixin optional dependency for QR/media support:
-
-```bash
-pip install -e .[weixin]
-```
-
-## 🖥️ Computer Use
-
-`openppx` includes desktop GUI tools.
-Recommended: configure GUI models/providers in `config.json` (`multimodalProviders`, `gui.groundingProvider`, `gui.plannerProvider`).
-
-Minimal `config.json` example:
-
-```json
-{
-  "multimodalProviders": {
-    "grounding_mm": {
-      "enabled": true,
-      "provider": "openai",
-      "apiKey": "your_openai_key",
-      "model": "gpt-5.2"
-    },
-    "planner_mm": {
-      "enabled": true,
-      "provider": "google",
-      "apiKey": "your_gemini_key",
-      "model": "gemini-3-flash-preview"
-    }
-  },
-  "gui": {
-    "groundingProvider": "grounding_mm",
-    "plannerProvider": "planner_mm"
-  }
-}
-```
-
-
-GUI smoke examples:
-
-```bash
-# Single-step (real execution)
-./.venv/bin/python scripts/gui_smoke.py --mode single --action "Wait 1 second"
-
-# Multi-step (dry run)
-./.venv/bin/python scripts/gui_smoke.py --mode task --task "Open a browser and search for openppx" --max-steps 8 --dry-run
-```
-
-macOS permission reminder (required for GUI automation):
-
-- `Privacy & Security -> Screen Recording` (Terminal / Python host process)
-- `Privacy & Security -> Accessibility` (keyboard/mouse control)
-
-## 🧱 Docker Sandbox
-
-Build the local sandbox image before enabling Docker-backed execution:
-
-```bash
-ppx sandbox build-image --image openppx-sandbox:dev
-```
-
-For production or high-risk agents, configure declarative skill APIs to run in Docker from the trusted runtime config, not from skill recipe files. Add this to the target agent's `runtime.json`:
-
-```json
-{
-  "env": {
-    "OPENPPX_SKILL_API_SANDBOX": "docker",
-    "OPENPPX_SANDBOX_IMAGE": "openppx-sandbox:dev"
-  }
-}
-```
-
-This forces Command, Python, and Node declarative skill APIs into Docker even when a skill recipe omits `sandbox` or sets it to `false` / `none`. See [`docs/SANDBOX.md`](./docs/SANDBOX.md) for the full policy and test commands.
-
-## 📂 Runtime Files
-
-Background runtime/log files:
-
-- `~/.openppx/log/gateway.pid`
-- `~/.openppx/log/gateway.meta.json`
-- `~/.openppx/log/gateway.out.log`
-- `~/.openppx/log/gateway.err.log`
-- `~/.openppx/log/gateway.debug.log`
-- `~/.openppx/token_usage.db` (LLM token usage events)
-
-Workspace-level runtime state lives under `<workspace>/.openppx/`
-(for example cron and heartbeat runtime snapshots).
-
-## 🧰 Development
-
-Install in editable mode:
-
-```bash
-cd openppx_root
-source .venv/bin/activate
-pip install -e .
-```
-
-Run tests:
-
-```bash
-pytest -q
-```
-
-Install and run OpenPPX Desktop from the repository root:
+Install workspace dependencies and start the application from the repository root:
 
 ```bash
 pnpm install
 pnpm desktop:dev
 ```
 
-Desktop verification:
+OpenPPX Desktop can supervise a local Node or connect to an already-running Node. The packaged Desktop remains a thin client; Python, model credentials, Agent data, and Node databases are installed and operated separately.
+
+See [apps/desktop/README.md](./apps/desktop/README.md) for development, packaging, and LAN instructions.
+
+## Trusted LAN operation
+
+On the machine that runs the agents, configure a non-loopback listener and required authentication during setup:
 
 ```bash
-pnpm desktop:test
-pnpm desktop:typecheck
-pnpm desktop:build
+ppx setup \
+  --listen-host 0.0.0.0 \
+  --listen-port 18765 \
+  --authentication required \
+  --provider google \
+  --model <provider-model-id>
 ```
 
-The Electron/React desktop source lives in [`apps/desktop/`](./apps/desktop/). It remains separated from the Python/Google ADK backend through the versioned [Client API contract](./contracts/client-api/README.md). Mock data and the legacy bridge are explicit development modes rather than automatic production fallbacks.
-
-For a trusted-LAN Node, set `OPENPPX_CLIENT_API_TOKEN` before binding the Client API to `0.0.0.0`. Non-loopback binds without a token are rejected. See the [Desktop LAN setup](./apps/desktop/README.md#2-局域网模式) for the end-to-end flow; direct public-internet exposure is not supported.
-
-Developer smoke checks:
+Then start the Node with a strong bearer token:
 
 ```bash
-scripts/install_smoke.sh
-scripts/install_smoke.sh --with-gateway
+export OPENPPX_CLIENT_API_TOKEN='<random-secret>'
+ppx node run
 ```
 
-## ⚡ Quick Ops
+Connect Desktop or CLI to `http://<node-lan-address>:18765` with the same token. A non-loopback bind without a token is rejected. This mode is intended only for a trusted LAN; do not expose the HTTP endpoint directly to the public internet.
 
-```bash
-ppx list
-ppx enable medium-main
-ppx disable low-main
-ppx delete low-main
+## CLI
 
-# Single-turn call
-python -m openppx.cli -m "Describe what you can do"
-python -m openppx.cli -m "Describe what you can do" --user-id local --session-id demo001
-ppx rewind --user-id local --session-id demo001
-ppx rewind --user-id local --session-id demo001 --before-invocation-id <invocation_id>
-
-# Local interactive gateway
-python -m openppx.cli gateway run --channels local --interactive-local
-
-# Multi-channel runtime
-ppx gateway run --channels local,feishu --interactive-local
-ppx gateway-service install --channels local,feishu --enable
-ppx gateway-service status
-ppx doctor
-ppx heartbeat status
-ppx token stats --provider google --limit 50
-ppx token stats --last-hours 24
-```
-
-## 🗂️ Project Layout
+The stable top-level groups are deliberately small:
 
 ```text
-openppx_root/
-├── README.md
-├── apps/
-│   └── desktop/
-├── assets/
-├── docs/
-│   ├── CONFIGURATION.md
-│   ├── MCP_SECURITY.md
-│   ├── OPERATIONS.md
-│   ├── PROJECT_OVERVIEW.md
-│   └── README.md
-├── openppx/
-│   ├── app/
-│   ├── bridge/
-│   ├── browser/
-│   ├── bus/
-│   ├── channels/
-│   ├── core/
-│   ├── gui/
-│   ├── mcps/
-│   ├── runtime/
-│   ├── skills/
-│   └── tooling/
-├── scripts/
-├── tests/
-└── workspace/
+ppx setup
+ppx node run|service
+ppx action list|invoke
+ppx command
+ppx config read|validate|preview|apply
+ppx model list|read|readiness|select|apply
+ppx extension list|get|readiness|preview|install|enable|disable|remove
+ppx operations status|health|tasks|cron|heartbeat|usage|audit
 ```
 
-## 📚 Documentation
+Commands that manage a running Node accept `--url` and `--token`. Add `--json` for machine-readable output. Use `ppx <group> --help` for exact inputs and optimistic-revision requirements.
 
-Detailed documentation is in [`docs/`](./docs/):
-
-- [`docs/PROJECT_OVERVIEW.md`](./docs/PROJECT_OVERVIEW.md)
-- [`docs/OPERATIONS.md`](./docs/OPERATIONS.md)
-- [`docs/CONFIGURATION.md`](./docs/CONFIGURATION.md)
-- [`docs/MCP_SECURITY.md`](./docs/MCP_SECURITY.md)
-- [`docs/README.md`](./docs/README.md)
-
-Recommended reading order:
-
-1. `OPERATIONS.md` (runtime and commands)
-2. `CONFIGURATION.md` (settings and environment mapping)
-3. Topic-specific docs as needed
-
-For programmatic doctor output:
+Action discovery and direct invocation are useful for debugging shared client behavior:
 
 ```bash
-ppx doctor --fix --json
+ppx action list --projection cli
+ppx action invoke system.status --input-json '{}'
 ```
 
-Then inspect `fix.reasonCodes` and `fix.byRule`
-(see `docs/OPERATIONS.md` for details).
-
-## 🧹 Uninstall
-
-Run this in the same Python environment where `openppx` was installed:
+Slash commands use the same Action catalog:
 
 ```bash
-pip uninstall openppx
+ppx command '/status'
+ppx command '/skills' --agent main
+ppx command '/history' --agent main --session <session-id>
 ```
 
-This removes only the Python package and CLI entrypoint.
-It does **not** remove user data under `~/.openppx/`.
+## Extensions
 
-To remove local runtime data as well:
+OpenPPX uses four product-level extension types:
+
+- **Plugin:** a versioned declarative bundle that can provide Skills, App definitions, MCP templates, Agent templates, schemas, and documentation.
+- **App:** a managed external-service integration with product identity, authorization state, grants, and tool policy.
+- **MCP:** a directly managed local or remote Model Context Protocol server.
+- **Skill:** instructions, references, and controlled scripts loaded for an Agent.
+
+Every install follows a staged lifecycle:
+
+```text
+discover -> stage -> validate -> preview -> confirm -> install -> enable -> test
+```
+
+Preview first, retain the returned digest, then install with that exact digest. Installed content is immutable and an active Run keeps its pinned extension snapshot.
 
 ```bash
-rm -rf ~/.openppx
+ppx extension list --agent main
+ppx extension preview skill local_directory <source-directory>
+ppx extension install skill local_directory <source-directory> <expected-digest>
 ```
 
-Only run this cleanup if you no longer need existing config, agent-home files, workspaces, logs, or local runtime records.
+## Operations
+
+```bash
+ppx operations status
+ppx operations health
+ppx operations tasks --limit 20
+ppx operations cron list
+ppx operations heartbeat status
+ppx operations usage --limit 20
+ppx operations audit --limit 50
+```
+
+Cron and Heartbeat are owned by the long-lived Node process. Their actions, failures, and TaskRuns appear in the same Operations and audit surfaces used by Desktop.
+
+## Security model
+
+- Secrets are represented by `SecretRef`; ordinary resource JSON, diagnostics, audit, and client responses never contain secret values.
+- Non-loopback Client API access requires bearer authentication.
+- High-risk Actions require both policy permission and explicit confirmation.
+- Action audits store bounded identities, decisions, and outcomes rather than request or response payloads.
+- Extensions are staged and validated before activation; declarative Product Plugins cannot execute arbitrary host initialization code.
+- Docker sandbox support is available for dangerous local execution, but access to the Docker daemon remains host-powerful.
+
+See [docs/MCP_SECURITY.md](./docs/MCP_SECURITY.md) and [docs/SANDBOX.md](./docs/SANDBOX.md).
+
+## Repository layout
+
+```text
+openppx/                    Python Node, domains, runtime, and built-in Skills
+packages/client/            Shared TypeScript Client Contract implementation
+apps/desktop/               Electron/React Desktop
+contracts/client-api/       Versioned schemas, protocol notes, and fixtures
+tests/                      Unit, integration, contract, architecture, and eval tests
+docs/                       User and operator documentation
+```
+
+## Development verification
+
+```bash
+source .venv/bin/activate
+python -m pytest -q
+
+cd packages/client
+./node_modules/.bin/vitest run
+./node_modules/.bin/tsc --noEmit
+
+cd ../../apps/desktop
+./node_modules/.bin/vitest run
+node --test scripts/verify-preload.node-test.mjs
+npm run build
+```
+
+## Documentation
+
+- [Project architecture](./docs/PROJECT_OVERVIEW.md)
+- [Configuration and models](./docs/CONFIGURATION.md)
+- [Operations](./docs/OPERATIONS.md)
+- [Client API contract](./contracts/client-api/README.md)
+- [Desktop](./apps/desktop/README.md)
+- [MCP and extension security](./docs/MCP_SECURITY.md)
+- [Sandbox](./docs/SANDBOX.md)
+- [Use cases](./docs/USE_CASES.md)
+
+## Current boundaries
+
+- CLI and Desktop are first-class clients; a mobile client is a future consumer of the same contract, not part of the current build.
+- Trusted-LAN connectivity is implemented. Automatic TLS, discovery, pairing, SSH/Tailnet setup, and a public relay are future work.
+- Public extension catalogs, cloud hosting, improved memory, self-evolution, and deeper long-task intelligence remain later product layers over the current Node foundation.
+- The current macOS Desktop artifact is a developer preview and is not signed or notarized.

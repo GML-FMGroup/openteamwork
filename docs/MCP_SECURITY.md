@@ -1,161 +1,135 @@
-# MCP and Security Policy
+# Extension and MCP Security
 
-## MCP Tool Integration
+OpenPPX treats Plugin, App, MCP, and Skill installation as governed Node mutations. A resource becoming discoverable does not make it trusted, installed, enabled, or available to an active Run.
 
-`openppx` uses ADK `McpToolset` and reads server definitions from `tools.mcpServers`.
+## Lifecycle
 
-### Per-Server Fields
+```text
+discover -> stage -> validate -> preview -> confirm -> install -> enable -> test
+```
 
-- `enabled`: optional, defaults to `true`; set to `false` to skip that MCP server
-- `command` + `args` + `env`: stdio MCP server configuration
-- `url`: remote MCP server URL
-- `transport`: optional, `sse` or `http`
-- `headers`: remote request headers
-- `toolFilter` or `tool_filter`: tool allowlist exposed to the agent
-- `toolNamePrefix` or `tool_name_prefix`: tool-name prefix stem; ADK inserts `_` between the prefix and tool name
-- `requireConfirmation` or `require_confirmation`: per-tool confirmation policy
-- `runtimeHeaders` or `runtime_headers`: maps ADK runtime context into remote MCP request headers
-- `progressEvents` or `progress_events`: converts MCP progress notifications into openppx step events; defaults to `false`
-- `longTaskProxy` or `long_task_proxy`: routes MCP tools through the openppx long-task proxy; defaults to `true`
-- `inlineBudgetMs` or `inline_budget_ms`: inline wait budget for MCP calls; defaults to `5000`
+- Source adapters copy content into a controlled staging directory.
+- Validation checks identity, manifest, size, path, link, digest, dependency, ownership, prefix, and risk rules.
+- Preview is read-only and returns a bounded client-safe summary plus content digest.
+- Install must present the exact preview digest; high-risk changes also require confirmation.
+- Enablement is Agent-specific and revision-safe.
+- Active Runs retain an immutable snapshot; updates affect future Runtime instances.
 
-`runtimeHeaders` is disabled by default to avoid silently sending user/session context to remote services. Supported sources include:
+## Source defenses
 
-- `user_id`, `session_id`, `app_name`, `invocation_id`, `agent_name`
-- `metadata.<key>` / `custom_metadata.<key>` / `run_metadata.<key>`
-- `state.<key>`, `session.<attr>`, `literal:<value>`
+Local archives and directories reject:
 
-Example:
+- absolute paths, `..` traversal, platform-dependent separators, and drive-prefixed paths;
+- symlink, hardlink, device, socket, FIFO, and other unsupported filesystem entries;
+- duplicate archive names and inconsistent size/count/expansion limits;
+- content that escapes the staged root;
+- manifest identity or digest drift between preview and installation.
+
+Git sources must be pinned to a fixed commit. A branch name cannot silently change installed content. Catalog adapters provide discovery and bytes; they do not bypass normal staging or validation.
+
+Source locators, credentials embedded in locators, and backend exception text are excluded from ordinary inventory responses.
+
+## Direct MCP resources
+
+A directly managed `McpServer` supports:
+
+- `stdio` with an executable, argv list, optional working directory, and bounded environment bindings;
+- `streamable_http` or `sse` with a clean HTTP(S) URL and bounded header bindings.
+
+Sensitive values use `SecretRef` bindings:
 
 ```json
 {
-  "tools": {
-    "mcpServers": {
-      "tenant_api": {
-        "url": "https://mcp.example.com/mcp",
-        "runtimeHeaders": {
-          "X-OpenPPX-User": "user_id",
-          "X-OpenPPX-Session": "session_id",
-          "X-OpenPPX-Request-Kind": "metadata.request_kind"
-        },
-        "progressEvents": true,
-        "longTaskProxy": true,
-        "inlineBudgetMs": 5000
-      }
-    }
-  }
+  "kind": "secret",
+  "secretRef": {"store": "system", "name": "service-token"},
+  "prefix": "Bearer "
 }
 ```
 
-### MCP Long-Task Proxy
+The Secret is resolved only when constructing the ADK MCP toolset. The persisted resource, extension inventory, readiness output, diagnostics, audit rows, and Runtime metadata contain only status or a reference-safe projection.
 
-When `longTaskProxy` is enabled, openppx wraps MCP tools returned by ADK. It does not replace ADK `McpToolset`.
+Remote URLs cannot contain user information, query credentials, or fragments. STDIO execution is argv-only; OpenPPX does not pass the declaration through a shell.
 
-Current behavior:
+## MCP tool policy
 
-- If the MCP call completes within `inlineBudgetMs`, the tool result is returned inline unchanged.
-- If it exceeds the budget, the tool returns a `task_id`, and a background coroutine continues in the current process.
-- Completion or failure updates `TaskRun(kind=mcp)` and task events.
-- MCP proxy tasks still attached to the current process can be interrupted or canceled on a best-effort basis.
-- If the process restarts or the background coroutine is no longer attached, the task enters `stale` and may later be converged to `lost`.
+Each MCP resource can define:
 
-This does not promise generic server-side MCP cancel, status, or checkpoint semantics. Server-specific adapters should be added only when a concrete MCP server exposes an explicit job protocol.
+- an allowlist of tool names;
+- a stable Agent-wide tool prefix;
+- confirmation requirements;
+- progress event projection;
+- long-task proxy behavior and inline time budget;
+- a declared external-job protocol for status, output, cancel, pause, resume, and checkpoints.
 
-### MCP External Job Protocol
+Tool prefixes must remain unique across direct MCP, Apps, and Product Plugins enabled for one Agent. A collision is rejected before ADK assembly.
 
-If an MCP server tool quickly returns an external job id, configure `jobProtocol` explicitly:
+OpenPPX does not infer remote-job semantics from arbitrary provider payloads. Long-task controls appear only when the resource declares the corresponding protocol and the contract probe succeeds.
 
-```json
-{
-  "jobProtocol": {
-    "jobIdPath": "job_id",
-    "statusTool": "job_status",
-    "statusArgs": {"job_id": "{job_id}"},
-    "outputTool": "job_output",
-    "cancelTool": "job_cancel"
-  }
-}
-```
+## Apps
 
-Current behavior:
+An App separates product identity and authorization from transport:
 
-- openppx creates an external `TaskRun` only when `jobProtocol` is configured and the original MCP result contains a job id at `jobIdPath`.
-- `statusTool` is required; without it, the job cannot be declared rejoinable.
-- `outputTool` and `cancelTool` are optional; missing tools do not create fake output or cancel capability.
-- `show_task` and the scheduler use `statusTool` to update task state. When status is invisible, the task becomes `stale` instead of being shown as a normal running task.
-- `cancel_task` is offered only when `cancelTool` exists.
+- `AppDefinition` declares branding, developer, category, auth slots, tool catalog, risk, and an MCP transport template.
+- `AppConnection` binds a user-managed authorization instance, SecretRefs, selected tools, grants, and Agent enablement.
 
-This still does not promise checkpoint or resume behavior, and openppx does not auto-discover MCP job protocols. The protocol must be declared in configuration.
+Connections may only narrow the definition's tool policy. High-risk tools require explicit confirmation. Updating a definition cannot invalidate an active referenced connection, and a Plugin-owned definition cannot be removed independently from its owner.
 
-### Minimal Validation Flow
+## Product Plugins
 
-1. Configure `tools.mcpServers` in the target agent config at `~/.openppx/<agent_name>/config.json`.
-2. Run `ppx doctor` to inspect service health and the tool list.
-3. Start `ppx gateway run`.
-4. Call MCP tools in conversation, for example `mcp_filesystem_...`.
+Product Plugin v1 is declarative. Its root manifest is `.openppx-plugin/plugin.json` and may reference:
 
-### Built-In GUI MCP
+- Skills;
+- App definitions;
+- MCP resources;
+- Agent templates;
+- object schemas;
+- documentation;
+- explicitly allowed runtime capability references.
 
-Expose GUI automation as an MCP service when you want centralized permission control:
+It cannot declare credentials, CLI entry points, arbitrary Python or ADK initialization hooks, package installers, background processes, or unbounded host code. Referenced files must be unique safe relative paths below the Plugin root.
 
-```json
-{
-  "tools": {
-    "mcpServers": {
-      "openppx_gui": {
-        "enabled": true,
-        "command": "openppx-gui-mcp",
-        "args": [],
-        "toolNamePrefix": "mcp_gui",
-        "requireConfirmation": true
-      }
-    }
-  }
-}
-```
+Plugin-owned resources are projected from immutable installed content. They are not copied into independently mutable registries, preventing ownership and update drift.
 
-- Tool names: `mcp_gui_gui_action`, `mcp_gui_gui_task`
-- `requireConfirmation=true` routes high-risk GUI execution through the confirmation flow.
-- Fine-grained action controls still come from GUI environment variables such as `OPENPPX_GUI_ALLOWED_ACTIONS`.
-- Set `OPENPPX_GUI_BUILTIN_TOOLS_ENABLED=0` if you want the agent to use GUI tools only through MCP.
+## Skills
 
-### Common MCP Environment Variables
+Skills are instructions, references, and controlled scripts. Installation validates manifest identity, dependencies, digest, risk, and content boundaries. An Agent sees only its enabled immutable Skill snapshot.
 
-| Variable | Default | Purpose |
-|---|---|---|
-| `OPENPPX_MCP_DOCTOR_TIMEOUT_SECONDS` | `5`, range `1..30` | MCP health-check timeout for `doctor` |
-| `OPENPPX_MCP_GATEWAY_TIMEOUT_SECONDS` | `5`, range `1..30` | Required MCP check timeout during gateway startup |
-| `OPENPPX_MCP_PROBE_RETRY_ATTEMPTS` | `2`, range `1..5` | MCP probe retry count |
-| `OPENPPX_MCP_PROBE_RETRY_BACKOFF_SECONDS` | `0.3`, range `0..5` | Base backoff for MCP probe retries |
-| `OPENPPX_MCP_REQUIRED_SERVERS` | empty | Comma-separated list of MCP servers that must be healthy |
+Skill instructions are not a security boundary. Tool and sandbox policy remains authoritative even if a Skill requests broader behavior.
 
-If `OPENPPX_MCP_REQUIRED_SERVERS` is set and any required server is unavailable, gateway startup fails fast.
+## Readiness and failure isolation
 
-## Security Policy
+An extension can be installed but not ready. Readiness reports stable non-sensitive reasons such as:
 
-`openppx` uses one policy layer for file, command, and network capabilities.
+- missing protected credential;
+- unavailable executable;
+- dependency not installed or enabled;
+- owner not enabled;
+- prefix or resource identity conflict;
+- connection probe failure;
+- policy restriction.
 
-| Field | Default | Description |
-|---|---|---|
-| `restrictToWorkspace` | `false` | Restrict file tools and shell path arguments to `OPENPPX_WORKSPACE` |
-| `allowExec` | `true` | Enable or disable the `exec` tool globally |
-| `allowNetwork` | `true` | Enable or disable `web_search` / `web_fetch` globally |
-| `execAllowlist` | `[]` | Command-name allowlist; empty means no extra command-name restriction |
+A missing credential or unavailable MCP omits only that affected toolset from a new Runtime and returns a redacted diagnostic. It does not expose the Secret or silently switch to an undeclared source.
 
-Additional notes:
+## Permissions, confirmation, and audit
 
-- `execAllowlist` validates each command segment in chained commands such as `&&`, `||`, and `;`.
-- `exec` defaults to `shell=False` to reduce shell injection risk.
+All lifecycle mutations execute through typed Actions and immutable `PolicyContext` evaluation. The caller must have the required capability, permission, and bound target scope. High-risk installation, enablement, reauthorization, or removal additionally requires explicit confirmation.
 
-### Exec Runtime Policy
+Audit facts record Action identity, actor, target, policy decision, outcome, and timestamps. Request bodies, response bodies, source bytes, SecretRefs, and Secret values are not stored. High-risk mutations fail closed if the audit start cannot be recorded.
 
-`exec` supports common shell compound commands such as `export ... && ...` and can be controlled through environment variables:
+## Runtime isolation
 
-| Variable | Default | Description |
-|---|---|---|
-| `OPENPPX_EXEC_SECURITY` | automatic: `allowlist` when an allowlist exists, otherwise `full` | Execution policy: `deny`, `allowlist`, or `full` |
-| `OPENPPX_EXEC_SAFE_BINS` | empty | Extra command names allowed in `allowlist` mode |
-| `OPENPPX_EXEC_ASK` | `off` | Approval policy: `off`, `on-miss`, or `always` |
-| `OPENPPX_HIGH_RISK_ACTION_ACCESS` | `true` | High-risk tool policy: `true` allows, `conditional` asks for ADK confirmation, other values deny |
+MCP servers and extension scripts still run with the operating-system authority of their configured process unless a sandbox policy is applied. Review local executables and source trust before enablement. For dangerous local execution, use the Docker policy described in [SANDBOX.md](./SANDBOX.md).
 
-In the root-agent and gateway paths, `OPENPPX_EXEC_ASK` and `OPENPPX_HIGH_RISK_ACTION_ACCESS=conditional` use ADK-native `adk_request_confirmation` to pause tool calls. The call continues after `yes`, `confirm`, or `approve`, and is rejected after `no`, `reject`, or `cancel`. Direct Python tool calls without ADK `tool_context` still return `approval required`, preserving the low-level safety boundary.
+Access to the Docker daemon is itself trusted and host-powerful. Isolation does not make an unknown extension safe to install.
+
+## Operational checklist
+
+Before enabling an extension:
+
+1. Confirm its source, fixed version or commit, and digest.
+2. Review the declared resources, commands, endpoints, tools, risk, and requested runtime capabilities.
+3. Confirm that every sensitive binding is a SecretRef.
+4. Prefer a tool allowlist and the lowest useful Agent privilege.
+5. Test readiness and MCP discovery before assigning real work.
+6. Review Action audit and Task facts after the first run.
+7. Disable the resource before removal; resolve active references explicitly.

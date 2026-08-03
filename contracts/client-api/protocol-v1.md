@@ -2,94 +2,123 @@
 
 ## Purpose
 
-Client API v1 is the network boundary between a client and one OpenPPX Node. The client may run on the same machine or connect to a Node on another machine on a trusted LAN.
+Client API v1 is the versioned network boundary between one OpenPPX Node and CLI, Desktop, or a future client. The client can run on the same computer or connect over a trusted LAN.
+
+The project has not published a stable compatibility promise yet. The current v1 development baseline is the contract from which future version guarantees will begin.
 
 ## Transport
 
-- JSON endpoints use HTTP under `/api/v1`.
-- Long-running run events use Server-Sent Events (SSE).
-- Successful JSON responses use `{ "ok": true, "data": { ... } }`.
-- Failed JSON responses use `{ "ok": false, "error": { "code", "message", "details" } }`.
-- JSON field names use `snake_case` on the wire.
-- Protected requests use `Authorization: Bearer <token>`; tokens are never accepted in query strings.
+- JSON endpoints use HTTP below `/api/v1`.
+- Long-running Run events use Server-Sent Events (SSE).
+- Protected requests use `Authorization: Bearer <token>`.
+- Credentials are never accepted in URLs or query strings.
+- Action field names use camel case and the common Action envelope.
+- Existing Agent, Session, Message, and Run resource projections retain their documented wire fields until they move behind generated domain contracts.
 
-## Version handshake
+## Handshake
 
-Clients first call the public `GET /api/v1/health` endpoint for liveness and protocol negotiation. A compatible response contains:
+Clients first call public `GET /api/v1/health` for liveness and protocol negotiation. The response identifies:
 
-| Field | v1 requirement |
-|---|---|
-| `service` | `openppx-client-api` |
-| `product_version` | Non-empty OpenPPX release version, or `unknown` in an unpackaged source tree |
-| `protocol_version` | Integer `1` |
-| `ready` | `true` |
-| `state` | `healthy` |
+- `service: openppx-client-api`;
+- `product_version`;
+- `protocol_version: 1`;
+- readiness/state (`healthy` or `needs_configuration`);
+- timestamp.
 
-The Desktop client supports protocol version `1` exactly. A different or missing version is not considered healthy. It must be reported as an incompatibility instead of silently using mock data or a legacy transport.
+Protocol compatibility is determined by the protocol version, not the product version. An incompatible or malformed response is reported as an error; clients do not synthesize production data.
 
-`product_version` identifies the Node implementation and does not determine protocol compatibility.
+After protocol negotiation, clients call protected `GET /api/v1/node`. It returns stable Node identity, supported protocol range, caller-visible capabilities, enabled Agent count, and authentication status. Local paths and Secrets are not projected.
 
-The public health projection omits local paths, agent counts, Node identity, and capabilities. A client must then call the protected `GET /api/v1/node` endpoint before treating the connection as healthy. That response provides:
-
-- stable `node_id` and `display_name`;
-- supported protocol range;
-- capability names;
-- enabled agent count;
-- whether bearer authentication is configured.
+An unconfigured loopback Node exposes the minimum setup surface so Desktop and CLI can complete onboarding. It must not report itself as ready before a real `setup.hello` succeeds for the active resource revisions.
 
 ## Authentication
 
-- All `/api/v1/*` operations except the minimal public health projection are protected when a token is configured.
-- SSE uses the same bearer header as JSON requests.
-- Non-loopback binds are rejected at startup unless `OPENPPX_CLIENT_API_TOKEN` is non-empty.
+- Every operation except the minimal public health projection is protected when a bearer token is configured.
+- JSON and SSE use the same bearer header.
+- Non-loopback binds are rejected unless authentication is required and a non-empty process token is available.
 - Token comparison is constant-time.
-- Authentication failures return HTTP 401 with error code `UNAUTHORIZED` and never echo the credential.
-- Loopback may run without authentication for manual development. Desktop-managed local Nodes still use a random per-process token.
+- Authentication failures return HTTP 401 with a stable error and never echo the credential.
+- Manual loopback development may disable authentication. Desktop-supervised local Nodes use a random per-process token.
 
-## Desktop endpoints
+## Common Action contract
 
-The current Desktop client uses these v1 operations:
+Action discovery and execution are the shared control surface:
 
-- `GET /api/v1/health`
-- `GET /api/v1/node`
-- `GET /api/v1/runtime/status`
-- `GET /api/v1/agents`
-- `GET|POST /api/v1/agents/{agent_id}/sessions`
-- `GET /api/v1/sessions/{session_id}/messages`
-- `POST /api/v1/agents/{agent_id}/sessions/{session_id}/runs`
-- `GET /api/v1/runs/{run_id}/events`
+- `GET /api/v1/actions` returns a caller-aware catalog and supports namespace/client-projection filters.
+- `POST /api/v1/actions/invoke` executes one registered Action.
 
-The run stream emits named SSE events such as `run.started`, `message.created`, `message.delta`, `step.updated`, `message.completed`, `message.failed`, `run.cancelled`, and `run.finished`.
+Success:
 
-## Final Action contract introduced by the major upgrade
+```json
+{
+  "protocolVersion": 1,
+  "requestId": "req_...",
+  "correlationId": "corr_...",
+  "ok": true,
+  "result": {}
+}
+```
 
-The development-time v1 label is intentionally reused without a compatibility promise before the first public release. New Action endpoints use the final common envelope and camel-cased fields:
+Failure:
 
-- `GET /api/v1/actions` returns the caller-aware Action catalog;
-- `POST /api/v1/actions/invoke` executes one registered Action;
-- success is `{ "protocolVersion", "requestId", "correlationId", "ok": true, "result": {} }`;
-- failure is `{ "protocolVersion", "requestId", "correlationId", "ok": false, "error": {} }`.
+```json
+{
+  "protocolVersion": 1,
+  "requestId": "req_...",
+  "correlationId": "corr_...",
+  "ok": false,
+  "error": {
+    "code": "permission_denied",
+    "message": "The action is not permitted.",
+    "details": {}
+  }
+}
+```
 
-The canonical Pydantic-generated schema and fixtures live in `contracts/client-api/v1/`. Legacy Desktop endpoints keep their earlier envelope only until the TypeScript client and Desktop cutover increment removes them.
+The Action Executor enforces availability, strict input, policy scope, permission, confirmation, and audit before calling a domain handler. Errors are stable and redacted.
 
-Extension inventory and lifecycle use this Action boundary rather than parallel REST resources:
+Major Action namespaces include:
 
-- `extension.list/get/readiness` provide the shared Plugin, App, MCP, and Skill inventory;
-- `extension.preview/install/enable/disable/remove` enforce source staging, digest checks, optimistic revisions, and confirmation;
-- App connections and directly managed MCP resources keep domain-specific Action IDs while sharing the same envelope;
-- inventory payloads omit source locators, credential references, URL secrets, and backend exception text.
+- `system`, `setup`, `config`, `secret`, and `model`;
+- `extension`, `plugin`, `app`, and `mcp`;
+- `session`, `run`, `task`, `skill`, and `command`;
+- `operations`, `cron`, `heartbeat`, `usage`, and `audit`.
 
-First-run setup uses `setup.status`, `setup.apply`, and `setup.hello`. Applying resources leaves the Node in
-`configured`; clients may enter the workspace only after `setup.hello` completes a real model turn and the
-current Node, Agent, and Model Profile revisions become `ready`. Secret values are accepted only in the apply
-request and never appear in status, apply, Hello, diagnostics, or audit responses.
+## First setup
 
-The CLI and Desktop consume these Actions through the same client contract. A CLI managing another machine sets the Node URL and bearer token; it does not read or mutate that Node's files directly.
+First-run clients use:
 
-Strict Node identity now comes from NodeConfig `metadata.name` and follows the ResourceName grammar. The former separate `node_...` identity file is no longer read by Client API.
+- `setup.status` to obtain provider catalog, recommended workspace, readiness, and current revisions;
+- `setup.apply` to validate and atomically write Node, Agent, Model Profile, and optional Secret input;
+- `setup.hello` to create a Session and execute a real model turn.
 
-## Compatibility policy
+Secret values may enter the protected apply request but never appear in status, apply, Hello, diagnostics, or audit responses.
 
-- Adding optional response fields is backward compatible.
-- Removing or renaming fields, changing field meaning, or changing event semantics requires a new protocol version.
-- Legacy bridge and mock modes are explicit development options only; they are not protocol negotiation mechanisms.
+## Agent and Run operations
+
+Desktop currently uses versioned operations for:
+
+- Node/runtime bootstrap;
+- Agent listing;
+- Session list/create and message history;
+- Run start/cancel;
+- ordered Run event streaming.
+
+Run SSE events include `run.started`, `message.created`, `message.delta`, `step.updated`, `message.completed`, `message.failed`, `run.cancelled`, and `run.finished`. Events carry stable IDs/sequences so a client can reconnect with `Last-Event-ID`, suppress duplicates, and continue within the bounded replay window.
+
+An ADK error or empty final response produces failure, not a successful blank message.
+
+## Extension and Operations projection
+
+Extension inventory and lifecycle use Actions rather than a parallel mutable HTTP registry. Inventory responses are client-safe and omit SecretRefs, source credentials, URL secrets, local staging paths, and backend exception text.
+
+Operations Actions expose bounded Node status, component health, Task facts, Cron, Heartbeat, usage, and redacted audit rows. Clients do not query Node SQLite databases directly.
+
+## Compatibility rules after stabilization
+
+Once a stable protocol is declared:
+
+- adding optional fields is compatible;
+- removing or renaming fields, changing meaning, or changing event semantics requires a new protocol version;
+- canonical schema and fixtures must change with Python and TypeScript consumers;
+- clients must reject unsupported required versions rather than guessing.

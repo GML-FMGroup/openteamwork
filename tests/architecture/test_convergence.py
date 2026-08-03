@@ -10,6 +10,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 PACKAGE = ROOT / "openppx"
 DESKTOP = ROOT / "apps" / "desktop"
+WORKSPACE_TEMPLATE = ROOT / "workspace"
 
 
 def _production_text() -> str:
@@ -50,6 +51,7 @@ def test_production_has_no_removed_config_or_desktop_fallbacks() -> None:
         "OPENPPX_DESKTOP_FORCE_LEGACY",
         "serve_client_api",
         "build_legacy_root_agent",
+        "http://127.0.0.1:8765",
         "RuntimeOutboundEvent",
         "def message(",
         "def message_image(",
@@ -76,3 +78,20 @@ def test_cli_exposes_only_the_new_product_groups() -> None:
     expected = ("setup", "node", "action", "command", "config", "model", "extension", "operations")
     assert all(name in output for name in expected)
     assert all(name not in output for name in ("client-api", "gateway", "channel", "doctor"))
+
+
+def test_workspace_templates_describe_current_runtime_tools() -> None:
+    text = "\n".join(
+        path.read_text(encoding="utf-8")
+        for path in (WORKSPACE_TEMPLATE / "AGENTS.md", WORKSPACE_TEMPLATE / "TOOLS.md")
+    )
+    required = ("exec_command", "invoke_skill_api", "task_id", "cron")
+    removed = (
+        "openppx cron",
+        "HEARTBEAT.md",
+        "AgentLoop._register_default_tools",
+        "### message",
+        "### spawn",
+    )
+    assert all(token in text for token in required)
+    assert [token for token in removed if token in text] == []

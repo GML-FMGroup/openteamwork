@@ -12,7 +12,7 @@ from urllib import error, parse, request
 class ClientApiClient:
     """Call the local HTTP + SSE client API with stable typed helpers."""
 
-    base_url: str = "http://127.0.0.1:8765"
+    base_url: str = "http://127.0.0.1:18765"
     timeout_seconds: float = 10.0
     access_token: str = ""
 

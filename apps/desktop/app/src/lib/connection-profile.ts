@@ -46,7 +46,7 @@ export function isLoopbackClientApiHostname(hostname: string): boolean {
 
 /** Validate a Client API origin without allowing credentials or URL suffixes. */
 export function normalizeClientApiBaseUrl(rawValue: string, targetType: "local" | "lan"): string {
-  const rawBaseUrl = rawValue.trim() || "http://127.0.0.1:8765";
+  const rawBaseUrl = rawValue.trim() || "http://127.0.0.1:18765";
   const parsedBaseUrl = new URL(rawBaseUrl);
   if (!["http:", "https:"].includes(parsedBaseUrl.protocol)) {
     throw new Error("Node URL must use http:// or https://.");
@@ -159,7 +159,7 @@ export function parseStoredConnectionSettings(payload: unknown): StoredConnectio
     targetType,
     targetId: String(record.targetId ?? (targetType === "lan" ? "lan-default" : "local-default")),
     targetName: String(record.targetName ?? (targetType === "lan" ? "LAN OpenPPX Node" : "This Mac")),
-    clientApiBaseUrl: String(record.clientApiBaseUrl ?? "http://127.0.0.1:8765"),
+    clientApiBaseUrl: String(record.clientApiBaseUrl ?? "http://127.0.0.1:18765"),
     secretRef: typeof record.secretRef === "string" && record.secretRef.trim() ? record.secretRef.trim() : undefined,
   };
 }

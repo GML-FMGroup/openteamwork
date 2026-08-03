@@ -67,7 +67,7 @@ function buildConnectionSettings(diagnostics: ClientDiagnostics | null): Connect
     targetType: diagnostics?.mode === "lan" ? "lan" : "local",
     targetId: diagnostics?.target.id ?? "local-default",
     targetName: diagnostics?.target.name ?? "This Mac",
-    clientApiBaseUrl: diagnostics?.clientApiBaseUrl ?? "http://127.0.0.1:8765",
+    clientApiBaseUrl: diagnostics?.clientApiBaseUrl ?? "http://127.0.0.1:18765",
     accessToken: "",
   };
 }

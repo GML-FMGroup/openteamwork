@@ -1,53 +1,40 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Lightweight end-to-end smoke for install + doctor (+ optional gateway probe).
-# Usage:
-#   scripts/install_smoke.sh
-#   scripts/install_smoke.sh --force
-#   scripts/install_smoke.sh --with-gateway
+# Build and inspect the current OpenPPX wheel without downloading dependencies.
+# Run from any directory after activating a development environment that already
+# contains the project's runtime and build dependencies.
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+SMOKE_DIR="$(mktemp -d "${TMPDIR:-/tmp}/openppx-install-smoke.XXXXXX")"
+
+cleanup() {
+  rm -rf "${SMOKE_DIR}"
+}
+trap cleanup EXIT
+
 cd "${ROOT_DIR}"
 
-FORCE_FLAG=""
-WITH_GATEWAY=0
+echo "[smoke] building wheel"
+python -m build --wheel --no-isolation --outdir "${SMOKE_DIR}/dist" .
 
-while (($# > 0)); do
-  case "$1" in
-    --force)
-      FORCE_FLAG="--force"
-      shift
-      ;;
-    --with-gateway)
-      WITH_GATEWAY=1
-      shift
-      ;;
-    *)
-      echo "Unknown argument: $1" >&2
-      exit 2
-      ;;
-  esac
-done
-
-if ! command -v ppx >/dev/null 2>&1; then
-  echo "ppx command not found. Activate venv and run 'pip install -e .' first." >&2
+WHEEL_PATH="$(find "${SMOKE_DIR}/dist" -maxdepth 1 -name 'openppx-*.whl' -print -quit)"
+if [[ -z "${WHEEL_PATH}" ]]; then
+  echo "OpenPPX wheel was not created." >&2
   exit 1
 fi
 
-echo "[smoke] running install ${FORCE_FLAG}"
-ppx install ${FORCE_FLAG}
+echo "[smoke] installing wheel into isolated target"
+python -m pip install --no-deps --target "${SMOKE_DIR}/site" "${WHEEL_PATH}"
 
-echo "[smoke] running doctor"
-ppx doctor
+cd "${SMOKE_DIR}"
+export PYTHONPATH="${SMOKE_DIR}/site"
 
-if [[ "${WITH_GATEWAY}" == "1" ]]; then
-  echo "[smoke] running gateway probe"
-  if command -v timeout >/dev/null 2>&1; then
-    timeout 5s ppx gateway run --channels local || true
-  else
-    echo "[smoke] 'timeout' not found, skipping gateway probe"
-  fi
-fi
+echo "[smoke] checking import and packaged Skills"
+python -c "import importlib.resources as r, openppx; root = r.files('openppx').joinpath('skills'); names = {item.name for item in root.iterdir() if item.is_dir()}; assert {'cron', 'self-observe'} <= names; print(f'OpenPPX import: {openppx.__file__}; Skills: {len(names)}')"
 
-echo "[smoke] done"
+echo "[smoke] checking CLI"
+python -m openppx.cli --help >/dev/null
+python -m openppx.cli node --help >/dev/null
+
+echo "[smoke] passed"

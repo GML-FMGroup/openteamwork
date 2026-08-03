@@ -131,7 +131,7 @@ export class OpenPpxLocalAdapter implements PpxClientApi {
 
   private readonly clientApiHost = process.env.OPENPPX_CLIENT_API_HOST?.trim() || "127.0.0.1";
 
-  private readonly clientApiPort = Number(process.env.OPENPPX_CLIENT_API_PORT?.trim() || "8765");
+  private readonly clientApiPort = Number(process.env.OPENPPX_CLIENT_API_PORT?.trim() || "18765");
 
   private target: ConnectionTarget;
 
