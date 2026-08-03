@@ -182,7 +182,7 @@ export function ContextSidebar({
     [agents, selectedAgentId],
   );
   const nodeName = diagnostics?.nodeName ?? diagnostics?.target.name ?? runtime.target.name;
-  const connectionMode = diagnostics?.mode === "lan" ? "LAN" : diagnostics?.mode === "mock" ? "DEMO" : "LOCAL";
+  const connectionMode = diagnostics?.mode === "lan" ? "LAN" : "LOCAL";
 
   useEffect(() => {
     function handleSearchShortcut(event: KeyboardEvent): void {

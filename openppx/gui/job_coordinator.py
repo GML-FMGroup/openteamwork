@@ -19,7 +19,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
 
-from ..core.config import get_data_dir
+from ..runtime.paths import default_node_root
 from ..runtime.sync_tool_proxy import SyncCancellationToken, SyncProxyCancelled
 from .checkpoint import normalize_gui_task_checkpoint
 from .task_runner import execute_gui_task
@@ -497,7 +497,7 @@ def gui_job_db_path() -> Path:
     configured = os.getenv("OPENPPX_GUI_JOB_DB_PATH", "").strip()
     if configured:
         return Path(configured).expanduser()
-    return get_data_dir() / "gui_jobs.db"
+    return default_node_root() / "gui_jobs.db"
 
 
 def _connect(db_path: Path) -> sqlite3.Connection:

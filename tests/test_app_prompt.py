@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import os
 import unittest
 from unittest.mock import Mock, patch
 
@@ -38,12 +37,12 @@ class PromptLayeringTests(unittest.TestCase):
         registry = Mock()
         registry.build_summary.return_value = "- skill_a: test skill"
         with patch("openppx.app.prompt.get_registry", return_value=registry):
-            with patch.dict(os.environ, {"OPENPPX_WORKSPACE": "openppx-test-workspace"}, clear=False):
-                text = build_startup_runtime_context(
-                    mcp_summaries=[
-                        {"name": "gui_remote", "prefix": "mcp_gui_desktop", "transport": "stdio"}
-                    ]
-                )
+            text = build_startup_runtime_context(
+                workspace="openppx-test-workspace",
+                mcp_summaries=[
+                    {"name": "gui_remote", "prefix": "mcp_gui_desktop", "transport": "stdio"}
+                ],
+            )
 
         self.assertIn("Runtime:", text)
         self.assertIn("Workspace: openppx-test-workspace", text)
@@ -65,16 +64,6 @@ class PromptLayeringTests(unittest.TestCase):
 
         self.assertLess(text.index("You are openppx"), text.index("# Runtime Context"))
         self.assertLess(text.index("# Runtime Context"), text.index("Available skills:"))
-
-    def test_root_agent_uses_adk_static_instruction_for_stable_policy(self) -> None:
-        from openppx import agent
-
-        self.assertIsInstance(agent.root_agent.static_instruction, str)
-        self.assertIn("You are openppx", agent.root_agent.static_instruction)
-        self.assertNotIn("Workspace:", agent.root_agent.static_instruction)
-        self.assertIn("# Runtime Context", agent.root_agent.instruction)
-        self.assertIn("Available skills:", agent.root_agent.instruction)
-
 
 if __name__ == "__main__":
     unittest.main()

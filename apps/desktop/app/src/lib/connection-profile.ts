@@ -49,16 +49,16 @@ export function normalizeClientApiBaseUrl(rawValue: string, targetType: "local" 
   const rawBaseUrl = rawValue.trim() || "http://127.0.0.1:8765";
   const parsedBaseUrl = new URL(rawBaseUrl);
   if (!["http:", "https:"].includes(parsedBaseUrl.protocol)) {
-    throw new Error("Gateway URL must use http:// or https://.");
+    throw new Error("Node URL must use http:// or https://.");
   }
   if (parsedBaseUrl.username || parsedBaseUrl.password || parsedBaseUrl.search || parsedBaseUrl.hash) {
-    throw new Error("Gateway URL cannot contain credentials, query parameters, or fragments.");
+    throw new Error("Node URL cannot contain credentials, query parameters, or fragments.");
   }
   if (parsedBaseUrl.pathname !== "/") {
-    throw new Error("Gateway URL can only contain the protocol, host, and port; paths are not allowed.");
+    throw new Error("Node URL can only contain the protocol, host, and port; paths are not allowed.");
   }
   if (targetType === "lan" && !parsedBaseUrl.port) {
-    throw new Error("A LAN Gateway URL must include an explicit port.");
+    throw new Error("A LAN Node URL must include an explicit port.");
   }
   if (targetType === "local" && !isLoopbackClientApiHostname(parsedBaseUrl.hostname)) {
     throw new Error("Local mode can only connect to localhost or a loopback IP. Use LAN mode for another machine.");

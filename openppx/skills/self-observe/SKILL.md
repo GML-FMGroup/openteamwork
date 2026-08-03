@@ -1,6 +1,6 @@
 ---
 name: self-observe
-description: Observe openppx runtime health with token usage, gateway/heartbeat status, error logs, and quick diagnostics.
+description: Observe OpenPPX Node health with usage, automation status, audit facts, logs, and quick diagnostics.
 ---
 
 # Self Observe Skill
@@ -11,29 +11,29 @@ Use this skill when the user asks for agent self-inspection, runtime health chec
 
 1. Token usage:
 ```bash
-ppx token stats --json
-ppx token stats --provider google --limit 50 --json
-ppx token stats --provider openai --limit 50 --json
+ppx operations usage --json
+ppx operations usage --provider google --limit 50 --json
+ppx operations usage --provider openai --limit 50 --json
 ```
 
 2. Runtime status:
 ```bash
-ppx gateway status --json
-ppx heartbeat status --json
-ppx cron status
-ppx provider status --json
+ppx operations status --json
+ppx operations health --json
+ppx operations heartbeat status --json
+ppx operations cron list --json
 ```
 
 3. Error logs (read-only):
 ```bash
-tail -n 200 ~/.openppx/log/gateway.err.log
-rg -n "ERROR|Error|Traceback|Exception|failed|timeout" ~/.openppx/log/gateway.err.log ~/.openppx/log/gateway.out.log ~/.openppx/log/gateway.debug.log
+tail -n 200 ~/.openppx/logs/node.err.log
+rg -n "ERROR|Error|Traceback|Exception|failed|timeout" ~/.openppx/logs/node.err.log ~/.openppx/logs/node.out.log
 ```
 
 4. SQLite quick verification (if `sqlite3` exists):
 ```bash
-sqlite3 ~/.openppx/token_usage.db "SELECT provider, COUNT(*) AS requests, SUM(total_tokens) AS total_tokens FROM llm_token_usage_events GROUP BY provider ORDER BY total_tokens DESC;"
-sqlite3 ~/.openppx/token_usage.db "SELECT response_at, provider, model, request_tokens, response_tokens, total_tokens FROM llm_token_usage_events ORDER BY response_at_ms DESC LIMIT 20;"
+sqlite3 ~/.openppx/database/token_usage.db "SELECT provider, COUNT(*) AS requests, SUM(total_tokens) AS total_tokens FROM llm_token_usage_events GROUP BY provider ORDER BY total_tokens DESC;"
+sqlite3 ~/.openppx/database/token_usage.db "SELECT response_at, provider, model, request_tokens, response_tokens, total_tokens FROM llm_token_usage_events ORDER BY response_at_ms DESC LIMIT 20;"
 ```
 
 ## Fast Path
@@ -48,7 +48,7 @@ bash openppx/skills/self-observe/scripts/self_status_report.sh
 
 When reporting to user, include:
 
-1. Runtime Summary: gateway/heartbeat/provider/cron highlights.
+1. Runtime Summary: Node/heartbeat/cron health highlights.
 2. Token Summary: total requests/tokens and provider split.
 3. Recent Errors: latest error signatures with file and timestamp.
 4. Risks: what might break soon (missing usage data, repeated failures, disconnected provider).

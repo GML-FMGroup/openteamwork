@@ -1,4 +1,4 @@
-"""Runtime helpers for gateway execution.
+"""Runtime helpers for Node-owned Agent execution.
 
 Keep this package init lightweight so importing submodules (for example,
 ``openppx.runtime.cron_service``) does not eagerly pull ADK/session stacks.

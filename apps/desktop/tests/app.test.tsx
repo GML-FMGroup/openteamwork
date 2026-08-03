@@ -81,14 +81,10 @@ function buildDiagnostics(): ClientDiagnostics {
     nodeId: "node_test",
     nodeName: "This Mac",
     clientApiProcessRunning: true,
-    bridgeScriptPath: "/tmp/ppx-client/scripts/openppx_bridge.py",
-    bridgeScriptExists: true,
     agentCount: 1,
     sessionCacheEntries: 1,
     messageCacheEntries: 1,
     debugEnabled: false,
-    mockEnabled: false,
-    legacyBridgeEnabled: false,
   };
 }
 

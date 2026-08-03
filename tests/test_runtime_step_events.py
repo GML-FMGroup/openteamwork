@@ -89,8 +89,8 @@ class StepEventPluginTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(len(published), 1)
         msg = published[0]
-        self.assertEqual(msg.channel, "feishu")
-        self.assertEqual(msg.chat_id, "oc_123")
+        self.assertEqual(msg.route, "feishu")
+        self.assertEqual(msg.scope_id, "oc_123")
         self.assertEqual(msg.metadata["_event_class"], "step_update")
         self.assertEqual(msg.metadata["_step_phase"], "started")
         self.assertEqual(msg.metadata["_function_call_id"], "fc_1")

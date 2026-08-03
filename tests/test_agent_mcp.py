@@ -2,9 +2,7 @@
 
 from __future__ import annotations
 
-import os
 import unittest
-from unittest.mock import patch
 
 
 def _tool_names(tools: list[object]) -> set[str]:
@@ -44,8 +42,7 @@ class AgentMcpTests(unittest.TestCase):
         from openppx import agent
         from openppx.tooling.registry import computer_task, computer_use, start_gui_task
 
-        with patch.dict(os.environ, {"OPENPPX_GUI_BUILTIN_TOOLS_ENABLED": "0"}, clear=False):
-            tools = agent._build_tools()
+        tools = agent._build_tools(include_gui_tools=False)
         self.assertNotIn(start_gui_task, tools)
         self.assertNotIn(computer_task, tools)
         self.assertNotIn(computer_use, tools)
@@ -62,12 +59,7 @@ class AgentMcpTests(unittest.TestCase):
             write_file,
         )
 
-        with patch.dict(
-            os.environ,
-            {"OPENPPX_AGENT_PRIVILEGE_LEVEL": "low", "OPENPPX_CAN_DELEGATE": "0"},
-            clear=False,
-        ):
-            tools = agent._build_tools()
+        tools = agent._build_tools(privilege_level="low", can_delegate=False)
 
         self.assertIn(read_file, tools)
         self.assertIn(list_dir, tools)
@@ -77,16 +69,11 @@ class AgentMcpTests(unittest.TestCase):
         self.assertNotIn(exec_command, tools)
         self.assertNotIn(web_search, tools)
 
-    def test_build_tools_keeps_medium_exec_and_web_but_hides_message_tools(self) -> None:
+    def test_build_tools_keeps_medium_exec_and_web_without_transport_tools(self) -> None:
         from openppx import agent
-        from openppx.tooling.registry import exec_command, web_search, message, message_file
+        from openppx.tooling.registry import exec_command, web_search
 
-        with patch.dict(
-            os.environ,
-            {"OPENPPX_AGENT_PRIVILEGE_LEVEL": "medium", "OPENPPX_CAN_DELEGATE": "1"},
-            clear=False,
-        ):
-            tools = agent._build_tools()
+        tools = agent._build_tools(privilege_level="medium", can_delegate=True)
 
         names = _tool_names(tools)
         self.assertIn("exec", names)
@@ -102,25 +89,18 @@ class AgentMcpTests(unittest.TestCase):
             evaluate_staged_summary_quality_cases,
             exec_command,
             list_skill_api_runners,
-            message,
-            message_file,
             summarize_staged_summary_quality_log,
             task_control_snapshot,
             web_search,
         )
 
-        with patch.dict(
-            os.environ,
-            {"OPENPPX_AGENT_PRIVILEGE_LEVEL": "high", "OPENPPX_CAN_DELEGATE": "1"},
-            clear=False,
-        ):
-            tools = agent._build_tools()
+        tools = agent._build_tools(privilege_level="high", can_delegate=True)
 
         names = _tool_names(tools)
         self.assertIn("exec", names)
         self.assertIn("web_search", names)
-        self.assertIn("message", names)
-        self.assertIn("message_file", names)
+        self.assertNotIn("message", names)
+        self.assertNotIn("message_file", names)
         self.assertIn(check_browser_remote_job_protocol, tools)
         self.assertIn(dispatch_task_action, tools)
         self.assertIn(evaluate_staged_summary_quality_cases, tools)

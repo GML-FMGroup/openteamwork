@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import os
 import sqlite3
 import threading
 import time
@@ -12,7 +11,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from ..core.config import get_data_dir
+from .paths import node_database_path
 
 
 TASK_ACTIVE_STATUSES = frozenset(
@@ -220,10 +219,7 @@ def _json_loads(raw: str | None) -> dict[str, Any]:
 
 def task_db_path() -> Path:
     """Return the default SQLite path for long-task runtime facts."""
-    explicit = os.getenv("OPENPPX_TASK_DB_PATH", "").strip()
-    if explicit:
-        return Path(explicit).expanduser()
-    return get_data_dir() / "database" / "tasks.db"
+    return node_database_path("tasks.db")
 
 
 def _connect(db_path: Path | None = None) -> sqlite3.Connection:

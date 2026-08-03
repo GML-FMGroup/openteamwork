@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import os
 from typing import Any
 
 from google.adk.agents import LlmAgent
@@ -12,10 +11,8 @@ from google.adk.tools import LongRunningFunctionTool
 from google.adk.tools import load_artifacts
 from google.adk.tools.preload_memory_tool import PreloadMemoryTool
 
-from ..core.config import normalize_agent_privilege_level
-from ..core.env_utils import env_enabled
+from ..config import normalize_agent_privilege_level
 from ..core.mcp_registry import summarize_mcp_toolsets
-from ..core.provider import build_adk_model_from_env
 from ..extensions import ExtensionError, SkillSnapshot
 from ..tooling.skills_adapter import list_skills, read_skill
 from ..tooling.registry import (
@@ -50,9 +47,6 @@ from ..tooling.registry import (
     list_task_flows,
     list_tasks,
     long_task,
-    message_file,
-    message,
-    message_image,
     pause_task,
     read_file,
     process_session,
@@ -81,10 +75,8 @@ from ..tooling.registry import (
     cancel_task,
 )
 from .prompt import (
-    build_root_agent_instruction,
     build_startup_runtime_context,
     build_static_policy_instruction,
-    gui_builtin_tools_enabled,
 )
 
 if False:  # pragma: no cover - import-only typing without a runtime cycle
@@ -92,25 +84,18 @@ if False:  # pragma: no cover - import-only typing without a runtime cycle
 
 
 def _gui_builtin_tools_enabled() -> bool:
-    """Return whether legacy builtin GUI tools should be exposed."""
-    return gui_builtin_tools_enabled()
+    """Return the explicit default for direct internal tool assembly."""
+    return True
 
 
 def _agent_privilege_level(explicit: str | None = None) -> str:
-    """Return an explicit privilege level or the legacy environment value."""
-    if explicit is not None:
-        return normalize_agent_privilege_level(explicit)
-    raw = os.getenv("OPENPPX_AGENT_PRIVILEGE_LEVEL", "").strip().lower()
-    if not raw:
-        return ""
-    return normalize_agent_privilege_level(raw)
+    """Return the explicit privilege level supplied by the Config snapshot."""
+    return normalize_agent_privilege_level(explicit, default="")
 
 
 def _can_delegate(explicit: bool | None = None) -> bool:
-    """Return an explicit delegation policy or the legacy environment value."""
-    if explicit is not None:
-        return explicit
-    return env_enabled("OPENPPX_CAN_DELEGATE", default=True)
+    """Return an explicit delegation policy with a deterministic default."""
+    return True if explicit is None else explicit
 
 
 def _tool_name(tool: Any) -> str:
@@ -126,21 +111,6 @@ def _tool_name(tool: Any) -> str:
 def _confirm_high_risk_action(action_name: str) -> bool:
     """Return whether one high-risk action should use ADK confirmation."""
     return high_risk_action_requires_confirmation(action_name)
-
-
-def _message_requires_confirmation(**_kwargs: Any) -> bool:
-    """Return whether outbound message tools should request confirmation."""
-    return _confirm_high_risk_action("message.send")
-
-
-def _message_image_requires_confirmation(**_kwargs: Any) -> bool:
-    """Return whether outbound image delivery should request confirmation."""
-    return _confirm_high_risk_action("message_image.send")
-
-
-def _message_file_requires_confirmation(**_kwargs: Any) -> bool:
-    """Return whether outbound file delivery should request confirmation."""
-    return _confirm_high_risk_action("message_file.send")
 
 
 def _process_requires_confirmation(action: str = "list", **_kwargs: Any) -> bool:
@@ -160,19 +130,9 @@ def _confirmation_tool(func: Any, predicate: Any) -> FunctionTool:
     return FunctionTool(func=func, require_confirmation=predicate)
 
 
-def _build_instruction() -> str:
-    """Build the root-agent instruction from layered prompt sections."""
-    return build_root_agent_instruction()
-
-
 def _build_static_instruction() -> str:
     """Build stable root-agent policy for ADK ``static_instruction``."""
     return build_static_policy_instruction()
-
-
-def _build_dynamic_instruction() -> str:
-    """Build startup/runtime context for ADK dynamic ``instruction``."""
-    return build_startup_runtime_context()
 
 
 def _build_tools(
@@ -239,9 +199,6 @@ def _build_tools(
         list_browser_remote_providers,
         web_search,
         web_fetch,
-        _confirmation_tool(message, _message_requires_confirmation),
-        _confirmation_tool(message_image, _message_image_requires_confirmation),
-        _confirmation_tool(message_file, _message_file_requires_confirmation),
         _confirmation_tool(cron, _cron_requires_confirmation),
     ]
     if _can_delegate(can_delegate):
@@ -268,12 +225,6 @@ def _build_tools(
             "load_artifacts",
         }
         tools = [tool for tool in base_tools if _tool_name(tool) in allowed_names or isinstance(tool, PreloadMemoryTool)]
-        tools.extend(extension_tools or ())
-        return tools
-
-    if resolved_privilege_level == "medium":
-        blocked_names = {"message", "message_image", "message_file"}
-        tools = [tool for tool in base_tools if _tool_name(tool) not in blocked_names]
         tools.extend(extension_tools or ())
         return tools
 
@@ -359,28 +310,4 @@ def _snapshot_skill_tools(snapshot: SkillSnapshot) -> tuple[Any, Any]:
     return list_runtime_skills, read_runtime_skill
 
 
-_legacy_root_agent: LlmAgent | None = None
-
-
-def build_legacy_root_agent() -> LlmAgent:
-    """Build the legacy single-Agent runtime only when an old surface requests it."""
-    return LlmAgent(
-        name="openppx",
-        model=build_adk_model_from_env(),
-        static_instruction=_build_static_instruction(),
-        instruction=_build_dynamic_instruction(),
-        tools=_build_tools(),
-    )
-
-
-def __getattr__(name: str) -> Any:
-    """Lazily expose ADK's legacy ``root_agent`` discovery contract."""
-    global _legacy_root_agent
-    if name != "root_agent":
-        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
-    if _legacy_root_agent is None:
-        _legacy_root_agent = build_legacy_root_agent()
-    return _legacy_root_agent
-
-
-__all__ = ["build_legacy_root_agent", "build_root_agent", "root_agent"]
+__all__ = ["build_root_agent"]

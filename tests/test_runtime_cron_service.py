@@ -50,7 +50,7 @@ class CronServiceTests(unittest.TestCase):
         self.assertEqual(run_dt.hour, 1)  # 09:00 Asia/Shanghai == 01:00 UTC
         self.assertEqual(run_dt.minute, 0)
 
-    def test_loads_legacy_store_format(self) -> None:
+    def test_rejects_unsupported_legacy_store_format(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             store_path = Path(tmp) / "cron_jobs.json"
             store_path.write_text(
@@ -70,11 +70,8 @@ class CronServiceTests(unittest.TestCase):
             )
             service = CronService(store_path)
             jobs = service.list_jobs(include_disabled=True)
-            self.assertEqual(len(jobs), 1)
-            self.assertEqual(jobs[0].id, "abc12345")
-            self.assertEqual(jobs[0].schedule.kind, "every")
-            self.assertEqual(jobs[0].schedule.every_seconds, 30)
-            self.assertEqual(jobs[0].payload.message, "legacy message")
+            self.assertEqual(jobs, [])
+            self.assertIn("unsupported", service.status()["store_error"].lower())
 
     def test_keeps_last_good_store_when_disk_json_becomes_invalid(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -108,7 +105,7 @@ class CronServiceTests(unittest.TestCase):
             )
             self.assertEqual(job.name, "recover")
             payload = json.loads(store_path.read_text(encoding="utf-8"))
-            self.assertEqual(payload.get("version"), 3)
+            self.assertEqual(payload.get("version"), 4)
             self.assertEqual(len(payload.get("jobs", [])), 1)
             self.assertEqual(payload.get("history", []), [])
 

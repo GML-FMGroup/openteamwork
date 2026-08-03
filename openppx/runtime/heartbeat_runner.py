@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import os
 import re
 import time
 from collections import deque
@@ -80,14 +79,10 @@ class HeartbeatRunner:
         self._on_run = on_run
         self._is_busy = is_busy or (lambda: False)
         self._now_ms_fn = now_ms_fn or (lambda: int(time.time() * 1000))
-        self._every_raw = every if every is not None else os.getenv("OPENPPX_HEARTBEAT_EVERY", "30m")
+        self._every_raw = every or ""
         self._interval_ms = parse_heartbeat_every_ms(self._every_raw)
-        self._prompt = resolve_heartbeat_prompt(prompt if prompt is not None else os.getenv("OPENPPX_HEARTBEAT_PROMPT"))
-        raw_active_hours = active_hours if active_hours is not None else {
-            "start": os.getenv("OPENPPX_HEARTBEAT_ACTIVE_HOURS_START", "").strip(),
-            "end": os.getenv("OPENPPX_HEARTBEAT_ACTIVE_HOURS_END", "").strip(),
-            "timezone": os.getenv("OPENPPX_HEARTBEAT_ACTIVE_HOURS_TIMEZONE", "user").strip() or "user",
-        }
+        self._prompt = resolve_heartbeat_prompt(prompt)
+        raw_active_hours = active_hours or {}
         self._active_hours_start = str(raw_active_hours.get("start", "")).strip()
         self._active_hours_end = str(raw_active_hours.get("end", "")).strip()
         self._active_hours_timezone = str(raw_active_hours.get("timezone", "user")).strip() or "user"

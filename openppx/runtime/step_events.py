@@ -9,7 +9,7 @@ from typing import Any
 
 from google.adk.plugins.base_plugin import BasePlugin
 
-from ..bus.events import OutboundMessage
+from .events import RuntimeFeedbackEvent
 from .tool_confirmation import REQUEST_CONFIRMATION_TOOL_NAME, extract_tool_confirmation_requests
 from .tool_context import get_route
 
@@ -106,9 +106,9 @@ def _resolve_ordering_scope(metadata: dict[str, Any]) -> str:
     task_id = _clean_str(metadata.get("_task_id"))
     if task_id:
         return f"task:{task_id}"
-    channel, chat_id = get_route()
-    if channel and chat_id:
-        return f"route:{channel}:{chat_id}"
+    route, scope_id = get_route()
+    if route and scope_id:
+        return f"route:{route}:{scope_id}"
     tool_name = _clean_str(metadata.get("_tool_name"))
     if tool_name:
         return f"tool:{tool_name}"
@@ -149,7 +149,7 @@ def _ensure_step_ordering(metadata: dict[str, Any]) -> None:
 
 
 def normalize_outbound_metadata(metadata: dict[str, Any] | None) -> dict[str, Any]:
-    """Return a normalized metadata dict for channel consumption."""
+    """Return normalized metadata for Node event consumers."""
 
     source = metadata if isinstance(metadata, dict) else {}
     normalized = dict(source)
@@ -285,7 +285,7 @@ class NormalizedOutboundEvent:
 
 
 def classify_outbound_message(content: str, metadata: dict[str, Any] | None) -> NormalizedOutboundEvent:
-    """Classify one outbound payload for manager/channel handling."""
+    """Classify one outbound payload for Node event handling."""
 
     normalized = normalize_outbound_metadata(metadata)
     event_class = _clean_str(normalized.get("_event_class")) or "final_text"
@@ -346,8 +346,8 @@ class OpenPpxStepEventPlugin(BasePlugin):
     ) -> None:
         if _STEP_EVENT_PUBLISHER is None:
             return
-        channel, chat_id = get_route()
-        if not channel or not chat_id:
+        route, scope_id = get_route()
+        if not route or not scope_id:
             return
 
         step_order = self._ensure_step_order(invocation_id, function_call_id)
@@ -375,9 +375,9 @@ class OpenPpxStepEventPlugin(BasePlugin):
 
         try:
             await _STEP_EVENT_PUBLISHER(
-                OutboundMessage(
-                    channel=channel,
-                    chat_id=chat_id,
+                RuntimeFeedbackEvent(
+                    route=route,
+                    scope_id=scope_id,
                     content=content,
                     metadata=metadata,
                 )
@@ -513,14 +513,14 @@ async def publish_runtime_step_event(
     important: bool = False,
     extra_metadata: dict[str, Any] | None = None,
 ) -> bool:
-    """Publish one normalized step event through the configured route.
+    """Publish one normalized step event through the configured client route.
 
-    Returns False when no channel route or step-event publisher is active.
+    Returns False when no client route or step-event publisher is active.
     """
     if _STEP_EVENT_PUBLISHER is None:
         return False
-    channel, chat_id = get_route()
-    if not channel or not chat_id:
+    route, scope_id = get_route()
+    if not route or not scope_id:
         return False
 
     metadata = build_step_metadata(
@@ -542,9 +542,9 @@ async def publish_runtime_step_event(
     metadata["_feedback_origin"] = metadata.get("_feedback_origin") or "runtime"
     try:
         await _STEP_EVENT_PUBLISHER(
-            OutboundMessage(
-                channel=channel,
-                chat_id=chat_id,
+            RuntimeFeedbackEvent(
+                route=route,
+                scope_id=scope_id,
                 content=content,
                 metadata=metadata,
             )

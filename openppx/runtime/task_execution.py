@@ -125,8 +125,8 @@ class TaskInvocationContext:
     session_id: str = ""
     thread_id: str = ""
     turn_id: str = ""
-    channel: str = ""
-    chat_id: str = ""
+    route: str = ""
+    scope_id: str = ""
     invocation_id: str = ""
     function_call_id: str = ""
     tool_call_id: str = ""
@@ -902,8 +902,8 @@ class ProcessExecutionSupervisor:
             "pid": session.process.pid,
             "inline_budget_ms": wait_ms,
             "delivery": {
-                "channel": context.channel,
-                "chat_id": context.chat_id,
+                "route": context.route,
+                "scope_id": context.scope_id,
             },
         }
         runner_payload.update(recipe.runner_payload)

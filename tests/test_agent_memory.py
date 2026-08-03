@@ -10,7 +10,7 @@ from unittest.mock import AsyncMock, patch
 from google.adk.tools import load_artifacts
 from google.adk.tools.preload_memory_tool import PreloadMemoryTool
 
-from openppx.runtime.interaction_context import (
+from openppx.runtime.memory_ingest_plugin import (
     INTERACTION_CONTEXT_STATE_KEY,
     MEMORY_INGEST_OFFSET_STATE_KEY,
 )
@@ -96,14 +96,6 @@ class AgentMemoryTests(unittest.TestCase):
         )
         asyncio.run(plugin.after_agent_callback(agent=adk_agent, callback_context=callback_context))
         callback_context.add_events_to_memory.assert_awaited_once()
-
-    def test_root_agent_leaves_runtime_callbacks_to_app_plugins(self) -> None:
-        from openppx import agent
-
-        self.assertIsNone(agent.root_agent.before_agent_callback)
-        self.assertIsNone(agent.root_agent.after_agent_callback)
-        self.assertIsNone(agent.root_agent.before_model_callback)
-        self.assertIsNone(agent.root_agent.after_model_callback)
 
     def test_mcp_toolsets_still_appended_after_memory_tool(self) -> None:
         from openppx import agent

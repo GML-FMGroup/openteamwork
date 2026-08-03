@@ -17,7 +17,7 @@ from google.adk.models.llm_request import LlmRequest
 from google.adk.plugins.base_plugin import BasePlugin
 from google.genai import types
 
-from ..core.config import get_agent_home_dir
+from .paths import default_node_root
 
 _INJECTED_HEADER = "# Agent Context (injected by openppx)"
 _BOOTSTRAP_FILENAMES: tuple[str, ...] = (
@@ -42,7 +42,7 @@ class BootstrapSection:
 
 def _workspace_root() -> Path:
     """Resolve the active per-agent config root with a safe fallback."""
-    return get_agent_home_dir()
+    return default_node_root()
 
 
 def _parse_positive_int(raw: str | None, *, default: int) -> int:

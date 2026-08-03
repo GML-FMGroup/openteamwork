@@ -7,10 +7,8 @@ from typing import Any
 from google.adk.agents.callback_context import CallbackContext
 from google.adk.plugins.base_plugin import BasePlugin
 
-from .interaction_context import (
-    INTERACTION_CONTEXT_STATE_KEY,
-    MEMORY_INGEST_OFFSET_STATE_KEY,
-)
+INTERACTION_CONTEXT_STATE_KEY = "temp:_openppx:ctx"
+MEMORY_INGEST_OFFSET_STATE_KEY = "temp:_openppx:ingest_offset"
 
 
 def _agent_name(agent: Any) -> str:
@@ -36,7 +34,7 @@ class OpenPpxMemoryIngestPlugin(BasePlugin):
         agent: Any,
         callback_context: CallbackContext,
     ) -> None:
-        """Store an ingest offset fallback when gateway did not provide one."""
+        """Store an ingest offset when the current run has not provided one."""
         if not self._matches_agent(agent):
             return None
 

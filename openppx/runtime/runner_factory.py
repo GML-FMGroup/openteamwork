@@ -1,4 +1,4 @@
-"""Runner construction helpers shared by CLI and gateway."""
+"""Google ADK Runner construction for Node-owned Agent runtimes."""
 
 from __future__ import annotations
 

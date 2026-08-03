@@ -21,6 +21,7 @@ from .client_api_service import ClientApiCoordinator, ClientApiHttpServer
 from .node_runtime import NodeRuntimeSupervisor
 from .cron_service import CronService
 from .heartbeat_runner import HeartbeatRunner
+from .paths import configure_node_root
 from .task_store import TaskEventStore
 from .task_scheduler import TaskWakeScheduler
 
@@ -343,6 +344,7 @@ def run_node(
     access_token: str | None = None,
 ) -> None:
     """Build and run the foreground OpenPPX Node process."""
+    configure_node_root(node_root)
     node = OpenPpxNodeHost.build(
         node_root,
         host=host,

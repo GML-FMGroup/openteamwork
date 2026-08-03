@@ -78,7 +78,7 @@ export class ClientApiConnection {
     return this.baseUrlValue;
   }
 
-  /** Main-process-only credential access for spawning the managed local gateway. */
+  /** Main-process-only credential access for spawning the managed local Node. */
   public get accessToken(): string {
     return this.accessTokenValue;
   }
@@ -126,7 +126,7 @@ export class ClientApiConnection {
   }
 
   public unavailableError(operation: string): Error {
-    const reason = this.lastError || `No compatible protocol v${CLIENT_API_PROTOCOL_VERSION} gateway is ready.`;
+    const reason = this.lastError || `No compatible protocol v${CLIENT_API_PROTOCOL_VERSION} Node is ready.`;
     return new Error(`${operation} requires the OpenPPX Client API. ${reason}`);
   }
 

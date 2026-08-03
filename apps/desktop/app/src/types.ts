@@ -58,7 +58,7 @@ export interface RuntimeStatus {
 
 export interface ClientDiagnostics {
   desktopVersion?: string;
-  mode: "local" | "lan" | "mock";
+  mode: "local" | "lan";
   target: ConnectionTarget;
   openppxRoot: string;
   openppxRootExists: boolean;
@@ -75,14 +75,10 @@ export interface ClientDiagnostics {
   nodeId?: string;
   nodeName?: string;
   clientApiProcessRunning: boolean;
-  bridgeScriptPath: string;
-  bridgeScriptExists: boolean;
   agentCount: number;
   sessionCacheEntries: number;
   messageCacheEntries: number;
   debugEnabled: boolean;
-  mockEnabled?: boolean;
-  legacyBridgeEnabled?: boolean;
 }
 
 export interface ConnectionSettings {

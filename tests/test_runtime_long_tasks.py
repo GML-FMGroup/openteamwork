@@ -1459,7 +1459,7 @@ class LongTaskRuntimeTests(unittest.TestCase):
             task = TaskStore().get_task(payload["task_id"])
             self.assertIsNotNone(task)
             assert task is not None
-            self.assertEqual(task.runner_payload["delivery"], {"channel": "feishu", "chat_id": "chat-ops"})
+            self.assertEqual(task.runner_payload["delivery"], {"route": "feishu", "scope_id": "chat-ops"})
             interrupt_task(payload["task_id"])
 
     def test_non_process_task_is_not_stopped_as_process_session(self) -> None:

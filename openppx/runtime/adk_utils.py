@@ -1,4 +1,4 @@
-"""Small ADK helpers shared across CLI, gateway, and worker runtimes."""
+"""Small ADK helpers shared by Node-owned Agent runtimes."""
 
 from __future__ import annotations
 

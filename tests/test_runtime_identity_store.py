@@ -10,12 +10,12 @@ from openppx.runtime.identity_store import IdentityStore
 
 
 class IdentityStoreTests(unittest.TestCase):
-    def test_resolve_message_principal_strips_telegram_username_suffix(self) -> None:
+    def test_resolve_external_principal_strips_telegram_username_suffix(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             store = IdentityStore(db_path=Path(tmp) / "identity.db")
 
-            principal = store.resolve_message_principal(
-                channel="telegram",
+            principal = store.resolve_external_principal(
+                source="telegram",
                 sender_id="123456|@alice",
             )
 
@@ -25,18 +25,18 @@ class IdentityStoreTests(unittest.TestCase):
         self.assertEqual(principal.display_name, "@alice")
         self.assertEqual(principal.privilege_level, "minimal")
 
-    def test_resolve_message_principal_persists_across_store_instances(self) -> None:
+    def test_resolve_external_principal_persists_across_store_instances(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             db_path = Path(tmp) / "identity.db"
             store_a = IdentityStore(db_path=db_path)
-            principal_a = store_a.resolve_message_principal(
-                channel="telegram",
+            principal_a = store_a.resolve_external_principal(
+                source="telegram",
                 sender_id="123456|@alice",
             )
 
             store_b = IdentityStore(db_path=db_path)
-            principal_b = store_b.resolve_message_principal(
-                channel="telegram",
+            principal_b = store_b.resolve_external_principal(
+                source="telegram",
                 sender_id="123456|@alice_new",
             )
 

@@ -88,7 +88,7 @@ class TaskWakeSchedulerTests(unittest.TestCase):
                 status="stale",
                 title="demo:missing",
                 external_ref="missing-session",
-                runner_payload={"runner": "process", "delivery": {"channel": "local", "chat_id": "tasks"}},
+                runner_payload={"runner": "process", "delivery": {"route": "client", "scope_id": "tasks"}},
                 progress_summary="Backing process session not found.",
             )
             delivered_payloads: list[dict[str, object]] = []
@@ -114,7 +114,7 @@ class TaskWakeSchedulerTests(unittest.TestCase):
             self.assertEqual(len(deliveries.list_deliveries(task.task_id)), 1)
             self.assertEqual(len(delivered_payloads), 1)
             self.assertEqual(delivered_payloads[0]["status"], "lost")
-            self.assertEqual(delivered_payloads[0]["delivery"], {"channel": "local", "chat_id": "tasks"})
+            self.assertEqual(delivered_payloads[0]["delivery"], {"route": "client", "scope_id": "tasks"})
 
     def test_failed_task_delivery_is_retried_on_later_drain(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -192,7 +192,7 @@ class TaskWakeSchedulerTests(unittest.TestCase):
                 runner_payload={
                     "runner": "gui_job",
                     "job_id": "gui_job_done",
-                    "delivery": {"channel": "local", "chat_id": "tasks"},
+                    "delivery": {"route": "client", "scope_id": "tasks"},
                 },
                 runner_capabilities={"status": True, "output": True, "pause": True, "checkpoint": True},
                 resume_policy="checkpoint",
@@ -243,7 +243,7 @@ class TaskWakeSchedulerTests(unittest.TestCase):
                 runner_payload={
                     "runner": "gui_job",
                     "job_id": "gui_job_paused",
-                    "delivery": {"channel": "local", "chat_id": "tasks"},
+                    "delivery": {"route": "client", "scope_id": "tasks"},
                 },
                 runner_capabilities={"status": True, "output": True, "pause": True, "checkpoint": True, "resume": True},
                 resume_policy="checkpoint",
@@ -288,7 +288,7 @@ class TaskWakeSchedulerTests(unittest.TestCase):
             self.assertEqual(second.deliveries, 0)
             self.assertEqual(deliveries.list_deliveries(task.task_id)[0].delivery_type, "task.paused")
             self.assertEqual(delivered_payloads[0]["status"], "paused")
-            self.assertEqual(delivered_payloads[0]["delivery"], {"channel": "local", "chat_id": "tasks"})
+            self.assertEqual(delivered_payloads[0]["delivery"], {"route": "client", "scope_id": "tasks"})
             self.assertEqual(checkpoints[0].payload["task"], checkpoint["task"])
             self.assertEqual(checkpoints[0].payload["history"], checkpoint["history"])
             self.assertEqual(checkpoints[0].payload["next_step"], checkpoint["next_step"])
@@ -310,7 +310,7 @@ class TaskWakeSchedulerTests(unittest.TestCase):
                 runner_payload={
                     "runner": "gui_job",
                     "job_id": "gui_job_missing",
-                    "delivery": {"channel": "local", "chat_id": "tasks"},
+                    "delivery": {"route": "client", "scope_id": "tasks"},
                 },
                 runner_capabilities={"status": True, "output": True, "pause": True, "checkpoint": True},
                 resume_policy="checkpoint",

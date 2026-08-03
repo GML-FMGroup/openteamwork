@@ -7,10 +7,7 @@ dependencies = [
     "google-adk[db]>=2.1.0",
     "mcp>=1.24,<2",
     "greenlet>=3.1.1",
-    "lark-oapi>=1.4.15",
     "loguru>=0.7.3",
-    "python-socks>=2.5.3",
-    "websockets>=12.0",
     "litellm>=1.75.5,<1.80.17",
     "openai>=1.100.2",
     "httpx>=0.27.0",
@@ -25,17 +22,9 @@ dependencies = [
 eval = [
     "google-adk[eval]>=2.1.0",
 ]
-wecom = [
-    "wecom-aibot-sdk-python>=0.1.5",
-]
-weixin = [
-    "qrcode[pil]>=8.0",
-    "pycryptodome>=3.20.0",
-]
 
 [project.scripts]
-ppx = "openppx.app.cli:main"
-openppx-gui-mcp = "openppx.gui.mcp_server:main"
+ppx = "openppx.cli:main"
 
 [build-system]
 requires = ["hatchling"]
@@ -48,6 +37,5 @@ packages = ["openppx"]
 include = [
     "docker/**",
     "openppx/**/*.py",
-    "openppx/bridge/**",
     "openppx/skills/**",
 ]

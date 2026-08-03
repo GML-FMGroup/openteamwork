@@ -476,7 +476,7 @@ export function useDesktopWorkspace() {
     check: async () => {
       let nextDiagnostics = await window.ppxClient.getDiagnostics();
       setDiagnostics(nextDiagnostics);
-      if (nextDiagnostics.clientApiHealthy || nextDiagnostics.mode === "mock") {
+      if (nextDiagnostics.clientApiHealthy) {
         if (runtime?.state !== "healthy") {
           applyConnectionBootstrap(await window.ppxClient.bootstrap());
         }

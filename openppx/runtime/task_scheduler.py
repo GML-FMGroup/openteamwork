@@ -334,12 +334,12 @@ def _eligible_stale_tasks(
 
 
 def _delivery_target(task: TaskRun) -> dict[str, str]:
-    """Return the best-known channel target stored on a task."""
+    """Return the best-known client route stored on a task."""
     raw = task.runner_payload.get("delivery")
     if not isinstance(raw, dict):
         return {}
-    channel = str(raw.get("channel", "") or "").strip()
-    chat_id = str(raw.get("chat_id", "") or "").strip()
-    if not channel or not chat_id:
+    route = str(raw.get("route", "") or "").strip()
+    scope_id = str(raw.get("scope_id", "") or "").strip()
+    if not route or not scope_id:
         return {}
-    return {"channel": channel, "chat_id": chat_id}
+    return {"route": route, "scope_id": scope_id}

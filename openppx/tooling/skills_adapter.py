@@ -11,7 +11,7 @@ from typing import Any
 
 from loguru import logger
 
-from ..core.config import get_agent_home_dir
+from ..runtime.paths import default_node_root
 from ..core.env_utils import env_enabled
 
 _SKILL_NAME_ALIASES: dict[str, str] = {
@@ -174,7 +174,7 @@ def get_registry() -> SkillRegistry:
     """Build registry from configured agent home or current directory."""
     builtin_env = os.getenv("OPENPPX_BUILTIN_SKILLS_DIR")
     builtin_skills_dir = Path(builtin_env).expanduser() if builtin_env else None
-    return SkillRegistry(agent_home=get_agent_home_dir(), builtin_skills_dir=builtin_skills_dir)
+    return SkillRegistry(agent_home=default_node_root(), builtin_skills_dir=builtin_skills_dir)
 
 
 def list_skills() -> str:

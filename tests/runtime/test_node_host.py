@@ -195,3 +195,36 @@ def test_unconfigured_non_loopback_bootstrap_requires_token(tmp_path: Path) -> N
             scheduler=_Scheduler(),
             server_factory=_Server,
         )
+
+
+def test_node_restart_preserves_sessions_in_the_explicit_node_root(tmp_path: Path) -> None:
+    """A rebuilt Node must reopen the same durable ADK session store."""
+    secrets = _configure(tmp_path)
+    first = OpenPpxNodeHost.build(
+        tmp_path,
+        access_token="node-token",
+        secret_store=secrets,
+        scheduler=_Scheduler(),
+        server_factory=_Server,
+    )
+    first.runtime_supervisor.create_session_sync(
+        "low-main",
+        user_id="local:owner",
+        session_id="session-across-restart",
+    )
+    first.close()
+
+    restarted = OpenPpxNodeHost.build(
+        tmp_path,
+        access_token="node-token",
+        secret_store=secrets,
+        scheduler=_Scheduler(),
+        server_factory=_Server,
+    )
+    sessions = restarted.runtime_supervisor.list_sessions_sync(
+        "low-main",
+        user_id="local:owner",
+    )
+    restarted.close()
+
+    assert [session.id for session in sessions] == ["session-across-restart"]

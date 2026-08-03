@@ -13,8 +13,7 @@ def test_config_package_does_not_depend_on_product_or_runtime_layers() -> None:
     forbidden_prefixes = (
         "openppx.app",
         "openppx.runtime",
-        "openppx.channels",
-        "openppx.core.config",
+        "openppx.command",
         "google.adk",
     )
     violations: list[str] = []

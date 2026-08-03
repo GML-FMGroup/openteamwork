@@ -106,7 +106,7 @@ export function mergeAssistantParts(stepParts: StepPart[], text: string): Messag
       stepId: `step-${crypto.randomUUID()}`,
       title: "Waiting for assistant output",
       status: "running",
-      detail: "The local bridge is running, but no renderable event has arrived yet.",
+      detail: "The Node run is active, but no renderable event has arrived yet.",
     },
   ];
 }
@@ -168,7 +168,7 @@ export function buildMessagePartsFromSessionEvent(event: Record<string, unknown>
   return messageParts;
 }
 
-export function projectBridgeEventToStepParts(
+export function projectRunEventToStepParts(
   event: Record<string, unknown>,
   currentParts: StepPart[],
 ): StepPart[] {

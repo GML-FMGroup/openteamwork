@@ -7,20 +7,24 @@ from contextvars import ContextVar, Token
 from typing import Iterator
 
 
-_ROUTE_CHANNEL: ContextVar[str | None] = ContextVar("route_channel", default=None)
-_ROUTE_CHAT_ID: ContextVar[str | None] = ContextVar("route_chat_id", default=None)
+_ROUTE: ContextVar[str | None] = ContextVar("route", default=None)
+_SCOPE_ID: ContextVar[str | None] = ContextVar("scope_id", default=None)
 
 
 def get_route() -> tuple[str | None, str | None]:
-    return _ROUTE_CHANNEL.get(), _ROUTE_CHAT_ID.get()
+    """Return the current transport route and its opaque scope identifier."""
+
+    return _ROUTE.get(), _SCOPE_ID.get()
 
 
 @contextmanager
-def route_context(channel: str, chat_id: str) -> Iterator[None]:
-    channel_token: Token[str | None] = _ROUTE_CHANNEL.set(channel)
-    chat_token: Token[str | None] = _ROUTE_CHAT_ID.set(chat_id)
+def route_context(route: str, scope_id: str) -> Iterator[None]:
+    """Bind a Node-owned transport route while tools execute."""
+
+    route_token: Token[str | None] = _ROUTE.set(route)
+    scope_token: Token[str | None] = _SCOPE_ID.set(scope_id)
     try:
         yield
     finally:
-        _ROUTE_CHANNEL.reset(channel_token)
-        _ROUTE_CHAT_ID.reset(chat_token)
+        _ROUTE.reset(route_token)
+        _SCOPE_ID.reset(scope_token)

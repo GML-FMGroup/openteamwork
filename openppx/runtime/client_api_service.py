@@ -20,16 +20,12 @@ from ..actions import ActionContext, ActionError, ActionOutcome
 from ..client_api.contracts import ActionInvokeRequest, ContractMapper
 from ..config import ConfigError
 from ..control_plane import CONTROL_PLANE_CAPABILITIES, ControlPlaneApplication, build_control_plane
-from ..core.config import get_data_dir
 from ..core.logging_utils import debug_logging_enabled, emit_debug
 from .access_policy import AccessPolicy
 from .agent_access_runtime import ensure_access_principal
-from .agent_access_runtime import ensure_agent_access_record
 from .agent_access_store import AgentAccessStore, AgentMembership, AgentRecord
 from .client_api_auth import (
     ClientApiAuthPolicy,
-    resolve_client_api_access_token,
-    validate_client_api_bind,
 )
 from .client_api_contract import (
     CLIENT_API_CAPABILITIES,
@@ -41,6 +37,7 @@ from .identity_models import ResolvedPrincipal
 from .identity_store import IdentityStore
 from .memory_query_service import MemoryQueryService
 from .memory_shared import memory_entry_text
+from .paths import default_node_root
 from .sqlite_memory_service import SQLiteMemoryService
 
 
@@ -462,7 +459,7 @@ class ClientApiCoordinator:
         control_plane: ControlPlaneApplication | None = None,
         runtime_supervisor: Any | None = None,
     ) -> None:
-        self.data_dir = data_dir or get_data_dir()
+        self.data_dir = data_dir or default_node_root()
         default_identity_db_path = self.data_dir / "database" / "identity.db"
         self._identity_store = identity_store or IdentityStore(db_path=default_identity_db_path)
         self._agent_access_store = agent_access_store or AgentAccessStore(db_path=default_identity_db_path)
@@ -2394,25 +2391,3 @@ class ClientApiHttpServer(ThreadingHTTPServer):
         super().__init__(server_address, _ClientApiHandler)
         self.coordinator = coordinator
         self.auth_policy = ClientApiAuthPolicy(access_token=access_token)
-
-
-def serve_client_api(
-    *,
-    host: str = "127.0.0.1",
-    port: int = 8765,
-    access_token: str | None = None,
-) -> None:
-    """Start the Client API, refusing unauthenticated non-loopback binds."""
-
-    resolved_token = resolve_client_api_access_token(access_token)
-    validate_client_api_bind(host=host, access_token=resolved_token)
-    coordinator = ClientApiCoordinator()
-    server = ClientApiHttpServer((host, port), coordinator, access_token=resolved_token)
-    auth_status = "required" if resolved_token else "disabled (loopback development only)"
-    print(f"openppx client-api listening on http://{host}:{port} (authentication: {auth_status})", flush=True)
-    try:
-        server.serve_forever()
-    except KeyboardInterrupt:
-        pass
-    finally:
-        server.server_close()

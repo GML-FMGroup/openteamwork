@@ -23,7 +23,7 @@ import zipfile
 from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
-from typing import Any, Awaitable, Callable
+from typing import Any, Callable
 from urllib.error import HTTPError, URLError
 from urllib.parse import quote, urlencode, urlparse
 from urllib.request import Request, urlopen
@@ -36,7 +36,6 @@ from ..browser.schema import (
 )
 from ..browser.runtime import configure_browser_runtime
 from ..browser.service import BrowserDispatchRequest, get_browser_control_service
-from ..bus.events import OutboundMessage
 from ..core.env_utils import env_enabled
 from ..core.exec_policy import command_segments as _policy_command_segments
 from ..core.exec_policy import validate_exec_security as _policy_validate_exec_security
@@ -44,7 +43,7 @@ from ..gui.executor import execute_gui_action
 from ..gui.job_coordinator import submit_gui_task_job
 from ..gui.task_runner import execute_gui_task
 from ..core.logging_utils import debug_logging_enabled, emit_debug
-from ..runtime.cron_helpers import cron_store_path, format_schedule
+from ..runtime.cron_helpers import format_schedule
 from ..runtime.cron_schedule_parser import parse_schedule_input
 from ..runtime.cron_service import CronService
 from ..runtime.browser_remote_provider import (
@@ -84,12 +83,12 @@ from ..runtime.staged_summary_eval import (
     summarize_staged_summary_quality_log as summarize_quality_log_file,
 )
 from ..runtime.task_store import TaskEventStore, TaskStore, ToolCallRecordStore
+from ..runtime.paths import node_database_path
 from ..runtime.tool_context import get_route
 from ..core.security import PathGuard, SecurityPolicy, load_security_policy, validate_network_url
 from . import file_state
 
 
-_OUTBOUND_PUBLISHER: Callable[[OutboundMessage], Awaitable[None]] | None = None
 _SUBAGENT_DISPATCHER: Callable[["SubagentSpawnRequest"], None] | None = None
 _HEARTBEAT_WAKE_REQUESTER: Callable[[str], None] | None = None
 
@@ -101,7 +100,7 @@ class SubagentSpawnRequest:
     The request carries enough metadata for the runtime to:
     1. execute the sub-task in a separate session;
     2. resume the paused parent invocation with the same function_call_id; and
-    3. deliver completion notifications to the original channel target.
+    3. preserve the originating client scope for completion facts.
     """
 
     task_id: str
@@ -110,8 +109,8 @@ class SubagentSpawnRequest:
     session_id: str
     invocation_id: str
     function_call_id: str
-    channel: str
-    chat_id: str
+    route: str
+    scope_id: str
     notify_on_complete: bool = True
 
 
@@ -2005,9 +2004,9 @@ def _resolve_process_scope(scope: str | None) -> str | None:
     explicit = (scope or "").strip()
     if explicit:
         return explicit
-    route_channel, route_chat_id = get_route()
-    if route_channel and route_chat_id:
-        return f"{route_channel}:{route_chat_id}"
+    route, scope_id = get_route()
+    if route and scope_id:
+        return f"{route}:{scope_id}"
     return None
 
 
@@ -2030,14 +2029,14 @@ def _task_invocation_context(tool_context: Any | None) -> TaskInvocationContext:
     session_id = _session_attr(tool_context)
     invocation_id = _context_attr(tool_context, "invocation_id")
     function_call_id = _context_attr(tool_context, "function_call_id")
-    route_channel, route_chat_id = get_route()
+    route, scope_id = get_route()
     return TaskInvocationContext(
         user_id=user_id,
         session_id=session_id,
         thread_id=session_id,
         turn_id=invocation_id,
-        channel=route_channel,
-        chat_id=route_chat_id,
+        route=route,
+        scope_id=scope_id,
         invocation_id=invocation_id,
         function_call_id=function_call_id,
         tool_call_id=function_call_id,
@@ -5107,8 +5106,8 @@ def start_gui_task(
             "planner_base_url": planner_base_url,
         },
         "delivery": {
-            "channel": context.channel,
-            "chat_id": context.chat_id,
+            "route": context.route,
+            "scope_id": context.scope_id,
         },
         "status_snapshot": {
             "status": "running",
@@ -5190,18 +5189,10 @@ def start_gui_task(
     return _ret("tool.start_gui_task.output", _json(payload))
 
 
-def configure_outbound_publisher(
-    publisher: Callable[[OutboundMessage], Awaitable[None]] | None,
-) -> None:
-    """Configure optional outbound publishing callback used by gateway."""
-    global _OUTBOUND_PUBLISHER
-    _OUTBOUND_PUBLISHER = publisher
-
-
 def configure_subagent_dispatcher(
     dispatcher: Callable[[SubagentSpawnRequest], None] | None,
 ) -> None:
-    """Configure optional background sub-agent dispatcher used by gateway."""
+    """Configure the Node-owned background sub-agent dispatcher."""
 
     global _SUBAGENT_DISPATCHER
     _SUBAGENT_DISPATCHER = dispatcher
@@ -5210,7 +5201,7 @@ def configure_subagent_dispatcher(
 def configure_heartbeat_waker(
     requester: Callable[[str], None] | None,
 ) -> None:
-    """Configure optional heartbeat wake requester used by gateway."""
+    """Configure the Node-owned heartbeat wake requester."""
 
     global _HEARTBEAT_WAKE_REQUESTER
     _HEARTBEAT_WAKE_REQUESTER = requester
@@ -5224,13 +5215,6 @@ def _request_heartbeat_wake(reason: str) -> None:
     except Exception:
         # Tool execution should not fail because heartbeat wake is unavailable.
         return
-
-
-def _resolve_route(channel: str | None, chat_id: str | None) -> tuple[str, str]:
-    route_channel, route_chat_id = get_route()
-    final_channel = channel or route_channel or "local"
-    final_chat_id = chat_id or route_chat_id or "default"
-    return final_channel, final_chat_id
 
 
 def _feedback_metadata(
@@ -5309,51 +5293,12 @@ def _tool_step_extra_metadata(
     return metadata
 
 
-def _publish_outbound_if_configured(msg: OutboundMessage) -> bool:
-    if _OUTBOUND_PUBLISHER is None:
-        return False
-    try:
-        loop = asyncio.get_running_loop()
-    except RuntimeError:
-        # Tool calls often happen in plain sync contexts (tests or direct calls).
-        # In that case we intentionally fall back to local outbox logging.
-        return False
-    # Fire-and-forget is sufficient here: channel delivery is handled by gateway.
-    loop.create_task(_OUTBOUND_PUBLISHER(msg))
-    return True
-
-
-def _record_outbound_message(msg: OutboundMessage) -> Path:
-    """Persist one outbound message to local outbox storage."""
-
-    record: dict[str, Any] = {
-        "channel": msg.channel,
-        "chat_id": msg.chat_id,
-        "content": msg.content,
-    }
-    if msg.reply_to is not None:
-        record["reply_to"] = msg.reply_to
-    if msg.metadata:
-        record["metadata"] = msg.metadata
-    return _append_outbox_record(record)
-
-
-def _queue_or_record_outbound(msg: OutboundMessage) -> tuple[bool, Path | None]:
-    """Send one outbound message through gateway when possible, else record it locally."""
-
-    if _publish_outbound_if_configured(msg):
-        return True, None
-    return False, _record_outbound_message(msg)
-
-
 def _emit_feedback(
     content: str,
     *,
     feedback_type: str,
     status: str | None = None,
     tool_name: str | None = None,
-    channel: str | None = None,
-    chat_id: str | None = None,
     task_id: str | None = None,
     session_id: str | None = None,
     step_title: str | None = None,
@@ -5361,47 +5306,26 @@ def _emit_feedback(
     important: bool | None = None,
     extra_metadata: dict[str, Any] | None = None,
 ) -> tuple[bool, Path | None]:
-    """Publish or persist one typed feedback event for APP/chat consumers."""
+    """Persist one typed feedback fact in the Node task event store."""
 
-    target_channel, target_chat_id = _resolve_route(channel, chat_id)
-    outbound = OutboundMessage(
-        channel=target_channel,
-        chat_id=target_chat_id,
-        content=content,
-        metadata=_feedback_metadata(
-            feedback_type,
-            status=status,
-            tool_name=tool_name,
-            task_id=task_id,
-            session_id=session_id,
-            step_title=step_title,
-            done=done,
-            important=important,
-            extra=extra_metadata,
-        ),
+    metadata = _feedback_metadata(
+        feedback_type,
+        status=status,
+        tool_name=tool_name,
+        task_id=task_id,
+        session_id=session_id,
+        step_title=step_title,
+        done=done,
+        important=important,
+        extra=extra_metadata,
     )
-    return _queue_or_record_outbound(outbound)
-
-
-def _append_outbox_record(record: dict[str, Any]) -> Path:
-    """Append one outbound record to local outbox log and return the log path.
-
-    The function always injects a timestamp so callers only provide channel-
-    specific payload fields.
-    """
-    outbox = _workspace() / "messages" / "outbox.log"
-    outbox.parent.mkdir(parents=True, exist_ok=True)
-    ts = dt.datetime.now().isoformat(timespec="seconds")
-    line = json.dumps(
-        {
-            "timestamp": ts,
-            **record,
-        },
-        ensure_ascii=False,
-    )
-    with outbox.open("a", encoding="utf-8") as f:
-        f.write(line + "\n")
-    return outbox
+    event_scope = task_id or session_id
+    if event_scope:
+        try:
+            TaskEventStore().append_event(event_scope, feedback_type, message=content, payload=metadata)
+        except Exception:
+            pass
+    return False, None
 
 
 def _append_subagent_record(record: dict[str, Any]) -> Path:
@@ -5419,186 +5343,20 @@ def _append_subagent_record(record: dict[str, Any]) -> Path:
     return log_path
 
 
-def _normalize_message_buttons(buttons: list[list[str]] | None) -> tuple[list[list[str]], str | None]:
-    """Validate message button rows and return a normalized copy."""
-
-    if buttons is None:
-        return [], None
-    if not isinstance(buttons, list):
-        return [], "Error: buttons must be a list of button rows."
-
-    normalized: list[list[str]] = []
-    for row_index, row in enumerate(buttons, start=1):
-        if not isinstance(row, list):
-            return [], f"Error: buttons row {row_index} must be a list of strings."
-        normalized_row: list[str] = []
-        for col_index, label in enumerate(row, start=1):
-            if not isinstance(label, str) or not label.strip():
-                return [], f"Error: buttons[{row_index}][{col_index}] must be a non-empty string."
-            normalized_row.append(label.strip())
-        if normalized_row:
-            normalized.append(normalized_row)
-    return normalized, None
-
-
-def _resolve_message_media(media: list[str] | str | None) -> tuple[list[Path], str | None]:
-    """Resolve message media paths within the active security policy."""
-
-    if media is None:
-        return [], None
-    raw_items: list[str]
-    if isinstance(media, str):
-        raw_items = [media]
-    elif isinstance(media, list):
-        if not all(isinstance(item, str) and item.strip() for item in media):
-            return [], "Error: media must contain non-empty file paths."
-        raw_items = media
-    else:
-        return [], "Error: media must be a list of file paths."
-
-    paths: list[Path] = []
-    for raw_path in raw_items:
-        try:
-            media_path = _resolve_path(raw_path)
-        except PermissionError as exc:
-            return [], f"Error: {exc}"
-        except Exception as exc:
-            return [], f"Error resolving media path '{raw_path}': {exc}"
-        if not media_path.exists():
-            return [], f"Error: File not found: {raw_path}"
-        if not media_path.is_file():
-            return [], f"Error: Not a file: {raw_path}"
-        paths.append(media_path)
-    return paths, None
-
-
-def _message_metadata(media_paths: list[Path], buttons: list[list[str]]) -> dict[str, Any]:
-    """Build outbound metadata while keeping legacy image/file keys."""
-
-    metadata: dict[str, Any] = {}
-    if buttons:
-        metadata["buttons"] = buttons
-    if not media_paths:
-        return metadata
-
-    metadata["media"] = [str(path) for path in media_paths]
-    metadata["media_items"] = [
-        {
-            "path": str(path),
-            "name": path.name,
-            "content_type": "image" if path.suffix.lower() in _IMAGE_SUFFIXES else "file",
-        }
-        for path in media_paths
-    ]
-
-    if len(media_paths) == 1:
-        only = media_paths[0]
-        if only.suffix.lower() in _IMAGE_SUFFIXES:
-            metadata.update({"content_type": "image", "image_path": str(only)})
-        else:
-            metadata.update({"content_type": "file", "file_path": str(only), "file_name": only.name})
-    else:
-        metadata["content_type"] = "media"
-    return metadata
-
-
-def _message_result(base: str, attachment_count: int, button_count: int) -> str:
-    """Append compact media/button counts to a message result."""
-
-    details: list[str] = []
-    if attachment_count:
-        details.append(f"{attachment_count} attachment(s)")
-    if button_count:
-        details.append(f"{button_count} button(s)")
-    if not details:
-        return base
-    return f"{base} with {' and '.join(details)}"
-
-
-def message(
-    content: str,
-    channel: str | None = None,
-    chat_id: str | None = None,
-    media: list[str] | str | None = None,
-    buttons: list[list[str]] | None = None,
-    tool_context: Any | None = None,
-) -> str:
-    """Send an outbound message with optional attachments and button labels.
-
-    Args:
-        content: Message content to send.
-        channel: Optional channel override (e.g. "local", "feishu").
-        chat_id: Optional target conversation/user id.
-        media: Optional local file path or list of local file paths.
-        buttons: Optional rows of button labels, e.g. ``[["Approve", "Reject"]]``.
-
-    Returns:
-        Queue success message when gateway publisher is active; otherwise a local
-        outbox write confirmation.
-
-    Routing:
-        - Uses explicit channel/chat_id first.
-        - Falls back to current route context.
-        - Final fallback is local/default.
-    """
-    blocked = _require_high_risk_action("message.send", tool_context)
-    if blocked:
-        return _ret("tool.message.output", blocked)
-    target_channel, target_chat_id = _resolve_route(channel, chat_id)
-    media_paths, media_error = _resolve_message_media(media)
-    if media_error:
-        return _ret("tool.message.output", media_error)
-    normalized_buttons, button_error = _normalize_message_buttons(buttons)
-    if button_error:
-        return _ret("tool.message.output", button_error)
-    button_count = sum(len(row) for row in normalized_buttons)
-    _debug(
-        "tool.message.input",
-        {
-            "channel": target_channel,
-            "chat_id": target_chat_id,
-            "chars": len(content),
-            "media_count": len(media_paths),
-            "button_count": button_count,
-        },
-    )
-
-    outbound = OutboundMessage(
-        channel=target_channel,
-        chat_id=target_chat_id,
-        content=content,
-        metadata=_message_metadata(media_paths, normalized_buttons),
-    )
-    queued, outbox = _queue_or_record_outbound(outbound)
-    if queued:
-        result = _message_result(f"Message queued to {target_channel}:{target_chat_id}", len(media_paths), button_count)
-        _debug("tool.message.output", result)
-        return result
-
-    assert outbox is not None
-    result = _message_result(f"Message recorded to {outbox}", len(media_paths), button_count)
-    _debug("tool.message.output", result)
-    return result
-
-
 def spawn_subagent(
     prompt: str,
     notify_on_complete: bool = True,
-    channel: str | None = None,
-    chat_id: str | None = None,
     tool_context: Any | None = None,
 ) -> dict[str, Any]:
     """Spawn a background sub-agent task and return a pending ticket.
 
     This function is intended to be wrapped by ADK ``LongRunningFunctionTool``.
     It only creates and dispatches a task request. The real work runs in the
-    runtime layer (gateway worker), outside this tool call.
+    Node-owned runtime layer, outside this tool call.
 
     Args:
         prompt: Sub-task instruction that the background sub-agent should run.
         notify_on_complete: Whether runtime should push completion notification.
-        channel: Optional channel override for completion notification.
-        chat_id: Optional chat target override for completion notification.
         tool_context: ADK-injected tool context, used to capture invocation IDs.
 
     Returns:
@@ -5610,8 +5368,6 @@ def spawn_subagent(
         {
             "prompt_chars": len(prompt or ""),
             "notify_on_complete": bool(notify_on_complete),
-            "channel": channel,
-            "chat_id": chat_id,
         },
     )
 
@@ -5651,7 +5407,9 @@ def spawn_subagent(
         _debug("tool.spawn_subagent.output", result)
         return result
 
-    target_channel, target_chat_id = _resolve_route(channel, chat_id)
+    route, scope_id = get_route()
+    target_route = route or "client"
+    target_scope_id = scope_id or str(session_id)
     task_id = f"subagent-{uuid.uuid4().hex[:12]}"
     request = SubagentSpawnRequest(
         task_id=task_id,
@@ -5660,8 +5418,8 @@ def spawn_subagent(
         session_id=session_id,
         invocation_id=invocation_id,
         function_call_id=function_call_id,
-        channel=target_channel,
-        chat_id=target_chat_id,
+        route=target_route,
+        scope_id=target_scope_id,
         notify_on_complete=bool(notify_on_complete),
     )
     try:
@@ -5680,8 +5438,8 @@ def spawn_subagent(
                 "prompt_preview": prompt.strip()[:200],
                 "prompt_chars": len(prompt),
                 "notify_on_complete": bool(notify_on_complete),
-                "channel": target_channel,
-                "chat_id": target_chat_id,
+                "route": target_route,
+                "scope_id": target_scope_id,
                 "user_id": user_id,
                 "session_id": session_id,
                 "invocation_id": invocation_id,
@@ -5696,8 +5454,6 @@ def spawn_subagent(
         feedback_type="status",
         status="accepted",
         tool_name="spawn_subagent",
-        channel=target_channel,
-        chat_id=target_chat_id,
         task_id=task_id,
         step_title="Sub-agent accepted",
         done=False,
@@ -5730,142 +5486,8 @@ def spawn_subagent(
     return result
 
 
-def message_image(
-    path: str,
-    caption: str = "",
-    channel: str | None = None,
-    chat_id: str | None = None,
-    tool_context: Any | None = None,
-) -> str:
-    """Send an outbound image message (optionally with caption).
-
-    Args:
-        path: Path to local image file.
-        caption: Optional caption text.
-        channel: Optional channel override.
-        chat_id: Optional target conversation/user id.
-
-    Returns:
-        Queue success message when gateway publisher is active; otherwise a local
-        outbox write confirmation, or an "Error: ..." message.
-
-    Notes:
-        - Allowed suffixes: .png, .jpg, .jpeg, .webp, .gif, .bmp
-    """
-    blocked = _require_high_risk_action("message_image.send", tool_context)
-    if blocked:
-        return _ret("tool.message_image.output", blocked)
-    target_channel, target_chat_id = _resolve_route(channel, chat_id)
-    _debug(
-        "tool.message_image.input",
-        {"path": path, "caption_chars": len(caption), "channel": target_channel, "chat_id": target_chat_id},
-    )
-    try:
-        image_path = _resolve_path(path)
-    except PermissionError as exc:
-        return _ret("tool.message_image.output", f"Error: {exc}")
-    except Exception as exc:
-        return _ret("tool.message_image.output", f"Error resolving image path: {exc}")
-
-    if not image_path.exists():
-        return _ret("tool.message_image.output", f"Error: File not found: {path}")
-    if not image_path.is_file():
-        return _ret("tool.message_image.output", f"Error: Not a file: {path}")
-    if image_path.suffix.lower() not in _IMAGE_SUFFIXES:
-        allowed = ", ".join(sorted(_IMAGE_SUFFIXES))
-        return _ret(
-            "tool.message_image.output",
-            f"Error: Unsupported image extension '{image_path.suffix}'. Allowed: {allowed}",
-        )
-
-    outbound = OutboundMessage(
-        channel=target_channel,
-        chat_id=target_chat_id,
-        content=caption,
-        metadata={
-            "content_type": "image",
-            "image_path": str(image_path),
-            "media": [str(image_path)],
-            "media_items": [{"path": str(image_path), "name": image_path.name, "content_type": "image"}],
-        },
-    )
-    queued, outbox = _queue_or_record_outbound(outbound)
-    if queued:
-        result = f"Image queued to {target_channel}:{target_chat_id}"
-        _debug("tool.message_image.output", result)
-        return result
-
-    assert outbox is not None
-    result = f"Image message recorded to {outbox}"
-    _debug("tool.message_image.output", result)
-    return result
-
-
-def message_file(
-    path: str,
-    caption: str = "",
-    channel: str | None = None,
-    chat_id: str | None = None,
-    tool_context: Any | None = None,
-) -> str:
-    """Send an outbound file message (optionally with caption text).
-
-    Args:
-        path: Path to local file.
-        caption: Optional follow-up text to accompany file delivery.
-        channel: Optional channel override.
-        chat_id: Optional target conversation/user id.
-
-    Returns:
-        Queue success message when gateway publisher is active; otherwise a local
-        outbox write confirmation, or an "Error: ..." message.
-    """
-    blocked = _require_high_risk_action("message_file.send", tool_context)
-    if blocked:
-        return _ret("tool.message_file.output", blocked)
-    target_channel, target_chat_id = _resolve_route(channel, chat_id)
-    _debug(
-        "tool.message_file.input",
-        {"path": path, "caption_chars": len(caption), "channel": target_channel, "chat_id": target_chat_id},
-    )
-    try:
-        file_path = _resolve_path(path)
-    except PermissionError as exc:
-        return _ret("tool.message_file.output", f"Error: {exc}")
-    except Exception as exc:
-        return _ret("tool.message_file.output", f"Error resolving file path: {exc}")
-
-    if not file_path.exists():
-        return _ret("tool.message_file.output", f"Error: File not found: {path}")
-    if not file_path.is_file():
-        return _ret("tool.message_file.output", f"Error: Not a file: {path}")
-
-    outbound = OutboundMessage(
-        channel=target_channel,
-        chat_id=target_chat_id,
-        content=caption,
-        metadata={
-            "content_type": "file",
-            "file_path": str(file_path),
-            "file_name": file_path.name,
-            "media": [str(file_path)],
-            "media_items": [{"path": str(file_path), "name": file_path.name, "content_type": "file"}],
-        },
-    )
-    queued, outbox = _queue_or_record_outbound(outbound)
-    if queued:
-        result = f"File queued to {target_channel}:{target_chat_id}"
-        _debug("tool.message_file.output", result)
-        return result
-
-    assert outbox is not None
-    result = f"File message recorded to {outbox}"
-    _debug("tool.message_file.output", result)
-    return result
-
-
 def _cron_store_path() -> Path:
-    return cron_store_path(_workspace())
+    return node_database_path("cron.json")
 
 
 def _cron_service() -> CronService:
@@ -5895,12 +5517,9 @@ def cron(
     at: str | None = None,
     job_id: str | None = None,
     tz: str | None = None,
-    deliver: bool | None = None,
-    channel: str | None = None,
-    chat_id: str | None = None,
     tool_context: Any | None = None,
 ) -> str:
-    """Manage persisted cron jobs (scheduler + delivery metadata).
+    """Manage persisted Agent-scoped cron jobs.
 
     Args:
         action: One of "add", "list", "remove".
@@ -5914,10 +5533,6 @@ def cron(
         at: One-time absolute ISO datetime string, e.g. "2026-02-18T17:30:00" (add mode).
         job_id: Job id for remove mode.
         tz: IANA timezone for cron_expr, e.g. "Asia/Shanghai".
-        deliver: Whether cron execution result should be delivered outward.
-            If omitted, defaults to True in this tool.
-        channel: Optional delivery channel override.
-        chat_id: Optional delivery target id override.
 
     Returns:
         Human-readable status string, or an "Error: ..." message.
@@ -5931,9 +5546,6 @@ def cron(
             "你是提醒助手。请只输出：时间到了。不要添加其他内容。"
           Good task example:
             "请检查项目状态并输出三条摘要，每条不超过20字。"
-        - When `deliver=True`, gateway will automatically deliver the final LLM
-          response to channel/chat_id. Usually no extra `message(...)` tool call
-          is needed unless multi-message behavior is required.
     """
     _debug(
         "tool.cron.input",
@@ -5945,9 +5557,6 @@ def cron(
             "at": at,
             "job_id": job_id,
             "tz": tz,
-            "deliver": deliver,
-            "channel": channel,
-            "chat_id": chat_id,
         },
     )
     service = _cron_service()
@@ -5995,15 +5604,10 @@ def cron(
         delete_after_run = parsed.delete_after_run
         prefixed_message = _prefixed_cron_message(message)
 
-        target_channel, target_chat_id = _resolve_route(channel, chat_id)
-        deliver_enabled = True if deliver is None else bool(deliver)
         job = service.add_job(
             name=message[:30],
             schedule=schedule,
             message=prefixed_message,
-            deliver=deliver_enabled,
-            channel=target_channel,
-            to=target_chat_id,
             delete_after_run=delete_after_run,
         )
         result = f"Created job '{job.name}' (id: {job.id})"

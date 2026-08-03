@@ -1,6 +1,6 @@
 import {
   buildMessagePartsFromSessionEvent,
-  projectBridgeEventToStepParts,
+  projectRunEventToStepParts,
 } from "../app/src/lib/openppx-projection";
 
 describe("openppx local adapter projections", () => {
@@ -46,8 +46,8 @@ describe("openppx local adapter projections", () => {
     });
   });
 
-  it("updates running tool cards from bridge events", () => {
-    const started = projectBridgeEventToStepParts(
+  it("updates running tool cards from Node run events", () => {
+    const started = projectRunEventToStepParts(
       {
         long_running_tool_ids: ["call-2"],
         content: {
@@ -73,7 +73,7 @@ describe("openppx local adapter projections", () => {
       status: "running",
     });
 
-    const finished = projectBridgeEventToStepParts(
+    const finished = projectRunEventToStepParts(
       {
         content: {
           parts: [

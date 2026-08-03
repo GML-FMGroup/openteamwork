@@ -23,7 +23,7 @@ from openppx.browser.service import BrowserDispatchResponse
 from openppx.runtime.checkpoint_schema import TASK_CHECKPOINT_ENVELOPE_SCHEMA, TASK_CHECKPOINT_METADATA_KEY
 from openppx.runtime.process_sessions import ProcessSessionManager
 from openppx.runtime.task_execution import TaskController
-from openppx.runtime.task_store import TaskStore
+from openppx.runtime.task_store import TaskEventStore, TaskStore
 from openppx.runtime.tool_context import route_context
 from openppx.tooling.tool_meta import get_tool_meta
 from openppx.tooling import registry as exec_registry
@@ -41,7 +41,6 @@ from openppx.tooling.registry import (
     configure_subagent_dispatcher,
     cron,
     dispatch_task_action,
-    message,
     edit_file,
     exec_command,
     finish_task_flow,
@@ -55,9 +54,6 @@ from openppx.tooling.registry import (
     list_skill_api_runners,
     list_task_flows,
     long_task,
-    message,
-    message_file,
-    message_image,
     process_session,
     pause_task,
     read_file,
@@ -122,7 +118,6 @@ class ToolsTests(unittest.TestCase):
             os.environ["OPENPPX_WORKSPACE"] = tmp
             os.environ["OPENPPX_HIGH_RISK_ACTION_ACCESS"] = "false"
 
-            self.assertIn("high-risk action 'message.send' is disabled", message("hello"))
             self.assertIn("high-risk action 'cron.add' is disabled", cron(action="add", message="say hi", every_seconds=60))
 
     def test_high_risk_tools_require_approval_in_conditional_mode(self) -> None:
@@ -130,7 +125,7 @@ class ToolsTests(unittest.TestCase):
             os.environ["OPENPPX_WORKSPACE"] = tmp
             os.environ["OPENPPX_HIGH_RISK_ACTION_ACCESS"] = "conditional"
 
-            self.assertIn("approval required", message("hello"))
+            self.assertIn("approval required", cron(action="add", message="say hi", every_seconds=60))
 
     def test_high_risk_tools_allow_confirmed_tool_context(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -138,9 +133,9 @@ class ToolsTests(unittest.TestCase):
             os.environ["OPENPPX_HIGH_RISK_ACTION_ACCESS"] = "conditional"
             tool_context = pytypes.SimpleNamespace(tool_confirmation=pytypes.SimpleNamespace(confirmed=True))
 
-            response = message("hello", channel="local", chat_id="u1", tool_context=tool_context)
+            response = cron(action="add", message="say hi", every_seconds=60, tool_context=tool_context)
 
-            self.assertIn("Message recorded", response)
+            self.assertIn("Created job", response)
 
     def test_builtin_tool_metadata_marks_read_and_high_risk_tools(self) -> None:
         read_meta = get_tool_meta("read_file")
@@ -1378,28 +1373,23 @@ class ToolsTests(unittest.TestCase):
             os.environ["OPENPPX_WORKSPACE"] = tmp
             out = exec_command('python -c "import time; time.sleep(0.2)"', background=True)
             self.assertIn("session", out.lower())
-
-            outbox = Path(tmp) / "messages" / "outbox.log"
-            self.assertTrue(outbox.exists())
-            records = [json.loads(line) for line in outbox.read_text(encoding="utf-8").splitlines()]
+            matched = re.search(r"session ([0-9a-f-]+)", out)
+            self.assertIsNotNone(matched)
+            session_id = matched.group(1) if matched else ""
+            records = [event.payload for event in TaskEventStore().list_events(session_id)]
             statuses = {
-                str(record.get("metadata", {}).get("_feedback_status", ""))
+                str(record.get("_feedback_status", ""))
                 for record in records
-                if isinstance(record.get("metadata"), dict)
             }
             step_phases = {
-                str(record.get("metadata", {}).get("_step_phase", ""))
+                str(record.get("_step_phase", ""))
                 for record in records
-                if isinstance(record.get("metadata"), dict)
             }
             tool_names = {
-                str(record.get("metadata", {}).get("_tool_name", ""))
+                str(record.get("_tool_name", ""))
                 for record in records
-                if isinstance(record.get("metadata"), dict)
             }
-            self.assertIn("started", statuses)
             self.assertIn("running", statuses)
-            self.assertIn("started", step_phases)
             self.assertIn("running", step_phases)
             self.assertIn("exec", tool_names)
 
@@ -1438,17 +1428,16 @@ class ToolsTests(unittest.TestCase):
             poll = process_session("poll", session_id=session_id, timeout_ms=400)
             self.assertIn("[poll-meta]", poll)
 
-            outbox = Path(tmp) / "messages" / "outbox.log"
-            records = [json.loads(line) for line in outbox.read_text(encoding="utf-8").splitlines()]
+            records = [event.payload for event in TaskEventStore().list_events(session_id)]
             output_events = [
                 record for record in records
-                if str(record.get("metadata", {}).get("_feedback_type", "")) == "tool_output"
+                if str(record.get("_feedback_type", "")) == "tool_output"
             ]
             self.assertTrue(output_events)
-            self.assertEqual(output_events[-1]["metadata"]["_tool_name"], "process")
-            self.assertEqual(output_events[-1]["metadata"]["_session_id"], session_id)
-            self.assertEqual(output_events[-1]["metadata"]["_event_class"], "step_output")
-            self.assertEqual(output_events[-1]["metadata"]["_step_id"], session_id)
+            self.assertEqual(output_events[-1]["_tool_name"], "process")
+            self.assertEqual(output_events[-1]["_session_id"], session_id)
+            self.assertEqual(output_events[-1]["_event_class"], "step_output")
+            self.assertEqual(output_events[-1]["_step_id"], session_id)
 
     def test_exec_background_send_keys(self) -> None:
         cmd = 'python -c "import sys;print(sys.stdin.readline().strip())"'
@@ -1844,106 +1833,19 @@ class ToolsTests(unittest.TestCase):
             out = exec_command("echo ok;../outside.sh")
             self.assertIn("outside workspace", out.lower())
 
-    def test_message_tool_writes_outbox(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            os.environ["OPENPPX_WORKSPACE"] = tmp
-            response = message("hi", channel="local", chat_id="u1")
-            self.assertIn("Message recorded", response)
-            outbox = Path(tmp) / "messages" / "outbox.log"
-            self.assertTrue(outbox.exists())
-
-    def test_message_tool_uses_route_context_when_target_missing(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            os.environ["OPENPPX_WORKSPACE"] = tmp
-            with route_context("telegram", "u2"):
-                response = message("hi-context", channel=None, chat_id=None)
-            self.assertIn("Message recorded", response)
-            outbox = Path(tmp) / "messages" / "outbox.log"
-            record = json.loads(outbox.read_text(encoding="utf-8").splitlines()[-1])
-            self.assertEqual(record["channel"], "telegram")
-            self.assertEqual(record["chat_id"], "u2")
-
-    def test_message_tool_records_media_and_buttons(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            os.environ["OPENPPX_WORKSPACE"] = tmp
-            image_path = Path(tmp) / "tmp" / "demo.png"
-            image_path.parent.mkdir(parents=True, exist_ok=True)
-            image_path.write_bytes(b"\x89PNG\r\n\x1a\n")
-
-            response = message(
-                "approve?",
-                channel="local",
-                chat_id="u1",
-                media=["tmp/demo.png"],
-                buttons=[["Approve", "Reject"]],
-            )
-
-            self.assertIn("Message recorded", response)
-            self.assertIn("1 attachment", response)
-            self.assertIn("2 button", response)
-            outbox = Path(tmp) / "messages" / "outbox.log"
-            record = json.loads(outbox.read_text(encoding="utf-8").splitlines()[-1])
-            self.assertEqual(record["metadata"]["buttons"], [["Approve", "Reject"]])
-            self.assertEqual(record["metadata"]["content_type"], "image")
-            self.assertEqual(Path(record["metadata"]["media"][0]).resolve(), image_path.resolve())
-
-    def test_message_image_tool_writes_image_metadata(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            os.environ["OPENPPX_WORKSPACE"] = tmp
-            image_path = Path(tmp) / "tmp" / "demo.png"
-            image_path.parent.mkdir(parents=True, exist_ok=True)
-            image_path.write_bytes(b"\x89PNG\r\n\x1a\n")
-
-            response = message_image("tmp/demo.png", caption="done", channel="feishu", chat_id="oc_1")
-            self.assertIn("Image message recorded", response)
-            outbox = Path(tmp) / "messages" / "outbox.log"
-            record = json.loads(outbox.read_text(encoding="utf-8").splitlines()[-1])
-            self.assertEqual(record["channel"], "feishu")
-            self.assertEqual(record["chat_id"], "oc_1")
-            self.assertEqual(record["content"], "done")
-            self.assertEqual(record["metadata"]["content_type"], "image")
-            self.assertEqual(Path(record["metadata"]["image_path"]).resolve(), image_path.resolve())
-
-    def test_message_file_tool_writes_file_metadata(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            os.environ["OPENPPX_WORKSPACE"] = tmp
-            file_path = Path(tmp) / "tmp" / "report.txt"
-            file_path.parent.mkdir(parents=True, exist_ok=True)
-            file_path.write_text("done", encoding="utf-8")
-
-            response = message_file("tmp/report.txt", caption="see attachment", channel="feishu", chat_id="oc_2")
-            self.assertIn("File message recorded", response)
-            outbox = Path(tmp) / "messages" / "outbox.log"
-            record = json.loads(outbox.read_text(encoding="utf-8").splitlines()[-1])
-            self.assertEqual(record["channel"], "feishu")
-            self.assertEqual(record["chat_id"], "oc_2")
-            self.assertEqual(record["content"], "see attachment")
-            self.assertEqual(record["metadata"]["content_type"], "file")
-            self.assertEqual(record["metadata"]["file_name"], "report.txt")
-            self.assertEqual(Path(record["metadata"]["file_path"]).resolve(), file_path.resolve())
-
-    def test_message_file_tool_rejects_missing_file(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            os.environ["OPENPPX_WORKSPACE"] = tmp
-            response = message_file("tmp/missing.txt", channel="feishu", chat_id="oc_2")
-            self.assertIn("Error: File not found", response)
-
     def test_cron_tool_add_list_remove(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             os.environ["OPENPPX_WORKSPACE"] = tmp
             with route_context("telegram", "u2"):
                 create = cron(action="add", message="remind me", every_seconds=30)
             self.assertIn("Created job", create)
-            store_path = Path(tmp) / ".openppx" / "cron_jobs.json"
+            store_path = Path(tmp) / "database" / "cron.json"
             self.assertTrue(store_path.exists())
             payload = json.loads(store_path.read_text(encoding="utf-8"))
-            self.assertEqual(payload.get("version"), 3)
+            self.assertEqual(payload.get("version"), 4)
             self.assertTrue(payload.get("jobs"))
             self.assertEqual(payload.get("history"), [])
             first = payload["jobs"][0]
-            self.assertTrue(first["payload"]["deliver"])
-            self.assertEqual(first["payload"]["channel"], "telegram")
-            self.assertEqual(first["payload"]["to"], "u2")
             self.assertEqual(first["payload"]["message"], "message from cron task: remind me")
 
             listing = cron(action="list")
@@ -3291,8 +3193,8 @@ class ToolsTests(unittest.TestCase):
         self.assertEqual(req.session_id, "s1")
         self.assertEqual(req.invocation_id, "inv-1")
         self.assertEqual(req.function_call_id, "fc-1")
-        self.assertEqual(req.channel, "feishu")
-        self.assertEqual(req.chat_id, "oc_123")
+        self.assertEqual(req.route, "feishu")
+        self.assertEqual(req.scope_id, "oc_123")
         self.assertTrue(req.notify_on_complete)
 
     def test_spawn_subagent_persists_spawn_record(self) -> None:
@@ -3316,8 +3218,8 @@ class ToolsTests(unittest.TestCase):
             record = json.loads(log_path.read_text(encoding="utf-8").splitlines()[-1])
             self.assertEqual(record["status"], "pending")
             self.assertTrue(str(record["task_id"]).startswith("subagent-"))
-            self.assertEqual(record["channel"], "feishu")
-            self.assertEqual(record["chat_id"], "oc_123")
+            self.assertEqual(record["route"], "feishu")
+            self.assertEqual(record["scope_id"], "oc_123")
             self.assertEqual(record["user_id"], "u1")
             self.assertEqual(record["session_id"], "s1")
 
@@ -3337,16 +3239,15 @@ class ToolsTests(unittest.TestCase):
                 out = spawn_subagent(prompt="summarize logs", tool_context=ctx)
 
             self.assertEqual(out.get("status"), "pending")
-            outbox = Path(tmp) / "messages" / "outbox.log"
-            records = [json.loads(line) for line in outbox.read_text(encoding="utf-8").splitlines()]
-            feedback = records[-1]
-            self.assertEqual(feedback["metadata"]["_feedback_type"], "status")
-            self.assertEqual(feedback["metadata"]["_feedback_status"], "accepted")
-            self.assertEqual(feedback["metadata"]["_tool_name"], "spawn_subagent")
-            self.assertTrue(str(feedback["metadata"]["_task_id"]).startswith("subagent-"))
-            self.assertEqual(feedback["metadata"]["_event_class"], "step_update")
-            self.assertEqual(feedback["metadata"]["_step_kind"], "subagent")
-            self.assertEqual(feedback["metadata"]["_step_phase"], "queued")
+            events = TaskEventStore().list_events(str(out["task_id"]))
+            feedback = events[-1]
+            self.assertEqual(feedback.event_type, "status")
+            self.assertEqual(feedback.payload["_feedback_status"], "accepted")
+            self.assertEqual(feedback.payload["_tool_name"], "spawn_subagent")
+            self.assertTrue(str(feedback.payload["_task_id"]).startswith("subagent-"))
+            self.assertEqual(feedback.payload["_event_class"], "step_update")
+            self.assertEqual(feedback.payload["_step_kind"], "subagent")
+            self.assertEqual(feedback.payload["_step_phase"], "queued")
 
 
 if __name__ == "__main__":

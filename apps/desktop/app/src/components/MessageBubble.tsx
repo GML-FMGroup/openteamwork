@@ -68,7 +68,7 @@ function explainError(errorCode: string | undefined, text: string): { title: str
   if (normalized.includes("network") || normalized.includes("connection") || normalized.includes("unreachable")) {
     return {
       title: "Connection failed",
-      hint: "Check the gateway address, network connectivity, and whether the local client API is running.",
+      hint: "Check the Node address, network connectivity, and whether OpenPPX Node is running.",
     };
   }
   return {

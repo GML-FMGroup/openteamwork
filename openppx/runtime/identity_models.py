@@ -1,4 +1,4 @@
-"""Identity dataclasses used by gateway/runtime integration."""
+"""Identity dataclasses used by Node/runtime integration."""
 
 from __future__ import annotations
 

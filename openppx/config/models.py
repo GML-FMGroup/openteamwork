@@ -29,6 +29,27 @@ ResourceName: TypeAlias = Annotated[
     ),
 ]
 
+_PRIVILEGE_ALIASES: dict[str, str] = {
+    "low": "low",
+    "minimal": "low",
+    "medium": "medium",
+    "standard": "medium",
+    "high": "high",
+    "root": "root",
+}
+
+
+def normalize_agent_privilege_level(value: object, *, default: str = "low") -> str:
+    """Normalize one public privilege label into the strict Agent vocabulary."""
+    raw = str(value or "").strip().lower()
+    if not raw:
+        return default
+    canonical = _PRIVILEGE_ALIASES.get(raw)
+    if canonical is None:
+        choices = ", ".join(sorted(_PRIVILEGE_ALIASES))
+        raise ValueError(f"unsupported agent privilege level '{raw}'; expected one of: {choices}")
+    return canonical
+
 
 def _visible_text(value: str) -> str:
     """Require meaningful display/path text without control characters."""

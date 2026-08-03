@@ -157,9 +157,6 @@ class CronPayload:
     message: str
     agent_id: str | None = None
     user_id: str | None = None
-    deliver: bool = False
-    channel: str | None = None
-    to: str | None = None
 
 
 @dataclass(slots=True)
@@ -205,7 +202,7 @@ class CronHistoryEntry:
 class CronStore:
     """On-disk store model."""
 
-    version: int = 3
+    version: int = 4
     jobs: list[CronJob] = field(default_factory=list)
     history: list[CronHistoryEntry] = field(default_factory=list)
 
@@ -337,79 +334,43 @@ class CronService:
         except Exception:
             return
 
-    def _parse_legacy_schedule(self, schedule_text: str, now_ms: int) -> tuple[CronSchedule, bool]:
-        value = (schedule_text or "").strip()
-        if value.startswith("every:") and value.endswith("s"):
-            every_seconds = int(value.removeprefix("every:").removesuffix("s"))
-            return CronSchedule(kind="every", every_seconds=every_seconds), False
-        if value.startswith("cron:"):
-            return CronSchedule(kind="cron", cron_expr=value.removeprefix("cron:")), False
-        if value.startswith("at:"):
-            dt_obj = datetime.fromisoformat(value.removeprefix("at:"))
-            return CronSchedule(kind="at", at_ms=int(dt_obj.timestamp() * 1000)), True
-        # Unknown format falls back to a disabled one-shot to avoid crashing startup.
-        return CronSchedule(kind="at", at_ms=now_ms - 1), True
-
     def _deserialize_job(self, raw: dict, now_ms: int) -> CronJob | None:
         try:
-            if "payload" in raw and "schedule" in raw:
-                schedule_raw = raw.get("schedule") or {}
-                payload_raw = raw.get("payload") or {}
-                state_raw = raw.get("state") or {}
-                schedule = CronSchedule(
-                    kind=str(schedule_raw.get("kind", "every")),
-                    every_seconds=schedule_raw.get("every_seconds"),
-                    cron_expr=schedule_raw.get("cron_expr"),
-                    at_ms=schedule_raw.get("at_ms"),
-                    tz=schedule_raw.get("tz"),
-                )
-                payload = CronPayload(
-                    message=str(payload_raw.get("message", "")),
-                    agent_id=payload_raw.get("agent_id"),
-                    user_id=payload_raw.get("user_id"),
-                    deliver=bool(payload_raw.get("deliver", False)),
-                    channel=payload_raw.get("channel"),
-                    to=payload_raw.get("to"),
-                )
-                state = CronJobState(
-                    next_run_at_ms=state_raw.get("next_run_at_ms"),
-                    last_run_at_ms=state_raw.get("last_run_at_ms"),
-                    last_status=state_raw.get("last_status"),
-                    last_error=state_raw.get("last_error"),
-                )
-                created_at_ms = int(raw.get("created_at_ms", now_ms))
-                updated_at_ms = int(raw.get("updated_at_ms", created_at_ms))
-                return CronJob(
-                    id=str(raw["id"]),
-                    name=str(raw.get("name", "")),
-                    enabled=bool(raw.get("enabled", True)),
-                    schedule=schedule,
-                    payload=payload,
-                    state=state,
-                    created_at_ms=created_at_ms,
-                    updated_at_ms=updated_at_ms,
-                    delete_after_run=bool(raw.get("delete_after_run", False)),
-                )
-
-            # Legacy v1 format compatibility.
-            schedule, delete_after_run = self._parse_legacy_schedule(str(raw.get("schedule", "")), now_ms)
-            created_at_ms = now_ms
-            created_at = str(raw.get("created_at", "")).strip()
-            if created_at:
-                try:
-                    created_at_ms = int(datetime.fromisoformat(created_at).timestamp() * 1000)
-                except Exception:
-                    created_at_ms = now_ms
+            schedule_raw = raw["schedule"]
+            payload_raw = raw["payload"]
+            state_raw = raw["state"]
+            if not isinstance(schedule_raw, dict) or not isinstance(payload_raw, dict) or not isinstance(state_raw, dict):
+                return None
+            schedule = CronSchedule(
+                kind=str(schedule_raw["kind"]),
+                every_seconds=schedule_raw.get("every_seconds"),
+                cron_expr=schedule_raw.get("cron_expr"),
+                at_ms=schedule_raw.get("at_ms"),
+                tz=schedule_raw.get("tz"),
+            )
+            payload = CronPayload(
+                message=str(payload_raw["message"]),
+                agent_id=payload_raw.get("agent_id"),
+                user_id=payload_raw.get("user_id"),
+            )
+            state = CronJobState(
+                next_run_at_ms=state_raw.get("next_run_at_ms"),
+                last_run_at_ms=state_raw.get("last_run_at_ms"),
+                last_status=state_raw.get("last_status"),
+                last_error=state_raw.get("last_error"),
+            )
+            created_at_ms = int(raw["created_at_ms"])
+            updated_at_ms = int(raw["updated_at_ms"])
             return CronJob(
                 id=str(raw["id"]),
                 name=str(raw.get("name", "")),
-                enabled=True,
+                enabled=bool(raw["enabled"]),
                 schedule=schedule,
-                payload=CronPayload(message=str(raw.get("message", ""))),
-                state=CronJobState(),
+                payload=payload,
+                state=state,
                 created_at_ms=created_at_ms,
-                updated_at_ms=created_at_ms,
-                delete_after_run=delete_after_run,
+                updated_at_ms=updated_at_ms,
+                delete_after_run=bool(raw.get("delete_after_run", False)),
             )
         except Exception:
             return None
@@ -430,9 +391,6 @@ class CronService:
                 "message": job.payload.message,
                 "agent_id": job.payload.agent_id,
                 "user_id": job.payload.user_id,
-                "deliver": job.payload.deliver,
-                "channel": job.payload.channel,
-                "to": job.payload.to,
             },
             "state": {
                 "next_run_at_ms": job.state.next_run_at_ms,
@@ -544,13 +502,11 @@ class CronService:
 
         jobs: list[CronJob] = []
         history: list[CronHistoryEntry] = []
-        if isinstance(raw, dict):
+        if isinstance(raw, dict) and raw.get("version") == 4:
             raw_jobs = raw.get("jobs", [])
             raw_history = raw.get("history", [])
-        elif isinstance(raw, list):
-            raw_jobs = raw
-            raw_history = []
         else:
+            self._last_store_error = "unsupported cron store version; expected version 4"
             raw_jobs = []
             raw_history = []
 
@@ -568,7 +524,7 @@ class CronService:
             if parsed is not None:
                 history.append(parsed)
 
-        self._store = CronStore(version=3, jobs=jobs, history=history)
+        self._store = CronStore(version=4, jobs=jobs, history=history)
         self._store_mtime_ns = current_mtime
         return self._store
 
@@ -727,9 +683,6 @@ class CronService:
                     "schedule": _schedule_payload(job.schedule),
                     "agent_id": job.payload.agent_id,
                     "user_id": job.payload.user_id,
-                    "deliver": job.payload.deliver,
-                    "channel": job.payload.channel,
-                    "to": job.payload.to,
                     "started_at_ms": started_at_ms,
                 },
                 runner_capabilities=CRON_RUNNER_CAPABILITIES,
@@ -822,9 +775,6 @@ class CronService:
         message: str,
         agent_id: str | None = None,
         user_id: str | None = None,
-        deliver: bool = False,
-        channel: str | None = None,
-        to: str | None = None,
         delete_after_run: bool = False,
     ) -> CronJob:
         store = self._load_store()
@@ -838,9 +788,6 @@ class CronService:
                 message=message,
                 agent_id=agent_id,
                 user_id=user_id,
-                deliver=deliver,
-                channel=channel,
-                to=to,
             ),
             state=CronJobState(next_run_at_ms=_compute_next_run(schedule, now_ms)),
             created_at_ms=now_ms,

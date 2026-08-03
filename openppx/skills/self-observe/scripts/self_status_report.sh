@@ -2,27 +2,27 @@
 set -euo pipefail
 
 DATA_DIR="${HOME}/.openppx"
-LOG_DIR="${DATA_DIR}/log"
-TOKEN_DB="${DATA_DIR}/token_usage.db"
+LOG_DIR="${DATA_DIR}/logs"
+TOKEN_DB="${DATA_DIR}/database/token_usage.db"
 
 echo "=== OpenPPX Self Status Report ==="
 date '+generated_at=%Y-%m-%dT%H:%M:%S%z'
 
 echo
 echo "[1] Runtime status"
-ppx gateway status --json 2>/dev/null || echo '{"gateway":"unavailable"}'
-ppx heartbeat status --json 2>/dev/null || echo '{"heartbeat":"unavailable"}'
-ppx provider status --json 2>/dev/null || echo '{"provider":"unavailable"}'
-ppx cron status 2>/dev/null || echo 'cron status unavailable'
+ppx operations status --json 2>/dev/null || echo '{"node":"unavailable"}'
+ppx operations health --json 2>/dev/null || echo '{"health":"unavailable"}'
+ppx operations heartbeat status --json 2>/dev/null || echo '{"heartbeat":"unavailable"}'
+ppx operations cron list --json 2>/dev/null || echo '{"cron":"unavailable"}'
 
 echo
 echo "[2] Token usage"
-ppx token stats --json 2>/dev/null || echo '{"token":"unavailable"}'
+ppx operations usage --json 2>/dev/null || echo '{"usage":"unavailable"}'
 
 echo
 echo "[3] Recent errors"
 if [[ -d "${LOG_DIR}" ]]; then
-  for f in gateway.err.log gateway.out.log gateway.debug.log; do
+  for f in node.err.log node.out.log; do
     p="${LOG_DIR}/${f}"
     if [[ -f "${p}" ]]; then
       echo "--- ${p} (last 80 lines) ---"

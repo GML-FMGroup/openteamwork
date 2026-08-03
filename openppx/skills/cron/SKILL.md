@@ -1,6 +1,6 @@
 ---
 name: cron
-description: Schedule reminders and recurring tasks; for cron add, message must be an executable action instruction with expected output constraints (exact text for reminders), never raw text/title/number, and relative time must be computed from current request time (not gateway startup time).
+description: Schedule reminders and recurring tasks; for cron add, message must be an executable action instruction with expected output constraints (exact text for reminders), never raw text/title/number, and relative time must be computed from current request time (not Node startup time).
 ---
   
 # Cron
@@ -53,7 +53,7 @@ cron(action="add", message="Check project status and output three short summary 
 
 For requests like "in 20 minutes", "after 2 hours", "run in 2 minutes", or "run after 1 hour",
 the reference point MUST be the current conversation message time (request receive time),
-NOT gateway startup time.
+NOT Node startup time.
 
 Workflow:
 

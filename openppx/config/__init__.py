@@ -19,6 +19,7 @@ from .models import (
     NodeOperationsSpec,
     ResourceName,
     StrictConfigModel,
+    normalize_agent_privilege_level,
 )
 from .layers import ConfigOrigin, ConfigSnapshot
 from .repository import ConfigRepository, ConfigSource, FilesystemConfigRepository, VersionedResource
@@ -80,6 +81,7 @@ __all__ = [
     "SecretValue",
     "SystemCredentialSecretStore",
     "StrictConfigModel",
+    "normalize_agent_privilege_level",
     "VersionedResource",
     "ValidationResult",
     "config_revision",

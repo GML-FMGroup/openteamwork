@@ -9,12 +9,12 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from ..core.config import get_data_dir
+from .paths import node_database_path
 
 
-def token_usage_db_path() -> Path:
+def token_usage_db_path(node_root: Path | None = None) -> Path:
     """Return SQLite path used for token usage events."""
-    return get_data_dir() / "token_usage.db"
+    return node_database_path("token_usage.db", node_root=node_root)
 
 
 def _connect(db_path: Path | None = None) -> sqlite3.Connection:

@@ -2,17 +2,15 @@
 
 from __future__ import annotations
 
-import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 from google.adk.memory import InMemoryMemoryService
 
-from ..core.config import get_data_dir
-from ..core.config import get_agent_home_dir
 from .markdown_memory_service import MarkdownMemoryService
 from .sqlite_memory_service import SQLiteMemoryService
+from .paths import resolve_node_root
 
 
 @dataclass(slots=True)
@@ -35,54 +33,27 @@ class MemoryConfig:
     sqlite_db_path: str = ""
 
 
-def _parse_enabled(raw: str | None, *, default: bool) -> bool:
-    """Parse common truthy/falsey env values with a deterministic fallback."""
-    if raw is None:
-        return default
-    normalized = raw.strip().lower()
-    if not normalized:
-        return default
-    return normalized not in {"0", "false", "off", "no"}
-
-
-def _default_markdown_dir() -> Path:
+def _default_markdown_dir(node_root: Path | None = None) -> Path:
     """Resolve default markdown memory directory.
 
     By default memory files are colocated with agent bootstrap files so the
     runtime consistently uses ``<agent_home>/memory/{MEMORY.md,HISTORY.md}``.
     """
-    return get_agent_home_dir() / "memory"
+    return resolve_node_root(node_root) / "memory"
 
 
-def _default_sqlite_db_path() -> Path:
+def _default_sqlite_db_path(node_root: Path | None = None) -> Path:
     """Resolve default SQLite memory database path."""
-    db_path = get_data_dir() / "database" / "memory.db"
-    return db_path
+    return resolve_node_root(node_root) / "database" / "memory.db"
 
 
-def load_memory_config() -> MemoryConfig:
-    """Load memory configuration from environment variables.
-
-    Environment variables:
-        - ``OPENPPX_MEMORY_ENABLED`` (default: ``1``)
-        - ``OPENPPX_MEMORY_BACKEND`` (default: ``sqlite``)
-        - ``OPENPPX_MEMORY_DB_PATH`` (optional)
-        - ``OPENPPX_MEMORY_MARKDOWN_DIR`` (optional)
-    """
-    enabled = _parse_enabled(
-        os.getenv("OPENPPX_MEMORY_ENABLED"),
-        default=True,
-    )
-    backend = (
-        os.getenv("OPENPPX_MEMORY_BACKEND", "sqlite").strip().lower() or "sqlite"
-    )
-    markdown_dir = os.getenv("OPENPPX_MEMORY_MARKDOWN_DIR", "").strip() or str(_default_markdown_dir())
-    sqlite_db_path = os.getenv("OPENPPX_MEMORY_DB_PATH", "").strip() or str(_default_sqlite_db_path())
+def load_memory_config(node_root: Path | None = None) -> MemoryConfig:
+    """Build deterministic SQLite memory configuration for one Node root."""
     return MemoryConfig(
-        enabled=enabled,
-        backend=backend,
-        markdown_dir=markdown_dir,
-        sqlite_db_path=sqlite_db_path,
+        enabled=True,
+        backend="sqlite",
+        markdown_dir=str(_default_markdown_dir(node_root)),
+        sqlite_db_path=str(_default_sqlite_db_path(node_root)),
     )
 
 

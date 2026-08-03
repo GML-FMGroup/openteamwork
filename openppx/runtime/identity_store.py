@@ -1,17 +1,16 @@
-"""SQLite-backed identity resolution helpers for gateway/runtime integration."""
+"""SQLite-backed identity resolution helpers for Node/runtime integration."""
 
 from __future__ import annotations
 
 import json
-import os
 import sqlite3
 import threading
 import time
 from dataclasses import dataclass
 from pathlib import Path
 
-from ..core.config import get_data_dir
 from .identity_models import ResolvedPrincipal
+from .paths import node_database_path
 from .system_principals import get_system_principal
 
 
@@ -30,16 +29,14 @@ class ExternalIdentity:
     external_display_id: str
 
 
-def _default_identity_db_path() -> Path:
+def _default_identity_db_path(node_root: Path | None = None) -> Path:
     """Return the default SQLite path used by the identity store."""
-    db_path = get_data_dir() / "database" / "identity.db"
-    return db_path
+    return node_database_path("identity.db", node_root=node_root)
 
 
-def load_identity_store_config() -> IdentityStoreConfig:
-    """Load identity store config from environment variables."""
-    db_path = os.getenv("OPENPPX_IDENTITY_DB_PATH", "").strip() or str(_default_identity_db_path())
-    return IdentityStoreConfig(db_path=db_path)
+def load_identity_store_config(node_root: Path | None = None) -> IdentityStoreConfig:
+    """Build deterministic identity storage for one Node root."""
+    return IdentityStoreConfig(db_path=str(_default_identity_db_path(node_root)))
 
 
 def _connect(db_path: Path) -> sqlite3.Connection:
@@ -90,10 +87,10 @@ def _json_loads(raw: str | None) -> dict[str, object]:
     return payload if isinstance(payload, dict) else {}
 
 
-def _normalize_external_identity(*, channel: str, sender_id: str) -> ExternalIdentity:
+def _normalize_external_identity(*, source: str, sender_id: str) -> ExternalIdentity:
     """Normalize one inbound sender id into stable subject/display identifiers."""
     raw_sender = str(sender_id or "").strip()
-    if channel == "telegram" and "|@" in raw_sender:
+    if source == "telegram" and "|@" in raw_sender:
         external_subject_id, username = raw_sender.split("|@", 1)
         stable_subject = external_subject_id.strip()
         display_id = f"@{username.strip()}" if username.strip() else raw_sender
@@ -113,11 +110,11 @@ def _normalize_external_identity(*, channel: str, sender_id: str) -> ExternalIde
     )
 
 
-def _human_principal_id(*, channel: str, external_subject_id: str) -> str:
-    """Build the default internal principal id for one channel-scoped human."""
-    normalized_channel = str(channel or "unknown").strip().lower() or "unknown"
+def _human_principal_id(*, source: str, external_subject_id: str) -> str:
+    """Build the default internal principal id for one source-scoped human."""
+    normalized_source = str(source or "unknown").strip().lower() or "unknown"
     normalized_subject = str(external_subject_id or "unknown").strip() or "unknown"
-    return f"human:{normalized_channel}:{normalized_subject}"
+    return f"human:{normalized_source}:{normalized_subject}"
 
 
 class IdentityStore:
@@ -125,7 +122,7 @@ class IdentityStore:
 
     The first implementation keeps the schema intentionally small:
     `principals` stores the canonical runtime identity, and
-    `principal_external_identities` maps channel-scoped external subjects onto
+    `principal_external_identities` maps source-scoped external subjects onto
     those internal principal ids.
     """
 
@@ -164,13 +161,13 @@ class IdentityStore:
             conn.execute(
                 """
                 CREATE TABLE IF NOT EXISTS principal_external_identities (
-                    channel TEXT NOT NULL,
+                    source TEXT NOT NULL,
                     external_subject_id TEXT NOT NULL,
                     principal_id TEXT NOT NULL,
                     external_display_id TEXT NOT NULL,
                     created_at_ms INTEGER NOT NULL,
                     updated_at_ms INTEGER NOT NULL,
-                    PRIMARY KEY (channel, external_subject_id),
+                    PRIMARY KEY (source, external_subject_id),
                     FOREIGN KEY (principal_id) REFERENCES principals(principal_id)
                 )
                 """
@@ -283,12 +280,12 @@ class IdentityStore:
             ).fetchall()
         return [str(row["principal_id"]) for row in rows]
 
-    def resolve_message_principal(self, *, channel: str, sender_id: str) -> ResolvedPrincipal:
-        """Resolve one inbound message sender into a persisted human principal."""
-        identity = _normalize_external_identity(channel=channel, sender_id=sender_id)
-        channel_key = str(channel or "unknown").strip().lower() or "unknown"
+    def resolve_external_principal(self, *, source: str, sender_id: str) -> ResolvedPrincipal:
+        """Resolve one external sender into a persisted human principal."""
+        identity = _normalize_external_identity(source=source, sender_id=sender_id)
+        source_key = str(source or "unknown").strip().lower() or "unknown"
         principal_id = _human_principal_id(
-            channel=channel_key,
+            source=source_key,
             external_subject_id=identity.external_subject_id,
         )
 
@@ -307,9 +304,9 @@ class IdentityStore:
                 FROM principals AS p
                 JOIN principal_external_identities AS e
                   ON e.principal_id = p.principal_id
-                WHERE e.channel = ? AND e.external_subject_id = ?
+                WHERE e.source = ? AND e.external_subject_id = ?
                 """,
-                (channel_key, identity.external_subject_id),
+                (source_key, identity.external_subject_id),
             ).fetchone()
 
             if row is None:
@@ -322,27 +319,27 @@ class IdentityStore:
                     authenticated=bool(identity.external_subject_id),
                     external_subject_id=identity.external_subject_id,
                     external_display_id=identity.external_display_id,
-                    metadata={"channel": channel_key},
+                    metadata={"source": source_key},
                 )
                 self._upsert_principal(conn, principal)
                 now_ms = _now_ms()
                 conn.execute(
                     """
                     INSERT INTO principal_external_identities (
-                        channel,
+                        source,
                         external_subject_id,
                         principal_id,
                         external_display_id,
                         created_at_ms,
                         updated_at_ms
                     ) VALUES (?, ?, ?, ?, ?, ?)
-                    ON CONFLICT(channel, external_subject_id) DO UPDATE SET
+                    ON CONFLICT(source, external_subject_id) DO UPDATE SET
                         principal_id=excluded.principal_id,
                         external_display_id=excluded.external_display_id,
                         updated_at_ms=excluded.updated_at_ms
                     """,
                     (
-                        channel_key,
+                        source_key,
                         identity.external_subject_id,
                         principal.principal_id,
                         identity.external_display_id,
@@ -365,12 +362,12 @@ class IdentityStore:
                 """
                 UPDATE principal_external_identities
                 SET external_display_id = ?, updated_at_ms = ?
-                WHERE channel = ? AND external_subject_id = ?
+                WHERE source = ? AND external_subject_id = ?
                 """,
                 (
                     identity.external_display_id,
                     _now_ms(),
-                    channel_key,
+                    source_key,
                     identity.external_subject_id,
                 ),
             )
@@ -407,7 +404,7 @@ class IdentityStore:
 
 
 def create_identity_store(config: IdentityStoreConfig | None = None) -> IdentityStore:
-    """Create the runtime identity resolver used by gateway flows."""
+    """Create the runtime identity resolver used by Node flows."""
     if config is None:
         return IdentityStore()
     return IdentityStore(db_path=config.db_path)

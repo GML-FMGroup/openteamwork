@@ -6,12 +6,8 @@ import os
 import platform
 from dataclasses import dataclass
 
-from ..core.env_utils import env_enabled
 from ..core.gui_mcp import resolve_gui_mcp_from_summaries
 from ..tooling.skills_adapter import get_registry
-
-GUI_BUILTIN_TOOLS_ENABLED_ENV = "OPENPPX_GUI_BUILTIN_TOOLS_ENABLED"
-
 
 @dataclass(frozen=True, slots=True)
 class RootPromptLayers:
@@ -27,8 +23,8 @@ class RootPromptLayers:
 
 
 def gui_builtin_tools_enabled() -> bool:
-    """Return whether legacy builtin GUI tools should be exposed."""
-    return env_enabled(GUI_BUILTIN_TOOLS_ENABLED_ENV, default=True)
+    """Return the deterministic default for direct internal prompt assembly."""
+    return True
 
 
 def build_static_policy_instruction() -> str:
@@ -46,14 +42,11 @@ Your job:
 3. Keep responses concise and actionable.
 
 Rules:
-- Channel delivery (e.g. local/Feishu) is handled by the gateway runtime.
 - Agent-home context injected at runtime may provide project-specific instructions; follow those more specific instructions when they do not conflict with safety or tool constraints.
 - Skill loading is file-based. Before using a skill deeply, call `list_skills` then `read_skill(name)` for the specific skill.
 - Do not invent skill content. Always read SKILL.md first.
-- Use `message_image(path=..., caption=...)` when a local image file should be delivered to the current channel.
-- Use `message_file(path=..., caption=...)` when a local file should be delivered to the current channel.
 - Use `spawn_subagent(prompt=...)` for background sub-tasks that should finish later.
-- Prefer available built-in tools for file, shell, browser, web, messaging, cron, and sub-agent actions.
+- Prefer available built-in tools for file, shell, browser, web, cron, and sub-agent actions.
 - Browser routing supports `target=host|node|sandbox`; use `target=node` with `node=<id>` when a specific node proxy is required.
 - Use `list_browser_remote_providers` and `list_browser_remote_jobs` to inspect recently observed remote browser provider/job facts; when a proxy explicitly returns a job id, openppx materializes a `browser_remote` TaskRun, and `show_task`/`list_tasks` remain the source of truth for task status. Live status/output/cancel/pause/resume/checkpoint controls are available only when the proxy declares an explicit browser job protocol. Use `check_browser_remote_job_protocol` for explicit provider contract checks; leave side-effecting controls disabled unless the user is intentionally testing pause/resume/cancel.
 - For skill APIs, prefer `invoke_skill_api(skill_name, api_name, args=...)`; call `list_skill_api_runners` when you need the supported declarative recipe catalog. Script-backed APIs, declarative HTTP API recipes, declarative Python SDK recipes, declarative Node.js API recipes, and declarative command API recipes run in the supervised envelope, quick calls return inline output, and long calls return a durable `task_id`.
@@ -119,7 +112,7 @@ def build_startup_runtime_context(
 ) -> str:
     """Build startup context, preferring immutable runtime inputs when supplied."""
     runtime = f"{platform.system()} {platform.machine()} / Python"
-    resolved_workspace = workspace if workspace is not None else os.getenv("OPENPPX_WORKSPACE", os.getcwd())
+    resolved_workspace = workspace if workspace is not None else os.getcwd()
     resolved_skills_summary = skills_summary if skills_summary is not None else get_registry().build_summary()
 
     return f"""# Runtime Context
