@@ -35,6 +35,11 @@ from .app_models import (
     AppToolSpec,
 )
 from .errors import ExtensionError
+from .indexes import (
+    ExtensionReferenceIndex,
+    ResourceIdentityIndex,
+    ResourceIdentityReservation,
+)
 from .mcp import McpSnapshot, McpSnapshotEntry, merge_mcp_snapshots
 from .mcp_models import (
     McpLiteralValue,
@@ -51,6 +56,8 @@ from .prefixes import ToolPrefixIndex, ToolPrefixReservation
 
 _RESOURCE_NAME_PATTERN = re.compile(r"^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$")
 _RISK_ORDER = {"low": 0, "medium": 1, "high": 2}
+DefinitionProvider = Callable[[], tuple["VersionedAppDefinition", ...]]
+OwnerEnabled = Callable[[str, str], bool]
 
 
 @dataclass(frozen=True, slots=True)
@@ -134,6 +141,9 @@ class AppManager:
         *,
         executable_resolver: Callable[[str], str | None] = shutil.which,
         prefix_index: ToolPrefixIndex | None = None,
+        identity_index: ResourceIdentityIndex | None = None,
+        reference_index: ExtensionReferenceIndex | None = None,
+        owner_enabled: OwnerEnabled | None = None,
         lock_timeout: float = 5.0,
     ) -> None:
         self.node_root = node_root.expanduser().resolve(strict=False)
@@ -143,9 +153,63 @@ class AppManager:
         self.secret_store = secret_store
         self.executable_resolver = executable_resolver
         self.prefix_index = prefix_index
+        self.identity_index = identity_index
+        self.reference_index = reference_index
+        self.owner_enabled = owner_enabled
+        self._definition_providers: dict[str, DefinitionProvider] = {}
         self.lock_timeout = lock_timeout
         if prefix_index is not None:
             prefix_index.register("apps", self._prefix_reservations)
+        if identity_index is not None:
+            identity_index.register("direct-app-definitions", self._identity_reservations)
+        if reference_index is not None:
+            reference_index.register("app-connections", self._owner_references)
+
+    def register_definition_provider(self, provider_id: str, provider: DefinitionProvider) -> None:
+        """Register one declarative owner-backed App definition provider."""
+        if provider_id in self._definition_providers:
+            raise ValueError(f"App definition provider '{provider_id}' is already registered.")
+        self._definition_providers[provider_id] = provider
+
+    def validate_managed_definitions(
+        self,
+        plugin_id: str,
+        definitions: tuple[AppDefinition, ...],
+    ) -> None:
+        """Reject Plugin App updates that would invalidate existing connections."""
+        candidates = {definition.metadata.name: definition for definition in definitions}
+        for connection in self.list_connections():
+            try:
+                current = self.get_definition(connection.record.spec.app_id).record
+            except ExtensionError as exc:
+                if exc.code == "extension_not_found":
+                    continue
+                raise
+            owner = current.spec.managed_by
+            if owner is None or owner.kind != "plugin" or owner.name != plugin_id:
+                continue
+            candidate = candidates.get(current.metadata.name)
+            if candidate is None:
+                raise ExtensionError(
+                    "extension_in_use",
+                    "Plugin update removes an App definition with existing connections.",
+                )
+            try:
+                self._validate_connection(connection.record, candidate)
+            except ExtensionError as exc:
+                raise ExtensionError(
+                    "extension_in_use",
+                    "Plugin App update is incompatible with an existing connection.",
+                    details={"connectionId": connection.record.metadata.name},
+                ) from exc
+            if connection.record.spec.enabled_agent_ids:
+                readiness = self._readiness_for(connection.record, candidate)
+                if not readiness.ready:
+                    raise ExtensionError(
+                        "dependency_missing",
+                        "Plugin App update is not ready for active connections.",
+                        details={"connectionId": connection.record.metadata.name},
+                    )
 
     def install_definition(
         self,
@@ -157,6 +221,14 @@ class AppManager:
         if expected_revision is not None:
             raise ExtensionError("revision_conflict", "New App definitions require an empty revision precondition.")
         self._require_identity(record.metadata.name)
+        if record.spec.managed_by is not None:
+            raise ExtensionError("invalid_operation", "Managed App definitions must be installed by their owner.")
+        if self.identity_index is not None:
+            self.identity_index.require_available(
+                "app",
+                record.metadata.name,
+                owner_key=f"app-definition:{record.metadata.name}",
+            )
         with self._mutation_lock():
             self._write_definition(record, expected_revision=None)
         return self.get_definition(record.metadata.name)
@@ -172,6 +244,8 @@ class AppManager:
         with self._mutation_lock():
             current = self.get_definition(candidate.metadata.name)
             self._require_revision(current.revision, expected_revision, resource="App definition")
+            if current.record.spec.managed_by is not None:
+                raise ExtensionError("invalid_operation", "Managed App definitions must be updated by their owner.")
             for connection in self.list_connections(app_id=candidate.metadata.name):
                 try:
                     self._validate_connection(connection.record, candidate)
@@ -194,9 +268,27 @@ class AppManager:
 
     def get_definition(self, app_id: str) -> VersionedAppDefinition:
         """Read one App definition by stable product identity."""
+        self._require_identity(app_id)
+        matches: list[VersionedAppDefinition] = []
+        local = self._read_local_definition(app_id)
+        if local is not None:
+            matches.append(local)
+        for provider_id in sorted(self._definition_providers):
+            matches.extend(
+                item
+                for item in self._definition_providers[provider_id]()
+                if item.record.metadata.name == app_id
+            )
+        if not matches:
+            raise ExtensionError("extension_not_found", f"App definition '{app_id}' was not found.")
+        if len(matches) != 1:
+            raise ExtensionError("extension_conflict", "App definition identity is provided more than once.")
+        return matches[0]
+
+    def _read_local_definition(self, app_id: str) -> VersionedAppDefinition | None:
         path = self._definition_path(app_id)
         if not path.exists():
-            raise ExtensionError("extension_not_found", f"App definition '{app_id}' was not found.")
+            return None
         try:
             raw = read_json_object(path, source=f"app-definition:{app_id}")
             record = AppDefinition.model_validate(raw)
@@ -207,12 +299,19 @@ class AppManager:
 
     def list_definitions(self) -> tuple[VersionedAppDefinition, ...]:
         """Return every App definition in deterministic order."""
-        if not self.definitions_dir.exists():
-            return ()
-        return tuple(
-            self.get_definition(path.stem)
-            for path in sorted(self.definitions_dir.glob("*.json"), key=lambda item: item.name)
-        )
+        values: list[VersionedAppDefinition] = []
+        if self.definitions_dir.exists():
+            values.extend(
+                item
+                for path in sorted(self.definitions_dir.glob("*.json"), key=lambda item: item.name)
+                if (item := self._read_local_definition(path.stem)) is not None
+            )
+        for provider_id in sorted(self._definition_providers):
+            values.extend(self._definition_providers[provider_id]())
+        names = [item.record.metadata.name for item in values]
+        if len(names) != len(set(names)):
+            raise ExtensionError("extension_conflict", "App definition identity is provided more than once.")
+        return tuple(sorted(values, key=lambda item: item.record.metadata.name))
 
     def remove_definition(self, app_id: str, *, expected_revision: str) -> None:
         """Remove one unreferenced, directly managed App definition."""
@@ -357,6 +456,11 @@ class AppManager:
             if agent_id in current.record.spec.enabled_agent_ids:
                 return current
             definition = self.get_definition(current.record.spec.app_id).record
+            if not self._definition_owner_is_enabled(definition, agent_id):
+                raise ExtensionError(
+                    "dependency_missing",
+                    "The Plugin that owns this App is disabled for the Agent.",
+                )
             readiness = self._readiness_for(current.record, definition)
             if not readiness.ready:
                 raise ExtensionError(
@@ -421,6 +525,8 @@ class AppManager:
             if agent_id not in connection.record.spec.enabled_agent_ids:
                 continue
             definition = self.get_definition(connection.record.spec.app_id)
+            if not self._definition_owner_is_enabled(definition.record, agent_id):
+                continue
             frozen_definition = definition.record.model_copy(deep=True)
             frozen_connection = connection.record.model_copy(deep=True)
             entries.append(
@@ -614,6 +720,45 @@ class AppManager:
             for item in self.list_connections()
             if agent_id in item.record.spec.enabled_agent_ids
         )
+
+    def _identity_reservations(self) -> tuple[ResourceIdentityReservation, ...]:
+        """Project directly installed App definition identities."""
+        if not self.definitions_dir.exists():
+            return ()
+        return tuple(
+            ResourceIdentityReservation(
+                kind="app",
+                name=path.stem,
+                owner_key=f"app-definition:{path.stem}",
+            )
+            for path in sorted(self.definitions_dir.glob("*.json"), key=lambda item: item.name)
+        )
+
+    def _owner_references(self, owner_key: str) -> tuple[str, ...]:
+        """Return connections that reference one managed definition owner."""
+        if not owner_key.startswith("plugin:"):
+            return ()
+        plugin_id = owner_key.removeprefix("plugin:")
+        references: list[str] = []
+        for connection in self.list_connections():
+            try:
+                definition = self.get_definition(connection.record.spec.app_id).record
+            except ExtensionError as exc:
+                if exc.code == "extension_not_found":
+                    continue
+                raise
+            owner = definition.spec.managed_by
+            if owner is not None and owner.kind == "plugin" and owner.name == plugin_id:
+                references.append(f"app-connection:{connection.record.metadata.name}")
+        return tuple(references)
+
+    def _definition_owner_is_enabled(self, definition: AppDefinition, agent_id: str) -> bool:
+        owner = definition.spec.managed_by
+        if owner is None:
+            return True
+        if owner.kind != "plugin" or self.owner_enabled is None:
+            return False
+        return self.owner_enabled(owner.name, agent_id)
 
     @staticmethod
     def _tool_prefix(connection: AppConnection) -> str:

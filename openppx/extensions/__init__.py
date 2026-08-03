@@ -18,6 +18,17 @@ from .mcp import (
     merge_mcp_snapshots,
 )
 from .mcp_models import McpServer
+from .plugin_models import PluginManifest, PluginRecord
+from .plugins import (
+    PluginManager,
+    PluginPreview,
+    PluginReadiness,
+    PluginSnapshot,
+    PluginSnapshotEntry,
+    StagedPlugin,
+    VersionedPlugin,
+    parse_plugin_manifest,
+)
 from .models import (
     ExtensionSourceIdentity,
     ExtensionSourceRef,
@@ -34,6 +45,7 @@ from .skills import (
     SkillSnapshotEntry,
     StagedSkill,
     VersionedSkill,
+    merge_skill_snapshots,
     parse_skill_manifest,
 )
 
@@ -48,6 +60,13 @@ __all__ = [
     "McpServer",
     "McpSnapshot",
     "McpSnapshotEntry",
+    "PluginManager",
+    "PluginManifest",
+    "PluginPreview",
+    "PluginReadiness",
+    "PluginRecord",
+    "PluginSnapshot",
+    "PluginSnapshotEntry",
     "ExtensionSourceIdentity",
     "ExtensionSourceRef",
     "ExtensionSourceType",
@@ -60,10 +79,14 @@ __all__ = [
     "SkillSnapshot",
     "SkillSnapshotEntry",
     "StagedSkill",
+    "StagedPlugin",
     "VersionedSkill",
+    "VersionedPlugin",
     "VersionedMcp",
     "VersionedAppConnection",
     "VersionedAppDefinition",
     "merge_mcp_snapshots",
+    "merge_skill_snapshots",
+    "parse_plugin_manifest",
     "parse_skill_manifest",
 ]

@@ -21,6 +21,7 @@ from openppx.config.atomic import atomic_write_resource
 from openppx.config.models import ResourceMetadata
 
 from .errors import ExtensionError
+from .indexes import ResourceIdentityIndex, ResourceIdentityReservation
 from .models import (
     ExtensionSourceIdentity,
     ExtensionSourceRef,
@@ -140,6 +141,31 @@ class SkillSnapshot:
         return cls(revision="sha256:" + hashlib.sha256(b"[]").hexdigest(), skills=())
 
 
+def merge_skill_snapshots(*snapshots: SkillSnapshot) -> SkillSnapshot:
+    """Merge immutable Skill projections while rejecting identity collisions."""
+    skills = tuple(
+        sorted(
+            (skill for snapshot in snapshots for skill in snapshot.skills),
+            key=lambda skill: skill.name,
+        )
+    )
+    names = [skill.name for skill in skills]
+    if len(names) != len(set(names)):
+        raise ExtensionError(
+            "extension_conflict",
+            "Skill projections contain a duplicate identity.",
+        )
+    canonical = json.dumps(
+        [(skill.name, skill.digest) for skill in skills],
+        ensure_ascii=False,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return SkillSnapshot(
+        revision=f"sha256:{hashlib.sha256(canonical).hexdigest()}",
+        skills=skills,
+    )
+
+
 class SkillManager:
     """Own safe Skill staging, persistence, enablement, and Runtime snapshots."""
 
@@ -152,6 +178,7 @@ class SkillManager:
         source_limits: SourceLimits | None = None,
         executable_resolver: Callable[[str], str | None] = shutil.which,
         available_environment_keys: frozenset[str] = frozenset(),
+        identity_index: ResourceIdentityIndex | None = None,
         lock_timeout: float = 5.0,
     ) -> None:
         self.node_root = node_root.expanduser().resolve(strict=False)
@@ -162,6 +189,7 @@ class SkillManager:
         self.lock_timeout = lock_timeout
         self.executable_resolver = executable_resolver
         self.available_environment_keys = available_environment_keys
+        self.identity_index = identity_index
         self._builtin_roots = {
             identifier: root.expanduser().resolve(strict=False)
             for identifier, root in (builtin_skills or {}).items()
@@ -174,6 +202,8 @@ class SkillManager:
         }
         self._catalog_adapters = dict(catalog_adapters or {})
         self._builtins = self._load_builtins()
+        if identity_index is not None:
+            identity_index.register("direct-skills", self._identity_reservations)
 
     def stage(self, reference: ExtensionSourceRef) -> StagedSkill:
         """Stage and validate one Skill without changing installed state."""
@@ -222,6 +252,12 @@ class SkillManager:
         if skill_id in self._builtins:
             staged.extension.cleanup()
             raise ExtensionError("extension_conflict", "Installed Skill cannot shadow a builtin Skill.")
+        if self.identity_index is not None:
+            self.identity_index.require_available(
+                "skill",
+                skill_id,
+                owner_key=f"skill:{skill_id}",
+            )
         previous = self._read_optional(skill_id)
         enabled_agents = list(previous.record.spec.enabled_agent_ids) if previous else []
         preview = self.preview(staged)
@@ -415,6 +451,17 @@ class SkillManager:
             builtins[skill_id] = VersionedSkill(record, config_revision(record), root, builtin=True)
         return builtins
 
+    def _identity_reservations(self) -> tuple[ResourceIdentityReservation, ...]:
+        """Project builtin and directly installed Skill identities."""
+        return tuple(
+            ResourceIdentityReservation(
+                kind="skill",
+                name=item.record.metadata.name,
+                owner_key=f"skill:{item.record.metadata.name}",
+            )
+            for item in self.list()
+        )
+
     def _replace_enablement(
         self,
         current: VersionedSkill,
@@ -583,5 +630,6 @@ __all__ = [
     "SkillSnapshotEntry",
     "StagedSkill",
     "VersionedSkill",
+    "merge_skill_snapshots",
     "parse_skill_manifest",
 ]

@@ -50,10 +50,17 @@ class SourceAdapter(Protocol):
 class StagingStore:
     """Create bounded staging directories below one explicit Node root."""
 
-    def __init__(self, node_root: Path, *, limits: SourceLimits | None = None) -> None:
+    def __init__(
+        self,
+        node_root: Path,
+        *,
+        limits: SourceLimits | None = None,
+        required_root_file: str = "SKILL.md",
+    ) -> None:
         self.node_root = node_root.expanduser().resolve(strict=False)
         self.root = self.node_root / "extensions" / "staging"
         self.limits = limits or SourceLimits()
+        self.required_root_file = _validate_relative_path(required_root_file).as_posix()
 
     def create(self) -> tuple[Path, Path]:
         """Return a unique stage container and its content directory."""
@@ -88,6 +95,7 @@ def stage_directory(
             destination,
             limits=store.limits,
             exclude_names=exclude_names,
+            required_root_file=store.required_root_file,
         )
         digest = content_digest(destination, limits=store.limits)
         identity = ExtensionSourceIdentity(
@@ -122,6 +130,7 @@ def validated_files(
     *,
     limits: SourceLimits,
     exclude_names: frozenset[str] = frozenset(),
+    required_root_file: str | None = None,
 ) -> tuple[list[tuple[Path, str, int]], int]:
     """Enumerate a regular-file-only tree under strict resource limits."""
     if not root.is_dir() or root.is_symlink():
@@ -155,8 +164,13 @@ def validated_files(
             if total > limits.max_total_bytes or len(files) >= limits.max_files:
                 raise ExtensionError("archive_limit_exceeded", "Source expands beyond the configured limits.")
             files.append((candidate, relative, info.st_mode & 0o777))
-    if not any(relative == "SKILL.md" for _path, relative, _mode in files):
-        raise ExtensionError("invalid_manifest", "Source does not contain a root SKILL.md.")
+    if required_root_file is not None and not any(
+        relative == required_root_file for _path, relative, _mode in files
+    ):
+        raise ExtensionError(
+            "invalid_manifest",
+            f"Source does not contain required manifest '{required_root_file}'.",
+        )
     return files, total
 
 
@@ -166,8 +180,14 @@ def _copy_validated_tree(
     *,
     limits: SourceLimits,
     exclude_names: frozenset[str],
+    required_root_file: str,
 ) -> tuple[int, int]:
-    files, total = validated_files(source, limits=limits, exclude_names=exclude_names)
+    files, total = validated_files(
+        source,
+        limits=limits,
+        exclude_names=exclude_names,
+        required_root_file=required_root_file,
+    )
     for path, relative, mode in files:
         target = destination.joinpath(*PurePosixPath(relative).parts)
         target.parent.mkdir(parents=True, exist_ok=True)

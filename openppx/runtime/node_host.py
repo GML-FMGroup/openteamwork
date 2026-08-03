@@ -10,7 +10,8 @@ from typing import Any, Callable
 
 from openppx.config import SecretStore, SystemCredentialSecretStore
 from openppx.control_plane import ControlPlaneApplication, build_control_plane
-from openppx.extensions import AppManager, McpManager, SkillManager
+from openppx.extensions import AppManager, McpManager, PluginManager, SkillManager
+from openppx.extensions.indexes import ExtensionReferenceIndex, ResourceIdentityIndex
 from openppx.extensions.prefixes import ToolPrefixIndex
 
 from .assembly import RuntimeAssembler
@@ -123,14 +124,47 @@ class OpenPpxNodeHost:
         validate_client_api_bind(host=resolved_host, access_token=resolved_token)
 
         prefix_index = ToolPrefixIndex()
-        mcp_manager = McpManager(root, secrets, prefix_index=prefix_index)
-        app_manager = AppManager(root, secrets, prefix_index=prefix_index)
+        identity_index = ResourceIdentityIndex()
+        reference_index = ExtensionReferenceIndex()
+        plugin_manager = PluginManager(
+            root,
+            secrets,
+            allowed_runtime_capabilities=frozenset({"runtime.task-observability"}),
+            identity_index=identity_index,
+            reference_index=reference_index,
+            prefix_index=prefix_index,
+        )
+        mcp_manager = McpManager(
+            root,
+            secrets,
+            prefix_index=prefix_index,
+            identity_index=identity_index,
+        )
+        app_manager = AppManager(
+            root,
+            secrets,
+            prefix_index=prefix_index,
+            identity_index=identity_index,
+            reference_index=reference_index,
+            owner_enabled=plugin_manager.is_enabled,
+        )
+        app_manager.register_definition_provider("plugins", plugin_manager.app_definitions)
+        plugin_manager.register_app_definition_validator(
+            "app-connections",
+            app_manager.validate_managed_definitions,
+        )
+        skill_manager = SkillManager(
+            root,
+            builtin_skills=_builtin_skill_roots(),
+            identity_index=identity_index,
+        )
         assembler = RuntimeAssembler(
             node_root=root,
             secret_store=secrets,
-            skill_manager=SkillManager(root, builtin_skills=_builtin_skill_roots()),
+            skill_manager=skill_manager,
             mcp_manager=mcp_manager,
             app_manager=app_manager,
+            plugin_manager=plugin_manager,
         )
         runtime_supervisor = NodeRuntimeSupervisor(
             config_service=control_plane.config_service,

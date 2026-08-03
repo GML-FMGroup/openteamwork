@@ -17,9 +17,12 @@ from openppx.extensions import (
     AppSnapshot,
     McpManager,
     McpSnapshot,
+    PluginManager,
+    PluginSnapshot,
     SkillManager,
     SkillSnapshot,
     merge_mcp_snapshots,
+    merge_skill_snapshots,
 )
 from openppx.modeling import ModelResolution
 from openppx.core.mcp_registry import ManagedMcpToolset, summarize_mcp_toolsets
@@ -102,6 +105,7 @@ class RuntimeExtensionSnapshot:
     skills: SkillSnapshot
     mcp: McpSnapshot
     apps: AppSnapshot
+    plugins: PluginSnapshot
 
     @classmethod
     def create(
@@ -109,14 +113,17 @@ class RuntimeExtensionSnapshot:
         skills: SkillSnapshot,
         mcp: McpSnapshot,
         apps: AppSnapshot | None = None,
+        plugins: PluginSnapshot | None = None,
     ) -> "RuntimeExtensionSnapshot":
         """Combine child revisions into one deterministic cache identity."""
         resolved_apps = apps or AppSnapshot.empty()
+        resolved_plugins = plugins or PluginSnapshot.empty()
         canonical = json.dumps(
             {
                 "skills": skills.revision,
                 "mcp": mcp.revision,
                 "apps": resolved_apps.revision,
+                "plugins": resolved_plugins.revision,
             },
             sort_keys=True,
             separators=(",", ":"),
@@ -126,6 +133,7 @@ class RuntimeExtensionSnapshot:
             skills=skills,
             mcp=mcp,
             apps=resolved_apps,
+            plugins=resolved_plugins,
         )
 
     @classmethod
@@ -191,6 +199,7 @@ class RuntimeAssembler:
         skill_manager: SkillManager | None = None,
         mcp_manager: McpManager | None = None,
         app_manager: AppManager | None = None,
+        plugin_manager: PluginManager | None = None,
         mcp_adapter: McpRuntimeAdapter | None = None,
     ) -> None:
         self.node_root = node_root.expanduser().resolve(strict=False)
@@ -203,6 +212,7 @@ class RuntimeAssembler:
         self._skill_manager = skill_manager
         self._mcp_manager = mcp_manager
         self._app_manager = app_manager
+        self._plugin_manager = plugin_manager
         self._mcp_adapter = mcp_adapter or McpRuntimeAdapter(secret_store)
 
     def skill_snapshot_for_agent(self, agent_id: str) -> SkillSnapshot:
@@ -213,7 +223,13 @@ class RuntimeAssembler:
 
     def extension_snapshot_for_agent(self, agent_id: str) -> RuntimeExtensionSnapshot:
         """Capture all extension resources that key a newly assembled Runtime."""
-        skills = self.skill_snapshot_for_agent(agent_id)
+        direct_skills = self.skill_snapshot_for_agent(agent_id)
+        plugins = (
+            PluginSnapshot.empty()
+            if self._plugin_manager is None
+            else self._plugin_manager.snapshot_for_agent(agent_id)
+        )
+        skills = merge_skill_snapshots(direct_skills, plugins.skills)
         direct_mcp = (
             McpSnapshot.empty()
             if self._mcp_manager is None
@@ -224,8 +240,8 @@ class RuntimeAssembler:
             if self._app_manager is None
             else self._app_manager.snapshot_for_agent(agent_id)
         )
-        mcp = merge_mcp_snapshots(direct_mcp, apps.mcp)
-        return RuntimeExtensionSnapshot.create(skills, mcp, apps)
+        mcp = merge_mcp_snapshots(direct_mcp, apps.mcp, plugins.mcp)
+        return RuntimeExtensionSnapshot.create(skills, mcp, apps, plugins)
 
     def assemble(
         self,

@@ -25,6 +25,7 @@ from openppx.config import (
 from openppx.config.atomic import atomic_write_resource
 
 from .errors import ExtensionError
+from .indexes import ResourceIdentityIndex, ResourceIdentityReservation
 from .mcp_models import McpRemoteTransport, McpSecretValue, McpServer, McpStdioTransport
 from .prefixes import ToolPrefixIndex, ToolPrefixReservation
 
@@ -91,6 +92,7 @@ class McpManager:
         *,
         executable_resolver: Callable[[str], str | None] = shutil.which,
         prefix_index: ToolPrefixIndex | None = None,
+        identity_index: ResourceIdentityIndex | None = None,
         lock_timeout: float = 5.0,
     ) -> None:
         self.node_root = node_root.expanduser().resolve(strict=False)
@@ -99,15 +101,24 @@ class McpManager:
         self.secret_store = secret_store
         self.executable_resolver = executable_resolver
         self.prefix_index = prefix_index
+        self.identity_index = identity_index
         self.lock_timeout = lock_timeout
         if prefix_index is not None:
             prefix_index.register("direct-mcp", self._prefix_reservations)
+        if identity_index is not None:
+            identity_index.register("direct-mcp", self._identity_reservations)
 
     def create(self, record: McpServer, *, expected_revision: str | None) -> VersionedMcp:
         """Create one disabled MCP resource under a create-only precondition."""
         if expected_revision is not None:
             raise ExtensionError("revision_conflict", "New MCP resources require an empty revision precondition.")
         self._require_record_identity(record)
+        if self.identity_index is not None:
+            self.identity_index.require_available(
+                "mcp",
+                record.metadata.name,
+                owner_key=f"mcp:{record.metadata.name}",
+            )
         if record.spec.enabled_agent_ids:
             raise ExtensionError("invalid_operation", "New MCP resources must be enabled through the lifecycle API.")
         with self._mutation_lock():
@@ -303,6 +314,17 @@ class McpManager:
             )
             for item in self.list()
             if agent_id in item.record.spec.enabled_agent_ids
+        )
+
+    def _identity_reservations(self) -> tuple[ResourceIdentityReservation, ...]:
+        """Project directly configured MCP identities."""
+        return tuple(
+            ResourceIdentityReservation(
+                kind="mcp",
+                name=item.record.metadata.name,
+                owner_key=f"mcp:{item.record.metadata.name}",
+            )
+            for item in self.list()
         )
 
     def _write(self, record: McpServer, *, expected_revision: str | None) -> None:

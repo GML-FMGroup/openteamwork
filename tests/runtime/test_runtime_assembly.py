@@ -25,12 +25,21 @@ from openppx.config import (
 )
 from openppx.actions import ActionContext
 from openppx.control_plane import build_control_plane
-from openppx.extensions import AppManager, ExtensionSourceRef, McpManager, McpServer, SkillManager
+from openppx.extensions import (
+    AppManager,
+    ExtensionSourceRef,
+    McpManager,
+    McpServer,
+    PluginManager,
+    SkillManager,
+)
 from openppx.extensions.app_models import AppConnection, AppDefinition
 from openppx.core.mcp_registry import ManagedMcpToolset
 from openppx.modeling import ModelCatalog, ModelProfile, ModelProfileRepository, ModelProfileSelector
 from openppx.runtime.assembly import RuntimeAssembler
 from openppx.runtime.node_runtime import NodeRuntimeSupervisor, RunNotActiveError, RunNotFoundError
+
+from tests.extensions.test_plugin_resources import _write_plugin
 
 
 class _HelloLlm(BaseLlm):
@@ -370,6 +379,57 @@ def test_supervisor_attaches_app_mcp_and_rebuilds_for_definition_change(tmp_path
     assert second is not first
     assert second.metadata.snapshot_revision == first.metadata.snapshot_revision
     assert second.metadata.extension_revision != first.metadata.extension_revision
+    supervisor.close()
+
+
+def test_supervisor_merges_plugin_resources_and_rebuilds_for_plugin_update(tmp_path: Path) -> None:
+    config_service, secrets = _configured(tmp_path)
+    source = _write_plugin(tmp_path / "plugin-source")
+    manager = PluginManager(
+        tmp_path,
+        secrets,
+        allowed_runtime_capabilities=frozenset({"runtime.task-observability"}),
+    )
+    installed = manager.install(
+        manager.stage(ExtensionSourceRef(type="local_directory", locator=str(source))),
+        expected_revision=None,
+    )
+    enabled = manager.enable(
+        "plugin-fixture",
+        "low-main",
+        expected_revision=installed.revision,
+    )
+    assembler = RuntimeAssembler(
+        node_root=tmp_path,
+        secret_store=secrets,
+        model_factory=lambda _resolution: _HelloLlm(model="hello-model"),
+        plugin_manager=manager,
+    )
+    supervisor = NodeRuntimeSupervisor(config_service=config_service, assembler=assembler)
+
+    first = supervisor.runtime_for("low-main")
+    assert len(first.extension_toolsets) == 1
+    assert "Research using the fixture Plugin." in first.agent.instruction
+    assert "# Plugin research" in _tool_function(first.agent, "read_skill")(
+        "plugin-fixture--research"
+    )
+
+    _write_plugin(source, version="1.1.0", skill_body="# New Plugin research\n")
+    manager.update(
+        manager.stage(ExtensionSourceRef(type="local_directory", locator=str(source))),
+        expected_revision=enabled.revision,
+    )
+    second = supervisor.runtime_for("low-main")
+
+    assert second is not first
+    assert second.metadata.snapshot_revision == first.metadata.snapshot_revision
+    assert second.metadata.extension_revision != first.metadata.extension_revision
+    assert "# Plugin research" in _tool_function(first.agent, "read_skill")(
+        "plugin-fixture--research"
+    )
+    assert "# New Plugin research" in _tool_function(second.agent, "read_skill")(
+        "plugin-fixture--research"
+    )
     supervisor.close()
 
 

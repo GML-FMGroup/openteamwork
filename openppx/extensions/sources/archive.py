@@ -82,8 +82,11 @@ def _validated_entries(
         if len(entries) >= store.limits.max_files or total > store.limits.max_total_bytes:
             raise ExtensionError("archive_limit_exceeded", "Archive expands beyond the configured limits.")
         entries.append((info, normalized, mode & 0o777))
-    if "SKILL.md" not in seen:
-        raise ExtensionError("invalid_manifest", "Archive does not contain a root SKILL.md.")
+    if store.required_root_file not in seen:
+        raise ExtensionError(
+            "invalid_manifest",
+            f"Archive does not contain required manifest '{store.required_root_file}'.",
+        )
     return entries, total
 
 
