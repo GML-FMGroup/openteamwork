@@ -6,7 +6,6 @@
     "protocol_version": 1,
     "ready": true,
     "state": "healthy",
-    "data_dir": "<OPENPPX_DATA_DIR>",
     "agents": 0,
     "timestamp": "2026-07-31T00:00:00+00:00"
   }

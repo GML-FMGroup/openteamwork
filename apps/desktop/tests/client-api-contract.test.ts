@@ -39,7 +39,7 @@ describe("Client API protocol contract", () => {
     const node = parseClientApiNodeInfo(nodeV1);
 
     expect(node).toMatchObject({
-      nodeId: "node_0123456789abcdef0123456789abcdef",
+      nodeId: "test-node",
       displayName: "Studio Mac",
       protocolMin: 1,
       protocolMax: 1,

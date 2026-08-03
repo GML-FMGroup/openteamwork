@@ -25,7 +25,7 @@ function nodePayload(): Record<string, unknown> {
   return {
     ok: true,
     data: {
-      node_id: "node_0123456789abcdef0123456789abcdef",
+      node_id: "test-node",
       display_name: "Studio Mac",
       product_version: "0.5.1",
       protocol: { min: 1, max: 1 },

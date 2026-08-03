@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from importlib.metadata import PackageNotFoundError, version
-from pathlib import Path
 from typing import Any
 
 
@@ -27,19 +26,19 @@ def get_openppx_product_version() -> str:
 
 def build_client_api_health_data(
     *,
-    data_dir: Path,
     agents: int,
     timestamp: str,
+    ready: bool = True,
+    state: str = "healthy",
 ) -> dict[str, Any]:
-    """Build the versioned data object returned by the Client API health endpoint."""
+    """Build health metadata without exposing Node filesystem paths."""
 
     return {
         "service": CLIENT_API_SERVICE,
         "product_version": get_openppx_product_version(),
         "protocol_version": CLIENT_API_PROTOCOL_VERSION,
-        "ready": True,
-        "state": "healthy",
-        "data_dir": str(data_dir),
+        "ready": ready,
+        "state": state,
         "agents": agents,
         "timestamp": timestamp,
     }
@@ -64,6 +63,7 @@ def build_client_api_node_data(
     display_name: str,
     agents: int,
     authentication_required: bool,
+    capabilities: tuple[str, ...] = CLIENT_API_CAPABILITIES,
 ) -> dict[str, Any]:
     """Build authenticated Node identity and capability metadata."""
 
@@ -75,7 +75,7 @@ def build_client_api_node_data(
             "min": CLIENT_API_PROTOCOL_VERSION,
             "max": CLIENT_API_PROTOCOL_VERSION,
         },
-        "capabilities": list(CLIENT_API_CAPABILITIES),
+        "capabilities": list(capabilities),
         "agents": agents,
         "authentication_required": authentication_required,
     }

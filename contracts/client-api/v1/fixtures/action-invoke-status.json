@@ -1,0 +1,7 @@
+{
+  "actionId": "system.status",
+  "confirmed": false,
+  "correlationId": "corr_status_fixture",
+  "input": {},
+  "requestId": "req_status_fixture"
+}

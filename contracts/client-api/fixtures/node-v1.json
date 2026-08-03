@@ -1,7 +1,7 @@
 {
   "ok": true,
   "data": {
-    "node_id": "node_0123456789abcdef0123456789abcdef",
+    "node_id": "test-node",
     "display_name": "Studio Mac",
     "product_version": "0.4",
     "protocol": {
@@ -9,6 +9,15 @@
       "max": 1
     },
     "capabilities": [
+      "actions.catalog",
+      "actions.invoke",
+      "config.agent.read",
+      "config.agent.write",
+      "config.node.read",
+      "config.node.write",
+      "model.profiles.read",
+      "model.select",
+      "system.status",
       "agents.multi",
       "runs.sse",
       "sessions"

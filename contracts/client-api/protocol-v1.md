@@ -61,6 +61,19 @@ The current Desktop client uses these v1 operations:
 
 The run stream emits named SSE events such as `run.started`, `message.created`, `message.delta`, `step.updated`, `message.completed`, `message.failed`, `run.cancelled`, and `run.finished`.
 
+## Final Action contract introduced by the major upgrade
+
+The development-time v1 label is intentionally reused without a compatibility promise before the first public release. New Action endpoints use the final common envelope and camel-cased fields:
+
+- `GET /api/v1/actions` returns the caller-aware Action catalog;
+- `POST /api/v1/actions/invoke` executes one registered Action;
+- success is `{ "protocolVersion", "requestId", "correlationId", "ok": true, "result": {} }`;
+- failure is `{ "protocolVersion", "requestId", "correlationId", "ok": false, "error": {} }`.
+
+The canonical Pydantic-generated schema and fixtures live in `contracts/client-api/v1/`. Legacy Desktop endpoints keep their earlier envelope only until the TypeScript client and Desktop cutover increment removes them.
+
+Strict Node identity now comes from NodeConfig `metadata.name` and follows the ResourceName grammar. The former separate `node_...` identity file is no longer read by Client API.
+
 ## Compatibility policy
 
 - Adding optional response fields is backward compatible.

@@ -30,7 +30,7 @@ describe("OpenPPX Client public contract", () => {
     });
     expect(parseClientApiHandshake(healthIncompatible).compatibility).toBe("incompatible");
     expect(parseClientApiNodeInfo(nodeV1)).toMatchObject({
-      nodeId: "node_0123456789abcdef0123456789abcdef",
+      nodeId: "test-node",
       displayName: "Studio Mac",
       compatibility: "compatible",
       authenticationRequired: true,

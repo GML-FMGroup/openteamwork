@@ -1,0 +1,139 @@
+"""System status and caller-aware Action catalog handlers."""
+
+from __future__ import annotations
+
+from typing import Callable, cast
+
+from openppx.actions import ActionCatalogEntry, ActionContext, ActionRegistry, ActionSpec
+from openppx.config import ConfigError, FilesystemConfigRepository
+
+from .capabilities import CONTROL_PLANE_CAPABILITIES
+from .input_models import EmptyInput, SystemHelpInput
+from .projections import project_diagnostics
+
+
+def register_system_actions(
+    registry: ActionRegistry,
+    repository: FilesystemConfigRepository,
+    *,
+    product_version: str,
+    catalog_provider: Callable[[ActionContext, str | None], tuple[ActionCatalogEntry, ...]],
+) -> None:
+    """Register system status and help after all domain Actions are available."""
+    registry.register(
+        ActionSpec(
+            action_id="system.status",
+            namespace="system",
+            title="System status",
+            description="Return Node configuration and capability readiness.",
+            input_model=EmptyInput,
+            scope="node",
+            required_capabilities=frozenset({"system.read"}),
+            permission="system.read",
+            projections=("cli", "slash", "desktop", "mobile"),
+        ),
+        lambda _context, _input: _status(repository, product_version=product_version),
+    )
+    registry.register(
+        ActionSpec(
+            action_id="system.help",
+            namespace="system",
+            title="Action catalog",
+            description="List caller-visible product Actions.",
+            input_model=SystemHelpInput,
+            scope="node",
+            required_capabilities=frozenset({"system.read"}),
+            permission="system.read",
+            projections=("cli", "slash", "desktop", "mobile"),
+        ),
+        lambda context, input_data: {
+            "items": [
+                project_catalog_entry(item)
+                for item in catalog_provider(context, cast(SystemHelpInput, input_data).namespace)
+            ]
+        },
+    )
+
+
+def _status(repository: FilesystemConfigRepository, *, product_version: str) -> dict[str, object]:
+    diagnostics: list[dict[str, object]] = []
+    node_diagnostics = repository.diagnose_node()
+    if not node_diagnostics.ok:
+        diagnostics.append(_diagnostic_summary(node_diagnostics))
+        return {
+            "state": "needs_configuration",
+            "productVersion": product_version,
+            "node": None,
+            "agents": {"configured": 0, "enabled": 0, "ready": 0},
+            "capabilities": list(CONTROL_PLANE_CAPABILITIES),
+            "diagnostics": diagnostics,
+        }
+
+    node = repository.read_node()
+    enabled_ids = tuple(node.document.spec.enabled_agents)
+    ready = 0
+    if not enabled_ids:
+        diagnostics.append(
+            {
+                "code": "no_enabled_agents",
+                "source": "node",
+                "message": "At least one enabled Agent is required.",
+            }
+        )
+    for agent_id in enabled_ids:
+        item = repository.diagnose_agent(agent_id)
+        if item.ok:
+            ready += 1
+        else:
+            diagnostics.append(_diagnostic_summary(item))
+    try:
+        configured = len(repository.list_agent_ids())
+    except ConfigError:
+        configured = len(enabled_ids)
+        diagnostics.append(
+            {"code": "invalid_resource", "source": "agents", "message": "One or more Agent resources are invalid."}
+        )
+    state = "ready" if enabled_ids and ready == len(enabled_ids) and not diagnostics else "needs_configuration"
+    return {
+        "state": state,
+        "productVersion": product_version,
+        "node": {
+            "id": node.document.metadata.name,
+            "displayName": node.document.spec.display_name,
+            "revision": node.revision,
+        },
+        "agents": {"configured": configured, "enabled": len(enabled_ids), "ready": ready},
+        "capabilities": list(CONTROL_PLANE_CAPABILITIES),
+        "diagnostics": diagnostics,
+    }
+
+
+def _diagnostic_summary(diagnostics) -> dict[str, object]:
+    projected = project_diagnostics(diagnostics)
+    first_issue = projected["issues"][0] if projected["issues"] else None
+    return {
+        "code": diagnostics.error_kind or "invalid_resource",
+        "source": diagnostics.source,
+        "message": first_issue["message"] if first_issue is not None else "The resource is not ready.",
+    }
+
+
+def project_catalog_entry(item: ActionCatalogEntry) -> dict[str, object]:
+    """Project Action metadata and caller-computed availability."""
+    spec = item.spec
+    return {
+        "actionId": spec.action_id,
+        "namespace": spec.namespace,
+        "title": spec.title,
+        "description": spec.description,
+        "scope": spec.scope,
+        "inputSchema": spec.input_model.model_json_schema(by_alias=True),
+        "requiredCapabilities": sorted(spec.required_capabilities),
+        "permission": spec.permission,
+        "risk": spec.risk,
+        "confirmation": spec.confirmation,
+        "execution": spec.execution,
+        "projections": list(spec.projections),
+        "available": item.available,
+        "availabilityReason": item.availability_reason,
+    }

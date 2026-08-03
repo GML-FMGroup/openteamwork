@@ -1,0 +1,14 @@
+{
+  "correlationId": "corr_status_fixture",
+  "ok": true,
+  "protocolVersion": 1,
+  "requestId": "req_status_fixture",
+  "result": {
+    "capabilities": [
+      "actions.catalog",
+      "actions.invoke",
+      "system.status"
+    ],
+    "state": "ready"
+  }
+}

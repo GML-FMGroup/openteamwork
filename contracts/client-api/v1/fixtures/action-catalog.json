@@ -1,0 +1,31 @@
+{
+  "items": [
+    {
+      "actionId": "system.status",
+      "availabilityReason": null,
+      "available": true,
+      "confirmation": "never",
+      "description": "Return Node configuration and capability readiness.",
+      "execution": "sync",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {},
+        "type": "object"
+      },
+      "namespace": "system",
+      "permission": "system.read",
+      "projections": [
+        "cli",
+        "slash",
+        "desktop",
+        "mobile"
+      ],
+      "requiredCapabilities": [
+        "system.read"
+      ],
+      "risk": "low",
+      "scope": "node",
+      "title": "System status"
+    }
+  ]
+}

@@ -81,7 +81,7 @@ export function parseClientApiNodeInfo(payload: unknown): ClientApiNodeInfo {
   const productVersion = typeof data.product_version === "string" ? data.product_version.trim() : "";
   const protocolMin = protocol.min;
   const protocolMax = protocol.max;
-  if (!nodeId.startsWith("node_") || !displayName || !productVersion) {
+  if (!/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(nodeId) || !displayName || !productVersion) {
     throw new ClientApiProtocolError("Client API Node response is missing identity metadata.");
   }
   if (!Number.isInteger(protocolMin) || !Number.isInteger(protocolMax)) {

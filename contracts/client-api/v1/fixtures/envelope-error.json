@@ -1,0 +1,15 @@
+{
+  "correlationId": "corr_conflict_fixture",
+  "error": {
+    "code": "revision_conflict",
+    "details": {
+      "actualRevision": "sha256:actual",
+      "expectedRevision": "sha256:expected"
+    },
+    "message": "The resource changed since it was read.",
+    "retryable": true
+  },
+  "ok": false,
+  "protocolVersion": 1,
+  "requestId": "req_conflict_fixture"
+}

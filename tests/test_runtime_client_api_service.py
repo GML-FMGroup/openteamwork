@@ -6,6 +6,7 @@ import json
 import time
 from pathlib import Path
 
+import pytest
 from google.adk.events.event import Event
 from google.adk.memory.memory_entry import MemoryEntry
 from google.genai import types
@@ -15,8 +16,6 @@ from openppx.runtime.agent_access_store import AgentAccessStore, AgentMembership
 from openppx.runtime.client_api_service import (
     ClientApiCoordinator,
     RunHandle,
-    build_agent_profile,
-    list_enabled_agent_names,
     project_session_event,
 )
 from openppx.runtime.identity_models import ResolvedPrincipal
@@ -89,38 +88,86 @@ def _memory(text: str, *, timestamp: str) -> MemoryEntry:
     )
 
 
-def test_list_enabled_agent_names_reads_global_config(tmp_path: Path) -> None:
-    (tmp_path / "writer").mkdir()
-    (tmp_path / "reviewer").mkdir()
-    (tmp_path / "global_config.json").write_text(
-        json.dumps(
+@pytest.fixture(autouse=True)
+def _strict_control_plane_resources(request: pytest.FixtureRequest) -> None:
+    """Seed strict Node/Agent truth for tests that use an isolated data root."""
+    if "tmp_path" not in request.fixturenames:
+        return
+    root = request.getfixturevalue("tmp_path")
+    repository = FilesystemConfigRepository(root)
+    repository.write_node(
+        NodeConfig.model_validate(
             {
-                "agents": [
-                    {"name": "writer", "enabled": True},
-                    {"name": "reviewer", "enabled": False},
-                    {"name": "operator", "enabled": True},
-                ]
+                "apiVersion": "openppx.io/v1alpha1",
+                "kind": "NodeConfig",
+                "metadata": {"name": "test-node"},
+                "spec": {
+                    "displayName": "Test Node",
+                    "enabledAgents": ["writer"],
+                    "clientApi": {
+                        "listenHost": "127.0.0.1",
+                        "port": 18765,
+                        "authentication": "required",
+                    },
+                },
             }
         ),
-        encoding="utf-8",
+        expected_revision=None,
+    )
+    repository.write_agent(
+        "writer",
+        AgentConfig.model_validate(
+            {
+                "apiVersion": "openppx.io/v1alpha1",
+                "kind": "AgentConfig",
+                "metadata": {"name": "writer"},
+                "spec": {
+                    "displayName": "Writer",
+                    "workspace": "workspace/writer",
+                    "ownerPrincipalId": "owner",
+                    "privilegeLevel": "low",
+                    "permissionOverrides": {},
+                    "modelPolicy": {"defaultProfile": None, "roleProfiles": {}},
+                },
+            }
+        ),
+        expected_revision=None,
     )
 
-    names = list_enabled_agent_names(tmp_path)
-    assert names == ["writer", "operator"]
+
+def test_list_agents_uses_strict_control_plane_resources(tmp_path: Path) -> None:
+    (tmp_path / "global_config.json").write_text("not-json", encoding="utf-8")
+
+    payload = ClientApiCoordinator(data_dir=tmp_path).list_agents()
+
+    assert payload["ok"] is True
+    assert payload["data"]["items"][0]["id"] == "writer"
+    assert payload["data"]["items"][0]["workspace"] == "workspace/writer"
+    assert "Workspace:" in payload["data"]["items"][0]["description"]
 
 
-def test_build_agent_profile_uses_workspace_description(tmp_path: Path) -> None:
-    agent_dir = tmp_path / "writer"
-    agent_dir.mkdir()
-    (agent_dir / "config.json").write_text(
-        json.dumps({"agent": {"workspace": "workspace/writer"}}),
-        encoding="utf-8",
+def test_action_catalog_and_invoke_use_common_contract_envelope(tmp_path: Path) -> None:
+    coordinator = ClientApiCoordinator(data_dir=tmp_path)
+
+    catalog = coordinator.action_catalog(
+        namespace="system",
+        request_id="req_catalog",
+        correlation_id="corr_catalog",
+    )
+    invoked = coordinator.invoke_action(
+        "system.status",
+        {},
+        request_id="req_status",
+        correlation_id="corr_status",
+        confirmed=False,
     )
 
-    profile = build_agent_profile("writer", tmp_path)
-    assert profile["id"] == "writer"
-    assert profile["workspace"] == "workspace/writer"
-    assert "Workspace:" in profile["description"]
+    assert catalog["ok"] is True
+    assert catalog["requestId"] == "req_catalog"
+    assert {item["actionId"] for item in catalog["result"]["items"]} == {"system.help", "system.status"}
+    assert invoked["ok"] is True
+    assert invoked["result"]["state"] == "ready"
+    assert "data" not in invoked
 
 
 def test_project_session_event_builds_structured_parts() -> None:
@@ -1314,3 +1361,4 @@ def test_client_api_participant_memory_audit_stays_self_scoped(tmp_path: Path) -
     assert payload["ok"] is True
     assert payload["data"]["requester"]["scope_kind"] == "self"
     assert [item["requester_principal_id"] for item in payload["data"]["items"]] == [participant.principal_id]
+from openppx.config import AgentConfig, FilesystemConfigRepository, NodeConfig

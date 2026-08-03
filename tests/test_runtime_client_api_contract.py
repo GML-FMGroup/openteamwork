@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 from typing import Any
 
+from openppx.config import AgentConfig, FilesystemConfigRepository, NodeConfig
 from openppx.runtime.client_api_contract import (
     CLIENT_API_PROTOCOL_VERSION,
     CLIENT_API_SERVICE,
@@ -25,13 +26,55 @@ def _load_fixture(name: str) -> dict[str, Any]:
     return json.loads((_FIXTURE_DIR / name).read_text(encoding="utf-8"))
 
 
+def _write_strict_node(root: Path) -> None:
+    """Seed the strict Node Config now owned by the Control Plane."""
+    repository = FilesystemConfigRepository(root)
+    repository.write_node(
+        NodeConfig.model_validate(
+            {
+                "apiVersion": "openppx.io/v1alpha1",
+                "kind": "NodeConfig",
+                "metadata": {"name": "test-node"},
+                "spec": {
+                    "displayName": "Studio Mac",
+                    "enabledAgents": ["writer"],
+                    "clientApi": {
+                        "listenHost": "127.0.0.1",
+                        "port": 18765,
+                        "authentication": "required",
+                    },
+                },
+            }
+        ),
+        expected_revision=None,
+    )
+    repository.write_agent(
+        "writer",
+        AgentConfig.model_validate(
+            {
+                "apiVersion": "openppx.io/v1alpha1",
+                "kind": "AgentConfig",
+                "metadata": {"name": "writer"},
+                "spec": {
+                    "displayName": "Writer",
+                    "workspace": "workspace/writer",
+                    "ownerPrincipalId": "owner",
+                    "privilegeLevel": "low",
+                    "permissionOverrides": {},
+                    "modelPolicy": {"defaultProfile": None, "roleProfiles": {}},
+                },
+            }
+        ),
+        expected_revision=None,
+    )
+
+
 def test_health_data_matches_shared_protocol_v1_fixture() -> None:
     fixture = _load_fixture("health-v1.json")
     expected = dict(fixture["data"])
     expected["product_version"] = get_openppx_product_version()
 
     actual = build_client_api_health_data(
-        data_dir=Path("<OPENPPX_DATA_DIR>"),
         agents=0,
         timestamp="2026-07-31T00:00:00+00:00",
     )
@@ -50,6 +93,7 @@ def test_incompatible_health_fixture_is_a_future_protocol() -> None:
 
 
 def test_coordinator_health_serves_the_versioned_handshake(tmp_path: Path) -> None:
+    _write_strict_node(tmp_path)
     coordinator = ClientApiCoordinator(data_dir=tmp_path)
     payload = coordinator.health()
 
@@ -130,12 +174,13 @@ def test_node_identity_migrates_legacy_ip_prefix_without_changing_node_id(
 
 def test_coordinator_node_info_does_not_expose_secrets(tmp_path: Path) -> None:
     fixture = _load_fixture("node-v1.json")
+    _write_strict_node(tmp_path)
     coordinator = ClientApiCoordinator(data_dir=tmp_path)
     payload = coordinator.node_info(authentication_required=True)
     serialized = json.dumps(payload)
 
     assert payload["ok"] is True
-    assert payload["data"]["node_id"].startswith("node_")
+    assert payload["data"]["node_id"] == "test-node"
     assert payload["data"]["protocol"] == {"min": 1, "max": 1}
     assert payload["data"]["capabilities"] == fixture["data"]["capabilities"]
     assert payload["data"]["authentication_required"] is True

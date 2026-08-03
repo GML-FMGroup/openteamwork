@@ -1,0 +1,348 @@
+{
+  "$defs": {
+    "ActionCatalogItem": {
+      "additionalProperties": false,
+      "description": "Client-safe Action metadata and caller-specific availability.",
+      "properties": {
+        "actionId": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Actionid",
+          "type": "string"
+        },
+        "availabilityReason": {
+          "anyOf": [
+            {
+              "maxLength": 128,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Availabilityreason"
+        },
+        "available": {
+          "title": "Available",
+          "type": "boolean"
+        },
+        "confirmation": {
+          "enum": [
+            "never",
+            "required"
+          ],
+          "title": "Confirmation",
+          "type": "string"
+        },
+        "description": {
+          "maxLength": 512,
+          "minLength": 1,
+          "title": "Description",
+          "type": "string"
+        },
+        "execution": {
+          "enum": [
+            "sync",
+            "long_running"
+          ],
+          "title": "Execution",
+          "type": "string"
+        },
+        "inputSchema": {
+          "additionalProperties": true,
+          "title": "Inputschema",
+          "type": "object"
+        },
+        "namespace": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Namespace",
+          "type": "string"
+        },
+        "permission": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Permission",
+          "type": "string"
+        },
+        "projections": {
+          "items": {
+            "enum": [
+              "cli",
+              "slash",
+              "desktop",
+              "mobile"
+            ],
+            "type": "string"
+          },
+          "title": "Projections",
+          "type": "array"
+        },
+        "requiredCapabilities": {
+          "items": {
+            "maxLength": 128,
+            "minLength": 1,
+            "type": "string"
+          },
+          "title": "Requiredcapabilities",
+          "type": "array"
+        },
+        "risk": {
+          "enum": [
+            "low",
+            "medium",
+            "high"
+          ],
+          "title": "Risk",
+          "type": "string"
+        },
+        "scope": {
+          "enum": [
+            "node",
+            "agent",
+            "session",
+            "run",
+            "task",
+            "extension"
+          ],
+          "title": "Scope",
+          "type": "string"
+        },
+        "title": {
+          "maxLength": 120,
+          "minLength": 1,
+          "title": "Title",
+          "type": "string"
+        }
+      },
+      "required": [
+        "actionId",
+        "namespace",
+        "title",
+        "description",
+        "scope",
+        "inputSchema",
+        "requiredCapabilities",
+        "permission",
+        "risk",
+        "confirmation",
+        "execution",
+        "projections",
+        "available"
+      ],
+      "title": "ActionCatalogItem",
+      "type": "object"
+    },
+    "ActionCatalogPayload": {
+      "additionalProperties": false,
+      "description": "Caller-aware Action catalog result.",
+      "properties": {
+        "items": {
+          "items": {
+            "$ref": "#/$defs/ActionCatalogItem"
+          },
+          "title": "Items",
+          "type": "array"
+        }
+      },
+      "required": [
+        "items"
+      ],
+      "title": "ActionCatalogPayload",
+      "type": "object"
+    },
+    "ActionInvokeRequest": {
+      "additionalProperties": false,
+      "description": "Transport-neutral Action invocation request body.",
+      "properties": {
+        "actionId": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Actionid",
+          "type": "string"
+        },
+        "confirmed": {
+          "default": false,
+          "title": "Confirmed",
+          "type": "boolean"
+        },
+        "correlationId": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Correlationid",
+          "type": "string"
+        },
+        "input": {
+          "additionalProperties": true,
+          "title": "Input",
+          "type": "object"
+        },
+        "requestId": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Requestid",
+          "type": "string"
+        }
+      },
+      "required": [
+        "requestId",
+        "correlationId",
+        "actionId"
+      ],
+      "title": "ActionInvokeRequest",
+      "type": "object"
+    },
+    "ErrorEnvelope": {
+      "additionalProperties": false,
+      "description": "Failed common response envelope.",
+      "properties": {
+        "correlationId": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Correlationid",
+          "type": "string"
+        },
+        "error": {
+          "$ref": "#/$defs/StableError"
+        },
+        "ok": {
+          "const": false,
+          "title": "Ok",
+          "type": "boolean"
+        },
+        "protocolVersion": {
+          "minimum": 1,
+          "title": "Protocolversion",
+          "type": "integer"
+        },
+        "requestId": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Requestid",
+          "type": "string"
+        }
+      },
+      "required": [
+        "protocolVersion",
+        "requestId",
+        "correlationId",
+        "ok",
+        "error"
+      ],
+      "title": "ErrorEnvelope",
+      "type": "object"
+    },
+    "StableError": {
+      "additionalProperties": false,
+      "description": "Redacted stable error shared by HTTP and future transports.",
+      "properties": {
+        "code": {
+          "pattern": "^[a-z][a-z0-9_]*$",
+          "title": "Code",
+          "type": "string"
+        },
+        "details": {
+          "additionalProperties": true,
+          "title": "Details",
+          "type": "object"
+        },
+        "message": {
+          "maxLength": 512,
+          "minLength": 1,
+          "title": "Message",
+          "type": "string"
+        },
+        "retryable": {
+          "default": false,
+          "title": "Retryable",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "code",
+        "message"
+      ],
+      "title": "StableError",
+      "type": "object"
+    },
+    "SuccessEnvelope": {
+      "additionalProperties": false,
+      "description": "Successful common response envelope.",
+      "properties": {
+        "correlationId": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Correlationid",
+          "type": "string"
+        },
+        "ok": {
+          "const": true,
+          "title": "Ok",
+          "type": "boolean"
+        },
+        "protocolVersion": {
+          "minimum": 1,
+          "title": "Protocolversion",
+          "type": "integer"
+        },
+        "requestId": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Requestid",
+          "type": "string"
+        },
+        "result": {
+          "additionalProperties": true,
+          "title": "Result",
+          "type": "object"
+        }
+      },
+      "required": [
+        "protocolVersion",
+        "requestId",
+        "correlationId",
+        "ok",
+        "result"
+      ],
+      "title": "SuccessEnvelope",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Schema-only root that retains every Increment 3 contract definition.",
+  "properties": {
+    "actionCatalog": {
+      "$ref": "#/$defs/ActionCatalogPayload"
+    },
+    "actionInvoke": {
+      "$ref": "#/$defs/ActionInvokeRequest"
+    },
+    "envelope": {
+      "discriminator": {
+        "mapping": {
+          "False": "#/$defs/ErrorEnvelope",
+          "True": "#/$defs/SuccessEnvelope"
+        },
+        "propertyName": "ok"
+      },
+      "oneOf": [
+        {
+          "$ref": "#/$defs/SuccessEnvelope"
+        },
+        {
+          "$ref": "#/$defs/ErrorEnvelope"
+        }
+      ],
+      "title": "Envelope"
+    }
+  },
+  "required": [
+    "envelope",
+    "actionCatalog",
+    "actionInvoke"
+  ],
+  "title": "ClientContractBundle",
+  "type": "object"
+}

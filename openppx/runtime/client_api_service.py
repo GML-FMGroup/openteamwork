@@ -16,6 +16,11 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 
+from pydantic import ValidationError
+
+from ..actions import ActionContext, ActionError, ActionOutcome
+from ..client_api.contracts import ActionInvokeRequest, ContractMapper
+from ..control_plane import CONTROL_PLANE_CAPABILITIES, ControlPlaneApplication, build_control_plane
 from ..core.config import get_data_dir
 from ..core.logging_utils import debug_logging_enabled, emit_debug
 from .access_policy import AccessPolicy
@@ -28,6 +33,7 @@ from .client_api_auth import (
     validate_client_api_bind,
 )
 from .client_api_contract import (
+    CLIENT_API_CAPABILITIES,
     build_client_api_health_data,
     build_client_api_node_data,
     build_public_client_api_health_data,
@@ -36,7 +42,6 @@ from .identity_models import ResolvedPrincipal
 from .identity_store import IdentityStore
 from .memory_query_service import MemoryQueryService
 from .memory_shared import memory_entry_text
-from .node_identity import load_or_create_node_identity
 from .session_service import SessionConfig, create_session_service
 from .sqlite_memory_service import SQLiteMemoryService
 
@@ -51,6 +56,14 @@ def _json_bytes(payload: dict[str, Any]) -> bytes:
     """Encode one JSON payload using UTF-8."""
 
     return json.dumps(payload, ensure_ascii=False).encode("utf-8")
+
+
+def _wire_id(value: object, *, prefix: str) -> str:
+    """Return one bounded visible wire ID or generate a safe replacement."""
+    candidate = str(value or "").strip()
+    if candidate and len(candidate) <= 128 and all(ord(character) >= 32 for character in candidate):
+        return candidate
+    return f"{prefix}_{os.urandom(8).hex()}"
 
 
 def _ok(data: dict[str, Any]) -> dict[str, Any]:
@@ -120,85 +133,11 @@ def _actions_for_access_audit_category(category: str) -> tuple[str, ...] | None:
     return _MUTATION_AUDIT_ACTIONS
 
 
-def global_config_path(data_dir: Path | None = None) -> Path:
-    """Return the global multi-agent config path."""
-
-    root = data_dir or get_data_dir()
-    return root / "global_config.json"
-
-
 def agent_config_path(agent_name: str, data_dir: Path | None = None) -> Path:
-    """Return the per-agent config path."""
+    """Return the legacy per-Agent runtime config path pending runtime cutover."""
 
     root = data_dir or get_data_dir()
     return root / agent_name / "config.json"
-
-
-def list_enabled_agent_names(data_dir: Path | None = None) -> list[str]:
-    """Read enabled agent names from the global config file."""
-
-    path = global_config_path(data_dir)
-    if not path.exists():
-        return []
-    try:
-        raw = json.loads(path.read_text(encoding="utf-8"))
-    except Exception:
-        return []
-    if not isinstance(raw, dict):
-        return []
-    agents_raw = raw.get("agents")
-    if isinstance(agents_raw, list):
-        entries = agents_raw
-    elif isinstance(agents_raw, dict) and isinstance(agents_raw.get("list"), list):
-        entries = agents_raw["list"]
-    else:
-        entries = []
-
-    names: list[str] = []
-    seen: set[str] = set()
-    for item in entries:
-        enabled = True
-        if isinstance(item, str):
-            name = _normalize_agent_name(item)
-        elif isinstance(item, dict):
-            name = _normalize_agent_name(str(item.get("name") or item.get("id") or ""))
-            raw_enabled = item.get("enabled")
-            enabled = raw_enabled is not False
-        else:
-            continue
-        if not name or not enabled or name in seen:
-            continue
-        seen.add(name)
-        names.append(name)
-    return names
-
-
-def _read_json_file(path: Path) -> dict[str, Any] | None:
-    try:
-        raw = json.loads(path.read_text(encoding="utf-8"))
-    except Exception:
-        return None
-    return raw if isinstance(raw, dict) else None
-
-
-def build_agent_profile(agent_name: str, data_dir: Path | None = None) -> dict[str, Any]:
-    """Build one client-facing agent profile from config files."""
-
-    config_path = agent_config_path(agent_name, data_dir)
-    cfg = _read_json_file(config_path) or {}
-    agent_cfg = cfg.get("agent") if isinstance(cfg.get("agent"), dict) else {}
-    workspace = str(agent_cfg.get("workspace") or "").strip()
-    description = f"Workspace: {workspace}" if workspace else "Local openppx agent"
-    return {
-        "id": agent_name,
-        "name": agent_name,
-        "description": description,
-        "enabled": True,
-        "status": "healthy" if config_path.exists() else "disabled",
-        "workspace": workspace or None,
-        "avatar": None,
-        "tags": ["local", "openppx"],
-    }
 
 
 def _run_worker_command(*, config_path: Path, args: list[str]) -> dict[str, Any]:
@@ -596,6 +535,7 @@ class ClientApiCoordinator:
         agent_access_store: AgentAccessStore | None = None,
         access_policy: AccessPolicy | None = None,
         memory_query_service: MemoryQueryService | None = None,
+        control_plane: ControlPlaneApplication | None = None,
     ) -> None:
         self.data_dir = data_dir or get_data_dir()
         default_identity_db_path = self.data_dir / "database" / "identity.db"
@@ -621,7 +561,91 @@ class ClientApiCoordinator:
         self._lock = threading.Lock()
         self._sessions_cache: dict[tuple[str, str], _TimedCacheEntry] = {}
         self._messages_cache: dict[tuple[str, str], _TimedCacheEntry] = {}
-        self._node_identity = load_or_create_node_identity(self.data_dir)
+        self._control_plane = control_plane or build_control_plane(self.data_dir)
+
+    def _control_context(
+        self,
+        *,
+        request_id: str,
+        correlation_id: str | None = None,
+        actor_id: str = "service:client-api",
+        confirmed: bool = False,
+    ) -> ActionContext:
+        """Build the trusted transport-service context for current Client API projections."""
+        permissions = frozenset({"system.read", "config.read", "config.write", "model.read", "model.use"})
+        return ActionContext(
+            request_id=request_id,
+            correlation_id=correlation_id or request_id,
+            actor_id=actor_id,
+            capabilities=permissions,
+            permissions=permissions,
+            confirmed=confirmed,
+        )
+
+    def _invoke_control(self, action_id: str, payload: dict[str, object] | None = None) -> ActionOutcome:
+        """Invoke one migrated business operation through the Control Plane."""
+        request_id = f"client_api_{action_id.replace('.', '_')}"
+        return self._control_plane.invoke(
+            action_id,
+            payload or {},
+            self._control_context(request_id=request_id),
+        )
+
+    def action_catalog(
+        self,
+        *,
+        namespace: str | None = None,
+        request_id: str | None = None,
+        correlation_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Return the final caller-aware Action catalog envelope."""
+        resolved_request_id = _wire_id(request_id, prefix="req")
+        resolved_correlation_id = _wire_id(correlation_id or resolved_request_id, prefix="corr")
+        context = self._control_context(
+            request_id=resolved_request_id,
+            correlation_id=resolved_correlation_id,
+        )
+        outcome = self._control_plane.catalog(context, namespace=namespace)
+        envelope = ContractMapper().from_outcome(
+            outcome,
+            request_id=resolved_request_id,
+            correlation_id=resolved_correlation_id,
+        )
+        return envelope.model_dump(mode="json", by_alias=True)
+
+    def invoke_action(
+        self,
+        action_id: str,
+        raw_input: dict[str, object],
+        *,
+        request_id: str,
+        correlation_id: str,
+        confirmed: bool,
+    ) -> dict[str, Any]:
+        """Invoke one final product Action and return the common contract envelope."""
+        context = self._control_context(
+            request_id=request_id,
+            correlation_id=correlation_id,
+            actor_id="principal:client-api",
+            confirmed=confirmed,
+        )
+        outcome = self._control_plane.invoke(action_id, raw_input, context)
+        envelope = ContractMapper().from_outcome(
+            outcome,
+            request_id=request_id,
+            correlation_id=correlation_id,
+        )
+        return envelope.model_dump(mode="json", by_alias=True)
+
+    def _enabled_agent_ids(self) -> tuple[str, ...]:
+        """Return enabled strict Agent IDs without parsing Config in the transport layer."""
+        outcome = self._invoke_control("config.agent.list")
+        if not outcome.ok or outcome.data is None:
+            return ()
+        items = outcome.data.get("items")
+        if not isinstance(items, list):
+            return ()
+        return tuple(str(item.get("id")) for item in items if isinstance(item, dict) and item.get("id"))
 
     def _ensure_requester_principal(self, user_id: str) -> ResolvedPrincipal:
         """Return a persisted requester principal for client-api operations."""
@@ -644,6 +668,8 @@ class ClientApiCoordinator:
 
     def _ensure_agent_access_state(self, agent_id: str) -> Path | None:
         """Ensure access rows exist for one configured agent before evaluation."""
+        if agent_id not in self._enabled_agent_ids():
+            return None
         config_path = agent_config_path(agent_id, self.data_dir)
         if not config_path.exists():
             return None
@@ -964,7 +990,7 @@ class ClientApiCoordinator:
                 {"reason": decision.reason},
             )
 
-        for candidate in list_enabled_agent_names(self.data_dir):
+        for candidate in self._enabled_agent_ids():
             visible = self._collect_visible_sessions(
                 agent_id=candidate,
                 requester_principal_id=requester_principal_id,
@@ -988,55 +1014,73 @@ class ClientApiCoordinator:
 
         if public:
             return _ok(build_public_client_api_health_data(timestamp=_iso_now()))
+        status = self._invoke_control("system.status")
+        data = status.data or {}
+        state = "healthy" if data.get("state") == "ready" else "needs_configuration"
+        agents = data.get("agents") if isinstance(data.get("agents"), dict) else {}
         return _ok(
             build_client_api_health_data(
-                data_dir=self.data_dir,
-                agents=len(list_enabled_agent_names(self.data_dir)),
+                agents=int(agents.get("enabled") or 0),
                 timestamp=_iso_now(),
+                ready=state == "healthy",
+                state=state,
             )
         )
 
     def node_info(self, *, authentication_required: bool) -> dict[str, Any]:
         """Return authenticated Node identity and capability metadata."""
 
-        return _ok(
-            build_client_api_node_data(
-                node_id=self._node_identity.node_id,
-                display_name=self._node_identity.display_name,
-                agents=len(list_enabled_agent_names(self.data_dir)),
-                authentication_required=authentication_required,
-            )
-        )
+        status = self._invoke_control("system.status")
+        data = status.data or {}
+        node = data.get("node") if isinstance(data.get("node"), dict) else None
+        agents = data.get("agents") if isinstance(data.get("agents"), dict) else {}
+        if node is None:
+            return _error("NODE_NOT_CONFIGURED", "The Node Config resource is not ready.")
+        capabilities = tuple(dict.fromkeys((*CONTROL_PLANE_CAPABILITIES, *CLIENT_API_CAPABILITIES)))
+        return _ok(build_client_api_node_data(
+            node_id=str(node.get("id") or ""),
+            display_name=str(node.get("displayName") or "OpenPPX Node"),
+            agents=int(agents.get("enabled") or 0),
+            authentication_required=authentication_required,
+            capabilities=capabilities,
+        ))
 
     def runtime_status(self) -> dict[str, Any]:
         """Return a client-facing runtime status payload."""
 
-        return _ok(
-            {
-                "target": {
-                    "id": "local-default",
-                    "type": "local",
-                    "name": "This Mac",
-                },
-                "state": "healthy",
-                "summary": "Local client-api gateway is ready.",
-                "detail": "The desktop client can use HTTP for queries and SSE for run events.",
-            }
-        )
+        status = self._invoke_control("system.status")
+        data = status.data or {}
+        node = data.get("node") if isinstance(data.get("node"), dict) else {}
+        ready = data.get("state") == "ready"
+        return _ok({
+            "target": {
+                "id": str(node.get("id") or "unconfigured-node"),
+                "type": "local",
+                "name": str(node.get("displayName") or "OpenPPX Node"),
+            },
+            "state": "healthy" if ready else "error",
+            "summary": "OpenPPX Node is ready." if ready else "OpenPPX Node needs configuration.",
+            "detail": "The Client API delegates system state to the Control Plane.",
+        })
 
     def list_agents(self) -> dict[str, Any]:
         """Return enabled local agent profiles."""
 
-        agents = [build_agent_profile(name, self.data_dir) for name in list_enabled_agent_names(self.data_dir)]
-        return _ok({"items": agents})
+        outcome = self._invoke_control("config.agent.list")
+        if outcome.ok and outcome.data is not None:
+            return _ok(outcome.data)
+        assert outcome.error is not None
+        return _error(outcome.error.code.upper(), outcome.error.message, outcome.error.details)
 
     def list_sessions(self, agent_id: str, *, user_id: str = "ppx-client-user") -> dict[str, Any]:
         """Return projected session summaries for one agent."""
 
         requester = self._ensure_requester_principal(user_id)
+        if agent_id not in self._enabled_agent_ids():
+            return _error("AGENT_NOT_FOUND", f"Agent '{agent_id}' was not found.")
         config_path = agent_config_path(agent_id, self.data_dir)
         if not config_path.exists():
-            return _error("AGENT_NOT_FOUND", f"Agent '{agent_id}' was not found.")
+            return _error("RUNTIME_NOT_CONFIGURED", f"Agent '{agent_id}' runtime is not configured.")
         cache_key = (agent_id, requester.principal_id)
         cached = self._read_cache(self._sessions_cache, cache_key)
         if cached is not None:
@@ -2323,6 +2367,16 @@ class _ClientApiHandler(BaseHTTPRequestHandler):
         if path == "/api/v1/runtime/status":
             self._send_json(200, self.coordinator.runtime_status())
             return
+        if path == "/api/v1/actions":
+            self._send_json(
+                200,
+                self.coordinator.action_catalog(
+                    namespace=query.get("namespace"),
+                    request_id=self.headers.get("X-Request-ID"),
+                    correlation_id=self.headers.get("X-Correlation-ID"),
+                ),
+            )
+            return
         if len(segments) == 5 and segments[:3] == ["api", "v1", "agents"] and segments[4] == "sessions":
             user_id = str(query.get("user_id") or "ppx-client-user")
             payload = self.coordinator.list_sessions(segments[3], user_id=user_id)
@@ -2407,6 +2461,43 @@ class _ClientApiHandler(BaseHTTPRequestHandler):
         if not self._require_authorization():
             return
         body = self._read_json_body()
+        if path == "/api/v1/actions/invoke":
+            try:
+                request = ActionInvokeRequest.model_validate(body, strict=True)
+            except ValidationError:
+                request_id = _wire_id(body.get("requestId"), prefix="req")
+                correlation_id = _wire_id(body.get("correlationId") or request_id, prefix="corr")
+                failure = ActionOutcome.failure(
+                    "system.transport",
+                    ActionError("invalid_request", "The Action request does not match its schema."),
+                )
+                envelope = ContractMapper().from_outcome(
+                    failure,
+                    request_id=request_id,
+                    correlation_id=correlation_id,
+                )
+                self._send_json(400, envelope.model_dump(mode="json", by_alias=True))
+                return
+            payload = self.coordinator.invoke_action(
+                request.action_id,
+                request.input,
+                request_id=request.request_id,
+                correlation_id=request.correlation_id,
+                confirmed=request.confirmed,
+            )
+            error_code = str(payload.get("error", {}).get("code") or "") if not payload.get("ok") else ""
+            status = {
+                "action_not_found": 404,
+                "capability_required": 403,
+                "permission_denied": 403,
+                "confirmation_required": 409,
+                "revision_conflict": 409,
+                "resource_not_found": 404,
+                "invalid_action_input": 400,
+                "invalid_request": 400,
+            }.get(error_code, 200 if payload.get("ok") else 500)
+            self._send_json(status, payload)
+            return
         if len(segments) == 6 and segments[:3] == ["api", "v1", "agents"] and segments[4] == "access" and segments[5] == "owner":
             user_id = str(body.get("user_id") or "ppx-client-user")
             owner_principal_id = str(body.get("owner_principal_id") or "").strip()
