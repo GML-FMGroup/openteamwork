@@ -1,7 +1,15 @@
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { vi } from "vitest";
 import { App } from "../app/src/App";
-import type { BootstrapPayload, ClientDiagnostics, PpxClientApi, RunEvent, RuntimeStatus, SessionSummary } from "../app/src/types";
+import type {
+  BootstrapPayload,
+  ClientDiagnostics,
+  ExtensionSummary,
+  PpxClientApi,
+  RunEvent,
+  RuntimeStatus,
+  SessionSummary,
+} from "../app/src/types";
 
 function buildBootstrapPayload(): BootstrapPayload {
   const runtime: RuntimeStatus = {
@@ -129,6 +137,11 @@ function installClient(overrides: Partial<PpxClientApi> = {}): { client: PpxClie
     loadSession: async () => ({ messages: [] }),
     sendMessage: async () => new Promise<{ runId: string }>(() => undefined),
     cancelRun: async (runId) => ({ runId, status: "cancelled" }),
+    listExtensions: async () => ({ extensions: [] }),
+    getExtension: async () => {
+      throw new Error("No fixture Extension configured.");
+    },
+    setExtensionAgentEnabled: async () => ({ revision: "sha256:fixture", status: "enabled" }),
     onRunEvent: (next) => {
       listener = next;
       return () => {
@@ -989,6 +1002,52 @@ describe("App sending state", () => {
     expect(document.querySelectorAll(".settings-column")).toHaveLength(0);
     expect(screen.queryByText("detail")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Refresh diagnostics" })).toBeInTheDocument();
+  });
+
+  it("groups Node extensions and changes enablement for the selected agent", async () => {
+    const extension: ExtensionSummary = {
+      kind: "skill",
+      id: "repo-guide",
+      displayName: "Repository guide",
+      description: "Explains repository conventions.",
+      version: "1.0.0",
+      status: "installed",
+      revision: "sha256:skill-revision",
+      source: { type: "local_directory", trust: "local" },
+      risk: "low",
+      enabledAgentIds: [],
+      readiness: { ready: true, issues: [] },
+      managedBy: null,
+    };
+    const setExtensionAgentEnabled = vi.fn(async () => ({
+      revision: "sha256:next-revision",
+      status: "enabled",
+    }));
+    installClient({
+      listExtensions: async () => ({ extensions: [extension] }),
+      setExtensionAgentEnabled,
+    });
+
+    render(<App />);
+    await screen.findByRole("button", { name: "Settings" });
+    fireEvent.click(screen.getByRole("button", { name: "Settings" }));
+
+    expect(await screen.findByText("Repository guide")).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "plugin extensions" })).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "app extensions" })).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "mcp extensions" })).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "skill extensions" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Enable" }));
+
+    await waitFor(() => {
+      expect(setExtensionAgentEnabled).toHaveBeenCalledWith({
+        kind: "skill",
+        extensionId: "repo-guide",
+        agentId: "agent-1",
+        expectedRevision: "sha256:skill-revision",
+        enabled: true,
+      });
+    });
   });
 
   it("preserves unsaved connection edits during a diagnostics refresh", async () => {

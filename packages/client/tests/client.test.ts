@@ -15,11 +15,13 @@ import actionInvokeModelList from "../../../contracts/client-api/v1/fixtures/act
 import actionInvokeRunStop from "../../../contracts/client-api/v1/fixtures/action-invoke-run-stop.json";
 import actionInvokeSessionNew from "../../../contracts/client-api/v1/fixtures/action-invoke-session-new.json";
 import actionInvokeStatus from "../../../contracts/client-api/v1/fixtures/action-invoke-status.json";
+import actionInvokeExtensionList from "../../../contracts/client-api/v1/fixtures/action-invoke-extension-list.json";
 import actionError from "../../../contracts/client-api/v1/fixtures/envelope-error.json";
 import modelListSuccess from "../../../contracts/client-api/v1/fixtures/envelope-model-list.json";
 import runStopSuccess from "../../../contracts/client-api/v1/fixtures/envelope-run-stop.json";
 import sessionNewSuccess from "../../../contracts/client-api/v1/fixtures/envelope-session-new.json";
 import actionSuccess from "../../../contracts/client-api/v1/fixtures/envelope-success.json";
+import extensionListSuccess from "../../../contracts/client-api/v1/fixtures/envelope-extension-list.json";
 import healthIncompatible from "../../../contracts/client-api/fixtures/health-incompatible.json";
 import healthV1 from "../../../contracts/client-api/fixtures/health-v1.json";
 import nodeV1 from "../../../contracts/client-api/fixtures/node-v1.json";
@@ -182,6 +184,31 @@ describe("OpenPPX Client public contract", () => {
       expect(url).toBe("http://127.0.0.1:8765/api/v1/actions/invoke");
       expect(JSON.parse(String(init.body))).toEqual(testCase.request);
     }
+  });
+
+  it("lists typed Extensions through the shared Action contract", async () => {
+    const fetchMock = vi.fn(async () =>
+      new Response(JSON.stringify(extensionListSuccess), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+    const client = new OpenPpxClient({
+      baseUrl: "http://127.0.0.1:8765",
+      fetch: fetchMock as unknown as typeof fetch,
+      idFactory: () => actionInvokeExtensionList.requestId,
+    });
+
+    const response = await client.extensions.list();
+
+    expect(response.result.items[0]).toMatchObject({
+      kind: "skill",
+      id: "fixture-skill",
+      readiness: { ready: true },
+    });
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).toBe("http://127.0.0.1:8765/api/v1/actions/invoke");
+    expect(JSON.parse(String(init.body))).toEqual(actionInvokeExtensionList);
   });
 
   it("preserves the common Action error metadata", async () => {

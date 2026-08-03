@@ -69,6 +69,16 @@ class SkillPreview:
 
 
 @dataclass(frozen=True, slots=True)
+class SkillReadiness:
+    """Non-sensitive dependency readiness for one installed Skill."""
+
+    ready: bool
+    issues: tuple[str, ...]
+    missing_executables: tuple[str, ...]
+    missing_environment: tuple[str, ...]
+
+
+@dataclass(frozen=True, slots=True)
 class VersionedSkill:
     """Validated Skill record plus internal immutable content location."""
 
@@ -313,23 +323,14 @@ class SkillManager:
         _validate_resource_name(agent_id)
         if current.record.spec.risk == "high" and not confirmed:
             raise ExtensionError("confirmation_required", "High-risk Skill enablement requires confirmation.")
-        missing_executables = [
-            name
-            for name in current.record.spec.dependencies.executables
-            if self.executable_resolver(name) is None
-        ]
-        missing_environment = [
-            name
-            for name in current.record.spec.dependencies.environment
-            if name not in self.available_environment_keys
-        ]
-        if missing_executables or missing_environment:
+        readiness = self.readiness(skill_id)
+        if not readiness.ready:
             raise ExtensionError(
                 "dependency_missing",
                 "Skill dependencies are not ready.",
                 details={
-                    "executables": missing_executables,
-                    "environment": missing_environment,
+                    "executables": list(readiness.missing_executables),
+                    "environment": list(readiness.missing_environment),
                 },
             )
         if agent_id in current.record.spec.enabled_agent_ids:
@@ -391,6 +392,31 @@ class SkillManager:
                     raise ExtensionError("extension_conflict", "Installed Skill conflicts with a builtin identity.")
                 discovered[skill_id] = self._read_record(path)
         return tuple(discovered[identifier] for identifier in sorted(discovered))
+
+    def readiness(self, skill_id: str) -> SkillReadiness:
+        """Return current executable/environment readiness without reading values."""
+        current = self.get(skill_id)
+        missing_executables = tuple(
+            name
+            for name in current.record.spec.dependencies.executables
+            if self.executable_resolver(name) is None
+        )
+        missing_environment = tuple(
+            name
+            for name in current.record.spec.dependencies.environment
+            if name not in self.available_environment_keys
+        )
+        issues: list[str] = []
+        if missing_executables:
+            issues.append("executable_missing")
+        if missing_environment:
+            issues.append("environment_missing")
+        return SkillReadiness(
+            ready=not issues,
+            issues=tuple(issues),
+            missing_executables=missing_executables,
+            missing_environment=missing_environment,
+        )
 
     def snapshot_for_agent(self, agent_id: str) -> SkillSnapshot:
         """Capture the Skill set that one newly assembled Agent may use."""
@@ -626,6 +652,7 @@ def _fsync_directory(directory: Path) -> None:
 __all__ = [
     "SkillManager",
     "SkillPreview",
+    "SkillReadiness",
     "SkillSnapshot",
     "SkillSnapshotEntry",
     "StagedSkill",

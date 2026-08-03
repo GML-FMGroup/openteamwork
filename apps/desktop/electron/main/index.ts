@@ -4,6 +4,8 @@ import { fileURLToPath } from "node:url";
 import type { ClientDiagnostics } from "../../app/src/types";
 import {
   validateConnectionSettings,
+  validateExtensionEnablement,
+  validateExtensionKind,
   validateIdentifier,
   validateRuntimeCommand,
   validateSendMessageInput,
@@ -92,6 +94,16 @@ app.whenReady().then(() => {
   );
   ipcMain.handle("ppx-client:cancel-run", async (_event, runId: unknown) =>
     adapter!.cancelRun(validateIdentifier(runId, "Run id")),
+  );
+  ipcMain.handle("ppx-client:list-extensions", async () => adapter!.listExtensions());
+  ipcMain.handle("ppx-client:get-extension", async (_event, kind: unknown, extensionId: unknown) =>
+    adapter!.getExtension(
+      validateExtensionKind(kind),
+      validateIdentifier(extensionId, "Extension id"),
+    ),
+  );
+  ipcMain.handle("ppx-client:set-extension-agent-enabled", async (_event, input: unknown) =>
+    adapter!.setExtensionAgentEnabled(validateExtensionEnablement(input)),
   );
 
   createWindow();

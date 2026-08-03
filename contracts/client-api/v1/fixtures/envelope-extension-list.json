@@ -1,0 +1,30 @@
+{
+  "correlationId": "req_extension_list_fixture",
+  "ok": true,
+  "protocolVersion": 1,
+  "requestId": "req_extension_list_fixture",
+  "result": {
+    "items": [
+      {
+        "description": "A deterministic fixture Skill.",
+        "displayName": "Fixture Skill",
+        "enabledAgentIds": [],
+        "id": "fixture-skill",
+        "kind": "skill",
+        "managedBy": null,
+        "readiness": {
+          "issues": [],
+          "ready": true
+        },
+        "revision": "sha256:fixture-skill-revision",
+        "risk": "low",
+        "source": {
+          "trust": "local",
+          "type": "local_archive"
+        },
+        "status": "disabled",
+        "version": "1.0.0"
+      }
+    ]
+  }
+}

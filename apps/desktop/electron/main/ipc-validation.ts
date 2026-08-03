@@ -1,4 +1,4 @@
-import type { ConnectionSettings, RuntimeCommand, SendMessageInput } from "../../app/src/types";
+import type { ConnectionSettings, ExtensionEnablementRequest, RuntimeCommand, SendMessageInput } from "../../app/src/types";
 
 function record(value: unknown, label: string): Record<string, unknown> {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
@@ -57,4 +57,30 @@ export function validateSendMessageInput(value: unknown): SendMessageInput {
     sessionId: validateIdentifier(input.sessionId, "Session id"),
     text: string(input.text, "Message text", 1_000_000),
   };
+}
+
+/** Validate one Extension enablement request crossing the IPC boundary. */
+export function validateExtensionEnablement(value: unknown): ExtensionEnablementRequest {
+  const input = record(value, "Extension enablement");
+  if (input.kind !== "plugin" && input.kind !== "mcp" && input.kind !== "skill") {
+    throw new TypeError("Extension kind must be plugin, mcp, or skill.");
+  }
+  if (typeof input.enabled !== "boolean") {
+    throw new TypeError("Extension enabled must be a boolean.");
+  }
+  return {
+    kind: input.kind,
+    extensionId: validateIdentifier(input.extensionId, "Extension id"),
+    agentId: validateIdentifier(input.agentId, "Agent id"),
+    expectedRevision: string(input.expectedRevision, "Expected revision", 512),
+    enabled: input.enabled,
+  };
+}
+
+/** Validate one of the four stable Extension kinds. */
+export function validateExtensionKind(value: unknown): "plugin" | "app" | "mcp" | "skill" {
+  if (value !== "plugin" && value !== "app" && value !== "mcp" && value !== "skill") {
+    throw new TypeError("Extension kind is not supported.");
+  }
+  return value;
 }

@@ -9,6 +9,10 @@ from pydantic import BaseModel, ConfigDict, Field, StrictInt, StringConstraints,
 from pydantic.alias_generators import to_camel
 
 from openppx.config import AgentConfig, NodeConfig
+from openppx.config import SecretRef
+from openppx.extensions.app_models import AppConnection, AppDefinition
+from openppx.extensions.mcp_models import McpServer
+from openppx.extensions.models import ExtensionSourceRef
 
 
 ResourceId = Annotated[
@@ -130,3 +134,107 @@ class RunStopInput(ActionInput):
     """Identify one active Run for cooperative cancellation."""
 
     run_id: RunId
+
+
+ExtensionKind = Literal["plugin", "app", "mcp", "skill"]
+InstallableExtensionKind = Literal["plugin", "skill"]
+AgentEnablementKind = Literal["plugin", "mcp", "skill"]
+
+
+class ExtensionListInput(ActionInput):
+    """Optional Extension inventory filters."""
+
+    kind: ExtensionKind | None = None
+    agent_id: ResourceId | None = None
+
+
+class ExtensionIdentityInput(ActionInput):
+    """Identify one Extension resource."""
+
+    kind: ExtensionKind
+    extension_id: ResourceId
+
+
+class ExtensionPreviewInput(ActionInput):
+    """Stage and inspect one installable Skill or Product Plugin source."""
+
+    kind: InstallableExtensionKind
+    source: ExtensionSourceRef
+
+
+class ExtensionInstallInput(ExtensionPreviewInput):
+    """Install one source only if it still matches the confirmed preview digest."""
+
+    expected_digest: Annotated[str, StringConstraints(pattern=r"^sha256:[0-9a-f]{64}$")]
+    expected_revision: str | None
+
+
+class ExtensionEnablementInput(ActionInput):
+    """Enable or disable one Agent-scoped Extension resource."""
+
+    kind: AgentEnablementKind
+    extension_id: ResourceId
+    agent_id: ResourceId
+    expected_revision: str
+
+
+class ExtensionRemoveInput(ActionInput):
+    """Remove one inactive directly managed or Product Plugin resource."""
+
+    kind: AgentEnablementKind
+    extension_id: ResourceId
+    expected_revision: str
+
+
+class McpCreateInput(ActionInput):
+    """Create one direct MCP resource."""
+
+    resource: McpServer
+    expected_revision: None = None
+
+
+class McpUpdateInput(ActionInput):
+    """Update one direct MCP resource."""
+
+    resource: McpServer
+    expected_revision: str
+
+
+class AppDefinitionMutationInput(ActionInput):
+    """Install or update one directly managed App definition."""
+
+    resource: AppDefinition
+    expected_revision: str | None
+
+
+class AppDefinitionRemoveInput(ActionInput):
+    """Remove one unreferenced direct App definition."""
+
+    app_id: ResourceId
+    expected_revision: str
+
+
+class AppConnectionMutationInput(ActionInput):
+    """Create or update one App connection without resolving Secret values."""
+
+    resource: AppConnection
+    expected_revision: str | None
+
+
+class AppConnectionIdentityInput(ActionInput):
+    """Identify one App connection under an optimistic revision."""
+
+    connection_id: ResourceId
+    expected_revision: str
+
+
+class AppConnectionEnablementInput(AppConnectionIdentityInput):
+    """Enable or disable one App connection for an Agent."""
+
+    agent_id: ResourceId
+
+
+class AppConnectionReauthorizeInput(AppConnectionIdentityInput):
+    """Replace protected credential references for one App connection."""
+
+    credential_refs: dict[ResourceId, SecretRef]

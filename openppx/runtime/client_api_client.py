@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from typing import Any
-from urllib import parse, request
+from urllib import error, parse, request
 
 
 @dataclass(slots=True)
@@ -14,6 +14,7 @@ class ClientApiClient:
 
     base_url: str = "http://127.0.0.1:8765"
     timeout_seconds: float = 10.0
+    access_token: str = ""
 
     def _build_url(self, path: str, *, query: dict[str, Any] | None = None) -> str:
         """Build one request URL from a relative API path and query params."""
@@ -41,6 +42,8 @@ class ClientApiClient:
         """Execute one JSON request and return the parsed response envelope."""
         payload = None
         headers = {"Accept": "application/json"}
+        if self.access_token:
+            headers["Authorization"] = f"Bearer {self.access_token}"
         if json_body is not None:
             payload = json.dumps(json_body, ensure_ascii=False).encode("utf-8")
             headers["Content-Type"] = "application/json; charset=utf-8"
@@ -51,12 +54,40 @@ class ClientApiClient:
             headers=headers,
             method=method.upper(),
         )
-        with request.urlopen(req, timeout=self.timeout_seconds) as resp:
-            raw = resp.read()
+        try:
+            with request.urlopen(req, timeout=self.timeout_seconds) as resp:
+                raw = resp.read()
+        except error.HTTPError as exc:
+            # The Client API returns the same structured envelope for non-2xx
+            # responses. Preserve it so CLI and GUI render identical failures.
+            raw = exc.read()
         if not raw:
             return {}
         parsed = json.loads(raw.decode("utf-8"))
         return parsed if isinstance(parsed, dict) else {}
+
+    def invoke_action(
+        self,
+        action_id: str,
+        raw_input: dict[str, object] | None = None,
+        *,
+        confirmed: bool = False,
+        request_id: str,
+        correlation_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Invoke one product Action through the shared Client API contract."""
+        resolved_correlation_id = correlation_id or request_id
+        return self._request(
+            "POST",
+            "/api/v1/actions/invoke",
+            json_body={
+                "actionId": action_id,
+                "input": raw_input or {},
+                "confirmed": confirmed,
+                "requestId": request_id,
+                "correlationId": resolved_correlation_id,
+            },
+        )
 
     def get_agent_access(self, agent_id: str, *, user_id: str = "ppx-client-user") -> dict[str, Any]:
         """Fetch one agent access snapshot."""

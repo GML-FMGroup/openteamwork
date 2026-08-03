@@ -72,6 +72,15 @@ The development-time v1 label is intentionally reused without a compatibility pr
 
 The canonical Pydantic-generated schema and fixtures live in `contracts/client-api/v1/`. Legacy Desktop endpoints keep their earlier envelope only until the TypeScript client and Desktop cutover increment removes them.
 
+Extension inventory and lifecycle use this Action boundary rather than parallel REST resources:
+
+- `extension.list/get/readiness` provide the shared Plugin, App, MCP, and Skill inventory;
+- `extension.preview/install/enable/disable/remove` enforce source staging, digest checks, optimistic revisions, and confirmation;
+- App connections and directly managed MCP resources keep domain-specific Action IDs while sharing the same envelope;
+- inventory payloads omit source locators, credential references, URL secrets, and backend exception text.
+
+The CLI and Desktop consume these Actions through the same client contract. A CLI managing another machine sets the Node URL and bearer token; it does not read or mutate that Node's files directly.
+
 Strict Node identity now comes from NodeConfig `metadata.name` and follows the ResourceName grammar. The former separate `node_...` identity file is no longer read by Client API.
 
 ## Compatibility policy

@@ -90,9 +90,62 @@ class ActionInvokeRequest(WireModel):
     confirmed: StrictBool = False
 
 
+class ExtensionSourceSummary(WireModel):
+    """Non-sensitive Extension provenance category and trust posture."""
+
+    type: Literal["builtin", "local_directory", "local_archive", "git", "catalog", "direct", "plugin"]
+    trust: Literal["builtin", "local", "third_party"]
+
+
+class ExtensionReadiness(WireModel):
+    """Common Extension readiness without backend exception or Secret material."""
+
+    ready: StrictBool
+    issues: list[Identifier] = Field(default_factory=list)
+
+
+class ExtensionSummaryItem(WireModel):
+    """One stable row in the unified four-kind Extension inventory."""
+
+    kind: Literal["plugin", "app", "mcp", "skill"]
+    id: Identifier
+    display_name: Annotated[str, StringConstraints(min_length=1, max_length=256)]
+    description: Annotated[str, StringConstraints(min_length=1, max_length=2048)]
+    version: Annotated[str, StringConstraints(min_length=1, max_length=128)]
+    status: Identifier
+    revision: Identifier
+    source: ExtensionSourceSummary
+    risk: Literal["low", "medium", "high"]
+    enabled_agent_ids: list[Identifier] = Field(default_factory=list)
+    readiness: ExtensionReadiness
+    managed_by: Identifier | None = None
+
+
+class ExtensionListPayload(WireModel):
+    """Unified Extension inventory result."""
+
+    items: list[ExtensionSummaryItem]
+
+
+class ExtensionDetailPayload(ExtensionSummaryItem):
+    """One Extension row plus bounded domain-specific fields."""
+
+    details: dict[str, Any]
+
+
+class ExtensionPreviewPayload(WireModel):
+    """Confirmed source digest and client-safe install preview."""
+
+    kind: Literal["plugin", "skill"]
+    preview: dict[str, Any]
+
+
 class ClientContractBundle(WireModel):
     """Schema-only root that retains every Increment 3 contract definition."""
 
     envelope: ClientEnvelope
     action_catalog: ActionCatalogPayload
     action_invoke: ActionInvokeRequest
+    extension_list: ExtensionListPayload
+    extension_detail: ExtensionDetailPayload
+    extension_preview: ExtensionPreviewPayload

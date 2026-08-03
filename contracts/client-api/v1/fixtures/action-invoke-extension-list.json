@@ -1,0 +1,10 @@
+{
+  "actionId": "extension.list",
+  "confirmed": false,
+  "correlationId": "req_extension_list_fixture",
+  "input": {
+    "agentId": null,
+    "kind": null
+  },
+  "requestId": "req_extension_list_fixture"
+}

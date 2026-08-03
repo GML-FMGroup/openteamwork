@@ -266,6 +266,11 @@ export function App() {
           savingConnection={workspace.savingConnection}
           testingConnection={workspace.testingConnection}
           connectionFeedback={workspace.connectionFeedback}
+          extensions={workspace.extensions}
+          extensionsLoading={workspace.extensionsLoading}
+          extensionsError={workspace.extensionsError}
+          extensionMutationId={workspace.extensionMutationId}
+          selectedAgentId={workspace.selectedAgentId}
           sidebarCollapsed={leftSidebarCollapsed}
           setConnectionForm={workspace.setConnectionForm}
           onRevealSidebar={() => setLeftSidebarCollapsed(false)}
@@ -278,6 +283,8 @@ export function App() {
           onRefreshDiagnostics={() => void workspace.refreshDiagnostics()}
           onTestConnection={() => void workspace.testConnection()}
           onSaveConnection={() => void workspace.saveConnection()}
+          onRefreshExtensions={() => void workspace.refreshExtensions()}
+          onSetExtensionEnabled={(extension, enabled) => void workspace.setExtensionEnabled(extension, enabled)}
         />
       )}
     </div>

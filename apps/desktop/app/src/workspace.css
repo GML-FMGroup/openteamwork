@@ -1446,8 +1446,125 @@
 
 .settings-card-runtime,
 .settings-card-config,
-.settings-card-paths {
+.settings-card-paths,
+.settings-card-extensions {
   grid-column: 1 / -1;
+}
+
+.settings-card-heading,
+.extension-row-title,
+.extension-kind > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.settings-card-heading p,
+.extension-row-copy p,
+.extension-empty {
+  margin: 4px 0 0;
+  color: var(--ink-soft);
+}
+
+.settings-quiet-button,
+.extension-toggle {
+  flex: 0 0 auto;
+}
+
+.settings-inline-error {
+  margin: 12px 0 0;
+  color: var(--danger-text, #9a3b32);
+}
+
+.extension-kind-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.extension-kind {
+  min-width: 0;
+  padding: 14px;
+  border: 1px solid var(--hairline);
+  border-radius: 14px;
+  background: var(--surface-soft);
+}
+
+.extension-kind h4 {
+  margin: 0;
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.extension-kind > header > span {
+  color: var(--ink-soft);
+  font-size: 12px;
+}
+
+.extension-list {
+  display: grid;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.extension-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px;
+  border-radius: 12px;
+  background: var(--surface-strong);
+}
+
+.extension-row-copy {
+  min-width: 0;
+}
+
+.extension-row-title strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.extension-row-copy p {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.extension-row-copy small {
+  display: block;
+  margin-top: 6px;
+  color: var(--ink-faint);
+}
+
+.extension-ready {
+  color: var(--ink-soft);
+  font-size: 11px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.extension-ready.ready::before,
+.extension-ready.blocked::before {
+  content: "";
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-right: 5px;
+  border-radius: 50%;
+  background: var(--success);
+}
+
+.extension-ready.blocked::before {
+  background: var(--amber);
 }
 
 .settings-card-runtime {
@@ -1675,6 +1792,10 @@
   .settings-card-diagnostics,
   .settings-card-paths {
     grid-column: 1;
+  }
+
+  .extension-kind-grid {
+    grid-template-columns: 1fr;
   }
 
   .settings-card-runtime {

@@ -15,6 +15,9 @@ from openppx.client_api.contracts import (
     ClientEnvelope,
     ContractMapper,
     ErrorEnvelope,
+    ExtensionDetailPayload,
+    ExtensionListPayload,
+    ExtensionPreviewPayload,
     SuccessEnvelope,
     export_client_contract,
 )
@@ -94,6 +97,7 @@ def test_contract_export_is_deterministic_and_fixtures_round_trip(tmp_path: Path
         "envelope-model-list.json",
         "envelope-session-new.json",
         "envelope-run-stop.json",
+        "envelope-extension-list.json",
     ):
         payload = json.loads((first / "fixtures" / fixture_name).read_text(encoding="utf-8"))
         assert adapter.validate_python(payload)
@@ -104,6 +108,7 @@ def test_contract_export_is_deterministic_and_fixtures_round_trip(tmp_path: Path
         "action-invoke-model-list.json",
         "action-invoke-session-new.json",
         "action-invoke-run-stop.json",
+        "action-invoke-extension-list.json",
     ):
         payload = json.loads((first / "fixtures" / fixture_name).read_text(encoding="utf-8"))
         assert invocation_adapter.validate_python(payload)
@@ -114,5 +119,12 @@ def test_contract_export_is_deterministic_and_fixtures_round_trip(tmp_path: Path
         "envelope": json.loads((first / "fixtures" / "envelope-success.json").read_text(encoding="utf-8")),
         "actionCatalog": json.loads((first / "fixtures" / "action-catalog.json").read_text(encoding="utf-8")),
         "actionInvoke": json.loads((first / "fixtures" / "action-invoke-status.json").read_text(encoding="utf-8")),
+        "extensionList": json.loads((first / "fixtures" / "extension-list.json").read_text(encoding="utf-8")),
+        "extensionDetail": json.loads((first / "fixtures" / "extension-detail.json").read_text(encoding="utf-8")),
+        "extensionPreview": json.loads((first / "fixtures" / "extension-preview.json").read_text(encoding="utf-8")),
     }
     Draft202012Validator(schema).validate(bundle)
+
+    assert ExtensionListPayload.model_validate(bundle["extensionList"])
+    assert ExtensionDetailPayload.model_validate(bundle["extensionDetail"])
+    assert ExtensionPreviewPayload.model_validate(bundle["extensionPreview"])

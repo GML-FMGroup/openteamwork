@@ -4,6 +4,9 @@ import type {
   RunEvent,
   SendMessageInput,
   SessionSummary,
+  ExtensionDetail,
+  ExtensionSummary,
+  AgentEnablementKind,
 } from "@openppx/client";
 
 export type {
@@ -15,6 +18,9 @@ export type {
   RunEvent,
   SendMessageInput,
   SessionSummary,
+  ExtensionDetail,
+  ExtensionSummary,
+  AgentEnablementKind,
 } from "@openppx/client";
 
 export type RuntimeState = "stopped" | "starting" | "reconnecting" | "healthy" | "error";
@@ -81,6 +87,14 @@ export interface BootstrapPayload {
 
 export type RuntimeCommand = "start" | "stop" | "restart";
 
+export interface ExtensionEnablementRequest {
+  kind: AgentEnablementKind;
+  extensionId: string;
+  agentId: string;
+  expectedRevision: string;
+  enabled: boolean;
+}
+
 export interface PpxClientApi {
   bootstrap(): Promise<BootstrapPayload>;
   getDiagnostics(): Promise<ClientDiagnostics>;
@@ -92,5 +106,8 @@ export interface PpxClientApi {
   loadSession(sessionId: string): Promise<{ messages: ChatMessage[] }>;
   sendMessage(input: SendMessageInput): Promise<{ runId: string }>;
   cancelRun(runId: string): Promise<{ runId: string; status: "cancelled" }>;
+  listExtensions(): Promise<{ extensions: ExtensionSummary[] }>;
+  getExtension(kind: ExtensionSummary["kind"], extensionId: string): Promise<{ extension: ExtensionDetail }>;
+  setExtensionAgentEnabled(input: ExtensionEnablementRequest): Promise<{ revision: string; status: string }>;
   onRunEvent(listener: (event: RunEvent) => void): () => void;
 }

@@ -509,6 +509,9 @@ class ClientApiCoordinator:
                 "system.read",
                 "config.read",
                 "config.write",
+                "extension.auth",
+                "extension.read",
+                "extension.write",
                 "model.read",
                 "model.use",
                 "session.write",
@@ -2246,6 +2249,14 @@ class _ClientApiHandler(BaseHTTPRequestHandler):
                 "resource_not_found": 404,
                 "invalid_action_input": 400,
                 "invalid_request": 400,
+                "extension_not_found": 404,
+                "invalid_extension_kind": 400,
+                "invalid_manifest": 400,
+                "invalid_source": 400,
+                "source_changed": 409,
+                "extension_conflict": 409,
+                "extension_in_use": 409,
+                "dependency_missing": 409,
             }.get(error_code, 200 if payload.get("ok") else 500)
             self._send_json(status, payload)
             return

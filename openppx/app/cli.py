@@ -4306,7 +4306,7 @@ def _emit_client_api_payload(payload: dict[str, Any], *, output_json: bool) -> i
         _stdout_line(json.dumps(payload, ensure_ascii=False, indent=2))
         return 0 if payload.get("ok") else 1
     if payload.get("ok"):
-        data = payload.get("data")
+        data = payload.get("data", payload.get("result"))
         _stdout_line(json.dumps(data if isinstance(data, dict) else payload, ensure_ascii=False, indent=2))
         return 0
     error = payload.get("error") if isinstance(payload.get("error"), dict) else {}
@@ -4317,6 +4317,99 @@ def _emit_client_api_payload(payload: dict[str, Any], *, output_json: bool) -> i
     if reason:
         _stdout_line(f"Reason: {reason}")
     return 1
+
+
+def _cmd_extension_action(
+    action_id: str,
+    raw_input: dict[str, object],
+    *,
+    base_url: str,
+    access_token: str,
+    confirmed: bool,
+    output_json: bool,
+) -> int:
+    """Invoke one Extension Action against the running Node and render its envelope."""
+    from ..runtime.client_api_client import ClientApiClient
+
+    request_id = f"req_cli_{uuid.uuid4().hex}"
+    try:
+        payload = ClientApiClient(
+            base_url=base_url,
+            access_token=access_token,
+        ).invoke_action(
+            action_id,
+            raw_input,
+            confirmed=confirmed,
+            request_id=request_id,
+        )
+    except (OSError, TimeoutError, ValueError) as exc:
+        _stdout_line(f"Error: unable to reach OpenPPX Node at {base_url}: {exc}")
+        return 1
+    return _emit_client_api_payload(payload, output_json=output_json)
+
+
+def _extension_source_input(args: argparse.Namespace) -> dict[str, object]:
+    """Build one strict wire-format Extension source from CLI arguments."""
+    return {
+        key: value
+        for key, value in {
+            "type": args.source_type,
+            "locator": args.locator,
+            "version": args.source_version,
+            "revision": args.source_revision,
+            "provider": args.source_provider,
+            "subpath": args.source_subpath,
+        }.items()
+        if value not in {None, ""}
+    }
+
+
+def _dispatch_extension_command(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
+    """Translate `ppx extension` arguments into the shared Extension Action contract."""
+    command = args.extension_command
+    if command == "list":
+        action_id = "extension.list"
+        raw_input = {"kind": args.kind, "agentId": args.agent_id}
+    elif command in {"get", "readiness"}:
+        action_id = f"extension.{command}"
+        raw_input = {"kind": args.kind, "extensionId": args.extension_id}
+    elif command == "preview":
+        action_id = "extension.preview"
+        raw_input = {"kind": args.kind, "source": _extension_source_input(args)}
+    elif command == "install":
+        action_id = "extension.install"
+        raw_input = {
+            "kind": args.kind,
+            "source": _extension_source_input(args),
+            "expectedDigest": args.expected_digest,
+            "expectedRevision": args.expected_revision,
+        }
+    elif command in {"enable", "disable"}:
+        action_id = f"extension.{command}"
+        raw_input = {
+            "kind": args.kind,
+            "extensionId": args.extension_id,
+            "agentId": args.agent_id,
+            "expectedRevision": args.expected_revision,
+        }
+    elif command == "remove":
+        action_id = "extension.remove"
+        raw_input = {
+            "kind": args.kind,
+            "extensionId": args.extension_id,
+            "expectedRevision": args.expected_revision,
+        }
+    else:
+        parser.print_help()
+        return 2
+    return _cmd_extension_action(
+        action_id,
+        raw_input,
+        base_url=args.client_api_url,
+        access_token=args.access_token,
+        confirmed=bool(getattr(args, "yes", False)),
+        output_json=args.output_json,
+    )
 
 
 def _cmd_client_api_access_get(*, agent_id: str, user_id: str, output_json: bool) -> int:
@@ -4470,7 +4563,7 @@ def _should_require_agent_config_for_gateway(args: argparse.Namespace) -> bool:
 def _should_bootstrap_single_agent_env(args: argparse.Namespace) -> bool:
     """Return true when startup should hydrate one explicit config into process env."""
 
-    if args.command in {"install", "create", "client-api", "node", "sandbox"}:
+    if args.command in {"install", "create", "client-api", "extension", "node", "sandbox"}:
         return False
     return True
 
@@ -4848,6 +4941,88 @@ def main(argv: list[str] | None = None) -> None:
         action="store_true",
         help="Emit machine-readable JSON.",
     )
+
+    extension_parser = subparsers.add_parser(
+        "extension",
+        help="Inspect and manage Node extensions through the shared Action API.",
+    )
+    extension_subparsers = extension_parser.add_subparsers(dest="extension_command", required=True)
+
+    def _add_extension_transport_args(command_parser: argparse.ArgumentParser) -> None:
+        command_parser.add_argument(
+            "--url",
+            dest="client_api_url",
+            default=os.environ.get("OPENPPX_CLIENT_API_URL", "http://127.0.0.1:8765"),
+            help="OpenPPX Node Client API URL.",
+        )
+        command_parser.add_argument(
+            "--token",
+            dest="access_token",
+            default=os.environ.get("OPENPPX_CLIENT_API_TOKEN", ""),
+            help="Bearer token for a remote or protected Node.",
+        )
+        command_parser.add_argument(
+            "--json",
+            dest="output_json",
+            action="store_true",
+            help="Emit the common Action envelope as JSON.",
+        )
+
+    def _add_extension_source_args(command_parser: argparse.ArgumentParser) -> None:
+        command_parser.add_argument("kind", choices=["plugin", "skill"], help="Installable extension kind.")
+        command_parser.add_argument(
+            "source_type",
+            choices=["local_directory", "local_archive", "git", "catalog"],
+            help="Extension source adapter.",
+        )
+        command_parser.add_argument("locator", help="Source locator understood by the selected adapter.")
+        command_parser.add_argument("--source-version", default=None, help="Optional requested source version.")
+        command_parser.add_argument("--source-revision", default=None, help="Optional fixed source revision.")
+        command_parser.add_argument("--source-provider", default=None, help="Optional catalog provider id.")
+        command_parser.add_argument("--source-subpath", default=None, help="Optional source subdirectory.")
+
+    extension_list_parser = extension_subparsers.add_parser("list", help="List Plugin, App, MCP, and Skill resources.")
+    extension_list_parser.add_argument("--kind", choices=["plugin", "app", "mcp", "skill"], default=None)
+    extension_list_parser.add_argument("--agent", dest="agent_id", default=None, help="Filter by Agent enablement.")
+    _add_extension_transport_args(extension_list_parser)
+
+    for command_name in ("get", "readiness"):
+        command_parser = extension_subparsers.add_parser(command_name, help=f"Show extension {command_name} data.")
+        command_parser.add_argument("kind", choices=["plugin", "app", "mcp", "skill"])
+        command_parser.add_argument("extension_id")
+        _add_extension_transport_args(command_parser)
+
+    extension_preview_parser = extension_subparsers.add_parser("preview", help="Stage and validate an extension source.")
+    _add_extension_source_args(extension_preview_parser)
+    _add_extension_transport_args(extension_preview_parser)
+
+    extension_install_parser = extension_subparsers.add_parser(
+        "install",
+        help="Install a source after matching a confirmed preview digest.",
+    )
+    _add_extension_source_args(extension_install_parser)
+    extension_install_parser.add_argument("expected_digest", help="sha256 digest returned by preview.")
+    extension_install_parser.add_argument("--expected-revision", default=None)
+    extension_install_parser.add_argument("--yes", action="store_true", help="Confirm installation and declared risk.")
+    _add_extension_transport_args(extension_install_parser)
+
+    for command_name in ("enable", "disable"):
+        command_parser = extension_subparsers.add_parser(command_name, help=f"{command_name.title()} an extension for one Agent.")
+        command_parser.add_argument("kind", choices=["plugin", "mcp", "skill"])
+        command_parser.add_argument("extension_id")
+        command_parser.add_argument("agent_id")
+        command_parser.add_argument("expected_revision")
+        if command_name == "enable":
+            command_parser.add_argument("--yes", action="store_true", help="Confirm extension activation.")
+        _add_extension_transport_args(command_parser)
+
+    extension_remove_parser = extension_subparsers.add_parser("remove", help="Remove an inactive extension.")
+    extension_remove_parser.add_argument("kind", choices=["plugin", "mcp", "skill"])
+    extension_remove_parser.add_argument("extension_id")
+    extension_remove_parser.add_argument("expected_revision")
+    extension_remove_parser.add_argument("--yes", action="store_true", help="Confirm permanent removal.")
+    _add_extension_transport_args(extension_remove_parser)
+
     provider_parser = subparsers.add_parser("provider", help="Manage runtime LLM providers.")
     provider_subparsers = provider_parser.add_subparsers(dest="provider_command", required=True)
     provider_list_parser = provider_subparsers.add_parser("list", help="List providers available to ppx.")
@@ -5210,6 +5385,8 @@ def main(argv: list[str] | None = None) -> None:
         else:
             parser.print_help()
             code = 2
+    elif args.command == "extension":
+        code = _dispatch_extension_command(args, extension_parser)
     elif args.command == "channels":
         code = _dispatch_channels_command(args, parser)
     elif args.command == "provider":

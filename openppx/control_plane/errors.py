@@ -7,6 +7,7 @@ from typing import NoReturn
 from openppx.actions import ActionError, ActionFailure
 from openppx.config import ConfigError, ConfigLoadError, ConfigRevisionConflict, ConfigWriteError
 from openppx.modeling import ModelSelectionError
+from openppx.extensions import ExtensionError
 
 
 def raise_config_failure(exc: ConfigError) -> NoReturn:
@@ -64,3 +65,52 @@ def raise_model_failure(exc: ModelSelectionError) -> NoReturn:
             },
         )
     ) from None
+
+
+def raise_extension_failure(exc: ExtensionError) -> NoReturn:
+    """Raise one stable Extension failure with an allowlisted detail projection."""
+    allowed = {
+        "actualRevision",
+        "agentIds",
+        "capabilities",
+        "connectionId",
+        "connectionIds",
+        "environment",
+        "executables",
+        "expectedRevision",
+        "issues",
+        "references",
+    }
+    details = {key: value for key, value in exc.details.items() if key in allowed}
+    retryable = exc.code in {"registry_busy", "source_unavailable", "write_failed"}
+    raise ActionFailure(
+        ActionError(
+            exc.code,
+            _extension_message(exc.code),
+            details=details,
+            retryable=retryable,
+        )
+    ) from None
+
+
+def _extension_message(code: str) -> str:
+    """Map Extension failures to bounded product messages rather than backend text."""
+    return {
+        "confirmation_required": "The Extension operation requires explicit confirmation.",
+        "dependency_missing": "The Extension is not ready because a dependency is unavailable.",
+        "extension_conflict": "The Extension conflicts with another installed resource.",
+        "extension_in_use": "The Extension is still enabled or referenced.",
+        "extension_not_found": "The requested Extension resource was not found.",
+        "extension_unavailable": "The installed Extension content is unavailable.",
+        "invalid_extension_kind": "The requested Extension kind is not supported.",
+        "invalid_identity": "The Extension identity is invalid.",
+        "invalid_manifest": "The Extension manifest is invalid.",
+        "invalid_operation": "The operation is not valid for this Extension resource.",
+        "invalid_registry": "The installed Extension record is invalid.",
+        "invalid_source": "The Extension source reference is invalid.",
+        "registry_busy": "The Extension registry is busy; retry with a fresh revision.",
+        "revision_conflict": "The Extension changed since it was read.",
+        "source_unavailable": "The Extension source is unavailable.",
+        "unsafe_path": "The Extension package contains an unsafe path.",
+        "write_failed": "The Extension resource could not be persisted.",
+    }.get(code, "The Extension operation could not be completed.")

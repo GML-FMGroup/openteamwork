@@ -29,6 +29,7 @@ from .plugins import (
     VersionedPlugin,
     parse_plugin_manifest,
 )
+from .registry import ExtensionDetail, ExtensionKind, ExtensionRegistry, ExtensionSummary
 from .models import (
     ExtensionSourceIdentity,
     ExtensionSourceRef,
@@ -41,6 +42,7 @@ from .models import (
 from .skills import (
     SkillManager,
     SkillPreview,
+    SkillReadiness,
     SkillSnapshot,
     SkillSnapshotEntry,
     StagedSkill,
@@ -51,6 +53,10 @@ from .skills import (
 
 __all__ = [
     "ExtensionError",
+    "ExtensionDetail",
+    "ExtensionKind",
+    "ExtensionRegistry",
+    "ExtensionSummary",
     "AppManager",
     "AppReadiness",
     "AppSnapshot",
@@ -74,6 +80,7 @@ __all__ = [
     "SkillManager",
     "SkillManifest",
     "SkillPreview",
+    "SkillReadiness",
     "SkillRecord",
     "SkillRecordSpec",
     "SkillSnapshot",

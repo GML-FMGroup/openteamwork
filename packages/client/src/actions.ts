@@ -1,6 +1,7 @@
 import { CLIENT_API_PROTOCOL_VERSION } from "./contract";
 import { ClientApiProtocolError } from "./contract";
 import { ClientApiHttpTransport, type ClientApiHttpTransportOptions } from "./http-transport";
+import { ExtensionClient } from "./extensions";
 
 export type ActionScope = "node" | "agent" | "session" | "run" | "task" | "extension";
 export type ActionRisk = "low" | "medium" | "high";
@@ -220,6 +221,8 @@ export class OpenPpxClient {
 
   public readonly run: RunClient;
 
+  public readonly extensions: ExtensionClient;
+
   public constructor(options: ClientApiHttpTransportOptions & ActionClientOptions) {
     this.transport = new ClientApiHttpTransport(options);
     this.actions = new ActionClient(this.transport, options);
@@ -227,5 +230,6 @@ export class OpenPpxClient {
     this.model = new ModelClient(this.actions);
     this.session = new SessionClient(this.actions);
     this.run = new RunClient(this.actions);
+    this.extensions = new ExtensionClient(this.actions);
   }
 }

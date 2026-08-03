@@ -10,7 +10,7 @@ from typing import Any, Callable
 
 from openppx.config import SecretStore, SystemCredentialSecretStore
 from openppx.control_plane import ControlPlaneApplication, build_control_plane
-from openppx.extensions import AppManager, McpManager, PluginManager, SkillManager
+from openppx.extensions import AppManager, ExtensionRegistry, McpManager, PluginManager, SkillManager
 from openppx.extensions.indexes import ExtensionReferenceIndex, ResourceIdentityIndex
 from openppx.extensions.prefixes import ToolPrefixIndex
 
@@ -157,6 +157,19 @@ class OpenPpxNodeHost:
             root,
             builtin_skills=_builtin_skill_roots(),
             identity_index=identity_index,
+        )
+        extension_registry = ExtensionRegistry(
+            skills=skill_manager,
+            mcp=mcp_manager,
+            apps=app_manager,
+            plugins=plugin_manager,
+        )
+        control_plane.attach_extensions(
+            extension_registry,
+            skills=skill_manager,
+            mcp=mcp_manager,
+            apps=app_manager,
+            plugins=plugin_manager,
         )
         assembler = RuntimeAssembler(
             node_root=root,

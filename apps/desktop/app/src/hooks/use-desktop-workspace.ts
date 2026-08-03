@@ -5,6 +5,7 @@ import type {
   ChatMessage,
   ClientDiagnostics,
   ConnectionSettings,
+  ExtensionSummary,
   RuntimeStatus,
   SessionSummary,
 } from "../types";
@@ -81,6 +82,10 @@ export function useDesktopWorkspace() {
   const [savingConnection, setSavingConnection] = useState(false);
   const [testingConnection, setTestingConnection] = useState(false);
   const [connectionFeedback, setConnectionFeedback] = useState<string | null>(null);
+  const [extensions, setExtensions] = useState<ExtensionSummary[]>([]);
+  const [extensionsLoading, setExtensionsLoading] = useState(false);
+  const [extensionsError, setExtensionsError] = useState<string | null>(null);
+  const [extensionMutationId, setExtensionMutationId] = useState<string | null>(null);
   const [transcriptResetKey, setTranscriptResetKey] = useState(0);
   const switchRequestIdRef = useRef(0);
   const selectedAgentIdRef = useRef("");
@@ -170,6 +175,19 @@ export function useDesktopWorkspace() {
         selectSessionId(nextSelectedSessionId);
         setReady(true);
         setBootstrapError(null);
+        void window.ppxClient
+          .listExtensions()
+          .then((result) => {
+            if (mounted) {
+              setExtensions(result.extensions);
+              setExtensionsError(null);
+            }
+          })
+          .catch((error: unknown) => {
+            if (mounted) {
+              setExtensionsError(error instanceof Error ? error.message : String(error));
+            }
+          });
         void window.ppxClient
           .getDiagnostics()
           .then((nextDiagnostics) => {
@@ -332,6 +350,41 @@ export function useDesktopWorkspace() {
 
   async function refreshDiagnostics(): Promise<void> {
     setDiagnostics(await window.ppxClient.getDiagnostics());
+  }
+
+  async function refreshExtensions(): Promise<void> {
+    setExtensionsLoading(true);
+    setExtensionsError(null);
+    try {
+      const result = await window.ppxClient.listExtensions();
+      setExtensions(result.extensions);
+    } catch (error) {
+      setExtensionsError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setExtensionsLoading(false);
+    }
+  }
+
+  async function setExtensionEnabled(extension: ExtensionSummary, enabled: boolean): Promise<void> {
+    if (!selectedAgentId || extension.kind === "app") {
+      return;
+    }
+    setExtensionMutationId(`${extension.kind}:${extension.id}`);
+    setExtensionsError(null);
+    try {
+      await window.ppxClient.setExtensionAgentEnabled({
+        kind: extension.kind,
+        extensionId: extension.id,
+        agentId: selectedAgentId,
+        expectedRevision: extension.revision,
+        enabled,
+      });
+      await refreshExtensions();
+    } catch (error) {
+      setExtensionsError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setExtensionMutationId(null);
+    }
   }
 
   async function saveConnection(): Promise<void> {
@@ -499,12 +552,18 @@ export function useDesktopWorkspace() {
     savingConnection,
     testingConnection,
     connectionFeedback,
+    extensions,
+    extensionsLoading,
+    extensionsError,
+    extensionMutationId,
     transcriptResetKey,
     switchAgent,
     switchSession,
     runRuntimeAction,
     stopRuntime,
     refreshDiagnostics,
+    refreshExtensions,
+    setExtensionEnabled,
     saveConnection,
     testConnection,
     createSession,

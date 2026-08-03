@@ -124,6 +124,16 @@ def test_node_host_uses_strict_listener_and_one_shared_component_graph(tmp_path:
     assert servers[0].access_token == "node-token"
     assert host.coordinator._control_plane is host.control_plane
     assert host.coordinator._runtime_supervisor is host.runtime_supervisor
+    extension_payload = host.coordinator.invoke_action(
+        "extension.list",
+        {"kind": "skill", "agentId": None},
+        request_id="req_node_extensions",
+        correlation_id="corr_node_extensions",
+        confirmed=False,
+    )
+    assert host.control_plane.extension_registry is not None
+    assert extension_payload["ok"] is True
+    assert isinstance(extension_payload["result"]["items"], list)
 
 
 def test_node_host_starts_scheduler_before_server_and_stops_once(tmp_path: Path) -> None:

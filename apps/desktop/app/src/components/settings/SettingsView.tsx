@@ -1,5 +1,5 @@
 import type { Dispatch, SetStateAction } from "react";
-import type { ClientDiagnostics, ConnectionSettings, RuntimeState, RuntimeStatus } from "../../types";
+import type { ClientDiagnostics, ConnectionSettings, ExtensionSummary, RuntimeState, RuntimeStatus } from "../../types";
 import { CollapsedSidebarTools } from "../workspace/ContextSidebar";
 
 interface SettingsViewProps {
@@ -9,6 +9,11 @@ interface SettingsViewProps {
   savingConnection: boolean;
   testingConnection: boolean;
   connectionFeedback: string | null;
+  extensions: ExtensionSummary[];
+  extensionsLoading: boolean;
+  extensionsError: string | null;
+  extensionMutationId: string | null;
+  selectedAgentId: string;
   sidebarCollapsed: boolean;
   canCreateSession: boolean;
   setConnectionForm: Dispatch<SetStateAction<ConnectionSettings>>;
@@ -21,6 +26,8 @@ interface SettingsViewProps {
   onRefreshDiagnostics: () => void;
   onTestConnection: () => void;
   onSaveConnection: () => void;
+  onRefreshExtensions: () => void;
+  onSetExtensionEnabled: (extension: ExtensionSummary, enabled: boolean) => void;
 }
 
 function runtimeActionLabel(state: RuntimeState): string {
@@ -41,6 +48,11 @@ export function SettingsView({
   savingConnection,
   testingConnection,
   connectionFeedback,
+  extensions,
+  extensionsLoading,
+  extensionsError,
+  extensionMutationId,
+  selectedAgentId,
   sidebarCollapsed,
   canCreateSession,
   setConnectionForm,
@@ -53,6 +65,8 @@ export function SettingsView({
   onRefreshDiagnostics,
   onTestConnection,
   onSaveConnection,
+  onRefreshExtensions,
+  onSetExtensionEnabled,
 }: SettingsViewProps) {
   return (
     <section className="workspace-shell settings-shell">
@@ -90,6 +104,72 @@ export function SettingsView({
               <button className="secondary" onClick={onRefreshDiagnostics}>
                 Refresh diagnostics
               </button>
+            </div>
+          </section>
+
+          <section className="settings-card settings-card-extensions">
+            <div className="settings-card-heading">
+              <div>
+                <h3>Extensions</h3>
+                <p>Plugin, App, MCP, and Skill resources owned by this Node.</p>
+              </div>
+              <button className="secondary settings-quiet-button" onClick={onRefreshExtensions} disabled={extensionsLoading}>
+                {extensionsLoading ? "Refreshing" : "Refresh"}
+              </button>
+            </div>
+            {extensionsError ? <p className="settings-inline-error">{extensionsError}</p> : null}
+            <div className="extension-kind-grid">
+              {(["plugin", "app", "mcp", "skill"] as const).map((kind) => {
+                const items = extensions.filter((item) => item.kind === kind);
+                return (
+                  <section className="extension-kind" key={kind} aria-label={`${kind} extensions`}>
+                    <header>
+                      <h4>{kind === "mcp" ? "MCP" : `${kind[0].toUpperCase()}${kind.slice(1)}`}</h4>
+                      <span>{items.length}</span>
+                    </header>
+                    {items.length ? (
+                      <div className="extension-list">
+                        {items.map((extension) => {
+                          const enabled = selectedAgentId ? extension.enabledAgentIds.includes(selectedAgentId) : false;
+                          const mutable = extension.kind !== "app" && extension.status !== "builtin" && Boolean(selectedAgentId);
+                          const pending = extensionMutationId === `${extension.kind}:${extension.id}`;
+                          return (
+                            <article className="extension-row" key={`${extension.kind}:${extension.id}`}>
+                              <div className="extension-row-copy">
+                                <div className="extension-row-title">
+                                  <strong>{extension.displayName}</strong>
+                                  <span className={`extension-ready ${extension.readiness.ready ? "ready" : "blocked"}`}>
+                                    {extension.readiness.ready ? extension.status : "needs attention"}
+                                  </span>
+                                </div>
+                                <p>{extension.description}</p>
+                                <small>{extension.version} · {extension.source.trust} · {extension.risk} risk</small>
+                              </div>
+                              <button
+                                className="secondary extension-toggle"
+                                disabled={!mutable || pending}
+                                onClick={() => onSetExtensionEnabled(extension, !enabled)}
+                              >
+                                {pending
+                                  ? "Applying"
+                                  : extension.kind === "app"
+                                    ? "Connections"
+                                    : extension.status === "builtin"
+                                      ? "Built in"
+                                      : enabled
+                                        ? "Disable"
+                                        : "Enable"}
+                              </button>
+                            </article>
+                          );
+                        })}
+                      </div>
+                    ) : (
+                      <p className="extension-empty">No {kind === "mcp" ? "MCP servers" : `${kind}s`} installed.</p>
+                    )}
+                  </section>
+                );
+              })}
             </div>
           </section>
 

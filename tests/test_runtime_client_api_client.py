@@ -101,6 +101,38 @@ def test_client_api_client_posts_owner_update() -> None:
     }
 
 
+def test_client_api_client_invokes_action_with_auth_and_wire_context() -> None:
+    captured: dict[str, object] = {}
+
+    def _fake_urlopen(req, timeout: float):
+        captured["url"] = req.full_url
+        captured["method"] = req.get_method()
+        captured["data"] = req.data
+        captured["authorization"] = req.get_header("Authorization")
+        return _FakeHttpResponse({"ok": True, "actionId": "extension.list", "result": {"items": []}})
+
+    client = ClientApiClient(base_url="http://10.0.0.8:8765", access_token="secret-token")
+    with patch("openppx.runtime.client_api_client.request.urlopen", side_effect=_fake_urlopen):
+        payload = client.invoke_action(
+            "extension.list",
+            {"kind": "skill", "agentId": None},
+            confirmed=False,
+            request_id="req_cli_test",
+        )
+
+    assert payload["ok"] is True
+    assert captured["method"] == "POST"
+    assert captured["url"] == "http://10.0.0.8:8765/api/v1/actions/invoke"
+    assert captured["authorization"] == "Bearer secret-token"
+    assert json.loads(captured["data"].decode("utf-8")) == {
+        "actionId": "extension.list",
+        "input": {"kind": "skill", "agentId": None},
+        "confirmed": False,
+        "requestId": "req_cli_test",
+        "correlationId": "req_cli_test",
+    }
+
+
 def test_client_api_client_membership_mutations_cover_post_and_delete() -> None:
     calls: list[tuple[str, str, bytes | None]] = []
 

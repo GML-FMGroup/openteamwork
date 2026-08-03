@@ -6,6 +6,7 @@ import path from "node:path";
 import {
   ActionClient,
   CLIENT_API_PROTOCOL_VERSION,
+  ExtensionClient,
   normalizeClientApiMessage,
   normalizeClientApiPart,
   normalizeClientApiSession,
@@ -33,6 +34,9 @@ import type {
   ClientDiagnostics,
   ConnectionSettings,
   ConnectionTarget,
+  ExtensionDetail,
+  ExtensionEnablementRequest,
+  ExtensionSummary,
   MessagePart,
   PpxClientApi,
   RunEvent,
@@ -149,6 +153,8 @@ export class OpenPpxLocalAdapter implements PpxClientApi {
 
   private readonly actions: ActionClient;
 
+  private readonly extensions: ExtensionClient;
+
   private readonly nodeSupervisor: LocalNodeSupervisor;
 
   private readonly legacyBridge: LegacyBridgeClient;
@@ -176,6 +182,7 @@ export class OpenPpxLocalAdapter implements PpxClientApi {
       request: (pathname, init) => this.connection.request(pathname, init),
     });
     this.actions = new ActionClient(this.connection);
+    this.extensions = new ExtensionClient(this.actions);
     this.nodeSupervisor = new LocalNodeSupervisor({
       openppxRoot: this.openppxRoot,
       nodeRoot: dataRootPath(),
@@ -562,6 +569,47 @@ export class OpenPpxLocalAdapter implements PpxClientApi {
       await this.ensureClientApiAvailable();
     }
     return this.fetchRuntimeStatus();
+  }
+
+  public async listExtensions(): Promise<{ extensions: ExtensionSummary[] }> {
+    if (this.shouldUseMock()) {
+      return { extensions: [] };
+    }
+    await this.ensureClientApiAvailable();
+    const envelope = await this.extensions.list();
+    return { extensions: envelope.result.items };
+  }
+
+  public async getExtension(
+    kind: ExtensionSummary["kind"],
+    extensionId: string,
+  ): Promise<{ extension: ExtensionDetail }> {
+    await this.ensureClientApiAvailable();
+    const envelope = await this.extensions.get(kind, extensionId);
+    return { extension: envelope.result };
+  }
+
+  public async setExtensionAgentEnabled(
+    input: ExtensionEnablementRequest,
+  ): Promise<{ revision: string; status: string }> {
+    await this.ensureClientApiAvailable();
+    const envelope = input.enabled
+      ? await this.extensions.enable(
+          input.kind,
+          input.extensionId,
+          input.agentId,
+          input.expectedRevision,
+        )
+      : await this.extensions.disable(
+          input.kind,
+          input.extensionId,
+          input.agentId,
+          input.expectedRevision,
+        );
+    return {
+      revision: String(envelope.result.revision ?? ""),
+      status: String(envelope.result.status ?? ""),
+    };
   }
 
   public async listSessions(agentId: string): Promise<{ sessions: SessionSummary[] }> {

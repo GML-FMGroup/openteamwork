@@ -1,0 +1,10 @@
+{
+  "kind": "skill",
+  "preview": {
+    "description": "A deterministic fixture Skill.",
+    "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "risk": "low",
+    "skillId": "fixture-skill",
+    "version": "1.0.0"
+  }
+}

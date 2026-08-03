@@ -6,7 +6,16 @@ import json
 from pathlib import Path
 from typing import Any
 
-from .models import ActionCatalogItem, ActionCatalogPayload, ActionInvokeRequest, ClientContractBundle
+from .models import (
+    ActionCatalogItem,
+    ActionCatalogPayload,
+    ActionInvokeRequest,
+    ClientContractBundle,
+    ExtensionDetailPayload,
+    ExtensionListPayload,
+    ExtensionPreviewPayload,
+    ExtensionSummaryItem,
+)
 
 
 def export_client_contract(output_dir: Path) -> tuple[Path, ...]:
@@ -33,6 +42,11 @@ def export_client_contract(output_dir: Path) -> tuple[Path, ...]:
             request_id="req_run_stop_fixture",
             action_id="run.stop",
             input={"runId": "run_fixture"},
+        ),
+        fixtures_dir / "action-invoke-extension-list.json": _invoke_fixture(
+            request_id="req_extension_list_fixture",
+            action_id="extension.list",
+            input={"kind": None, "agentId": None},
         ),
         fixtures_dir / "envelope-model-list.json": _domain_success_fixture(
             request_id="req_model_list_fixture",
@@ -64,6 +78,13 @@ def export_client_contract(output_dir: Path) -> tuple[Path, ...]:
                     "state": "cancelling",
                 }
             },
+        ),
+        fixtures_dir / "extension-list.json": _extension_list_fixture(),
+        fixtures_dir / "extension-detail.json": _extension_detail_fixture(),
+        fixtures_dir / "extension-preview.json": _extension_preview_fixture(),
+        fixtures_dir / "envelope-extension-list.json": _domain_success_fixture(
+            request_id="req_extension_list_fixture",
+            result=_extension_list_fixture(),
         ),
     }
     for path, document in documents.items():
@@ -154,4 +175,54 @@ def _invoke_fixture(
         action_id=action_id,
         input=input or {},
         confirmed=False,
+    ).model_dump(mode="json", by_alias=True)
+
+
+def _extension_item_fixture() -> dict[str, Any]:
+    return ExtensionSummaryItem(
+        kind="skill",
+        id="fixture-skill",
+        display_name="Fixture Skill",
+        description="A deterministic fixture Skill.",
+        version="1.0.0",
+        status="disabled",
+        revision="sha256:fixture-skill-revision",
+        source={"type": "local_archive", "trust": "local"},
+        risk="low",
+        enabled_agent_ids=[],
+        readiness={"ready": True, "issues": []},
+        managed_by=None,
+    ).model_dump(mode="json", by_alias=True)
+
+
+def _extension_list_fixture() -> dict[str, Any]:
+    return ExtensionListPayload(items=[ExtensionSummaryItem.model_validate(_extension_item_fixture())]).model_dump(
+        mode="json",
+        by_alias=True,
+    )
+
+
+def _extension_detail_fixture() -> dict[str, Any]:
+    return ExtensionDetailPayload.model_validate(
+        {
+            **_extension_item_fixture(),
+            "details": {
+                "builtin": False,
+                "capabilities": ["documents.read"],
+                "dependencies": {"executables": [], "environment": []},
+            },
+        }
+    ).model_dump(mode="json", by_alias=True)
+
+
+def _extension_preview_fixture() -> dict[str, Any]:
+    return ExtensionPreviewPayload(
+        kind="skill",
+        preview={
+            "skillId": "fixture-skill",
+            "description": "A deterministic fixture Skill.",
+            "version": "1.0.0",
+            "digest": "sha256:" + "a" * 64,
+            "risk": "low",
+        },
     ).model_dump(mode="json", by_alias=True)

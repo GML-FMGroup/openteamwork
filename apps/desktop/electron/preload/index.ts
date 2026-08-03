@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from "electron";
-import type { ConnectionSettings, PpxClientApi, RunEvent, RuntimeCommand, SendMessageInput } from "../../app/src/types";
+import type { ConnectionSettings, ExtensionEnablementRequest, PpxClientApi, RunEvent, RuntimeCommand, SendMessageInput } from "../../app/src/types";
 
 const api: PpxClientApi = {
   bootstrap: () => ipcRenderer.invoke("ppx-client:bootstrap"),
@@ -12,6 +12,9 @@ const api: PpxClientApi = {
   loadSession: (sessionId: string) => ipcRenderer.invoke("ppx-client:load-session", sessionId),
   sendMessage: (input: SendMessageInput) => ipcRenderer.invoke("ppx-client:send-message", input),
   cancelRun: (runId: string) => ipcRenderer.invoke("ppx-client:cancel-run", runId),
+  listExtensions: () => ipcRenderer.invoke("ppx-client:list-extensions"),
+  getExtension: (kind, extensionId) => ipcRenderer.invoke("ppx-client:get-extension", kind, extensionId),
+  setExtensionAgentEnabled: (input: ExtensionEnablementRequest) => ipcRenderer.invoke("ppx-client:set-extension-agent-enabled", input),
   onRunEvent: (listener: (event: RunEvent) => void) => {
     const wrapped = (_event: unknown, payload: RunEvent) => listener(payload);
     ipcRenderer.on("ppx-client:run-event", wrapped);

@@ -181,6 +181,74 @@ class CLITests(unittest.TestCase):
                 mocked.assert_called_once_with(agent_id="writer", user_id="owner", output_json=True)
                 mocked_bootstrap.assert_not_called()
 
+    def test_extension_list_dispatches_shared_action(self) -> None:
+        from openppx import cli
+
+        with patch.object(cli, "bootstrap_env_from_config") as mocked_bootstrap:
+            with patch.object(cli, "_cmd_extension_action", return_value=0) as mocked:
+                with self.assertRaises(SystemExit) as ctx:
+                    cli.main([
+                        "extension",
+                        "list",
+                        "--kind",
+                        "skill",
+                        "--agent",
+                        "writer",
+                        "--url",
+                        "http://10.0.0.8:8765",
+                        "--token",
+                        "secret",
+                        "--json",
+                    ])
+                self.assertEqual(ctx.exception.code, 0)
+                mocked.assert_called_once_with(
+                    "extension.list",
+                    {"kind": "skill", "agentId": "writer"},
+                    base_url="http://10.0.0.8:8765",
+                    access_token="secret",
+                    confirmed=False,
+                    output_json=True,
+                )
+                mocked_bootstrap.assert_not_called()
+
+    def test_extension_install_requires_preview_digest_and_explicit_confirmation(self) -> None:
+        from openppx import cli
+
+        digest = "sha256:" + ("a" * 64)
+        with patch.object(cli, "bootstrap_env_from_config") as mocked_bootstrap:
+            with patch.object(cli, "_cmd_extension_action", return_value=0) as mocked:
+                with self.assertRaises(SystemExit) as ctx:
+                    cli.main([
+                        "extension",
+                        "install",
+                        "skill",
+                        "git",
+                        "https://example.invalid/skills.git",
+                        digest,
+                        "--source-revision",
+                        "abc123",
+                        "--yes",
+                    ])
+                self.assertEqual(ctx.exception.code, 0)
+                mocked.assert_called_once_with(
+                    "extension.install",
+                    {
+                        "kind": "skill",
+                        "source": {
+                            "type": "git",
+                            "locator": "https://example.invalid/skills.git",
+                            "revision": "abc123",
+                        },
+                        "expectedDigest": digest,
+                        "expectedRevision": None,
+                    },
+                    base_url="http://127.0.0.1:8765",
+                    access_token="",
+                    confirmed=True,
+                    output_json=False,
+                )
+                mocked_bootstrap.assert_not_called()
+
     def test_client_api_access_set_owner_dispatch(self) -> None:
         from openppx import cli
 

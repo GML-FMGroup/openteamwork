@@ -234,6 +234,321 @@
       "title": "ErrorEnvelope",
       "type": "object"
     },
+    "ExtensionDetailPayload": {
+      "additionalProperties": false,
+      "description": "One Extension row plus bounded domain-specific fields.",
+      "properties": {
+        "description": {
+          "maxLength": 2048,
+          "minLength": 1,
+          "title": "Description",
+          "type": "string"
+        },
+        "details": {
+          "additionalProperties": true,
+          "title": "Details",
+          "type": "object"
+        },
+        "displayName": {
+          "maxLength": 256,
+          "minLength": 1,
+          "title": "Displayname",
+          "type": "string"
+        },
+        "enabledAgentIds": {
+          "items": {
+            "maxLength": 128,
+            "minLength": 1,
+            "type": "string"
+          },
+          "title": "Enabledagentids",
+          "type": "array"
+        },
+        "id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Id",
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "plugin",
+            "app",
+            "mcp",
+            "skill"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "managedBy": {
+          "anyOf": [
+            {
+              "maxLength": 128,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Managedby"
+        },
+        "readiness": {
+          "$ref": "#/$defs/ExtensionReadiness"
+        },
+        "revision": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Revision",
+          "type": "string"
+        },
+        "risk": {
+          "enum": [
+            "low",
+            "medium",
+            "high"
+          ],
+          "title": "Risk",
+          "type": "string"
+        },
+        "source": {
+          "$ref": "#/$defs/ExtensionSourceSummary"
+        },
+        "status": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Status",
+          "type": "string"
+        },
+        "version": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "id",
+        "displayName",
+        "description",
+        "version",
+        "status",
+        "revision",
+        "source",
+        "risk",
+        "readiness",
+        "details"
+      ],
+      "title": "ExtensionDetailPayload",
+      "type": "object"
+    },
+    "ExtensionListPayload": {
+      "additionalProperties": false,
+      "description": "Unified Extension inventory result.",
+      "properties": {
+        "items": {
+          "items": {
+            "$ref": "#/$defs/ExtensionSummaryItem"
+          },
+          "title": "Items",
+          "type": "array"
+        }
+      },
+      "required": [
+        "items"
+      ],
+      "title": "ExtensionListPayload",
+      "type": "object"
+    },
+    "ExtensionPreviewPayload": {
+      "additionalProperties": false,
+      "description": "Confirmed source digest and client-safe install preview.",
+      "properties": {
+        "kind": {
+          "enum": [
+            "plugin",
+            "skill"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "preview": {
+          "additionalProperties": true,
+          "title": "Preview",
+          "type": "object"
+        }
+      },
+      "required": [
+        "kind",
+        "preview"
+      ],
+      "title": "ExtensionPreviewPayload",
+      "type": "object"
+    },
+    "ExtensionReadiness": {
+      "additionalProperties": false,
+      "description": "Common Extension readiness without backend exception or Secret material.",
+      "properties": {
+        "issues": {
+          "items": {
+            "maxLength": 128,
+            "minLength": 1,
+            "type": "string"
+          },
+          "title": "Issues",
+          "type": "array"
+        },
+        "ready": {
+          "title": "Ready",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "ready"
+      ],
+      "title": "ExtensionReadiness",
+      "type": "object"
+    },
+    "ExtensionSourceSummary": {
+      "additionalProperties": false,
+      "description": "Non-sensitive Extension provenance category and trust posture.",
+      "properties": {
+        "trust": {
+          "enum": [
+            "builtin",
+            "local",
+            "third_party"
+          ],
+          "title": "Trust",
+          "type": "string"
+        },
+        "type": {
+          "enum": [
+            "builtin",
+            "local_directory",
+            "local_archive",
+            "git",
+            "catalog",
+            "direct",
+            "plugin"
+          ],
+          "title": "Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "trust"
+      ],
+      "title": "ExtensionSourceSummary",
+      "type": "object"
+    },
+    "ExtensionSummaryItem": {
+      "additionalProperties": false,
+      "description": "One stable row in the unified four-kind Extension inventory.",
+      "properties": {
+        "description": {
+          "maxLength": 2048,
+          "minLength": 1,
+          "title": "Description",
+          "type": "string"
+        },
+        "displayName": {
+          "maxLength": 256,
+          "minLength": 1,
+          "title": "Displayname",
+          "type": "string"
+        },
+        "enabledAgentIds": {
+          "items": {
+            "maxLength": 128,
+            "minLength": 1,
+            "type": "string"
+          },
+          "title": "Enabledagentids",
+          "type": "array"
+        },
+        "id": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Id",
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "plugin",
+            "app",
+            "mcp",
+            "skill"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "managedBy": {
+          "anyOf": [
+            {
+              "maxLength": 128,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Managedby"
+        },
+        "readiness": {
+          "$ref": "#/$defs/ExtensionReadiness"
+        },
+        "revision": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Revision",
+          "type": "string"
+        },
+        "risk": {
+          "enum": [
+            "low",
+            "medium",
+            "high"
+          ],
+          "title": "Risk",
+          "type": "string"
+        },
+        "source": {
+          "$ref": "#/$defs/ExtensionSourceSummary"
+        },
+        "status": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Status",
+          "type": "string"
+        },
+        "version": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "id",
+        "displayName",
+        "description",
+        "version",
+        "status",
+        "revision",
+        "source",
+        "risk",
+        "readiness"
+      ],
+      "title": "ExtensionSummaryItem",
+      "type": "object"
+    },
     "StableError": {
       "additionalProperties": false,
       "description": "Redacted stable error shared by HTTP and future transports.",
@@ -336,12 +651,24 @@
         }
       ],
       "title": "Envelope"
+    },
+    "extensionDetail": {
+      "$ref": "#/$defs/ExtensionDetailPayload"
+    },
+    "extensionList": {
+      "$ref": "#/$defs/ExtensionListPayload"
+    },
+    "extensionPreview": {
+      "$ref": "#/$defs/ExtensionPreviewPayload"
     }
   },
   "required": [
     "envelope",
     "actionCatalog",
-    "actionInvoke"
+    "actionInvoke",
+    "extensionList",
+    "extensionDetail",
+    "extensionPreview"
   ],
   "title": "ClientContractBundle",
   "type": "object"

@@ -9,6 +9,7 @@ from openppx.config import ConfigService, FilesystemConfigRepository
 from openppx.modeling import ModelProfileRepository, ModelProfileSelector
 
 from .config_actions import register_config_actions
+from .extension_actions import register_extension_actions
 from .model_actions import register_model_actions
 from .runtime_actions import register_runtime_actions
 from .system_actions import register_system_actions
@@ -43,6 +44,29 @@ class ControlPlaneApplication:
         self.registry = registry
         self.executor = ActionExecutor(registry)
         self.runtime_supervisor = None
+        self.extension_registry = None
+
+    def attach_extensions(
+        self,
+        registry,
+        *,
+        skills,
+        mcp,
+        apps,
+        plugins,
+    ) -> None:
+        """Attach the Node-owned Extension graph and register its shared Actions."""
+        if self.extension_registry is not None:
+            raise RuntimeError("An Extension Registry is already attached.")
+        register_extension_actions(
+            self.registry,
+            registry,
+            skills=skills,
+            mcp=mcp,
+            apps=apps,
+            plugins=plugins,
+        )
+        self.extension_registry = registry
 
     def attach_runtime(self, supervisor) -> None:
         """Attach the one Node Runtime Supervisor and register its Actions."""
