@@ -1,0 +1,265 @@
+"""Strict Pydantic models for OpenPPX Node and Agent resources."""
+
+from __future__ import annotations
+
+import ipaddress
+import re
+from typing import Annotated, Literal, TypeAlias
+
+from pydantic import (
+    AfterValidator,
+    BaseModel,
+    ConfigDict,
+    Field,
+    StrictBool,
+    StrictInt,
+    StringConstraints,
+    field_validator,
+    model_validator,
+)
+from pydantic.alias_generators import to_camel
+
+
+ResourceName: TypeAlias = Annotated[
+    str,
+    StringConstraints(
+        min_length=1,
+        max_length=63,
+        pattern=r"^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$",
+    ),
+]
+
+
+def _visible_text(value: str) -> str:
+    """Require meaningful display/path text without control characters."""
+    if not value.strip() or any(ord(character) < 32 or ord(character) == 127 for character in value):
+        raise ValueError("value must contain visible characters")
+    return value
+
+
+DisplayName: TypeAlias = Annotated[
+    str,
+    StringConstraints(min_length=1, max_length=80),
+    AfterValidator(_visible_text),
+]
+
+
+class StrictConfigModel(BaseModel):
+    """Base model for strict, camel-cased persisted resources."""
+
+    model_config = ConfigDict(
+        alias_generator=to_camel,
+        extra="forbid",
+        loc_by_alias=True,
+        populate_by_name=True,
+        strict=True,
+    )
+
+
+class ResourceMetadata(StrictConfigModel):
+    """Identity and bounded open metadata shared by all resources."""
+
+    name: ResourceName
+    labels: dict[
+        Annotated[str, StringConstraints(min_length=1, max_length=63)],
+        Annotated[str, StringConstraints(max_length=128)],
+    ] = Field(default_factory=dict)
+    annotations: dict[
+        Annotated[str, StringConstraints(min_length=1, max_length=128)],
+        Annotated[str, StringConstraints(max_length=2048)],
+    ] = Field(default_factory=dict)
+
+    @field_validator("annotations")
+    @classmethod
+    def annotations_must_be_bounded(cls, value: dict[str, str]) -> dict[str, str]:
+        """Prevent the open annotation namespace from becoming unbounded storage."""
+        if sum(len(key.encode("utf-8")) + len(item.encode("utf-8")) for key, item in value.items()) > 8192:
+            raise ValueError("annotations exceed the allowed total size")
+        return value
+
+
+class NodeClientApiSpec(StrictConfigModel):
+    """Client API listener settings for one Node."""
+
+    listen_host: Annotated[str, StringConstraints(min_length=1, max_length=253)] = "127.0.0.1"
+    port: StrictInt = Field(default=18765, ge=1, le=65535)
+    authentication: Literal["required", "disabled"] = "required"
+
+    @field_validator("listen_host")
+    @classmethod
+    def listen_host_must_be_ip_or_hostname(cls, value: str) -> str:
+        """Reject malformed listener identities before any socket is opened."""
+        try:
+            ipaddress.ip_address(value)
+            return value
+        except ValueError:
+            hostname = value[:-1] if value.endswith(".") else value
+            labels = hostname.split(".")
+            if not hostname or any(
+                len(label) > 63 or re.fullmatch(r"[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?", label) is None
+                for label in labels
+            ):
+                raise ValueError("listenHost must be a valid IP address or hostname") from None
+        return value
+
+    @model_validator(mode="after")
+    def require_authentication_outside_loopback(self) -> "NodeClientApiSpec":
+        """Disallow unauthenticated listeners outside the local loopback boundary."""
+        host = self.listen_host.lower().removesuffix(".")
+        is_loopback = host == "localhost"
+        if not is_loopback:
+            try:
+                is_loopback = ipaddress.ip_address(host).is_loopback
+            except ValueError:
+                is_loopback = False
+        if not is_loopback and self.authentication != "required":
+            raise ValueError("authentication is required for non-loopback listeners")
+        return self
+
+
+class NodeSpec(StrictConfigModel):
+    """Settings owned by a single OpenPPX Node."""
+
+    display_name: DisplayName
+    enabled_agents: list[ResourceName] = Field(default_factory=list)
+    client_api: NodeClientApiSpec = Field(default_factory=NodeClientApiSpec)
+
+    @field_validator("enabled_agents")
+    @classmethod
+    def enabled_agents_must_be_unique(cls, value: list[str]) -> list[str]:
+        """Keep Agent membership deterministic and unambiguous."""
+        if len(value) != len(set(value)):
+            raise ValueError("enabledAgents entries must be unique")
+        return value
+
+
+class NodeConfig(StrictConfigModel):
+    """Versioned configuration resource for one OpenPPX Node."""
+
+    api_version: Literal["openppx.io/v1alpha1"]
+    kind: Literal["NodeConfig"]
+    metadata: ResourceMetadata
+    spec: NodeSpec
+
+
+WorkspaceScope: TypeAlias = Literal["single_workspace"]
+FilesystemAccess: TypeAlias = Literal["read_only", "read_write"]
+ShellAccess: TypeAlias = Literal["denied", "restricted", "full"]
+NetworkAccess: TypeAlias = Literal["denied", "restricted", "full"]
+ToolAccess: TypeAlias = Literal["safe", "task_scoped", "broad"]
+SecretAccess: TypeAlias = Literal["none", "limited"]
+HighRiskActionAccess: TypeAlias = Literal["denied", "conditional"]
+PrivilegeLevel: TypeAlias = Literal["low", "medium", "high", "root"]
+
+
+class PermissionOverrides(StrictConfigModel):
+    """Typed partial permission profile that may only narrow a base profile."""
+
+    workspace_scope: WorkspaceScope | None = None
+    filesystem_access: FilesystemAccess | None = None
+    shell_exec: ShellAccess | None = None
+    network_access: NetworkAccess | None = None
+    tool_access: ToolAccess | None = None
+    secret_access: SecretAccess | None = None
+    can_delegate: StrictBool | None = None
+    can_approve_privilege_escalation: StrictBool | None = None
+    high_risk_action_access: HighRiskActionAccess | None = None
+
+
+_PERMISSION_PROFILES: dict[str, dict[str, str | bool]] = {
+    "low": {
+        "workspace_scope": "single_workspace",
+        "filesystem_access": "read_only",
+        "shell_exec": "denied",
+        "network_access": "denied",
+        "tool_access": "safe",
+        "secret_access": "none",
+        "can_delegate": False,
+        "can_approve_privilege_escalation": False,
+        "high_risk_action_access": "denied",
+    },
+    "medium": {
+        "workspace_scope": "single_workspace",
+        "filesystem_access": "read_write",
+        "shell_exec": "restricted",
+        "network_access": "restricted",
+        "tool_access": "task_scoped",
+        "secret_access": "limited",
+        "can_delegate": True,
+        "can_approve_privilege_escalation": False,
+        "high_risk_action_access": "denied",
+    },
+    "high": {
+        "workspace_scope": "multi_workspace",
+        "filesystem_access": "read_write",
+        "shell_exec": "full",
+        "network_access": "full",
+        "tool_access": "broad",
+        "secret_access": "limited",
+        "can_delegate": True,
+        "can_approve_privilege_escalation": True,
+        "high_risk_action_access": "conditional",
+    },
+    "root": {
+        "workspace_scope": "multi_workspace",
+        "filesystem_access": "read_write",
+        "shell_exec": "full",
+        "network_access": "full",
+        "tool_access": "broad",
+        "secret_access": "limited",
+        "can_delegate": True,
+        "can_approve_privilege_escalation": True,
+        "high_risk_action_access": "conditional",
+    },
+}
+
+_PERMISSION_ORDER: dict[str, tuple[str, ...]] = {
+    "workspace_scope": ("single_workspace", "multi_workspace"),
+    "filesystem_access": ("read_only", "read_write"),
+    "shell_exec": ("denied", "restricted", "full"),
+    "network_access": ("denied", "restricted", "full"),
+    "tool_access": ("safe", "task_scoped", "broad"),
+    "secret_access": ("none", "limited"),
+    "high_risk_action_access": ("denied", "conditional"),
+}
+
+
+class AgentSpec(StrictConfigModel):
+    """Settings owned by one OpenPPX Agent."""
+
+    display_name: DisplayName
+    workspace: Annotated[str, StringConstraints(min_length=1, max_length=1024)]
+    owner_principal_id: Annotated[str, StringConstraints(min_length=1, max_length=128)]
+    privilege_level: PrivilegeLevel = "low"
+    permission_overrides: PermissionOverrides = Field(default_factory=PermissionOverrides)
+
+    @field_validator("workspace", "owner_principal_id")
+    @classmethod
+    def identity_text_must_be_meaningful(cls, value: str) -> str:
+        """Reject blank or control-bearing identity and workspace fields."""
+        return _visible_text(value)
+
+    @model_validator(mode="after")
+    def permission_overrides_must_only_narrow(self) -> "AgentSpec":
+        """Reject overrides that grant more authority than the selected profile."""
+        base = _PERMISSION_PROFILES[self.privilege_level]
+        provided = self.permission_overrides.model_dump(exclude_none=True)
+        for field_name, requested in provided.items():
+            allowed = base[field_name]
+            if isinstance(requested, bool):
+                if requested and not allowed:
+                    raise ValueError("permissionOverrides may only narrow the selected privilege profile")
+                continue
+            order = _PERMISSION_ORDER[field_name]
+            if order.index(requested) > order.index(str(allowed)):
+                raise ValueError("permissionOverrides may only narrow the selected privilege profile")
+        return self
+
+
+class AgentConfig(StrictConfigModel):
+    """Versioned configuration resource for one OpenPPX Agent."""
+
+    api_version: Literal["openppx.io/v1alpha1"]
+    kind: Literal["AgentConfig"]
+    metadata: ResourceMetadata
+    spec: AgentSpec

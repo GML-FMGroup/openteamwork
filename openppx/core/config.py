@@ -10,6 +10,8 @@ from typing import Any
 
 from loguru import logger
 
+from openppx.config import ConfigIssue, ConfigLoadError, read_json_object
+
 from .env_utils import is_enabled
 from .provider import (
     DEFAULT_PROVIDER,
@@ -637,42 +639,45 @@ def normalize_runtime_config(raw: dict[str, Any] | None) -> dict[str, Any]:
     return cfg
 
 
+def _legacy_schema_error(path: Path, source: str, error: ValueError) -> ConfigLoadError:
+    """Convert a legacy normalizer failure to a redacted structured error."""
+    detail = str(error)
+    if "agent.role has been removed" in detail:
+        issue_path = ("agent", "role")
+        summary = "Invalid config: agent.role has been removed"
+    elif "unsupported agent privilege level" in detail:
+        issue_path = ("agent", "privilegeLevel")
+        summary = "Invalid config: unsupported agent privilege level"
+    else:
+        issue_path = ()
+        summary = "Configuration does not match the legacy schema"
+    issue = ConfigIssue(
+        "invalid_value",
+        issue_path,
+        "Setting has an invalid value.",
+        source,
+    )
+    return ConfigLoadError(path, "invalid_schema", summary, (issue,))
+
+
 def load_config(config_path: Path | None = None) -> dict[str, Any]:
-    """Load config from disk. Missing/invalid config falls back to defaults."""
+    """Load legacy config, defaulting only when the file is absent."""
     path = config_path or get_config_path()
     if not path.exists():
         return default_config()
-
-    try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-    except Exception as exc:
-        logger.debug("Warning: failed to load config at {}: {}", path, exc)
-        return default_config()
-
-    if not isinstance(data, dict):
-        logger.debug("Warning: invalid config root at {}; expected JSON object", path)
-        return default_config()
+    data = read_json_object(path, source="legacy-config")
     try:
         return normalize_config(data)
     except ValueError as exc:
-        raise ValueError(f"invalid config at {path}: {exc}") from exc
+        raise _legacy_schema_error(path, "legacy-config", exc) from exc
 
 
 def load_runtime_config(runtime_config_path: Path | None = None) -> dict[str, Any]:
-    """Load runtime config from disk. Missing/invalid config falls back to defaults."""
+    """Load legacy runtime config, defaulting only when the file is absent."""
     path = runtime_config_path or get_runtime_config_path()
     if not path.exists():
         return default_runtime_config()
-
-    try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-    except Exception as exc:
-        logger.debug("Warning: failed to load runtime config at {}: {}", path, exc)
-        return default_runtime_config()
-
-    if not isinstance(data, dict):
-        logger.debug("Warning: invalid runtime config root at {}; expected JSON object", path)
-        return default_runtime_config()
+    data = read_json_object(path, source="legacy-runtime-config")
     return normalize_runtime_config(data)
 
 
@@ -1181,25 +1186,21 @@ def apply_config_to_env(
 
 
 def bootstrap_env_from_config(config_path: Path | None = None) -> dict[str, Any] | None:
-    """Load config file (if present) and apply values to process env."""
+    """Validate a legacy config completely, then apply it to process env."""
     path = config_path or get_config_path()
     if not path.exists():
         return None
 
     # Empty JSON object means "no config overrides" and should fall back to the
     # current shell environment.
-    try:
-        raw = json.loads(path.read_text(encoding="utf-8"))
-    except Exception:
-        return None
-    if not isinstance(raw, dict) or not raw:
+    raw = read_json_object(path, source="legacy-config")
+    if not raw:
         return None
 
-    _activate_config_context(path)
     try:
         cfg = normalize_config(raw)
     except ValueError as exc:
-        raise ValueError(f"invalid config at {path}: {exc}") from exc
+        raise _legacy_schema_error(path, "legacy-config", exc) from exc
     runtime_path = _runtime_config_path_for_config_path(path)
     runtime_overrides = _env_overrides(load_runtime_config(runtime_config_path=runtime_path))
     legacy_overrides = _env_overrides_from_mapping(raw.get("env"))
@@ -1209,6 +1210,7 @@ def bootstrap_env_from_config(config_path: Path | None = None) -> dict[str, Any]
         merged_runtime_overrides,
         config_path=path,
     )
+    _activate_config_context(path)
     # Config file is the source of truth for runtime bootstrap.
     apply_config_to_env(
         cfg,
