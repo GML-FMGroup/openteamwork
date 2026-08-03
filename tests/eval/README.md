@@ -17,8 +17,6 @@ adk eval tests/eval/openppx tests/eval/evalsets/openppx_tools.evalset.json --con
 adk eval tests/eval/openppx tests/eval/evalsets/openppx_memory.evalset.json --config_file_path tests/eval/eval_config.json
 adk eval tests/eval/openppx tests/eval/evalsets/openppx_subagent.evalset.json --config_file_path tests/eval/eval_config.json
 adk eval tests/eval/openppx tests/eval/evalsets/openppx_permissions.evalset.json --config_file_path tests/eval/eval_config.json
-OPENPPX_MCP_SERVERS_JSON='{"eval":{"command":"./.venv/bin/python","args":["tests/eval/mock_mcp_server.py"],"toolNamePrefix":"mcp_eval"}}' \
-  adk eval tests/eval/openppx tests/eval/evalsets/openppx_mcp.evalset.json --config_file_path tests/eval/eval_config_tools.json
 OPENPPX_TASK_DB_PATH="$(pwd)/.tmp/openppx-continue-eval-tasks.db" ./.venv/bin/python tests/eval/seed_continue_task.py
 OPENPPX_TASK_DB_PATH="$(pwd)/.tmp/openppx-continue-eval-tasks.db" \
   adk eval tests/eval/openppx tests/eval/evalsets/openppx_continue.evalset.json --config_file_path tests/eval/eval_config_tools.json
@@ -34,6 +32,10 @@ pip install ".[eval]"
 This command calls the configured model and therefore requires normal model
 credentials. Deterministic pytest coverage only validates the entrypoint,
 schema, and app-name wiring; it does not run live LLM inference.
+
+Direct MCP resource assembly and the real local STDIO fixture are covered
+offline by `tests/runtime/test_mcp_resource_runtime.py`; MCP definitions are no
+longer injected into an eval process through environment JSON.
 
 `openppx_smoke` is the smallest no-tool entrypoint check. `openppx_quality`
 covers low-side-effect response, session-context, and refusal behavior.

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
@@ -10,13 +12,15 @@ from google.genai import types
 
 from openppx.app.agent import build_root_agent
 from openppx.config import ConfigSnapshot, SecretStore
-from openppx.extensions import SkillManager, SkillSnapshot
+from openppx.extensions import McpManager, McpSnapshot, SkillManager, SkillSnapshot
 from openppx.modeling import ModelResolution
+from openppx.core.mcp_registry import ManagedMcpToolset, summarize_mcp_toolsets
 
 from .adk_utils import run_text_async
 from .artifact_service import ArtifactConfig, create_artifact_service
 from .context_engine import LongTaskContextStore
 from .memory_service import MemoryConfig, create_memory_service
+from .mcp_adapter import McpRuntimeAdapter
 from .model_adapter_factory import ModelAdapterFactory
 from .runner_factory import create_runner
 from .session_service import SessionConfig, create_session_service
@@ -35,6 +39,7 @@ class RuntimeMetadata:
     workspace: str
     snapshot_revision: str
     extension_revision: str
+    mcp_diagnostics: tuple[tuple[str, str], ...]
     origin_revisions: tuple[tuple[str, str], ...]
 
 
@@ -82,6 +87,34 @@ class RuntimeServices:
 
 
 @dataclass(frozen=True, slots=True)
+class RuntimeExtensionSnapshot:
+    """Immutable Skill and direct MCP resources used by one Runtime."""
+
+    revision: str
+    skills: SkillSnapshot
+    mcp: McpSnapshot
+
+    @classmethod
+    def create(cls, skills: SkillSnapshot, mcp: McpSnapshot) -> "RuntimeExtensionSnapshot":
+        """Combine child revisions into one deterministic cache identity."""
+        canonical = json.dumps(
+            {"skills": skills.revision, "mcp": mcp.revision},
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+        return cls(
+            revision=f"sha256:{hashlib.sha256(canonical).hexdigest()}",
+            skills=skills,
+            mcp=mcp,
+        )
+
+    @classmethod
+    def empty(cls) -> "RuntimeExtensionSnapshot":
+        """Return a stable empty extension snapshot."""
+        return cls.create(SkillSnapshot.empty(), McpSnapshot.empty())
+
+
+@dataclass(frozen=True, slots=True)
 class AssembledRuntime:
     """Runnable ADK objects pinned to one immutable product snapshot."""
 
@@ -90,6 +123,12 @@ class AssembledRuntime:
     agent: Any
     runner: Any
     session_service: Any
+    extension_toolsets: tuple[ManagedMcpToolset, ...] = ()
+
+    async def close(self) -> None:
+        """Release every connection-bearing extension toolset."""
+        for toolset in self.extension_toolsets:
+            await toolset.close()
 
     async def run_text(
         self,
@@ -130,6 +169,8 @@ class RuntimeAssembler:
         agent_factory: AgentFactory = build_root_agent,
         runner_factory: RunnerFactory = create_runner,
         skill_manager: SkillManager | None = None,
+        mcp_manager: McpManager | None = None,
+        mcp_adapter: McpRuntimeAdapter | None = None,
     ) -> None:
         self.node_root = node_root.expanduser().resolve(strict=False)
         self.secret_store = secret_store
@@ -139,6 +180,8 @@ class RuntimeAssembler:
         self._agent_factory = agent_factory
         self._runner_factory = runner_factory
         self._skill_manager = skill_manager
+        self._mcp_manager = mcp_manager
+        self._mcp_adapter = mcp_adapter or McpRuntimeAdapter(secret_store)
 
     def skill_snapshot_for_agent(self, agent_id: str) -> SkillSnapshot:
         """Capture the immutable Skill set used to key and assemble a Runtime."""
@@ -146,24 +189,33 @@ class RuntimeAssembler:
             return SkillSnapshot.empty()
         return self._skill_manager.snapshot_for_agent(agent_id)
 
+    def extension_snapshot_for_agent(self, agent_id: str) -> RuntimeExtensionSnapshot:
+        """Capture all extension resources that key a newly assembled Runtime."""
+        skills = self.skill_snapshot_for_agent(agent_id)
+        mcp = McpSnapshot.empty() if self._mcp_manager is None else self._mcp_manager.snapshot_for_agent(agent_id)
+        return RuntimeExtensionSnapshot.create(skills, mcp)
+
     def assemble(
         self,
         snapshot: ConfigSnapshot,
         *,
         extension_tools: tuple[Any, ...] = (),
-        skill_snapshot: SkillSnapshot | None = None,
+        extension_snapshot: RuntimeExtensionSnapshot | None = None,
     ) -> AssembledRuntime:
         """Build a snapshot-native Agent and Runner with explicit dependencies."""
-        resolved_skill_snapshot = skill_snapshot or self.skill_snapshot_for_agent(
+        resolved_extensions = extension_snapshot or self.extension_snapshot_for_agent(
             snapshot.agent.metadata.name
         )
+        mcp_build = self._mcp_adapter.build(resolved_extensions.mcp)
+        resolved_extension_tools = (*mcp_build.toolsets, *extension_tools)
         model = self._model_factory(snapshot.model)
         agent = self._agent_factory(
             snapshot,
             model=model,
-            extension_tools=extension_tools,
+            extension_tools=resolved_extension_tools,
             include_gui_tools=False,
-            skill_snapshot=resolved_skill_snapshot,
+            skill_snapshot=resolved_extensions.skills,
+            mcp_summaries=summarize_mcp_toolsets(list(mcp_build.toolsets)),
         )
         runner, session_service = self._runner_factory(
             agent=agent,
@@ -183,7 +235,10 @@ class RuntimeAssembler:
             model=snapshot.model.model,
             workspace=snapshot.agent.spec.workspace,
             snapshot_revision=snapshot.revision,
-            extension_revision=resolved_skill_snapshot.revision,
+            extension_revision=resolved_extensions.revision,
+            mcp_diagnostics=tuple(
+                (diagnostic.server_id, diagnostic.code) for diagnostic in mcp_build.diagnostics
+            ),
             origin_revisions=tuple(
                 (origin.resource_id, origin.revision) for origin in snapshot.origins
             ),
@@ -194,6 +249,7 @@ class RuntimeAssembler:
             agent=agent,
             runner=runner,
             session_service=session_service,
+            extension_toolsets=mcp_build.toolsets,
         )
 
 
@@ -201,5 +257,6 @@ __all__ = [
     "AssembledRuntime",
     "RuntimeAssembler",
     "RuntimeMetadata",
+    "RuntimeExtensionSnapshot",
     "RuntimeServices",
 ]

@@ -25,8 +25,7 @@ class AgentMcpTests(unittest.TestCase):
         from openppx import agent
 
         sentinel_toolset = object()
-        with patch("openppx.app.agent.build_mcp_toolsets_from_env", return_value=[sentinel_toolset]):
-            tools = agent._build_tools()
+        tools = agent._build_tools(extension_tools=(sentinel_toolset,))
 
         self.assertIn(sentinel_toolset, tools)
 
@@ -34,8 +33,7 @@ class AgentMcpTests(unittest.TestCase):
         from openppx import agent
         from openppx.tooling.registry import computer_task, computer_use, glob, grep, start_gui_task
 
-        with patch("openppx.app.agent.build_mcp_toolsets_from_env", return_value=[]):
-            tools = agent._build_tools()
+        tools = agent._build_tools()
         self.assertIn(start_gui_task, tools)
         self.assertIn(computer_task, tools)
         self.assertIn(computer_use, tools)
@@ -47,27 +45,10 @@ class AgentMcpTests(unittest.TestCase):
         from openppx.tooling.registry import computer_task, computer_use, start_gui_task
 
         with patch.dict(os.environ, {"OPENPPX_GUI_BUILTIN_TOOLS_ENABLED": "0"}, clear=False):
-            with patch("openppx.app.agent.build_mcp_toolsets_from_env", return_value=[]):
-                tools = agent._build_tools()
+            tools = agent._build_tools()
         self.assertNotIn(start_gui_task, tools)
         self.assertNotIn(computer_task, tools)
         self.assertNotIn(computer_use, tools)
-
-    def test_build_instruction_uses_resolved_gui_mcp_tool_names(self) -> None:
-        from openppx import agent
-
-        with patch.dict(
-            os.environ,
-            {
-                "OPENPPX_MCP_SERVERS_JSON": (
-                    '{"gui_remote":{"enabled":true,"command":"openppx-gui-mcp","toolNamePrefix":"desktop_"}}'
-                )
-            },
-            clear=False,
-        ):
-            text = agent._build_instruction()
-        self.assertIn("desktop_gui_task", text)
-        self.assertIn("desktop_gui_action", text)
 
     def test_build_tools_limits_low_to_read_only_tools(self) -> None:
         from openppx import agent
@@ -86,8 +67,7 @@ class AgentMcpTests(unittest.TestCase):
             {"OPENPPX_AGENT_PRIVILEGE_LEVEL": "low", "OPENPPX_CAN_DELEGATE": "0"},
             clear=False,
         ):
-            with patch("openppx.app.agent.build_mcp_toolsets_from_env", return_value=[]):
-                tools = agent._build_tools()
+            tools = agent._build_tools()
 
         self.assertIn(read_file, tools)
         self.assertIn(list_dir, tools)
@@ -106,8 +86,7 @@ class AgentMcpTests(unittest.TestCase):
             {"OPENPPX_AGENT_PRIVILEGE_LEVEL": "medium", "OPENPPX_CAN_DELEGATE": "1"},
             clear=False,
         ):
-            with patch("openppx.app.agent.build_mcp_toolsets_from_env", return_value=[]):
-                tools = agent._build_tools()
+            tools = agent._build_tools()
 
         names = _tool_names(tools)
         self.assertIn("exec", names)
@@ -135,8 +114,7 @@ class AgentMcpTests(unittest.TestCase):
             {"OPENPPX_AGENT_PRIVILEGE_LEVEL": "high", "OPENPPX_CAN_DELEGATE": "1"},
             clear=False,
         ):
-            with patch("openppx.app.agent.build_mcp_toolsets_from_env", return_value=[]):
-                tools = agent._build_tools()
+            tools = agent._build_tools()
 
         names = _tool_names(tools)
         self.assertIn("exec", names)

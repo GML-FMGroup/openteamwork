@@ -105,15 +105,18 @@ class NodeRuntimeSupervisor:
             role=role,
             run_override=run_override,
         )
-        skill_snapshot = self.assembler.skill_snapshot_for_agent(agent_id)
-        key = (agent_id, snapshot.revision, skill_snapshot.revision)
+        extension_snapshot = self.assembler.extension_snapshot_for_agent(agent_id)
+        key = (agent_id, snapshot.revision, extension_snapshot.revision)
         with self._lock:
             current = self._runtimes.get(key)
             if current is not None:
                 return current
-        assembled = self.assembler.assemble(snapshot, skill_snapshot=skill_snapshot)
+        assembled = self.assembler.assemble(snapshot, extension_snapshot=extension_snapshot)
         with self._lock:
-            return self._runtimes.setdefault(key, assembled)
+            retained = self._runtimes.setdefault(key, assembled)
+        if retained is not assembled:
+            _run_sync(assembled.close())
+        return retained
 
     async def create_session(
         self,
@@ -320,7 +323,7 @@ class NodeRuntimeSupervisor:
             }
 
     def close(self) -> None:
-        """Idempotently reject new work and cancel every active Run."""
+        """Idempotently reject work, cancel Runs, and close extension sessions."""
         with self._lock:
             if self._stopped:
                 return
@@ -332,8 +335,12 @@ class NodeRuntimeSupervisor:
             ]
             for managed in active:
                 managed.snapshot = _replace_run_state(managed.snapshot, "cancelling")
+            runtimes = tuple(self._runtimes.values())
+            self._runtimes.clear()
         for managed in active:
             managed.cancel()
+        for runtime in runtimes:
+            _run_sync(runtime.close())
 
     def _ensure_running(self) -> None:
         with self._lock:

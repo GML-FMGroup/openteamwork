@@ -1000,7 +1000,7 @@ class ConfigTests(unittest.TestCase):
         self.assertNotIn("OPENAI_API_KEY", os.environ)
         self.assertNotIn("BRAVE_API_KEY", os.environ)
 
-    def test_mcp_servers_are_exported_to_env_as_json(self) -> None:
+    def test_mcp_servers_are_not_projected_into_process_environment(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "config.json"
             cfg = default_config()
@@ -1016,12 +1016,7 @@ class ConfigTests(unittest.TestCase):
             os.environ.pop("OPENPPX_MCP_SERVERS_JSON", None)
             bootstrap_env_from_config(path)
 
-        raw = os.environ.get("OPENPPX_MCP_SERVERS_JSON")
-        self.assertIsNotNone(raw)
-        parsed = json.loads(raw or "{}")
-        self.assertIn("filesystem", parsed)
-        self.assertFalse(parsed["filesystem"]["enabled"])
-        self.assertEqual(parsed["filesystem"]["command"], "npx")
+        self.assertNotIn("OPENPPX_MCP_SERVERS_JSON", os.environ)
 
 
 if __name__ == "__main__":

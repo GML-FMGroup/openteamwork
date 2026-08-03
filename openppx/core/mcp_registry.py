@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-import os
 import time
 from dataclasses import dataclass
 from typing import Any
@@ -30,7 +29,6 @@ from ..runtime.mcp_job_protocol import register_mcp_job_tools
 from ..runtime.step_events import publish_runtime_step_event
 from .env_utils import is_enabled
 
-_MCP_SERVERS_ENV = "OPENPPX_MCP_SERVERS_JSON"
 _TRANSIENT_ERROR_HINTS = (
     "timeout",
     "timed out",
@@ -70,8 +68,11 @@ class SafeMcpToolset(McpToolset):
         except Exception as exc:
             mark_unavailable = getattr(self, "mark_unavailable", None)
             if callable(mark_unavailable):
-                mark_unavailable(str(exc))
-            logger.warning("MCP toolset unavailable; continuing without MCP tools: {}", exc)
+                mark_unavailable("MCP server connection failed.")
+            logger.warning(
+                "MCP toolset unavailable; continuing without MCP tools (error_type={})",
+                type(exc).__name__,
+            )
             return []
 
 
@@ -161,22 +162,6 @@ class ManagedMcpToolset(SafeMcpToolset):
         """Mark the MCP toolset as unavailable with a concise reason."""
         self.availability_status = "unavailable"
         self.availability_message = reason.strip()
-
-
-def _load_servers_from_env() -> dict[str, Any]:
-    """Read and parse MCP servers map from environment."""
-    raw = os.getenv(_MCP_SERVERS_ENV, "").strip()
-    if not raw:
-        return {}
-    try:
-        parsed = json.loads(raw)
-    except Exception as exc:
-        logger.warning("Invalid {} JSON, skipping MCP servers: {}", _MCP_SERVERS_ENV, exc)
-        return {}
-    if not isinstance(parsed, dict):
-        logger.warning("{} must be a JSON object; got {}", _MCP_SERVERS_ENV, type(parsed).__name__)
-        return {}
-    return parsed
 
 
 def _string_list(value: Any) -> list[str]:
@@ -461,12 +446,19 @@ async def _probe_one_toolset(
     error = ""
     error_kind = ""
     tool_count = 0
+    tool_names: list[str] = []
     attempts_used = 0
     for attempt in range(1, attempts_limit + 1):
         attempts_used = attempt
         try:
             tools = await asyncio.wait_for(McpToolset.get_tools(toolset), timeout=timeout)
             tool_count = len(tools)
+            prefix = meta["prefix"].strip()
+            tool_names = sorted(
+                f"{prefix}_{name}" if prefix else name
+                for tool in tools
+                if (name := str(getattr(tool, "name", "") or "").strip())
+            )
             status = "ok"
             error = ""
             error_kind = ""
@@ -477,8 +469,8 @@ async def _probe_one_toolset(
             error_kind = "transient"
         except Exception as exc:
             status = "error"
-            error = str(exc)
             error_kind = _classify_probe_error(exc)
+            error = "MCP server connection failed."
         if error_kind == "transient" and attempt < attempts_limit:
             delay = backoff_base * (2 ** (attempt - 1))
             if delay > 0:
@@ -499,6 +491,7 @@ async def _probe_one_toolset(
         "status": status,
         "error_kind": error_kind,
         "tool_count": tool_count,
+        "tool_names": tool_names,
         "elapsed_ms": elapsed_ms,
         "attempts": attempts_used,
         "error": error,
@@ -540,6 +533,7 @@ def _build_connection_params(server_name: str, raw_cfg: dict[str, Any]) -> tuple
     url = str(raw_cfg.get("url", "") or "").strip()
     args = _string_list(raw_cfg.get("args", []))
     env = _string_dict(raw_cfg.get("env", {}))
+    cwd = str(raw_cfg.get("cwd", "") or "").strip() or None
     headers = _string_dict(raw_cfg.get("headers", {})) or None
     transport = str(raw_cfg.get("transport", "") or "").strip().lower()
 
@@ -550,6 +544,7 @@ def _build_connection_params(server_name: str, raw_cfg: dict[str, Any]) -> tuple
                     command=command,
                     args=args,
                     env=env or None,
+                    cwd=cwd,
                 ),
             ),
             "stdio",
@@ -644,8 +639,3 @@ def build_mcp_toolsets(mcp_servers: dict[str, Any], *, log_registered: bool = Tr
             logger.info("MCP server '{}' registered (prefix='{}')", server_name, options.prefix)
 
     return toolsets
-
-
-def build_mcp_toolsets_from_env(*, log_registered: bool = True) -> list[ManagedMcpToolset]:
-    """Build MCP toolsets from `OPENPPX_MCP_SERVERS_JSON`."""
-    return build_mcp_toolsets(_load_servers_from_env(), log_registered=log_registered)

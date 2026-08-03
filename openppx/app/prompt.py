@@ -7,7 +7,7 @@ import platform
 from dataclasses import dataclass
 
 from ..core.env_utils import env_enabled
-from ..core.gui_mcp import resolve_gui_mcp_from_env
+from ..core.gui_mcp import resolve_gui_mcp_from_summaries
 from ..tooling.skills_adapter import get_registry
 
 GUI_BUILTIN_TOOLS_ENABLED_ENV = "OPENPPX_GUI_BUILTIN_TOOLS_ENABLED"
@@ -83,9 +83,13 @@ Rules:
 """
 
 
-def _build_gui_tool_guidance(*, builtin_tools_enabled: bool | None = None) -> str:
+def _build_gui_tool_guidance(
+    *,
+    builtin_tools_enabled: bool | None = None,
+    mcp_summaries: list[dict[str, str]] | None = None,
+) -> str:
     """Build startup-time GUI tool routing guidance from an explicit policy."""
-    gui_mcp_routing = resolve_gui_mcp_from_env()
+    gui_mcp_routing = resolve_gui_mcp_from_summaries(mcp_summaries or [])
     mcp_task_tool = gui_mcp_routing.task_tool_name if gui_mcp_routing else "mcp_*_gui_task"
     mcp_action_tool = gui_mcp_routing.action_tool_name if gui_mcp_routing else "mcp_*_gui_action"
 
@@ -111,6 +115,7 @@ def build_startup_runtime_context(
     workspace: str | None = None,
     skills_summary: str | None = None,
     gui_tools_enabled: bool | None = None,
+    mcp_summaries: list[dict[str, str]] | None = None,
 ) -> str:
     """Build startup context, preferring immutable runtime inputs when supplied."""
     runtime = f"{platform.system()} {platform.machine()} / Python"
@@ -128,7 +133,7 @@ Workspace: {resolved_workspace}
 
 # Tool Routing
 
-{_build_gui_tool_guidance(builtin_tools_enabled=gui_tools_enabled)}
+{_build_gui_tool_guidance(builtin_tools_enabled=gui_tools_enabled, mcp_summaries=mcp_summaries)}
 
 Available skills:
 

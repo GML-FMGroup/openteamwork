@@ -10,7 +10,7 @@ from typing import Any, Callable
 
 from openppx.config import SecretStore, SystemCredentialSecretStore
 from openppx.control_plane import ControlPlaneApplication, build_control_plane
-from openppx.extensions import SkillManager
+from openppx.extensions import McpManager, SkillManager
 
 from .assembly import RuntimeAssembler
 from .client_api_auth import resolve_client_api_access_token, validate_client_api_bind
@@ -125,6 +125,7 @@ class OpenPpxNodeHost:
             node_root=root,
             secret_store=secrets,
             skill_manager=SkillManager(root, builtin_skills=_builtin_skill_roots()),
+            mcp_manager=McpManager(root, secrets),
         )
         runtime_supervisor = NodeRuntimeSupervisor(
             config_service=control_plane.config_service,

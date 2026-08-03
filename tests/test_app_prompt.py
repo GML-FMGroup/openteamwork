@@ -38,24 +38,19 @@ class PromptLayeringTests(unittest.TestCase):
         registry = Mock()
         registry.build_summary.return_value = "- skill_a: test skill"
         with patch("openppx.app.prompt.get_registry", return_value=registry):
-            with patch.dict(
-                os.environ,
-                {
-                    "OPENPPX_WORKSPACE": "openppx-test-workspace",
-                    "OPENPPX_MCP_SERVERS_JSON": (
-                        '{"gui_remote":{"enabled":true,"command":"openppx-gui-mcp","toolNamePrefix":"desktop_"}}'
-                    ),
-                },
-                clear=False,
-            ):
-                text = build_startup_runtime_context()
+            with patch.dict(os.environ, {"OPENPPX_WORKSPACE": "openppx-test-workspace"}, clear=False):
+                text = build_startup_runtime_context(
+                    mcp_summaries=[
+                        {"name": "gui_remote", "prefix": "mcp_gui_desktop", "transport": "stdio"}
+                    ]
+                )
 
         self.assertIn("Runtime:", text)
         self.assertIn("Workspace: openppx-test-workspace", text)
         self.assertIn("not a user task", text)
         self.assertIn("do not acknowledge", text)
-        self.assertIn("desktop_gui_task", text)
-        self.assertIn("desktop_gui_action", text)
+        self.assertIn("mcp_gui_desktop_gui_task", text)
+        self.assertIn("mcp_gui_desktop_gui_action", text)
         self.assertIn("Builtin durable GUI", text)
         self.assertIn("start_gui_task", text)
         self.assertIn("legacy inline builtin", text)

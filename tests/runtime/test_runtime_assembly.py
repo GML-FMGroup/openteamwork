@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import sys
 import threading
 from pathlib import Path
 
@@ -24,7 +25,8 @@ from openppx.config import (
 )
 from openppx.actions import ActionContext
 from openppx.control_plane import build_control_plane
-from openppx.extensions import ExtensionSourceRef, SkillManager
+from openppx.extensions import ExtensionSourceRef, McpManager, McpServer, SkillManager
+from openppx.core.mcp_registry import ManagedMcpToolset
 from openppx.modeling import ModelCatalog, ModelProfile, ModelProfileRepository, ModelProfileSelector
 from openppx.runtime.assembly import RuntimeAssembler
 from openppx.runtime.node_runtime import NodeRuntimeSupervisor, RunNotActiveError, RunNotFoundError
@@ -207,7 +209,7 @@ def test_supervisor_rebuilds_runtime_for_a_new_immutable_skill_snapshot(
     listed = json.loads(_tool_function(first.agent, "list_skills")())
     read_first = _tool_function(first.agent, "read_skill")("runtime-skill")
 
-    assert first.metadata.extension_revision == manager.snapshot_for_agent("low-main").revision
+    assert first.metadata.extension_revision == assembler.extension_snapshot_for_agent("low-main").revision
     assert "First runtime skill." in first.agent.instruction
     assert listed[0]["name"] == "runtime-skill"
     assert "location" not in listed[0]
@@ -226,6 +228,57 @@ def test_supervisor_rebuilds_runtime_for_a_new_immutable_skill_snapshot(
     assert second.metadata.extension_revision != first.metadata.extension_revision
     assert "# First" in _tool_function(first.agent, "read_skill")("runtime-skill")
     assert "# Second" in _tool_function(second.agent, "read_skill")("runtime-skill")
+
+
+def test_supervisor_attaches_direct_mcp_and_rebuilds_for_resource_change(tmp_path: Path) -> None:
+    config_service, secrets = _configured(tmp_path)
+    manager = McpManager(tmp_path, secrets)
+    record = McpServer.model_validate(
+        {
+            "apiVersion": "openppx.io/v1alpha1",
+            "kind": "McpServer",
+            "metadata": {"name": "runtime-mcp"},
+            "spec": {
+                "displayName": "Runtime MCP",
+                "description": "Direct MCP runtime fixture.",
+                "transport": {
+                    "type": "stdio",
+                    "command": sys.executable,
+                    "args": [str(Path("tests/eval/mock_mcp_server.py").resolve())],
+                    "environment": {},
+                },
+                "policy": {"toolNamePrefix": "mcp_runtime"},
+                "risk": "low",
+                "enabledAgentIds": [],
+            },
+        }
+    )
+    created = manager.create(record, expected_revision=None)
+    enabled = manager.enable("runtime-mcp", "low-main", expected_revision=created.revision)
+    assembler = RuntimeAssembler(
+        node_root=tmp_path,
+        secret_store=secrets,
+        model_factory=lambda _resolution: _HelloLlm(model="hello-model"),
+        mcp_manager=manager,
+    )
+    supervisor = NodeRuntimeSupervisor(config_service=config_service, assembler=assembler)
+
+    first = supervisor.runtime_for("low-main")
+    assert len(first.extension_toolsets) == 1
+    assert isinstance(first.extension_toolsets[0], ManagedMcpToolset)
+    assert first.extension_toolsets[0] in first.agent.tools
+    assert first.metadata.mcp_diagnostics == ()
+
+    candidate = record.model_copy(
+        update={"spec": record.spec.model_copy(update={"description": "Updated direct MCP fixture."})}
+    )
+    manager.update(candidate, expected_revision=enabled.revision)
+    second = supervisor.runtime_for("low-main")
+
+    assert second is not first
+    assert second.metadata.snapshot_revision == first.metadata.snapshot_revision
+    assert second.metadata.extension_revision != first.metadata.extension_revision
+    supervisor.close()
 
 
 def test_supervisor_owns_run_stop_state_and_close_is_idempotent(tmp_path: Path) -> None:

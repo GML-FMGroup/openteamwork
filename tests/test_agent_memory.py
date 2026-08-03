@@ -109,8 +109,7 @@ class AgentMemoryTests(unittest.TestCase):
         from openppx import agent
 
         sentinel_toolset = object()
-        with patch("openppx.app.agent.build_mcp_toolsets_from_env", return_value=[sentinel_toolset]):
-            tools = agent._build_tools()
+        tools = agent._build_tools(extension_tools=(sentinel_toolset,))
         self.assertIn(sentinel_toolset, tools)
 
 

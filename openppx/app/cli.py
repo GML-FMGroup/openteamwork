@@ -41,7 +41,7 @@ from ..core.config import (
 from ..core.env_utils import env_enabled, is_enabled
 from ..core import doctor_rules
 from ..core.logging_utils import debug_logging_enabled, emit_debug
-from ..core.gui_mcp import resolve_gui_mcp_from_env, resolve_gui_mcp_from_summaries
+from ..core.gui_mcp import resolve_gui_mcp_from_summaries
 from ..core.provider import (
     DEFAULT_PROVIDER,
     canonical_provider_name,
@@ -416,10 +416,22 @@ def _load_mcp_registry_symbols() -> tuple[Any, Any, Any, Any]:
 
     return (
         _mcp_registry.ManagedMcpToolset,
-        _mcp_registry.build_mcp_toolsets_from_env,
+        _build_direct_mcp_toolsets,
         _mcp_registry.probe_mcp_toolsets,
         _mcp_registry.summarize_mcp_toolsets,
     )
+
+
+def _build_direct_mcp_toolsets(*, log_registered: bool = True) -> list[Any]:
+    """Build operator-facing toolsets from strict Node-owned MCP resources."""
+    del log_registered
+    from ..config import SystemCredentialSecretStore
+    from ..extensions import McpManager
+    from ..runtime.mcp_adapter import McpRuntimeAdapter
+
+    secrets = SystemCredentialSecretStore()
+    manager = McpManager(get_data_dir(), secrets)
+    return list(McpRuntimeAdapter(secrets).build(manager.snapshot_all()).toolsets)
 
 
 class ManagedMcpToolset:  # Compatibility proxy for tests patching cli.ManagedMcpToolset.get_tools
@@ -430,8 +442,8 @@ class ManagedMcpToolset:  # Compatibility proxy for tests patching cli.ManagedMc
 
 
 def build_mcp_toolsets_from_env(*args: Any, **kwargs: Any) -> list[Any]:
-    _, build_fn, _, _ = _load_mcp_registry_symbols()
-    return build_fn(*args, **kwargs)
+    """Compatibility patch point backed by Node MCP resources, not env JSON."""
+    return _build_direct_mcp_toolsets(*args, **kwargs)
 
 
 async def probe_mcp_toolsets(*args: Any, **kwargs: Any) -> Any:
@@ -1550,7 +1562,7 @@ def _cmd_doctor(
     mcp_toolsets = build_mcp_toolsets_from_env(log_registered=False)
     mcp_summaries = summarize_mcp_toolsets(mcp_toolsets)
     gui_builtin_tools_enabled = env_enabled("OPENPPX_GUI_BUILTIN_TOOLS_ENABLED", default=True)
-    gui_mcp = resolve_gui_mcp_from_env() or resolve_gui_mcp_from_summaries(mcp_summaries)
+    gui_mcp = resolve_gui_mcp_from_summaries(mcp_summaries)
     gui_task_tool = gui_mcp.task_tool_name if gui_mcp else None
     gui_action_tool = gui_mcp.action_tool_name if gui_mcp else None
     gui_mode, gui_hint = _gui_execution_path_hint(

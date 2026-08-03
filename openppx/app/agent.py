@@ -14,7 +14,7 @@ from google.adk.tools.preload_memory_tool import PreloadMemoryTool
 
 from ..core.config import normalize_agent_privilege_level
 from ..core.env_utils import env_enabled
-from ..core.mcp_registry import build_mcp_toolsets_from_env
+from ..core.mcp_registry import summarize_mcp_toolsets
 from ..core.provider import build_adk_model_from_env
 from ..extensions import ExtensionError, SkillSnapshot
 from ..tooling.skills_adapter import list_skills, read_skill
@@ -183,7 +183,7 @@ def _build_tools(
     extension_tools: tuple[Any, ...] | None = None,
     skill_tools: tuple[Any, ...] | None = None,
 ) -> list[Any]:
-    """Assemble tools from explicit snapshot policy or the legacy env path."""
+    """Assemble tools from explicit snapshot policy and extension resources."""
     resolved_skill_tools = (list_skills, read_skill) if skill_tools is None else skill_tools
     base_tools: list[Any] = [
         PreloadMemoryTool(),
@@ -268,16 +268,17 @@ def _build_tools(
             "load_artifacts",
         }
         tools = [tool for tool in base_tools if _tool_name(tool) in allowed_names or isinstance(tool, PreloadMemoryTool)]
+        tools.extend(extension_tools or ())
         return tools
 
     if resolved_privilege_level == "medium":
         blocked_names = {"message", "message_image", "message_file"}
         tools = [tool for tool in base_tools if _tool_name(tool) not in blocked_names]
-        tools.extend(build_mcp_toolsets_from_env() if extension_tools is None else extension_tools)
+        tools.extend(extension_tools or ())
         return tools
 
     tools = list(base_tools)
-    tools.extend(build_mcp_toolsets_from_env() if extension_tools is None else extension_tools)
+    tools.extend(extension_tools or ())
     return tools
 
 
@@ -288,6 +289,7 @@ def build_root_agent(
     extension_tools: tuple[Any, ...] = (),
     include_gui_tools: bool = False,
     skill_snapshot: SkillSnapshot | None = None,
+    mcp_summaries: list[dict[str, str]] | None = None,
 ) -> LlmAgent:
     """Build one ADK Agent from an immutable Config snapshot.
 
@@ -307,6 +309,7 @@ def build_root_agent(
             workspace=agent_config.spec.workspace,
             skills_summary=resolved_skill_snapshot.build_summary(),
             gui_tools_enabled=include_gui_tools,
+            mcp_summaries=mcp_summaries or summarize_mcp_toolsets(list(extension_tools)),
         ),
         tools=_build_tools(
             privilege_level=agent_config.spec.privilege_level,

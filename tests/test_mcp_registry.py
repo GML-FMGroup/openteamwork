@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import os
 import unittest
 from types import SimpleNamespace
 from typing import Any
@@ -16,9 +15,7 @@ from google.adk.tools.mcp_tool.mcp_session_manager import (
 )
 
 from openppx.core.mcp_registry import (
-    _MCP_SERVERS_ENV,
     build_mcp_toolsets,
-    build_mcp_toolsets_from_env,
     probe_mcp_toolsets,
     summarize_mcp_toolsets,
 )
@@ -216,26 +213,6 @@ class McpRegistryTests(unittest.TestCase):
         self.assertTrue(protocol.runner_capabilities["resume"])
         self.assertTrue(protocol.runner_capabilities["checkpoint"])
 
-    def test_build_mcp_toolsets_from_env_invalid_json(self) -> None:
-        with patch.dict(os.environ, {_MCP_SERVERS_ENV: "{bad json"}, clear=False):
-            toolsets = build_mcp_toolsets_from_env()
-        self.assertEqual(toolsets, [])
-
-    def test_build_mcp_toolsets_from_env_skips_disabled_servers(self) -> None:
-        with patch.dict(
-            os.environ,
-            {
-                _MCP_SERVERS_ENV: (
-                    '{"enabled_server":{"command":"python"},'
-                    '"disabled_server":{"enabled":false,"command":"python"}}'
-                )
-            },
-            clear=False,
-        ):
-            toolsets = build_mcp_toolsets_from_env(log_registered=False)
-        self.assertEqual(len(toolsets), 1)
-        self.assertEqual(toolsets[0].meta.name, "enabled_server")
-
     def test_build_mcp_toolsets_skips_invalid_server_config(self) -> None:
         toolsets = build_mcp_toolsets({"bad": "oops"})
         self.assertEqual(toolsets, [])
@@ -294,6 +271,16 @@ class McpRegistryProbeTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsInstance(tools[0], McpLongTaskProxyTool)
         self.assertIs(tools[0].wrapped_tool, fake_tool)
         self.assertEqual(tools[0].raw_mcp_tool.name, "mcp_remote_echo")
+
+    async def test_managed_mcp_proxy_supports_adk_tool_name_prefixing(self) -> None:
+        toolsets = build_mcp_toolsets({"remote": {"url": "https://example.com/mcp"}}, log_registered=False)
+        fake_tool = FakeMcpTool(name="echo")
+
+        with patch("openppx.core.mcp_registry.McpToolset.get_tools", new=AsyncMock(return_value=[fake_tool])):
+            tools = await toolsets[0].get_tools_with_prefix()
+
+        self.assertEqual([tool.name for tool in tools], ["mcp_remote_echo"])
+        self.assertIsInstance(tools[0], McpLongTaskProxyTool)
 
     async def test_managed_mcp_toolset_passes_job_protocol_to_wrapped_tools(self) -> None:
         toolsets = build_mcp_toolsets(
@@ -368,7 +355,7 @@ class McpRegistryProbeTests(unittest.IsolatedAsyncioTestCase):
             tools = await toolset.get_tools()
         self.assertEqual(tools, [])
         self.assertEqual(toolset.availability_status, "unavailable")
-        self.assertIn("boom", toolset.availability_message)
+        self.assertEqual(toolset.availability_message, "MCP server connection failed.")
 
     async def test_probe_mcp_toolsets_ok(self) -> None:
         toolsets = build_mcp_toolsets(
@@ -394,7 +381,8 @@ class McpRegistryProbeTests(unittest.IsolatedAsyncioTestCase):
             results = await probe_mcp_toolsets(toolsets, timeout_seconds=2.0)
         self.assertEqual(len(results), 1)
         self.assertEqual(results[0]["status"], "error")
-        self.assertIn("boom", results[0]["error"])
+        self.assertEqual(results[0]["error"], "MCP server connection failed.")
+        self.assertNotIn("boom", results[0]["error"])
         self.assertIn("error_kind", results[0])
         self.assertIn("attempts", results[0])
 

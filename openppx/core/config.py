@@ -841,18 +841,6 @@ def _resolve_security(cfg: dict[str, Any]) -> tuple[bool, bool, bool, str, str]:
     return restrict, allow_exec, allow_network, allowlist, filesystem_access
 
 
-def _resolve_mcp_servers_json(cfg: dict[str, Any]) -> str:
-    """Serialize configured MCP servers into a stable JSON string."""
-    tools = cfg.get("tools")
-    if not isinstance(tools, dict):
-        return "{}"
-    raw = tools.get("mcpServers", {})
-    if not isinstance(raw, dict):
-        return "{}"
-    # Compact form keeps env values readable while preserving full structure.
-    return json.dumps(raw, ensure_ascii=False, separators=(",", ":"))
-
-
 def _resolve_gui_provider_env(cfg: dict[str, Any], *, provider_name: str) -> tuple[str, str, str, str]:
     """Resolve one GUI multimodal provider alias into model/api settings and provider identity."""
     name = str(provider_name).strip()
@@ -1040,7 +1028,6 @@ def config_to_env(
         cfg
     )
     restrict_workspace, allow_exec, allow_network, exec_allowlist, filesystem_access = _resolve_security(cfg)
-    mcp_servers_json = _resolve_mcp_servers_json(cfg)
     gui_multimodal_env = _resolve_gui_multimodal_env(cfg)
     gui_provider_api_env = _resolve_gui_provider_api_key_env(cfg)
     debug = cfg.get("debug", False)
@@ -1100,7 +1087,6 @@ def config_to_env(
         "OPENPPX_ALLOW_EXEC": "1" if allow_exec else "0",
         "OPENPPX_ALLOW_NETWORK": "1" if allow_network else "0",
         "OPENPPX_EXEC_ALLOWLIST": exec_allowlist,
-        "OPENPPX_MCP_SERVERS_JSON": mcp_servers_json,
         "OPENPPX_GUI_BUILTIN_TOOLS_ENABLED": "1"
         if is_enabled(gui.get("builtinGUIToolsEnabled"), default=True)
         else "0",

@@ -95,6 +95,16 @@ class McpLongTaskProxyTool(BaseTool):
         """Return the wrapped ADK MCP tool."""
         return self._wrapped_tool
 
+    def __copy__(self) -> "McpLongTaskProxyTool":
+        """Return a safe shallow copy for ADK's tool-name prefixing path."""
+        return type(self)(
+            wrapped_tool=self._wrapped_tool,
+            server_name=self._server_name,
+            transport=self._transport,
+            inline_budget_ms=self._inline_budget_ms,
+            job_protocol=self._job_protocol,
+        )
+
     @property
     def raw_mcp_tool(self) -> Any:
         """Expose raw MCP metadata for existing diagnostics/CLI collectors."""
