@@ -140,6 +140,7 @@ interface ContextSidebarProps {
   onChangeView: (view: "chat" | "settings") => void;
   onSelectAgent: (agentId: string) => void;
   onSelectSession: (session: SessionSummary) => void;
+  onNewAgent: () => void;
   onNewSession: () => void;
 }
 
@@ -159,6 +160,7 @@ export function ContextSidebar({
   onChangeView,
   onSelectAgent,
   onSelectSession,
+  onNewAgent,
   onNewSession,
 }: ContextSidebarProps) {
   const [query, setQuery] = useState("");
@@ -297,7 +299,12 @@ export function ContextSidebar({
       <section className="context-section agent-section" aria-label="Agent selector">
         <div className="context-section-heading">
           <span>Agent</span>
-          <small>{agents.length}</small>
+          <span className="context-heading-actions">
+            <small>{agents.length}</small>
+            <button className="section-add" onClick={onNewAgent} title="New Agent" aria-label="New Agent">
+              <ShellIcon name="plus" />
+            </button>
+          </span>
         </div>
         <div className="agent-picker" ref={agentPickerRef}>
           <button

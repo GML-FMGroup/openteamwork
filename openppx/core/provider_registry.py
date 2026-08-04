@@ -189,7 +189,7 @@ PROVIDERS: tuple[ProviderSpec, ...] = (
     ),
     ProviderSpec(
         name="openai_codex",
-        default_model="openai-codex/gpt-5.1-codex",
+        default_model="openai-codex/gpt-5.5",
         display_name="OpenAI Codex",
         runtime=RUNTIME_CODEX,
         api_key_env=None,

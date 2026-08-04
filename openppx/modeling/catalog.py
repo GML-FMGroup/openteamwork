@@ -2,10 +2,16 @@
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Literal
 
+from openppx.core.codex_auth import default_codex_home
 from openppx.core.provider_registry import ProviderSpec, find_provider_spec
+
+
+_MAX_MODEL_CACHE_BYTES = 20_000_000
 
 
 @dataclass(frozen=True, slots=True)
@@ -20,8 +26,32 @@ class CatalogProvider:
     default_model: str
 
 
+@dataclass(frozen=True, slots=True)
+class CatalogModel:
+    """One safe model choice projected from a provider-owned catalog."""
+
+    model_id: str
+    display_name: str
+    description: str
+    default_reasoning_effort: str | None = None
+    reasoning_efforts: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class ModelCatalogSnapshot:
+    """A provider model list plus whether it is authoritative for validation."""
+
+    provider_id: str
+    source: str
+    authoritative: bool
+    models: tuple[CatalogModel, ...]
+
+
 class ModelCatalog:
     """Provider lookup facade that does not duplicate provider identity data."""
+
+    def __init__(self, *, codex_home: Path | None = None) -> None:
+        self.codex_home = (codex_home or default_codex_home()).expanduser()
 
     def get(self, provider_id: str) -> CatalogProvider | None:
         """Return selection-relevant facts for one registered provider."""
@@ -35,6 +65,66 @@ class ModelCatalog:
         from openppx.core.provider_registry import PROVIDERS
 
         return tuple(self._project(spec) for spec in PROVIDERS)
+
+    def list_models(self, provider_id: str) -> ModelCatalogSnapshot:
+        """Return safe model choices from the provider's Node-local catalog."""
+        provider = self.get(provider_id)
+        if provider is None:
+            return ModelCatalogSnapshot(provider_id, "unknown", False, ())
+        if provider_id == "openai_codex":
+            models = self._read_codex_models()
+            if models:
+                return ModelCatalogSnapshot(provider_id, "codex_cli", True, models)
+        return ModelCatalogSnapshot(
+            provider_id,
+            "provider_default",
+            False,
+            (
+                CatalogModel(
+                    model_id=provider.default_model,
+                    display_name=provider.default_model.split("/", 1)[-1],
+                    description=f"Default model for {provider.display_name}.",
+                ),
+            ),
+        )
+
+    def _read_codex_models(self) -> tuple[CatalogModel, ...]:
+        path = self.codex_home / "models_cache.json"
+        try:
+            if not path.is_file() or path.stat().st_size > _MAX_MODEL_CACHE_BYTES:
+                return ()
+            document = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError, TypeError):
+            return ()
+        items = document.get("models") if isinstance(document, dict) else None
+        if not isinstance(items, list):
+            return ()
+        models: list[CatalogModel] = []
+        seen: set[str] = set()
+        for item in items[:200]:
+            if not isinstance(item, dict) or item.get("supported_in_api") is False:
+                continue
+            if item.get("visibility") not in {None, "list"}:
+                continue
+            slug = str(item.get("slug") or "").strip()
+            if not slug or slug in seen:
+                continue
+            seen.add(slug)
+            efforts = tuple(
+                str(level.get("effort"))
+                for level in item.get("supported_reasoning_levels", [])
+                if isinstance(level, dict) and level.get("effort")
+            )
+            models.append(
+                CatalogModel(
+                    model_id=f"openai-codex/{slug}",
+                    display_name=str(item.get("display_name") or slug)[:120],
+                    description=str(item.get("description") or "")[:500],
+                    default_reasoning_effort=str(item.get("default_reasoning_level") or "") or None,
+                    reasoning_efforts=efforts,
+                )
+            )
+        return tuple(models)
 
     @staticmethod
     def _project(spec: ProviderSpec) -> CatalogProvider:

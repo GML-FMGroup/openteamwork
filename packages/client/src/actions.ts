@@ -114,6 +114,65 @@ export interface SetupProvider {
   defaultModel: string;
 }
 
+export interface ProviderModel {
+  id: string;
+  displayName: string;
+  description: string;
+  defaultReasoningEffort: string | null;
+  reasoningEfforts: string[];
+}
+
+export interface ModelCatalogResult extends Record<string, unknown> {
+  providerId: string;
+  source: string;
+  authoritative: boolean;
+  defaultModel: string;
+  items: ProviderModel[];
+}
+
+export interface ProviderAuthSession {
+  id: string;
+  state: "starting" | "pending" | "completed" | "failed" | "cancelled";
+  verificationUrl: string | null;
+  userCode: string | null;
+  expiresAt: string | null;
+  error: string | null;
+}
+
+export interface ProviderAuthStatus extends Record<string, unknown> {
+  providerId: string;
+  state: "authenticated" | "not_authenticated" | "expired" | "pending";
+  source: "codex_cli" | "openppx_cache" | null;
+  expiresAt: string | null;
+  loginMode: "device_code";
+  session: ProviderAuthSession | null;
+}
+
+export interface AgentCreateInput extends Record<string, unknown> {
+  agentId: string;
+  displayName: string;
+  workspace: string | null;
+  ownerPrincipalId: string;
+  privilegeLevel: "low" | "medium" | "high" | "root";
+  modelProfileId: string;
+}
+
+export interface AgentCreateResult extends Record<string, unknown> {
+  agent: {
+    id: string;
+    name: string;
+    description: string;
+    enabled: boolean;
+    status: "healthy" | "idle" | "starting" | "disabled";
+    workspace: string;
+    avatar: string | null;
+    tags: string[];
+    revision: string;
+  };
+  nodeRevision: string;
+  effect: "next_run";
+}
+
 export interface SetupStatusResult extends Record<string, unknown> {
   state: "ready" | "configured" | "needs_configuration";
   steps: Record<string, string>;
@@ -318,11 +377,35 @@ export class SystemClient {
   }
 }
 
+export class AgentClient {
+  public constructor(private readonly actions: ActionClient) {}
+
+  public create(input: AgentCreateInput): Promise<ActionEnvelope<AgentCreateResult>> {
+    return this.actions.invoke("agent.create", input);
+  }
+}
+
 export class ModelClient {
   public constructor(private readonly actions: ActionClient) {}
 
   public list(): Promise<ActionEnvelope<{ items: Array<Record<string, unknown>> }>> {
     return this.actions.invoke("model.list", {});
+  }
+
+  public catalog(providerId: string): Promise<ActionEnvelope<ModelCatalogResult>> {
+    return this.actions.invoke("model.catalog.list", { providerId });
+  }
+
+  public authStatus(providerId: string): Promise<ActionEnvelope<ProviderAuthStatus>> {
+    return this.actions.invoke("model.auth.status", { providerId });
+  }
+
+  public beginAuth(providerId: string): Promise<ActionEnvelope<ProviderAuthStatus>> {
+    return this.actions.invoke("model.auth.begin", { providerId });
+  }
+
+  public refreshAuth(providerId: string): Promise<ActionEnvelope<ProviderAuthStatus>> {
+    return this.actions.invoke("model.auth.refresh", { providerId });
   }
 
   public readiness(input: ModelSelectionInput): Promise<ActionEnvelope<Record<string, unknown>>> {
@@ -492,6 +575,8 @@ export class OpenPpxClient {
 
   public readonly system: SystemClient;
 
+  public readonly agent: AgentClient;
+
   public readonly model: ModelClient;
 
   public readonly session: SessionClient;
@@ -512,6 +597,7 @@ export class OpenPpxClient {
     this.transport = new ClientApiHttpTransport(options);
     this.actions = new ActionClient(this.transport, options);
     this.system = new SystemClient(this.actions);
+    this.agent = new AgentClient(this.actions);
     this.model = new ModelClient(this.actions);
     this.session = new SessionClient(this.actions);
     this.run = new RunClient(this.actions);

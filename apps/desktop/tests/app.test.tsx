@@ -159,6 +159,21 @@ function installClient(overrides: Partial<PpxClientApi> = {}): { client: PpxClie
     testConnectionSettings: async () => buildDiagnostics(),
     saveConnectionSettings: async () => buildDiagnostics(),
     runRuntimeCommand: async () => buildBootstrapPayload().runtime,
+    createAgent: async () => ({
+      agent: {
+        id: "research",
+        name: "Research",
+        description: "Workspace: /node/workspaces/research",
+        enabled: true,
+        status: "healthy",
+        workspace: "/node/workspaces/research",
+        avatar: null,
+        tags: ["local", "openppx"],
+        revision: "sha256:agent",
+      },
+      nodeRevision: "sha256:node",
+      effect: "next_run",
+    }),
     getSetupStatus: async () => ({
       state: "ready",
       steps: { node: "complete", agent: "complete", model: "complete", credential: "available", hello: "verified" },
@@ -174,6 +189,53 @@ function installClient(overrides: Partial<PpxClientApi> = {}): { client: PpxClie
       restartRequired: false,
     }),
     runSetupHello: async () => ({ sessionId: "session-fixture", reply: "Hello", state: "ready" }),
+    getProviderModels: async (providerId) => ({
+      providerId,
+      source: "provider_default",
+      authoritative: false,
+      defaultModel: "gemini-2.5-flash",
+      items: [
+        {
+          id: "gemini-2.5-flash",
+          displayName: "gemini-2.5-flash",
+          description: "Default model",
+          defaultReasoningEffort: null,
+          reasoningEfforts: [],
+        },
+      ],
+    }),
+    getProviderAuthStatus: async (providerId) => ({
+      providerId,
+      state: "authenticated",
+      source: "codex_cli",
+      expiresAt: null,
+      loginMode: "device_code",
+      session: null,
+    }),
+    beginProviderAuth: async (providerId) => ({
+      providerId,
+      state: "pending",
+      source: null,
+      expiresAt: null,
+      loginMode: "device_code",
+      session: {
+        id: "login-fixture",
+        state: "pending",
+        verificationUrl: "https://auth.openai.com/codex/device",
+        userCode: "ABCD-EFGH",
+        expiresAt: null,
+        error: null,
+      },
+    }),
+    refreshProviderAuth: async (providerId) => ({
+      providerId,
+      state: "authenticated",
+      source: "codex_cli",
+      expiresAt: null,
+      loginMode: "device_code",
+      session: null,
+    }),
+    openExternalUrl: async () => undefined,
     listModelProfiles: async () => ({ profiles: [] }),
     getOperationsOverview: async () => ({
       state: "healthy",
@@ -264,6 +326,112 @@ describe("App sending state", () => {
     }));
     expect(runSetupHello).toHaveBeenCalledWith("main", "ppx-client-user", "Hello OpenPPX");
     expect(await screen.findByRole("button", { name: "Send" })).toBeInTheDocument();
+  });
+
+  it("uses Node-owned Codex authentication and an authoritative model selector", async () => {
+    const status = {
+      state: "needs_configuration" as const,
+      steps: { node: "missing", agent: "missing", model: "missing", credential: "not_required", hello: "pending" },
+      revisions: { node: null, agent: null, profile: null },
+      recommendedWorkspace: "/workspace/openppx",
+      current: { node: null, agent: null, profile: null },
+      providers: [
+        {
+          id: "openai_codex",
+          displayName: "OpenAI Codex",
+          runtime: "codex",
+          credentialMode: "oauth" as const,
+          credentialRequired: false,
+          defaultModel: "openai-codex/gpt-5.5",
+        },
+      ],
+    };
+    installClient({
+      getSetupStatus: async () => status,
+      getProviderModels: async () => ({
+        providerId: "openai_codex",
+        source: "codex_cli",
+        authoritative: true,
+        defaultModel: "openai-codex/gpt-5.5",
+        items: [
+          {
+            id: "openai-codex/gpt-5.5",
+            displayName: "GPT-5.5",
+            description: "Current model",
+            defaultReasoningEffort: "medium",
+            reasoningEfforts: ["low", "medium", "high"],
+          },
+        ],
+      }),
+    });
+
+    render(<App />);
+
+    expect(await screen.findByText("Authenticated on this Node")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Owner")).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Model")).toHaveValue("openai-codex/gpt-5.5");
+    expect(screen.getByRole("button", { name: "Set up & say Hello" })).toBeEnabled();
+  });
+
+  it("creates a new Agent, selects it, and opens its first Session", async () => {
+    const createAgent = vi.fn(async () => ({
+      agent: {
+        id: "research",
+        name: "Research",
+        description: "Workspace: /node/workspaces/research",
+        enabled: true,
+        status: "healthy" as const,
+        workspace: "/node/workspaces/research",
+        avatar: null,
+        tags: ["local", "openppx"],
+        revision: "sha256:research",
+      },
+      nodeRevision: "sha256:node-next",
+      effect: "next_run" as const,
+    }));
+    const createdSession: SessionSummary = {
+      id: "session-research",
+      agentId: "research",
+      title: "New chat",
+      updatedAt: "2026-08-04T11:00:00.000Z",
+      lastMessagePreview: "",
+    };
+    const createSession = vi.fn(async () => ({ session: createdSession }));
+    installClient({
+      createAgent,
+      createSession,
+      listModelProfiles: async () => ({
+        profiles: [{
+          id: "primary",
+          revision: "sha256:primary",
+          provider: "openai_codex",
+          model: "openai-codex/gpt-5.5",
+          enabled: true,
+          credentialState: "available",
+        }],
+      }),
+    });
+
+    render(<App />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "New Agent" }));
+    expect(await screen.findByRole("heading", { name: "Create a focused workspace." })).toBeInTheDocument();
+    expect(screen.queryByLabelText("Owner")).not.toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("Agent name"), { target: { value: "Research" } });
+    expect(screen.getByLabelText("Agent ID")).toHaveValue("research");
+    await waitFor(() => expect(screen.getByLabelText("Model Profile")).toHaveValue("primary"));
+    fireEvent.click(screen.getByRole("button", { name: "Create Agent" }));
+
+    await waitFor(() => expect(createAgent).toHaveBeenCalledWith({
+      agentId: "research",
+      displayName: "Research",
+      workspace: null,
+      privilegeLevel: "medium",
+      modelProfileId: "primary",
+    }));
+    await waitFor(() => expect(createSession).toHaveBeenCalledWith("research"));
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(screen.getAllByText("Research")).toHaveLength(3);
   });
 
   it("jumps to the latest reply when loading a session", async () => {

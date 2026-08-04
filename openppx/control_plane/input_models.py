@@ -93,6 +93,24 @@ class AgentMutationInput(AgentReadInput):
     expected_revision: str | None
 
 
+class AgentCreateInput(AgentReadInput):
+    """Create one Node-enabled Agent from bounded product fields."""
+
+    display_name: Annotated[str, StringConstraints(min_length=1, max_length=80)]
+    workspace: Annotated[str, StringConstraints(max_length=1024)] | None = None
+    owner_principal_id: PrincipalId
+    privilege_level: Literal["low", "medium", "high", "root"] = "medium"
+    model_profile_id: ResourceId
+
+    @field_validator("display_name", "workspace")
+    @classmethod
+    def agent_text_must_not_contain_controls(cls, value: str | None) -> str | None:
+        """Reject control-bearing product text before entering Config mutation."""
+        if value is not None and any(ord(character) < 32 or ord(character) == 127 for character in value):
+            raise ValueError("value must not contain control characters")
+        return value
+
+
 class ModelSelectionInput(AgentReadInput):
     """Per-request Model selection constraints without persisted side effects."""
 
@@ -148,6 +166,15 @@ class ModelProfileMutationInput(ModelProfileReadInput):
 
     candidate: ModelProfile
     expected_revision: str | None
+
+
+class ModelProviderInput(ActionInput):
+    """Identify one registered model provider."""
+
+    provider_id: Annotated[
+        str,
+        StringConstraints(min_length=1, max_length=63, pattern=r"^[a-z][a-z0-9_]*$"),
+    ]
 
 
 class SecretStatusInput(ActionInput):

@@ -132,8 +132,8 @@ def _hello(service: SetupService, supervisor, input_data: SetupHelloInput) -> di
             user_id=input_data.user_id,
             session_id=session_id,
         )
-    except Exception:
-        raise ActionFailure(ActionError("hello_failed", "The first model turn did not complete.")) from None
+    except Exception as exc:
+        raise ActionFailure(_hello_failure(exc)) from None
     if not reply.strip():
         raise ActionFailure(ActionError("hello_failed", "The first model turn returned no reply."))
     try:
@@ -141,3 +141,25 @@ def _hello(service: SetupService, supervisor, input_data: SetupHelloInput) -> di
     except (ConfigError, SetupError):
         raise ActionFailure(ActionError("setup_verification_failed", "The successful Hello could not be verified.")) from None
     return {"sessionId": session_id, "reply": reply, "state": "ready"}
+
+
+def _hello_failure(exc: Exception) -> ActionError:
+    """Project known safe model failures without exposing provider payloads."""
+    message = str(exc).removeprefix("CODEX_ERROR:").strip()
+    normalized = message.lower()
+    if "codex" in normalized and any(term in normalized for term in ("authentication", "signed in", "login")):
+        return ActionError("provider_authentication_failed", message)
+    if "codex model" in normalized and any(term in normalized for term in ("not available", "not allowed")):
+        return ActionError("model_not_available", message)
+    if "codex account" in normalized and "not allowed" in normalized:
+        return ActionError("provider_access_denied", message)
+    if "codex quota" in normalized or "rate limited" in normalized:
+        return ActionError("provider_rate_limited", message, retryable=True)
+    if message in {
+        "The Codex service is temporarily unavailable. Try again later.",
+        "Codex response failed",
+    }:
+        return ActionError("provider_unavailable", message, retryable=True)
+    if message.startswith("Codex rejected the model request (HTTP "):
+        return ActionError("provider_request_rejected", message)
+    return ActionError("hello_failed", "The first model turn did not complete.")

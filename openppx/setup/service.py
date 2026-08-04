@@ -131,6 +131,14 @@ class SetupService:
         provider = self.catalog.get(request.profile.spec.provider)
         if provider is None or provider.runtime == "unsupported":
             raise SetupError("provider_not_supported", "The selected model provider is not supported.")
+        model_snapshot = self.catalog.list_models(request.profile.spec.provider)
+        if model_snapshot.authoritative and request.profile.spec.model not in {
+            item.model_id for item in model_snapshot.models
+        }:
+            raise SetupError(
+                "model_not_available",
+                "The selected model is not advertised by this provider on the Node.",
+            )
         credential = request.profile.spec.credential
         if provider.credential_required and credential is None:
             raise SetupError("credential_required", "The selected model provider requires a credential.")

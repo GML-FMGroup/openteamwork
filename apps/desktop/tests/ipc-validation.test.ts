@@ -1,8 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
   validateConnectionSettings,
+  validateAgentCreateRequest,
+  validateExternalUrl,
   validateIdentifier,
   validateRuntimeCommand,
+  validateProviderId,
   validateSendMessageInput,
   validateSetupApplyRequest,
   validateSetupHelloText,
@@ -54,6 +57,8 @@ describe("Electron IPC validation", () => {
   it("accepts well-formed renderer requests", () => {
     expect(validateRuntimeCommand("restart")).toBe("restart");
     expect(validateIdentifier("run-1", "Run id")).toBe("run-1");
+    expect(validateProviderId("openai_codex")).toBe("openai_codex");
+    expect(validateExternalUrl("https://auth.openai.com/codex/device")).toBe("https://auth.openai.com/codex/device");
     expect(validateSendMessageInput({ agentId: "writer", sessionId: "session-1", text: "hello" })).toEqual({
       agentId: "writer",
       sessionId: "session-1",
@@ -89,11 +94,27 @@ describe("Electron IPC validation", () => {
     });
     expect(validateSetupHelloText("Hello OpenPPX")).toBe("Hello OpenPPX");
     expect(validateSetupApplyRequest(setupRequest())).toEqual(setupRequest());
+    expect(validateAgentCreateRequest({
+      agentId: "research",
+      displayName: "Research",
+      workspace: "",
+      ownerPrincipalId: "renderer-must-not-control-owner",
+      privilegeLevel: "medium",
+      modelProfileId: "primary",
+    })).toEqual({
+      agentId: "research",
+      displayName: "Research",
+      workspace: null,
+      privilegeLevel: "medium",
+      modelProfileId: "primary",
+    });
   });
 
   it("rejects malformed renderer requests before they reach services", () => {
     expect(() => validateRuntimeCommand("delete")).toThrow("Runtime command");
     expect(() => validateIdentifier("", "Run id")).toThrow("Run id is required");
+    expect(() => validateProviderId("OpenAI Codex")).toThrow("Provider id");
+    expect(() => validateExternalUrl("file:///tmp/token")).toThrow("must use HTTPS");
     expect(() => validateSendMessageInput({ agentId: "writer", sessionId: [], text: "hello" })).toThrow(
       "Session id must be a string",
     );
@@ -101,5 +122,6 @@ describe("Electron IPC validation", () => {
     expect(() => validateSlashCommandRequest({ rawCommand: "status" })).toThrow("start with '/'");
     expect(() => validateSetupHelloText("")).toThrow("Setup Hello is required");
     expect(() => validateSetupApplyRequest({ ...setupRequest(), secret: { ref: { store: "system", name: "Primary Key" }, value: "secret" } })).toThrow("lowercase resource name");
+    expect(() => validateAgentCreateRequest({ agentId: "Research Agent", displayName: "Research", privilegeLevel: "medium", modelProfileId: "primary" })).toThrow("lowercase resource name");
   });
 });

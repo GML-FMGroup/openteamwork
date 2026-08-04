@@ -189,6 +189,7 @@ def run_setup(args: Any) -> int:
     finally:
         if composition is not None:
             composition.runtime_supervisor.close()
+            composition.control_plane.close()
     payload = {"statusBefore": before, "apply": applied, "hello": hello, "statusAfter": after}
     if args.output_json:
         print(json.dumps(payload, ensure_ascii=False, indent=2))

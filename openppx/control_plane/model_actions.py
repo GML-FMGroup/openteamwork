@@ -7,10 +7,17 @@ from typing import cast
 
 from openppx.actions import ActionError, ActionFailure, ActionRegistry, ActionSpec, SlashCommandSpec
 from openppx.config import ConfigError
-from openppx.modeling import ModelProfileRepository, ModelProfileSelector, ModelRequirements, ModelSelectionError
+from openppx.modeling import (
+    ModelProfileRepository,
+    ModelProfileSelector,
+    ModelRequirements,
+    ModelSelectionError,
+    ProviderAccessError,
+    ProviderAccessService,
+)
 
 from .errors import raise_config_failure, raise_model_failure
-from .input_models import EmptyInput, ModelProfileMutationInput, ModelProfileReadInput, ModelSelectionInput
+from .input_models import EmptyInput, ModelProfileMutationInput, ModelProfileReadInput, ModelProviderInput, ModelSelectionInput
 from .projections import project_resolution, project_resource
 
 
@@ -19,6 +26,7 @@ def register_model_actions(
     profiles: ModelProfileRepository,
     selector: ModelProfileSelector,
     config_repository,
+    provider_access: ProviderAccessService,
 ) -> None:
     """Register deterministic Model Profile query and selection Actions."""
     registry.register(
@@ -54,6 +62,30 @@ def register_model_actions(
             lambda: _apply_profile(profiles, cast(ModelProfileMutationInput, input_data))
         ),
     )
+    registry.register(
+        _spec("model.catalog.list", "List provider models", "List models advertised by one provider on this Node.", ModelProviderInput, "model.read"),
+        lambda _context, input_data: _provider_call(
+            lambda: provider_access.list_models(cast(ModelProviderInput, input_data).provider_id)
+        ),
+    )
+    registry.register(
+        _spec("model.auth.status", "Provider authentication", "Inspect secret-free provider authentication state on this Node.", ModelProviderInput, "model.read"),
+        lambda _context, input_data: _provider_call(
+            lambda: provider_access.auth_status(cast(ModelProviderInput, input_data).provider_id)
+        ),
+    )
+    registry.register(
+        _spec("model.auth.begin", "Begin provider sign-in", "Start a Node-owned provider device-code login.", ModelProviderInput, "model.write"),
+        lambda _context, input_data: _provider_call(
+            lambda: provider_access.begin_auth(cast(ModelProviderInput, input_data).provider_id)
+        ),
+    )
+    registry.register(
+        _spec("model.auth.refresh", "Refresh provider authentication", "Adopt and verify the current provider login on this Node.", ModelProviderInput, "model.write"),
+        lambda _context, input_data: _provider_call(
+            lambda: provider_access.refresh_auth(cast(ModelProviderInput, input_data).provider_id)
+        ),
+    )
 
 
 def _spec(action_id: str, title: str, description: str, input_model, permission: str) -> ActionSpec:
@@ -76,7 +108,13 @@ def _spec(action_id: str, title: str, description: str, input_model, permission:
         title=title,
         description=description,
         input_model=input_model,
-        scope="agent" if action_id != "model.list" else "node",
+        scope="node" if action_id in {
+            "model.list",
+            "model.catalog.list",
+            "model.auth.status",
+            "model.auth.begin",
+            "model.auth.refresh",
+        } else "agent",
         required_capabilities=frozenset({permission}),
         permission=permission,
         projections=projections,
@@ -120,6 +158,13 @@ def _profile_call(operation):
         return operation()
     except ConfigError as exc:
         raise_config_failure(exc)
+
+
+def _provider_call(operation):
+    try:
+        return operation()
+    except ProviderAccessError as exc:
+        raise ActionFailure(ActionError(exc.code, str(exc))) from None
 
 
 def _requirements(input_data: ModelSelectionInput) -> ModelRequirements:

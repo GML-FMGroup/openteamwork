@@ -1,4 +1,4 @@
-import type { ConnectionSettings, ExtensionEnablementRequest, RuntimeCommand, SendMessageInput, SetupApplyRequest, SlashCommandRequest } from "../../app/src/types";
+import type { AgentCreateRequest, ConnectionSettings, ExtensionEnablementRequest, RuntimeCommand, SendMessageInput, SetupApplyRequest, SlashCommandRequest } from "../../app/src/types";
 
 function record(value: unknown, label: string): Record<string, unknown> {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
@@ -49,6 +49,30 @@ export function validateIdentifier(value: unknown, label: string): string {
   return string(value, label, 512);
 }
 
+/** Validate a provider id before using it in a Node Action. */
+export function validateProviderId(value: unknown): string {
+  const providerId = string(value, "Provider id", 63);
+  if (!/^[a-z][a-z0-9_]*$/.test(providerId)) {
+    throw new TypeError("Provider id is not valid.");
+  }
+  return providerId;
+}
+
+/** Restrict renderer-requested external navigation to public HTTPS pages. */
+export function validateExternalUrl(value: unknown): string {
+  const raw = string(value, "External URL", 2_048);
+  let parsed: URL;
+  try {
+    parsed = new URL(raw);
+  } catch {
+    throw new TypeError("External URL is not valid.");
+  }
+  if (parsed.protocol !== "https:" || !parsed.hostname) {
+    throw new TypeError("External URL must use HTTPS.");
+  }
+  return parsed.toString();
+}
+
 /** Validate the bounded first-turn prompt crossing the IPC boundary. */
 export function validateSetupHelloText(value: unknown): string {
   return string(value, "Setup Hello", 2_000);
@@ -60,6 +84,24 @@ function resourceName(value: unknown, label: string): string {
     throw new TypeError(`${label} must be a lowercase resource name.`);
   }
   return candidate;
+}
+
+/** Validate Agent creation fields while keeping owner identity out of Renderer control. */
+export function validateAgentCreateRequest(value: unknown): AgentCreateRequest {
+  const input = record(value, "Agent creation request");
+  if (input.privilegeLevel !== "low" && input.privilegeLevel !== "medium" && input.privilegeLevel !== "high" && input.privilegeLevel !== "root") {
+    throw new TypeError("Agent privilege level is not supported.");
+  }
+  const workspace = input.workspace === null || input.workspace === undefined || input.workspace === ""
+    ? null
+    : string(input.workspace, "Agent workspace", 1_024);
+  return {
+    agentId: resourceName(input.agentId, "Agent id"),
+    displayName: string(input.displayName, "Agent display name", 80),
+    workspace,
+    privilegeLevel: input.privilegeLevel,
+    modelProfileId: resourceName(input.modelProfileId, "Model Profile id"),
+  };
 }
 
 function revision(value: unknown, label: string): string | null {

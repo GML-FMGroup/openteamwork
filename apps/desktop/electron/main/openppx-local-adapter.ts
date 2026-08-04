@@ -5,6 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import {
   ActionClient,
+  AgentClient,
   CLIENT_API_PROTOCOL_VERSION,
   CommandClient,
   ExtensionClient,
@@ -20,6 +21,8 @@ import { isLoopbackClientApiHostname } from "../../app/src/lib/connection-profil
 import { mergeAssistantParts } from "../../app/src/lib/openppx-projection";
 import type {
   AgentProfile,
+  AgentCreateRequest,
+  AgentCreateResult,
   BootstrapPayload,
   ChatMessage,
   ClientDiagnostics,
@@ -31,6 +34,8 @@ import type {
   ModelProfileSummary,
   OperationsAuditItem,
   OperationsOverviewResult,
+  ModelCatalogResult,
+  ProviderAuthStatus,
   MessagePart,
   PpxClientApi,
   RunEvent,
@@ -47,6 +52,7 @@ import type {
   SetupStatusResult,
 } from "../../app/src/types";
 import { shouldStartManagedNode } from "./node-start-policy";
+import { LOCAL_USER_ID } from "../../app/src/types";
 import { ClientApiConnection } from "./client-api-connection";
 import { ClientApiRunStream } from "./client-api-run-stream";
 import { ClientApiSessionCache } from "./client-api-session-cache";
@@ -116,7 +122,7 @@ function normalizeAgentProfile(payload: Record<string, unknown>): AgentProfile {
   };
 }
 
-export class OpenPpxLocalAdapter implements PpxClientApi {
+export class OpenPpxLocalAdapter implements Omit<PpxClientApi, "openExternalUrl"> {
   private readonly listeners = new Set<EventSink>();
 
   private readonly openppxRoot = detectOpenPpxRoot();
@@ -142,6 +148,8 @@ export class OpenPpxLocalAdapter implements PpxClientApi {
   private readonly actions: ActionClient;
 
   private readonly extensions: ExtensionClient;
+
+  private readonly agentManagement: AgentClient;
 
   private readonly commands: CommandClient;
 
@@ -171,6 +179,7 @@ export class OpenPpxLocalAdapter implements PpxClientApi {
     });
     this.actions = new ActionClient(this.connection);
     this.extensions = new ExtensionClient(this.actions);
+    this.agentManagement = new AgentClient(this.actions);
     this.commands = new CommandClient(this.actions);
     this.setup = new SetupClient(this.actions);
     this.models = new ModelClient(this.actions);
@@ -458,6 +467,21 @@ export class OpenPpxLocalAdapter implements PpxClientApi {
     };
   }
 
+  public async createAgent(input: AgentCreateRequest): Promise<AgentCreateResult> {
+    await this.ensureClientApiAvailable();
+    const result = (await this.agentManagement.create({
+      ...input,
+      ownerPrincipalId: LOCAL_USER_ID,
+    })).result;
+    return {
+      ...result,
+      agent: {
+        ...result.agent,
+        ...normalizeAgentProfile(result.agent),
+      },
+    };
+  }
+
   public async saveConnectionSettings(settings: ConnectionSettings): Promise<ClientDiagnostics> {
     this.applyConnectionSettings(settings);
     return this.getDiagnostics();
@@ -530,6 +554,26 @@ export class OpenPpxLocalAdapter implements PpxClientApi {
     const result = (await this.setup.hello(agentId, userId, text)).result;
     this.sessionCache.clear();
     return result;
+  }
+
+  public async getProviderModels(providerId: string): Promise<ModelCatalogResult> {
+    await this.ensureClientApiAvailable();
+    return (await this.models.catalog(providerId)).result;
+  }
+
+  public async getProviderAuthStatus(providerId: string): Promise<ProviderAuthStatus> {
+    await this.ensureClientApiAvailable();
+    return (await this.models.authStatus(providerId)).result;
+  }
+
+  public async beginProviderAuth(providerId: string): Promise<ProviderAuthStatus> {
+    await this.ensureClientApiAvailable();
+    return (await this.models.beginAuth(providerId)).result;
+  }
+
+  public async refreshProviderAuth(providerId: string): Promise<ProviderAuthStatus> {
+    await this.ensureClientApiAvailable();
+    return (await this.models.refreshAuth(providerId)).result;
   }
 
   public async listModelProfiles(): Promise<{ profiles: ModelProfileSummary[] }> {
@@ -643,7 +687,7 @@ export class OpenPpxLocalAdapter implements PpxClientApi {
       const outcome = await this.actions.invoke<
         { agentId: string; userId: string },
         { session: Record<string, unknown> }
-      >("session.new", { agentId, userId: "ppx-client-user" });
+      >("session.new", { agentId, userId: LOCAL_USER_ID });
       const session = normalizeClientApiSession(outcome.result.session);
       if (!session) {
         throw new Error("Node returned an invalid session payload.");
@@ -887,7 +931,7 @@ export class OpenPpxLocalAdapter implements PpxClientApi {
   public async invokeSlashCommand(input: SlashCommandRequest): Promise<SlashCommandResult> {
     await this.ensureClientApiAvailable();
     const envelope = await this.commands.invoke(input.rawCommand, {
-      userId: "ppx-client-user",
+      userId: LOCAL_USER_ID,
       agentId: input.agentId,
       sessionId: input.sessionId,
       runId: input.runId,

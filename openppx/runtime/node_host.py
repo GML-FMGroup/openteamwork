@@ -334,6 +334,7 @@ class OpenPpxNodeHost:
         self.server.server_close()
         self._operations_thread.stop()
         self.runtime_supervisor.close()
+        self.control_plane.close()
 
 
 def run_node(

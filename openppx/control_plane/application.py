@@ -6,12 +6,14 @@ from collections.abc import Mapping
 
 from openppx.actions import ActionContext, ActionExecutor, ActionOutcome, ActionRegistry
 from openppx.actions import ActionError, ActionFailure, SlashCommandError, SlashInvocationContext
+from openppx.agents import AgentLifecycleService
 from openppx.config import ConfigService, FilesystemConfigRepository
-from openppx.modeling import ModelProfileRepository, ModelProfileSelector
+from openppx.modeling import ModelProfileRepository, ModelProfileSelector, ProviderAccessService
 from openppx.setup import SetupService
 from openppx.governance import ActionAuditStore, ActionPolicy
 
 from .config_actions import register_config_actions
+from .agent_actions import register_agent_actions
 from .extension_actions import register_extension_actions
 from .model_actions import register_model_actions
 from .operations_actions import register_operations_actions
@@ -31,6 +33,8 @@ class ControlPlaneApplication:
         config_service: ConfigService,
         profile_repository: ModelProfileRepository,
         model_selector: ModelProfileSelector,
+        provider_access: ProviderAccessService,
+        agent_lifecycle: AgentLifecycleService,
         setup_service: SetupService,
         audit_store: ActionAuditStore,
         product_version: str,
@@ -39,13 +43,16 @@ class ControlPlaneApplication:
         self.config_service = config_service
         self.profile_repository = profile_repository
         self.model_selector = model_selector
+        self.provider_access = provider_access
+        self.agent_lifecycle = agent_lifecycle
         self.setup_service = setup_service
         self.audit_store = audit_store
         self.product_version = product_version
         registry = ActionRegistry()
         executor = ActionExecutor(registry, policy=ActionPolicy(), audit=audit_store)
         register_config_actions(registry, config_repository, config_service)
-        register_model_actions(registry, profile_repository, model_selector, config_repository)
+        register_agent_actions(registry, agent_lifecycle)
+        register_model_actions(registry, profile_repository, model_selector, config_repository, provider_access)
         register_setup_actions(registry, setup_service)
         register_system_actions(
             registry,
@@ -184,3 +191,7 @@ class ControlPlaneApplication:
     ) -> ActionOutcome:
         """Invoke one product Action without any transport or renderer dependency."""
         return self.executor.execute(action_id, raw_input, context)
+
+    def close(self) -> None:
+        """Release Node-owned control-plane background resources."""
+        self.provider_access.close()

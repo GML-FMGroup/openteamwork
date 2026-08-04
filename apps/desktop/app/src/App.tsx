@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { SettingsView } from "./components/settings/SettingsView";
 import { OnboardingView } from "./components/setup/OnboardingView";
+import { NewAgentDialog } from "./components/agents/NewAgentDialog";
 import { Composer } from "./components/workspace/Composer";
 import {
   CollapsedSidebarTools,
@@ -38,6 +39,7 @@ export function App() {
   const [leftSidebarCollapsed, setLeftSidebarCollapsed] = useState(false);
   const [inspectorCollapsed, setInspectorCollapsed] = useState(false);
   const [sidebarSearchRequest, setSidebarSearchRequest] = useState(0);
+  const [newAgentOpen, setNewAgentOpen] = useState(false);
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
 
   useEffect(() => {
@@ -130,12 +132,19 @@ export function App() {
         testingConnection={workspace.testingConnection}
         savingConnection={workspace.savingConnection}
         error={workspace.setupError}
+        providerModels={workspace.providerModels}
+        providerAuth={workspace.providerAuth}
+        providerAccessLoading={workspace.providerAccessLoading}
+        providerAccessError={workspace.providerAccessError}
         connectionFeedback={workspace.connectionFeedback}
         setForm={workspace.setSetupForm}
         setConnection={workspace.setConnectionForm}
         onTestConnection={() => void workspace.testConnection()}
         onSaveConnection={() => void workspace.saveConnection()}
         onSubmit={() => void workspace.completeSetup()}
+        onBeginProviderAuth={() => void workspace.beginProviderAuth()}
+        onRefreshProviderAuth={() => void workspace.refreshProviderAuth()}
+        onOpenProviderAuthPage={() => void workspace.openProviderAuthPage()}
       />
     );
   }
@@ -146,6 +155,11 @@ export function App() {
     view === "chat" ? workspace.selectedSession?.title ?? workspace.selectedAgent?.name ?? "No session" : "Settings";
   const titlebarSubtitle = view === "chat" ? workspace.selectedAgent?.name ?? "No agent selected" : "ppx-client";
   const canSend = Boolean(workspace.composer.trim()) && Boolean(workspace.selectedAgentId) && !workspace.selectedAgentBusy;
+  const suggestedAgentId = (() => {
+    let index = workspace.agents.length + 1;
+    while (workspace.agents.some((agent) => agent.id === `agent-${index}`)) index += 1;
+    return `agent-${index}`;
+  })();
 
   return (
     <div
@@ -196,6 +210,10 @@ export function App() {
         onChangeView={handleChangeView}
         onSelectAgent={(agentId) => void workspace.switchAgent(agentId)}
         onSelectSession={(session) => void workspace.switchSession(session)}
+        onNewAgent={() => {
+          workspace.clearAgentCreateError();
+          setNewAgentOpen(true);
+        }}
         onNewSession={() => void workspace.createSession()}
       />
 
@@ -317,6 +335,23 @@ export function App() {
           onSetExtensionEnabled={(extension, enabled) => void workspace.setExtensionEnabled(extension, enabled)}
         />
       )}
+      {newAgentOpen ? (
+        <NewAgentDialog
+          suggestedAgentId={suggestedAgentId}
+          modelProfiles={workspace.modelProfiles}
+          creating={workspace.agentCreating}
+          error={workspace.agentCreateError}
+          onCancel={() => setNewAgentOpen(false)}
+          onCreate={(input) => {
+            void workspace.createAgent(input).then((created) => {
+              if (created) {
+                setNewAgentOpen(false);
+                setView("chat");
+              }
+            });
+          }}
+        />
+      ) : null}
     </div>
   );
 }

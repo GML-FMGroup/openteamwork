@@ -1,13 +1,16 @@
-import { app, BrowserWindow, ipcMain } from "electron";
+import { app, BrowserWindow, ipcMain, shell } from "electron";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import type { ClientDiagnostics } from "../../app/src/types";
 import {
   validateConnectionSettings,
+  validateAgentCreateRequest,
   validateExtensionEnablement,
   validateExtensionKind,
+  validateExternalUrl,
   validateIdentifier,
   validateRuntimeCommand,
+  validateProviderId,
   validateSendMessageInput,
   validateSetupApplyRequest,
   validateSetupHelloText,
@@ -83,6 +86,9 @@ app.whenReady().then(() => {
   ipcMain.handle("ppx-client:runtime-command", async (_event, command: unknown) =>
     adapter!.runRuntimeCommand(validateRuntimeCommand(command)),
   );
+  ipcMain.handle("ppx-client:create-agent", async (_event, input: unknown) =>
+    adapter!.createAgent(validateAgentCreateRequest(input)),
+  );
   ipcMain.handle("ppx-client:get-setup-status", async () => adapter!.getSetupStatus());
   ipcMain.handle("ppx-client:apply-setup", async (_event, request: unknown) =>
     adapter!.applySetup(validateSetupApplyRequest(request)),
@@ -94,6 +100,21 @@ app.whenReady().then(() => {
       validateSetupHelloText(text),
     ),
   );
+  ipcMain.handle("ppx-client:get-provider-models", async (_event, providerId: unknown) =>
+    adapter!.getProviderModels(validateProviderId(providerId)),
+  );
+  ipcMain.handle("ppx-client:get-provider-auth-status", async (_event, providerId: unknown) =>
+    adapter!.getProviderAuthStatus(validateProviderId(providerId)),
+  );
+  ipcMain.handle("ppx-client:begin-provider-auth", async (_event, providerId: unknown) =>
+    adapter!.beginProviderAuth(validateProviderId(providerId)),
+  );
+  ipcMain.handle("ppx-client:refresh-provider-auth", async (_event, providerId: unknown) =>
+    adapter!.refreshProviderAuth(validateProviderId(providerId)),
+  );
+  ipcMain.handle("ppx-client:open-external-url", async (_event, url: unknown) => {
+    await shell.openExternal(validateExternalUrl(url));
+  });
   ipcMain.handle("ppx-client:list-model-profiles", async () => adapter!.listModelProfiles());
   ipcMain.handle("ppx-client:get-operations-overview", async () => adapter!.getOperationsOverview());
   ipcMain.handle("ppx-client:list-operations-audit", async (_event, limit: unknown) =>

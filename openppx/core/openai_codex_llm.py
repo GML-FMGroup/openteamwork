@@ -1,7 +1,7 @@
 """ADK BaseLlm adapter for OpenAI Codex OAuth Responses API.
 
 This adapter maps ADK request/response primitives to Codex Responses API:
-- Reads OAuth token via `oauth_cli_kit.get_token()`
+- Reads the newest Node-owned Codex CLI OAuth login
 - Sends conversation and tool state as Codex `input` items
 - Parses SSE events into ADK `LlmResponse` with text and function calls
 """
@@ -139,17 +139,10 @@ class OpenAICodexLlm(BaseLlm):
 
 
 def _get_codex_token() -> Any:
-    """Load OAuth token for Codex usage from local oauth-cli-kit store."""
-    try:
-        from oauth_cli_kit import get_token
-    except ImportError as exc:  # pragma: no cover - environment dependency
-        raise RuntimeError("oauth-cli-kit is not installed. Run: pip install oauth-cli-kit") from exc
+    """Load OAuth token from the Node's reconciled Codex CLI credential source."""
+    from .codex_auth import get_codex_token
 
-    token = get_token()
-    if not token or not getattr(token, "access", ""):
-        raise RuntimeError(
-            "OpenAI Codex OAuth token missing. Run: ppx provider login openai-codex"
-        )
+    token = get_codex_token()
     if not getattr(token, "account_id", ""):
         raise RuntimeError("OpenAI Codex OAuth token is missing account_id.")
     return token
@@ -457,8 +450,15 @@ def _map_finish_reason(status: str) -> types.FinishReason:
 
 def _friendly_error(status_code: int, body_text: str) -> str:
     """Render user-friendly transport error for Codex responses API."""
+    del body_text  # Provider response bodies are not safe UI or Action projections.
     if status_code == 401:
-        return "Codex authentication failed. Please re-run: ppx provider login openai-codex"
+        return "Codex authentication failed on this Node. Reconnect the Codex login and try again."
+    if status_code == 403:
+        return "This Codex account is not allowed to use the selected model."
+    if status_code == 404:
+        return "The selected Codex model is not available for this account. Choose a model from the Node catalog."
     if status_code == 429:
-        return "Codex quota exceeded or rate limited. Please retry later."
-    return f"Codex HTTP {status_code}: {body_text}"
+        return "Codex quota is exhausted or temporarily rate limited. Try again later."
+    if status_code >= 500:
+        return "The Codex service is temporarily unavailable. Try again later."
+    return f"Codex rejected the model request (HTTP {status_code})."

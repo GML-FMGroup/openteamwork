@@ -130,3 +130,56 @@ def test_setup_hello_fails_closed_before_apply(tmp_path: Path) -> None:
 
     assert result.error is not None
     assert result.error.code == "setup_incomplete"
+
+
+def test_setup_hello_preserves_safe_codex_authentication_failure(tmp_path: Path) -> None:
+    application = build_control_plane(
+        tmp_path,
+        secret_store=InMemorySecretStore(),
+        product_version="test",
+    )
+    application.invoke("setup.apply", {"request": setup_payload(tmp_path)}, setup_context())
+
+    class FailedRuntime(FakeSetupRuntime):
+        def hello_sync(self, agent_id: str, text: str, *, user_id: str, session_id: str) -> str:
+            raise RuntimeError(
+                "CODEX_ERROR: Codex authentication failed on this Node. "
+                "Reconnect the Codex login and try again."
+            )
+
+    application.attach_runtime(FailedRuntime())
+    result = application.invoke(
+        "setup.hello",
+        {"agentId": "main", "userId": "ppx-client-user", "text": "Hello OpenPPX"},
+        setup_context(),
+    )
+
+    assert result.error is not None
+    assert result.error.code == "provider_authentication_failed"
+    assert result.error.message == (
+        "Codex authentication failed on this Node. Reconnect the Codex login and try again."
+    )
+
+
+def test_setup_hello_preserves_safe_codex_model_access_failure(tmp_path: Path) -> None:
+    application = build_control_plane(
+        tmp_path,
+        secret_store=InMemorySecretStore(),
+        product_version="test",
+    )
+    application.invoke("setup.apply", {"request": setup_payload(tmp_path)}, setup_context())
+
+    class FailedRuntime(FakeSetupRuntime):
+        def hello_sync(self, agent_id: str, text: str, *, user_id: str, session_id: str) -> str:
+            raise RuntimeError("CODEX_ERROR: This Codex account is not allowed to use the selected model.")
+
+    application.attach_runtime(FailedRuntime())
+    result = application.invoke(
+        "setup.hello",
+        {"agentId": "main", "userId": "ppx-client-user", "text": "Hello OpenPPX"},
+        setup_context(),
+    )
+
+    assert result.error is not None
+    assert result.error.code == "provider_access_denied"
+    assert result.error.message == "This Codex account is not allowed to use the selected model."

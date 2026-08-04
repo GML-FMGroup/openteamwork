@@ -1,5 +1,12 @@
 import type { Dispatch, SetStateAction } from "react";
-import type { ClientDiagnostics, ConnectionSettings, SetupForm, SetupStatusResult } from "../../types";
+import type {
+  ClientDiagnostics,
+  ConnectionSettings,
+  ModelCatalogResult,
+  ProviderAuthStatus,
+  SetupForm,
+  SetupStatusResult,
+} from "../../types";
 
 interface OnboardingViewProps {
   status: SetupStatusResult;
@@ -10,12 +17,19 @@ interface OnboardingViewProps {
   testingConnection: boolean;
   savingConnection: boolean;
   error: string | null;
+  providerModels: ModelCatalogResult | null;
+  providerAuth: ProviderAuthStatus | null;
+  providerAccessLoading: boolean;
+  providerAccessError: string | null;
   connectionFeedback: string | null;
   setForm: Dispatch<SetStateAction<SetupForm>>;
   setConnection: Dispatch<SetStateAction<ConnectionSettings>>;
   onTestConnection: () => void;
   onSaveConnection: () => void;
   onSubmit: () => void;
+  onBeginProviderAuth: () => void;
+  onRefreshProviderAuth: () => void;
+  onOpenProviderAuthPage: () => void;
 }
 
 function SetupStep({ complete, label }: { complete: boolean; label: string }) {
@@ -37,14 +51,22 @@ export function OnboardingView({
   testingConnection,
   savingConnection,
   error,
+  providerModels,
+  providerAuth,
+  providerAccessLoading,
+  providerAccessError,
   connectionFeedback,
   setForm,
   setConnection,
   onTestConnection,
   onSaveConnection,
   onSubmit,
+  onBeginProviderAuth,
+  onRefreshProviderAuth,
+  onOpenProviderAuthPage,
 }: OnboardingViewProps) {
   const provider = status.providers.find((item) => item.id === form.provider);
+  const usesNodeCodexAuth = provider?.id === "openai_codex";
   const configured = status.state === "configured";
   const canSubmit = Boolean(
     form.nodeId.trim() &&
@@ -55,6 +77,7 @@ export function OnboardingView({
       form.profileId.trim() &&
       form.model.trim() &&
       form.hello.trim() &&
+      (!usesNodeCodexAuth || providerAuth?.state === "authenticated") &&
       (provider?.credentialMode !== "api_key" || form.apiKey.trim() || status.steps.credential === "available"),
   );
 
@@ -141,13 +164,12 @@ export function OnboardingView({
               <label><span>Node name</span><input value={form.nodeName} onChange={(event) => setForm((current) => ({ ...current, nodeName: event.target.value }))} /></label>
               <label><span>Agent name</span><input value={form.agentName} onChange={(event) => setForm((current) => ({ ...current, agentName: event.target.value }))} /></label>
               <label className="full-row"><span>Workspace folder</span><input value={form.workspace} onChange={(event) => setForm((current) => ({ ...current, workspace: event.target.value }))} spellCheck={false} /></label>
-              <label>
+              <label className="full-row compact-field">
                 <span>Privilege</span>
                 <select value={form.privilegeLevel} onChange={(event) => setForm((current) => ({ ...current, privilegeLevel: event.target.value as SetupForm["privilegeLevel"] }))}>
                   <option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option><option value="root">Root</option>
                 </select>
               </label>
-              <label><span>Owner</span><input value={form.ownerPrincipalId} onChange={(event) => setForm((current) => ({ ...current, ownerPrincipalId: event.target.value }))} /></label>
             </div>
           </section>
 
@@ -171,14 +193,58 @@ export function OnboardingView({
                   {status.providers.map((item) => <option value={item.id} key={item.id}>{item.displayName}</option>)}
                 </select>
               </label>
-              <label><span>Model</span><input value={form.model} onChange={(event) => setForm((current) => ({ ...current, model: event.target.value }))} spellCheck={false} /></label>
+              <label>
+                <span>Model</span>
+                {providerModels?.authoritative ? (
+                  <select
+                    value={form.model}
+                    disabled={providerAccessLoading || providerModels.items.length === 0}
+                    onChange={(event) => setForm((current) => ({ ...current, model: event.target.value }))}
+                  >
+                    {providerModels.items.map((item) => (
+                      <option value={item.id} key={item.id}>{item.displayName}</option>
+                    ))}
+                  </select>
+                ) : (
+                  <input value={form.model} onChange={(event) => setForm((current) => ({ ...current, model: event.target.value }))} spellCheck={false} />
+                )}
+              </label>
               {provider?.credentialMode === "api_key" ? (
                 <label className="full-row">
                   <span>API key</span>
                   <input type="password" autoComplete="new-password" value={form.apiKey} onChange={(event) => setForm((current) => ({ ...current, apiKey: event.target.value }))} placeholder={status.steps.credential === "available" ? "Saved securely; leave blank to keep it" : "Stored in the system credential store"} />
                 </label>
+              ) : usesNodeCodexAuth ? (
+                <div className="onboarding-auth-card full-row">
+                  <div className="onboarding-auth-copy">
+                    <span className={`auth-state-dot ${providerAuth?.state === "authenticated" ? "is-ready" : ""}`} aria-hidden="true" />
+                    <div>
+                      <strong>{providerAuth?.state === "authenticated" ? "Authenticated on this Node" : providerAuth?.state === "pending" ? "Waiting for sign-in" : "ChatGPT sign-in required"}</strong>
+                      <p>{providerAuth?.state === "authenticated"
+                        ? "OpenPPX will use this Node's Codex CLI login. Credentials stay on the Node."
+                        : "Use device-code sign-in so this also works when the Node is on another machine."}</p>
+                    </div>
+                  </div>
+                  {providerAuth?.session?.userCode && providerAuth.state === "pending" ? (
+                    <div className="onboarding-device-code">
+                      <span>ONE-TIME CODE</span>
+                      <strong>{providerAuth.session.userCode}</strong>
+                      <button type="button" className="secondary" onClick={onOpenProviderAuthPage}>Open sign-in page</button>
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      className="secondary"
+                      onClick={providerAuth?.state === "authenticated" ? onRefreshProviderAuth : onBeginProviderAuth}
+                      disabled={providerAccessLoading}
+                    >
+                      {providerAccessLoading ? "Checking…" : providerAuth?.state === "authenticated" ? "Recheck" : "Sign in with ChatGPT"}
+                    </button>
+                  )}
+                  {providerAccessError ? <p className="onboarding-auth-error" role="alert">{providerAccessError}</p> : null}
+                </div>
               ) : provider?.credentialMode === "oauth" ? (
-                <p className="onboarding-provider-note full-row">This provider uses its existing OAuth login. OpenPPX never copies that token into configuration.</p>
+                <p className="onboarding-provider-note full-row">This provider uses credentials already available on the Node.</p>
               ) : null}
               <label className="full-row"><span>First message</span><input value={form.hello} onChange={(event) => setForm((current) => ({ ...current, hello: event.target.value }))} /></label>
             </div>

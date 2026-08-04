@@ -14,6 +14,9 @@ import type {
   SetupHelloResult,
   SetupStatusResult,
   OperationsOverviewResult,
+  ModelCatalogResult,
+  ProviderAuthStatus,
+  AgentCreateResult,
 } from "@openppx/client";
 
 export type {
@@ -38,9 +41,16 @@ export type {
   HealthState,
   OperationsHealthResult,
   OperationsOverviewResult,
+  ModelCatalogResult,
+  ProviderAuthStatus,
+  ProviderModel,
+  AgentCreateResult,
 } from "@openppx/client";
 
 export type RuntimeState = "stopped" | "starting" | "reconnecting" | "healthy" | "error";
+
+/** Stable local human identity shared by Desktop and CLI control surfaces. */
+export const LOCAL_USER_ID = "ppx-client-user";
 
 export interface ConnectionTarget {
   id: string;
@@ -108,6 +118,14 @@ export interface ExtensionEnablementRequest {
   enabled: boolean;
 }
 
+export interface AgentCreateRequest {
+  agentId: string;
+  displayName: string;
+  workspace: string | null;
+  privilegeLevel: "low" | "medium" | "high" | "root";
+  modelProfileId: string;
+}
+
 export interface SlashCommandRequest {
   rawCommand: string;
   agentId?: string | null;
@@ -159,6 +177,7 @@ export interface PpxClientApi {
   testConnectionSettings(settings: ConnectionSettings): Promise<ClientDiagnostics>;
   saveConnectionSettings(settings: ConnectionSettings): Promise<ClientDiagnostics>;
   runRuntimeCommand(command: RuntimeCommand): Promise<RuntimeStatus>;
+  createAgent(input: AgentCreateRequest): Promise<AgentCreateResult>;
   listSessions(agentId: string): Promise<{ sessions: SessionSummary[] }>;
   createSession(agentId: string): Promise<{ session: SessionSummary }>;
   loadSession(sessionId: string): Promise<{ messages: ChatMessage[] }>;
@@ -169,6 +188,11 @@ export interface PpxClientApi {
   getSetupStatus(): Promise<SetupStatusResult>;
   applySetup(request: SetupApplyRequest): Promise<SetupApplyResult>;
   runSetupHello(agentId: string, userId: string, text: string): Promise<SetupHelloResult>;
+  getProviderModels(providerId: string): Promise<ModelCatalogResult>;
+  getProviderAuthStatus(providerId: string): Promise<ProviderAuthStatus>;
+  beginProviderAuth(providerId: string): Promise<ProviderAuthStatus>;
+  refreshProviderAuth(providerId: string): Promise<ProviderAuthStatus>;
+  openExternalUrl(url: string): Promise<void>;
   listModelProfiles(): Promise<{ profiles: ModelProfileSummary[] }>;
   getOperationsOverview(): Promise<OperationsOverviewResult>;
   listOperationsAudit(limit?: number): Promise<{ items: OperationsAuditItem[] }>;

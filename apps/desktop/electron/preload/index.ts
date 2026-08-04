@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from "electron";
-import type { ConnectionSettings, ExtensionEnablementRequest, PpxClientApi, RunEvent, RuntimeCommand, SendMessageInput, SetupApplyRequest, SlashCommandRequest } from "../../app/src/types";
+import type { AgentCreateRequest, ConnectionSettings, ExtensionEnablementRequest, PpxClientApi, RunEvent, RuntimeCommand, SendMessageInput, SetupApplyRequest, SlashCommandRequest } from "../../app/src/types";
 
 const api: PpxClientApi = {
   bootstrap: () => ipcRenderer.invoke("ppx-client:bootstrap"),
@@ -7,10 +7,16 @@ const api: PpxClientApi = {
   testConnectionSettings: (settings: ConnectionSettings) => ipcRenderer.invoke("ppx-client:test-connection-settings", settings),
   saveConnectionSettings: (settings: ConnectionSettings) => ipcRenderer.invoke("ppx-client:save-connection-settings", settings),
   runRuntimeCommand: (command: RuntimeCommand) => ipcRenderer.invoke("ppx-client:runtime-command", command),
+  createAgent: (input: AgentCreateRequest) => ipcRenderer.invoke("ppx-client:create-agent", input),
   getSetupStatus: () => ipcRenderer.invoke("ppx-client:get-setup-status"),
   applySetup: (request: SetupApplyRequest) => ipcRenderer.invoke("ppx-client:apply-setup", request),
   runSetupHello: (agentId: string, userId: string, text: string) =>
     ipcRenderer.invoke("ppx-client:run-setup-hello", agentId, userId, text),
+  getProviderModels: (providerId: string) => ipcRenderer.invoke("ppx-client:get-provider-models", providerId),
+  getProviderAuthStatus: (providerId: string) => ipcRenderer.invoke("ppx-client:get-provider-auth-status", providerId),
+  beginProviderAuth: (providerId: string) => ipcRenderer.invoke("ppx-client:begin-provider-auth", providerId),
+  refreshProviderAuth: (providerId: string) => ipcRenderer.invoke("ppx-client:refresh-provider-auth", providerId),
+  openExternalUrl: (url: string) => ipcRenderer.invoke("ppx-client:open-external-url", url),
   listModelProfiles: () => ipcRenderer.invoke("ppx-client:list-model-profiles"),
   getOperationsOverview: () => ipcRenderer.invoke("ppx-client:get-operations-overview"),
   listOperationsAudit: (limit?: number) => ipcRenderer.invoke("ppx-client:list-operations-audit", limit),

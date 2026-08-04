@@ -1,12 +1,15 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type {
   AgentProfile,
+  AgentCreateRequest,
   BootstrapPayload,
   ChatMessage,
   ClientDiagnostics,
   ConnectionSettings,
   ExtensionSummary,
   ModelProfileSummary,
+  ModelCatalogResult,
+  ProviderAuthStatus,
   OperationsAuditItem,
   OperationsOverviewResult,
   RuntimeStatus,
@@ -18,6 +21,7 @@ import type {
   SlashCommandResult,
 } from "../types";
 import { normalizeConnectionSettings } from "../lib/connection-profile";
+import { LOCAL_USER_ID } from "../types";
 import { useActiveRuns } from "./use-active-runs";
 import { useConnectionRecovery } from "./use-connection-recovery";
 
@@ -79,7 +83,7 @@ function initialSetupForm(): SetupForm {
     agentId: "main",
     agentName: "Main",
     workspace: "",
-    ownerPrincipalId: "ppx-client-user",
+    ownerPrincipalId: LOCAL_USER_ID,
     privilegeLevel: "medium",
     profileId: "primary",
     provider: "google",
@@ -258,6 +262,8 @@ export function useDesktopWorkspace() {
   const [runtime, setRuntime] = useState<RuntimeStatus | null>(null);
   const [diagnostics, setDiagnostics] = useState<ClientDiagnostics | null>(null);
   const [agents, setAgents] = useState<AgentProfile[]>([]);
+  const [agentCreating, setAgentCreating] = useState(false);
+  const [agentCreateError, setAgentCreateError] = useState<string | null>(null);
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [selectedAgentId, setSelectedAgentId] = useState("");
@@ -278,6 +284,10 @@ export function useDesktopWorkspace() {
   const [setupForm, setSetupForm] = useState<SetupForm>(initialSetupForm);
   const [setupSubmitting, setSetupSubmitting] = useState(false);
   const [setupError, setSetupError] = useState<string | null>(null);
+  const [providerModels, setProviderModels] = useState<ModelCatalogResult | null>(null);
+  const [providerAuth, setProviderAuth] = useState<ProviderAuthStatus | null>(null);
+  const [providerAccessLoading, setProviderAccessLoading] = useState(false);
+  const [providerAccessError, setProviderAccessError] = useState<string | null>(null);
   const [modelProfiles, setModelProfiles] = useState<ModelProfileSummary[]>([]);
   const [operationsOverview, setOperationsOverview] = useState<OperationsOverviewResult | null>(null);
   const [operationsAudit, setOperationsAudit] = useState<OperationsAuditItem[]>([]);
@@ -461,6 +471,66 @@ export function useDesktopWorkspace() {
     setConnectionForm(buildConnectionSettings(diagnostics));
   }, [diagnostics]);
 
+  useEffect(() => {
+    if (!setupStatus || !setupForm.provider) {
+      return;
+    }
+    let active = true;
+    const provider = setupStatus.providers.find((item) => item.id === setupForm.provider);
+    setProviderAccessLoading(true);
+    setProviderAccessError(null);
+    setProviderAuth(null);
+    Promise.all([
+      window.ppxClient.getProviderModels(setupForm.provider),
+      provider?.id === "openai_codex"
+        ? window.ppxClient.getProviderAuthStatus(setupForm.provider)
+        : Promise.resolve(null),
+    ])
+      .then(([catalog, auth]) => {
+        if (!active) return;
+        setProviderModels(catalog);
+        setProviderAuth(auth);
+        if (catalog.authoritative && !catalog.items.some((item) => item.id === setupForm.model)) {
+          const nextModel = catalog.items[0]?.id ?? catalog.defaultModel;
+          setSetupForm((current) => current.provider === catalog.providerId
+            ? { ...current, model: nextModel }
+            : current);
+        }
+      })
+      .catch((error: unknown) => {
+        if (active) {
+          setProviderModels(null);
+          setProviderAccessError(error instanceof Error ? error.message : String(error));
+        }
+      })
+      .finally(() => {
+        if (active) setProviderAccessLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [setupForm.provider, setupStatus]);
+
+  useEffect(() => {
+    if (providerAuth?.state !== "pending") {
+      return;
+    }
+    const timer = window.setInterval(() => {
+      void window.ppxClient.getProviderAuthStatus(providerAuth.providerId)
+        .then((status) => {
+          setProviderAuth(status);
+          if (status.state === "authenticated") setProviderAccessError(null);
+          if (status.session?.state === "failed") {
+            setProviderAccessError(status.session.error ?? "Codex sign-in did not complete.");
+          }
+        })
+        .catch((error: unknown) => {
+          setProviderAccessError(error instanceof Error ? error.message : String(error));
+        });
+    }, 1_500);
+    return () => window.clearInterval(timer);
+  }, [providerAuth?.providerId, providerAuth?.state]);
+
   const applyConnectionBootstrap = (payload: BootstrapPayload): void => {
     setRuntime(payload.runtime);
     setAgents(payload.agents);
@@ -551,6 +621,35 @@ export function useDesktopWorkspace() {
       setSessions([created.session]);
       selectSessionId(created.session.id);
       replaceMessages([]);
+    }
+  }
+
+  async function createAgent(input: AgentCreateRequest): Promise<boolean> {
+    setAgentCreating(true);
+    setAgentCreateError(null);
+    setSendError(null);
+    try {
+      const result = await window.ppxClient.createAgent(input);
+      const nextAgent: AgentProfile = result.agent;
+      setAgents((current) => [...current.filter((agent) => agent.id !== nextAgent.id), nextAgent]);
+      selectAgentId(nextAgent.id);
+      selectSessionId("");
+      setSessions([]);
+      replaceMessages([]);
+      setDiagnostics((current) => current ? { ...current, agentCount: current.agentCount + 1 } : current);
+      try {
+        const created = await window.ppxClient.createSession(nextAgent.id);
+        setSessions([created.session]);
+        selectSessionId(created.session.id);
+      } catch (error) {
+        setSendError(error instanceof Error ? error.message : String(error));
+      }
+      return true;
+    } catch (error) {
+      setAgentCreateError(error instanceof Error ? error.message : String(error));
+      return false;
+    } finally {
+      setAgentCreating(false);
     }
   }
 
@@ -647,6 +746,38 @@ export function useDesktopWorkspace() {
     } finally {
       setSetupSubmitting(false);
     }
+  }
+
+  async function beginProviderAuth(): Promise<void> {
+    setProviderAccessLoading(true);
+    setProviderAccessError(null);
+    try {
+      const status = await window.ppxClient.beginProviderAuth(setupForm.provider);
+      setProviderAuth(status);
+      const url = status.session?.verificationUrl;
+      if (url) await window.ppxClient.openExternalUrl(url);
+    } catch (error) {
+      setProviderAccessError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setProviderAccessLoading(false);
+    }
+  }
+
+  async function refreshProviderAuth(): Promise<void> {
+    setProviderAccessLoading(true);
+    setProviderAccessError(null);
+    try {
+      setProviderAuth(await window.ppxClient.refreshProviderAuth(setupForm.provider));
+    } catch (error) {
+      setProviderAccessError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setProviderAccessLoading(false);
+    }
+  }
+
+  async function openProviderAuthPage(): Promise<void> {
+    const url = providerAuth?.session?.verificationUrl;
+    if (url) await window.ppxClient.openExternalUrl(url);
   }
 
   async function setExtensionEnabled(extension: ExtensionSummary, enabled: boolean): Promise<void> {
@@ -884,6 +1015,9 @@ export function useDesktopWorkspace() {
     runtime,
     diagnostics,
     agents,
+    agentCreating,
+    agentCreateError,
+    clearAgentCreateError: () => setAgentCreateError(null),
     sessions,
     messages,
     selectedAgentId,
@@ -913,6 +1047,10 @@ export function useDesktopWorkspace() {
     setSetupForm,
     setupSubmitting,
     setupError,
+    providerModels,
+    providerAuth,
+    providerAccessLoading,
+    providerAccessError,
     modelProfiles,
     operationsOverview,
     operationsAudit,
@@ -920,6 +1058,7 @@ export function useDesktopWorkspace() {
     operationsError,
     transcriptResetKey,
     switchAgent,
+    createAgent,
     switchSession,
     runRuntimeAction,
     stopRuntime,
@@ -927,6 +1066,9 @@ export function useDesktopWorkspace() {
     refreshExtensions,
     refreshModelProfiles,
     completeSetup,
+    beginProviderAuth,
+    refreshProviderAuth,
+    openProviderAuthPage,
     setExtensionEnabled,
     saveConnection,
     testConnection,

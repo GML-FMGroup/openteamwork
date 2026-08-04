@@ -8,7 +8,29 @@ from pathlib import Path
 from openppx.actions import ActionContext
 from openppx.config import InMemorySecretStore, SecretRef, SecretValue
 from openppx.control_plane import build_control_plane
-from openppx.modeling import ModelProfile
+from openppx.modeling import ModelCatalog, ModelProfile, ProviderAccessService
+
+
+class FakeProviderAccess(ProviderAccessService):
+    """Secret-free provider fixture for Action projection tests."""
+
+    def __init__(self, tmp_path: Path) -> None:
+        self.catalog = ModelCatalog(codex_home=tmp_path / "codex-home")
+
+    def list_models(self, provider_id: str) -> dict[str, object]:
+        return {
+            "providerId": provider_id,
+            "source": "fixture",
+            "authoritative": True,
+            "defaultModel": "openai-codex/gpt-test",
+            "items": [{"id": "openai-codex/gpt-test", "displayName": "GPT Test", "description": "", "defaultReasoningEffort": None, "reasoningEfforts": []}],
+        }
+
+    def auth_status(self, provider_id: str) -> dict[str, object]:
+        return {"providerId": provider_id, "state": "authenticated", "source": "codex_cli", "expiresAt": None, "loginMode": "device_code", "session": None}
+
+    def close(self) -> None:
+        pass
 
 
 def node_payload(*, display_name: str = "Test Node") -> dict[str, object]:
@@ -186,6 +208,50 @@ def test_model_actions_return_readiness_without_secret_material(tmp_path: Path) 
     assert selection.data["profileId"] == "primary"
     assert selection.data["provider"] == "openai"
     assert "never-visible" not in str(selection)
+
+
+def test_provider_catalog_and_auth_actions_are_node_owned_and_secret_free(tmp_path: Path) -> None:
+    provider_access = FakeProviderAccess(tmp_path)
+    application = build_control_plane(
+        tmp_path,
+        secret_store=InMemorySecretStore(),
+        provider_access=provider_access,
+        product_version="test",
+    )
+
+    catalog = application.invoke("model.catalog.list", {"providerId": "openai_codex"}, context())
+    auth = application.invoke("model.auth.status", {"providerId": "openai_codex"}, context())
+
+    assert catalog.ok and catalog.data["items"][0]["id"] == "openai-codex/gpt-test"
+    assert auth.ok and auth.data["state"] == "authenticated"
+    assert "token" not in str((catalog, auth)).lower()
+    assert application.registry.resolve("model.catalog.list").spec.scope == "node"
+    assert application.registry.resolve("model.auth.status").spec.scope == "node"
+
+
+def test_agent_create_action_publishes_safe_profile_without_owner_projection(tmp_path: Path) -> None:
+    application = configured_application(tmp_path)
+
+    created = application.invoke(
+        "agent.create",
+        {
+            "agentId": "research",
+            "displayName": "Research",
+            "workspace": None,
+            "ownerPrincipalId": "ppx-client-user",
+            "privilegeLevel": "medium",
+            "modelProfileId": "primary",
+        },
+        context(),
+    )
+    listed = application.invoke("config.agent.list", {}, context())
+
+    assert created.ok
+    assert created.data["agent"]["id"] == "research"
+    assert created.data["effect"] == "next_run"
+    assert "owner" not in str(created.data).lower()
+    assert [item["id"] for item in listed.data["items"]] == ["low-main", "research"]
+    assert application.registry.resolve("agent.create").spec.scope == "node"
 
 
 def test_slash_command_catalog_and_invocation_share_action_authorization(tmp_path: Path) -> None:

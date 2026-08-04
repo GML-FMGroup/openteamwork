@@ -199,6 +199,85 @@ describe("OpenPPX Client public contract", () => {
     }
   });
 
+  it("routes provider catalog and authentication through the model Action facade", async () => {
+    const responses = [
+      { providerId: "openai_codex", source: "codex_cli", authoritative: true, defaultModel: "openai-codex/gpt-5.5", items: [] },
+      { providerId: "openai_codex", state: "authenticated", source: "codex_cli", expiresAt: null, loginMode: "device_code", session: null },
+    ];
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({
+      protocolVersion: 1,
+      requestId: "request-provider",
+      correlationId: "request-provider",
+      ok: true,
+      result: responses.shift(),
+    }), { status: 200, headers: { "Content-Type": "application/json" } }));
+    const client = new OpenPpxClient({
+      baseUrl: "http://127.0.0.1:18765",
+      fetch: fetchMock as unknown as typeof fetch,
+      idFactory: () => "request-provider",
+    });
+
+    await client.model.catalog("openai_codex");
+    await client.model.authStatus("openai_codex");
+
+    const calls = fetchMock.mock.calls as unknown as Array<[string, RequestInit]>;
+    const bodies = calls.map((call) => JSON.parse(String(call[1].body)));
+    expect(bodies.map((body) => body.actionId)).toEqual(["model.catalog.list", "model.auth.status"]);
+    expect(bodies.every((body) => body.input.providerId === "openai_codex")).toBe(true);
+  });
+
+  it("creates Agents through the typed Node Action facade", async () => {
+    const result = {
+      agent: {
+        id: "research",
+        name: "Research",
+        description: "Workspace: /node/workspaces/research",
+        enabled: true,
+        status: "healthy",
+        workspace: "/node/workspaces/research",
+        avatar: null,
+        tags: ["local", "openppx"],
+        revision: "sha256:agent",
+      },
+      nodeRevision: "sha256:node",
+      effect: "next_run",
+    };
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({
+      protocolVersion: 1,
+      requestId: "request-agent-create",
+      correlationId: "request-agent-create",
+      ok: true,
+      result,
+    }), { status: 200, headers: { "Content-Type": "application/json" } }));
+    const client = new OpenPpxClient({
+      baseUrl: "http://127.0.0.1:18765",
+      fetch: fetchMock as unknown as typeof fetch,
+      idFactory: () => "request-agent-create",
+    });
+
+    await expect(client.agent.create({
+      agentId: "research",
+      displayName: "Research",
+      workspace: null,
+      ownerPrincipalId: "ppx-client-user",
+      privilegeLevel: "medium",
+      modelProfileId: "primary",
+    })).resolves.toMatchObject({ result });
+
+    const body = JSON.parse(String((fetchMock.mock.calls[0] as unknown as [string, RequestInit])[1].body));
+    expect(body).toMatchObject({
+      actionId: "agent.create",
+      input: {
+        agentId: "research",
+        displayName: "Research",
+        workspace: null,
+        ownerPrincipalId: "ppx-client-user",
+        privilegeLevel: "medium",
+        modelProfileId: "primary",
+      },
+    });
+  });
+
   it("lists typed Extensions through the shared Action contract", async () => {
     const fetchMock = vi.fn(async () =>
       new Response(JSON.stringify(extensionListSuccess), {

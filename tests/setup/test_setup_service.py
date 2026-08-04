@@ -66,7 +66,7 @@ def build_service(tmp_path: Path) -> tuple[SetupService, InMemorySecretStore]:
     repository = FilesystemConfigRepository(tmp_path)
     profiles = ModelProfileRepository(tmp_path)
     secrets = InMemorySecretStore()
-    catalog = ModelCatalog()
+    catalog = ModelCatalog(codex_home=tmp_path / "codex-home")
     selector = ModelProfileSelector(profiles, catalog, secrets)
     config_service = ConfigService(repository, profiles, selector)
     return SetupService(repository, config_service, profiles, catalog, secrets), secrets
@@ -139,7 +139,7 @@ def test_oauth_provider_uses_external_login_instead_of_secret_ref(tmp_path: Path
     service, _secrets = build_service(tmp_path)
     payload = setup_payload(tmp_path, api_key=None)
     payload["profile"]["spec"].update(  # type: ignore[index]
-        {"provider": "openai_codex", "model": "openai-codex/gpt-5.1-codex", "credential": None}
+        {"provider": "openai_codex", "model": "openai-codex/gpt-5.5", "credential": None}
     )
     request = SetupApplyRequest.model_validate(payload)
 
