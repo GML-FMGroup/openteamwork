@@ -6,6 +6,7 @@ The current source tree is a developer preview. It is not yet a stable or produc
 
 ## News
 
+- **2026-08-04 — v0.5.2 Developer Preview:** published the unified Node architecture as a prerelease, including governed Config and Actions, Plugin/App/MCP/Skill extensions, Operations, OpenAI Codex authentication, Agent and Model Profile management, and a more polished Desktop workspace. The release remains intended for developer evaluation rather than production use.
 - **2026-08-04 — Node architecture baseline:** the development branch now uses one Node, Action, Config, Extension, Operations, and Client Contract architecture. First setup, model profiles, Plugin/App/MCP/Skill management, slash commands, audit, usage, Cron, Heartbeat, Desktop onboarding, and LAN access share the same backend facts. The previous parallel runtime and configuration paths have been removed rather than retained as compatibility layers.
 - **2026-08-02 — Desktop v0.5.1 Developer Preview:** published a prerelease with the three-column workspace, local/LAN Node connection, resizable panels, improved Run streaming, and the reusable TypeScript client.
 

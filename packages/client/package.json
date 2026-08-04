@@ -1,6 +1,6 @@
 {
   "name": "@openppx/client",
-  "version": "0.5.1",
+  "version": "0.5.2",
   "private": true,
   "description": "Transport-neutral TypeScript client primitives for the OpenPPX Client API",
   "license": "Apache-2.0",
