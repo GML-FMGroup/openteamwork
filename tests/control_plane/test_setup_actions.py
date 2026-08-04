@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -77,6 +78,29 @@ def test_setup_actions_apply_empty_root_and_complete_first_hello(tmp_path: Path)
     }
     ready = application.invoke("setup.status", {}, setup_context())
     assert ready.ok and ready.data["state"] == "ready"
+
+
+def test_setup_status_action_preserves_invalid_profile_diagnostic(tmp_path: Path) -> None:
+    application = build_control_plane(
+        tmp_path,
+        secret_store=InMemorySecretStore(),
+        product_version="test",
+    )
+    applied = application.invoke("setup.apply", {"request": setup_payload(tmp_path)}, setup_context())
+    assert applied.ok
+    profile_path = tmp_path / "model-profiles" / "primary" / "profile.json"
+    payload = json.loads(profile_path.read_text(encoding="utf-8"))
+    del payload["spec"]["displayName"]
+    profile_path.write_text(json.dumps(payload), encoding="utf-8")
+
+    result = application.invoke("setup.status", {}, setup_context())
+
+    assert result.ok
+    assert result.data["state"] == "needs_configuration"
+    assert result.data["steps"]["model"] == "invalid"
+    assert result.data["diagnostic"]["component"] == "model"
+    assert result.data["diagnostic"]["errorKind"] == "invalid_schema"
+    assert str(tmp_path) not in repr(result.data["diagnostic"])
 
 
 def test_secret_action_never_returns_or_reports_value(tmp_path: Path) -> None:

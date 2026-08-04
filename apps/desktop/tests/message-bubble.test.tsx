@@ -24,6 +24,19 @@ function buildMessage(overrides: Partial<ChatMessage> = {}): ChatMessage {
 }
 
 describe("MessageBubble", () => {
+  it("renders ordinary assistant replies on the transcript canvas instead of a card surface", () => {
+    const { container } = render(
+      <MessageBubble
+        message={buildMessage({
+          status: "completed",
+          parts: [{ type: "markdown", text: "A plain assistant reply" }],
+        })}
+      />,
+    );
+
+    expect(container.querySelector(".message-bubble.assistant.plain-assistant")).toBeInTheDocument();
+  });
+
   it("keeps user identity metadata out of the bubble and exposes copy/time actions", async () => {
     const writeText = vi.fn().mockResolvedValue(undefined);
     Object.defineProperty(navigator, "clipboard", {

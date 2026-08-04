@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
@@ -122,6 +123,42 @@ def test_setup_errors_and_results_never_retain_secret_value(tmp_path: Path) -> N
     assert "secret-canary-value" not in repr(request)
     assert "secret-canary-value" not in repr(result)
     assert "secret-canary-value" not in repr(service.status())
+
+
+def test_setup_status_reports_invalid_profile_without_raising(tmp_path: Path) -> None:
+    service, _secrets = build_service(tmp_path)
+    service.apply(SetupApplyRequest.model_validate(setup_payload(tmp_path)))
+    profile_path = tmp_path / "model-profiles" / "primary" / "profile.json"
+    payload = json.loads(profile_path.read_text(encoding="utf-8"))
+    del payload["spec"]["displayName"]
+    profile_path.write_text(json.dumps(payload), encoding="utf-8")
+
+    status = service.status()
+
+    assert status["state"] == "needs_configuration"
+    assert status["steps"] == {
+        "node": "complete",
+        "agent": "complete",
+        "model": "invalid",
+        "credential": "not_required",
+        "hello": "not_started",
+    }
+    assert isinstance(status["revisions"]["node"], str)
+    assert isinstance(status["revisions"]["agent"], str)
+    assert status["revisions"]["profile"] is None
+    assert status["diagnostic"] == {
+        "component": "model",
+        "errorKind": "invalid_schema",
+        "issues": [
+            {
+                "code": "invalid_value",
+                "path": ["spec", "displayName"],
+                "message": "Setting has an invalid value.",
+                "source": "model-profile:primary",
+            }
+        ],
+    }
+    assert str(tmp_path) not in repr(status["diagnostic"])
 
 
 def test_setup_rejects_relative_workspace_before_writing_resources(tmp_path: Path) -> None:

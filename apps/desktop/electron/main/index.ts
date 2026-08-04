@@ -74,6 +74,7 @@ function createWindow(): void {
 
 app.whenReady().then(() => {
   ipcMain.handle("ppx-client:bootstrap", async () => adapter!.bootstrap());
+  ipcMain.handle("ppx-client:get-user-profile", () => adapter!.getUserProfile());
   ipcMain.handle("ppx-client:get-diagnostics", async () => withDesktopVersion(await adapter!.getDiagnostics()));
   ipcMain.handle("ppx-client:test-connection-settings", async (_event, settings: unknown) => {
     const candidate = resolveCandidateConnectionSettings(validateConnectionSettings(settings));

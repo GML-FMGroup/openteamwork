@@ -53,6 +53,7 @@ import type {
   SetupApplyResult,
   SetupHelloResult,
   SetupStatusResult,
+  UserProfile,
 } from "../../app/src/types";
 import { shouldStartManagedNode } from "./node-start-policy";
 import { LOCAL_USER_ID } from "../../app/src/types";
@@ -60,6 +61,7 @@ import { ClientApiConnection } from "./client-api-connection";
 import { ClientApiRunStream } from "./client-api-run-stream";
 import { ClientApiSessionCache } from "./client-api-session-cache";
 import { LocalNodeSupervisor } from "./local-node-supervisor";
+import { resolveLocalUserProfile } from "./local-user-profile";
 
 type EventSink = (event: RunEvent) => void;
 type StepPart = Extract<MessagePart, { type: "step_ref" }>;
@@ -125,7 +127,7 @@ function normalizeAgentProfile(payload: Record<string, unknown>): AgentProfile {
   };
 }
 
-export class OpenPpxLocalAdapter implements Omit<PpxClientApi, "openExternalUrl"> {
+export class OpenPpxLocalAdapter implements Omit<PpxClientApi, "openExternalUrl" | "platform"> {
   private readonly listeners = new Set<EventSink>();
 
   private readonly openppxRoot = detectOpenPpxRoot();
@@ -439,6 +441,10 @@ export class OpenPpxLocalAdapter implements Omit<PpxClientApi, "openExternalUrl"
       selectedAgentId,
       selectedSessionId,
     };
+  }
+
+  public async getUserProfile(): Promise<UserProfile> {
+    return resolveLocalUserProfile();
   }
 
   public async getDiagnostics(): Promise<ClientDiagnostics> {

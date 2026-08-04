@@ -204,7 +204,12 @@ export function MessageBubble({ message, showIdentity = true }: { message: ChatM
   }
 
   return (
-    <article id={`message-${message.id}`} className={`message-bubble ${message.role} ${message.status} ${isAssistant ? "agent-thread" : ""}`}>
+    <article
+      id={`message-${message.id}`}
+      className={`message-bubble ${message.role} ${message.status} ${
+        isAssistant ? "agent-thread plain-assistant" : ""
+      }`}
+    >
       {showIdentity && !isUser ? (
         <div className={`message-meta ${isAssistant ? "agent-meta" : ""}`}>
           <span className={isAssistant ? "agent-name" : ""}>{roleLabel(message.role)}</span>

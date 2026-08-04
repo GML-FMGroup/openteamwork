@@ -41,6 +41,19 @@ function SetupStep({ complete, label }: { complete: boolean; label: string }) {
   );
 }
 
+function setupDiagnosticMessage(status: SetupStatusResult): string | null {
+  const diagnostic = status.diagnostic;
+  if (!diagnostic) return null;
+  const issue = diagnostic.issues[0];
+  const label = diagnostic.component === "model"
+    ? "Model profile"
+    : diagnostic.component === "hello"
+      ? "Setup verification"
+      : diagnostic.component[0].toUpperCase() + diagnostic.component.slice(1);
+  const field = issue?.path.length ? ` (${issue.path.join(".")})` : "";
+  return `${label} configuration is invalid${field}. ${issue?.message ?? "Configuration could not be read."} Repair the Node configuration and retry.`;
+}
+
 /** First-run control surface driven entirely by setup Actions from the connected Node. */
 export function OnboardingView({
   status,
@@ -68,7 +81,9 @@ export function OnboardingView({
   const provider = status.providers.find((item) => item.id === form.provider);
   const usesNodeCodexAuth = provider?.id === "openai_codex";
   const configured = status.state === "configured";
+  const configurationDiagnostic = setupDiagnosticMessage(status);
   const canSubmit = Boolean(
+    !status.diagnostic &&
     form.nodeId.trim() &&
       form.nodeName.trim() &&
       form.agentId.trim() &&
@@ -250,9 +265,14 @@ export function OnboardingView({
             </div>
           </section>
 
+          {configurationDiagnostic ? <div className="onboarding-error" role="alert">{configurationDiagnostic}</div> : null}
           {error ? <div className="onboarding-error" role="alert">{error}</div> : null}
           <footer className="onboarding-submit">
-            <p>{configured ? "Configuration is saved. Retry the real model check to finish." : "A real model response is required before the workspace opens."}</p>
+            <p>{configurationDiagnostic
+              ? "Repair the invalid Node configuration, then retry."
+              : configured
+                ? "Configuration is saved. Retry the real model check to finish."
+                : "A real model response is required before the workspace opens."}</p>
             <button type="submit" disabled={!canSubmit || submitting}>
               {submitting ? "Setting up…" : configured ? "Retry setup & Hello" : "Set up & say Hello"}
             </button>

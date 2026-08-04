@@ -57,9 +57,17 @@ export type {
 } from "@openppx/client";
 
 export type RuntimeState = "stopped" | "starting" | "reconnecting" | "healthy" | "error";
+export type DesktopPlatform = "macos" | "windows" | "linux" | "other";
 
 /** Stable local human identity shared by Desktop and CLI control surfaces. */
 export const LOCAL_USER_ID = "ppx-client-user";
+
+export interface UserProfile {
+  id: string;
+  displayName: string;
+  accountKind: "local" | "remote";
+  avatarUrl?: string;
+}
 
 export interface ConnectionTarget {
   id: string;
@@ -182,7 +190,9 @@ export interface OperationsAuditItem {
 }
 
 export interface PpxClientApi {
+  readonly platform: DesktopPlatform;
   bootstrap(): Promise<BootstrapPayload>;
+  getUserProfile(): Promise<UserProfile>;
   getDiagnostics(): Promise<ClientDiagnostics>;
   testConnectionSettings(settings: ConnectionSettings): Promise<ClientDiagnostics>;
   saveConnectionSettings(settings: ConnectionSettings): Promise<ClientDiagnostics>;

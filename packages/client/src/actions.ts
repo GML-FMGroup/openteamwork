@@ -243,8 +243,22 @@ export interface SetupStatusResult extends Record<string, unknown> {
   steps: Record<string, string>;
   revisions: { node: string | null; agent: string | null; profile: string | null };
   recommendedWorkspace: string;
+  diagnostic: SetupStatusDiagnostic | null;
   current: { node: Record<string, unknown> | null; agent: Record<string, unknown> | null; profile: Record<string, unknown> | null };
   providers: SetupProvider[];
+}
+
+export interface SetupStatusDiagnostic {
+  component: "node" | "agent" | "model" | "hello";
+  errorKind: string;
+  issues: Array<{
+    code: string;
+    path: Array<string | number>;
+    message: string;
+    source: string;
+    line?: number;
+    column?: number;
+  }>;
 }
 
 export interface SetupApplyResult extends Record<string, unknown> {

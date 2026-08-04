@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Callable, Literal, TypeVar
 
 from openppx.config import (
     ConfigError,
@@ -17,7 +18,11 @@ from openppx.config import (
 from openppx.modeling import ModelCatalog, ModelProfileRepository
 
 from .models import SetupApplyRequest
-from .state import SetupStateRepository, verification_issue
+from .state import SetupStateRepository, configuration_issue, verification_issue
+
+
+ResourceT = TypeVar("ResourceT")
+SetupResourceStep = Literal["missing", "complete", "invalid"]
 
 
 class SetupError(RuntimeError):
@@ -59,17 +64,25 @@ class SetupService:
         self.state_repository = SetupStateRepository(repository.paths.node_root)
 
     def status(self) -> dict[str, object]:
-        """Return first-run readiness without raising for missing resources."""
-        node = self._optional(self.repository.read_node)
+        """Return readiness without raising for missing or invalid resources."""
+        node, node_step, diagnostic = self._inspect_resource("node", self.repository.read_node)
         agent = None
+        agent_step: SetupResourceStep = "missing"
         profile = None
+        profile_step: SetupResourceStep = "missing"
         secret_state = "not_required"
         if node is not None and node.document.spec.enabled_agents:
-            agent = self._optional(lambda: self.repository.read_agent(node.document.spec.enabled_agents[0]))
-        if agent is not None and agent.document.spec.model_policy.default_profile:
-            profile = self._optional(
-                lambda: self.profiles.read_profile(agent.document.spec.model_policy.default_profile or "")
+            agent, agent_step, agent_diagnostic = self._inspect_resource(
+                "agent",
+                lambda: self.repository.read_agent(node.document.spec.enabled_agents[0]),
             )
+            diagnostic = diagnostic or agent_diagnostic
+        if agent is not None and agent.document.spec.model_policy.default_profile:
+            profile, profile_step, profile_diagnostic = self._inspect_resource(
+                "model",
+                lambda: self.profiles.read_profile(agent.document.spec.model_policy.default_profile or ""),
+            )
+            diagnostic = diagnostic or profile_diagnostic
         if profile is not None and profile.document.spec.credential is not None:
             secret_state = self.secrets.status(profile.document.spec.credential).state
 
@@ -78,14 +91,13 @@ class SetupService:
             "not_required",
         }
         verification = "not_started"
-        verification_diagnostic = None
         if configured:
             try:
                 record = self.state_repository.read()
             except ConfigLoadError as exc:
                 if exc.kind != "not_found":
                     verification = "invalid"
-                    verification_diagnostic = verification_issue(exc)
+                    diagnostic = diagnostic or verification_issue(exc)
             else:
                 current = (node.revision, agent.revision, profile.revision)
                 verified = (record.node_revision, record.agent_revision, record.profile_revision)
@@ -94,9 +106,9 @@ class SetupService:
         return {
             "state": state,
             "steps": {
-                "node": "complete" if node is not None else "missing",
-                "agent": "complete" if agent is not None else "missing",
-                "model": "complete" if profile is not None else "missing",
+                "node": node_step,
+                "agent": agent_step,
+                "model": profile_step,
                 "credential": secret_state,
                 "hello": verification,
             },
@@ -106,7 +118,7 @@ class SetupService:
                 "profile": profile.revision if profile is not None else None,
             },
             "recommendedWorkspace": str(self.repository.paths.node_root / "workspaces" / "default"),
-            "diagnostic": verification_diagnostic,
+            "diagnostic": diagnostic,
             "current": {
                 "node": node.document.model_dump(mode="json", by_alias=True) if node is not None else None,
                 "agent": agent.document.model_dump(mode="json", by_alias=True) if agent is not None else None,
@@ -236,3 +248,16 @@ class SetupService:
             if getattr(exc, "kind", None) == "not_found":
                 return None
             raise
+
+    @staticmethod
+    def _inspect_resource(
+        component: str,
+        reader: Callable[[], ResourceT],
+    ) -> tuple[ResourceT | None, SetupResourceStep, dict[str, object] | None]:
+        """Read one setup resource and retain a safe non-raising diagnosis."""
+        try:
+            return reader(), "complete", None
+        except ConfigError as exc:
+            if exc.kind == "not_found":
+                return None, "missing", None
+            return None, "invalid", configuration_issue(exc, component=component)

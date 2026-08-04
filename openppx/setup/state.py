@@ -8,7 +8,7 @@ from typing import Annotated, Literal
 
 from pydantic import StringConstraints, ValidationError
 
-from openppx.config import ConfigIssue, ConfigLoadError, StrictConfigModel, config_revision, read_json_object, validation_issues
+from openppx.config import ConfigError, ConfigIssue, ConfigLoadError, StrictConfigModel, config_revision, read_json_object, validation_issues
 from openppx.config.atomic import atomic_write_resource
 
 
@@ -83,12 +83,33 @@ class SetupStateRepository:
             raise
 
 
-def verification_issue(error: ConfigLoadError) -> dict[str, object]:
-    """Project corrupt verification state without leaking paths or raw values."""
-    issue = error.issues[0] if error.issues else ConfigIssue(
-        "invalid_setup_state",
-        (),
-        "Setup verification could not be read.",
-        "setup-verification",
+def configuration_issue(error: ConfigError, *, component: str) -> dict[str, object]:
+    """Project one invalid setup resource without paths or rejected values."""
+    issues = error.issues or (
+        ConfigIssue(
+            "invalid_configuration",
+            (),
+            "Configuration could not be read.",
+            component,
+        ),
     )
-    return {"code": issue.code, "message": issue.message}
+    return {
+        "component": component,
+        "errorKind": error.kind,
+        "issues": [
+            {
+                "code": issue.code,
+                "path": list(issue.path),
+                "message": issue.message,
+                "source": issue.source,
+                **({"line": issue.line} if issue.line is not None else {}),
+                **({"column": issue.column} if issue.column is not None else {}),
+            }
+            for issue in issues
+        ],
+    }
+
+
+def verification_issue(error: ConfigLoadError) -> dict[str, object]:
+    """Project corrupt verification state through the shared setup diagnostic."""
+    return configuration_issue(error, component="hello")

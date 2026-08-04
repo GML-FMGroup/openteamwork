@@ -9,15 +9,16 @@ import {
 import type {
   AgentProfile,
   ClientDiagnostics,
+  DesktopPlatform,
   RuntimeStatus,
   SessionSummary,
+  UserProfile,
 } from "../../types";
 
-type ShellIconName = "chat" | "settings" | "expand" | "search" | "plus" | "sidebar" | "sidebar-right";
+type ShellIconName = "settings" | "expand" | "search" | "plus" | "sidebar" | "sidebar-right";
 
 export function ShellIcon({ name }: { name: ShellIconName }) {
   const paths: Record<ShellIconName, ReactNode> = {
-    chat: <path d="M4 5.5h16v11H9l-5 3v-14Z" />,
     settings: (
       <>
         <circle cx="12" cy="12" r="3" />
@@ -125,10 +126,20 @@ function visibleSessionPreview(value: string): string {
   return /^openppx session$/i.test(preview) ? "" : preview;
 }
 
+function profileInitials(displayName: string): string {
+  const parts = displayName.trim().split(/\s+/).filter(Boolean);
+  if (parts.length > 1) {
+    return `${Array.from(parts[0])[0] ?? ""}${Array.from(parts.at(-1) ?? "")[0] ?? ""}`.toUpperCase();
+  }
+  return Array.from(parts[0] ?? "?").slice(0, 2).join("").toUpperCase();
+}
+
 interface ContextSidebarProps {
+  platform: DesktopPlatform;
   view: "chat" | "settings";
   runtime: RuntimeStatus;
   diagnostics: ClientDiagnostics | null;
+  userProfile: UserProfile;
   agents: AgentProfile[];
   sessions: SessionSummary[];
   selectedAgentId: string;
@@ -146,9 +157,11 @@ interface ContextSidebarProps {
 
 /** Left-side context navigator for Node, Agent, and Session selection. */
 export function ContextSidebar({
+  platform,
   view,
   runtime,
   diagnostics,
+  userProfile,
   agents,
   sessions,
   selectedAgentId,
@@ -165,10 +178,13 @@ export function ContextSidebar({
 }: ContextSidebarProps) {
   const [query, setQuery] = useState("");
   const [agentMenuOpen, setAgentMenuOpen] = useState(false);
+  const [profileMenuOpen, setProfileMenuOpen] = useState(false);
   const searchRef = useRef<HTMLInputElement | null>(null);
   const agentPickerRef = useRef<HTMLDivElement | null>(null);
   const agentTriggerRef = useRef<HTMLButtonElement | null>(null);
   const agentOptionRefs = useRef<Array<HTMLButtonElement | null>>([]);
+  const profileMenuRef = useRef<HTMLDivElement | null>(null);
+  const profileTriggerRef = useRef<HTMLButtonElement | null>(null);
   const filteredSessions = useMemo(() => {
     const normalized = query.trim().toLowerCase();
     if (!normalized) {
@@ -200,6 +216,7 @@ export function ContextSidebar({
   useEffect(() => {
     if (collapsed) {
       setAgentMenuOpen(false);
+      setProfileMenuOpen(false);
     }
   }, [collapsed]);
 
@@ -239,6 +256,33 @@ export function ContextSidebar({
     };
   }, [agentMenuOpen, agents, selectedAgentId]);
 
+  useEffect(() => {
+    if (!profileMenuOpen) {
+      return;
+    }
+
+    function handlePointerDown(event: PointerEvent): void {
+      if (!profileMenuRef.current?.contains(event.target as Node)) {
+        setProfileMenuOpen(false);
+      }
+    }
+
+    function handleEscape(event: KeyboardEvent): void {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        setProfileMenuOpen(false);
+        profileTriggerRef.current?.focus();
+      }
+    }
+
+    document.addEventListener("pointerdown", handlePointerDown);
+    document.addEventListener("keydown", handleEscape);
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown);
+      document.removeEventListener("keydown", handleEscape);
+    };
+  }, [profileMenuOpen]);
+
   function selectAgent(agentId: string): void {
     setAgentMenuOpen(false);
     onSelectAgent(agentId);
@@ -267,16 +311,8 @@ export function ContextSidebar({
   }
 
   return (
-    <aside className="context-sidebar" aria-label="OpenPPX navigation">
+    <aside className={`context-sidebar platform-${platform}`} aria-label="OpenPPX navigation">
       <div className="sidebar-brand-row">
-        <button
-          className="brand-lockup"
-          onClick={() => onChangeView("chat")}
-          aria-label="OpenPPX workspace"
-        >
-          <span className="brand-mark">P</span>
-          <strong>OpenPPX</strong>
-        </button>
         <button
           className="quiet-icon-button"
           onClick={onToggleCollapse}
@@ -287,7 +323,7 @@ export function ContextSidebar({
         </button>
       </div>
 
-      <button className="node-card" onClick={() => onChangeView("settings")}>
+      <button className="node-card" onClick={() => onChangeView("chat")}>
         <span className={`node-beacon ${runtime.state}`} />
         <span className="node-card-copy">
           <strong>{nodeName}</strong>
@@ -386,17 +422,26 @@ export function ContextSidebar({
             return (
               <button
                 key={session.id}
-                className={session.id === selectedSessionId ? "session-row active" : "session-row"}
+                className={`session-row ${preview ? "with-preview" : "compact"} ${
+                  session.id === selectedSessionId ? "active" : ""
+                }`}
                 onClick={() => onSelectSession(session)}
               >
                 <span className="session-row-title">
                   <strong>{session.title}</strong>
-                  {running ? <span className="session-live-dot" /> : null}
+                  {!preview ? (
+                    <span className="session-row-trailing">
+                      {running ? <span className="session-live-dot" /> : null}
+                      <time>{compactAge(session.updatedAt)}</time>
+                    </span>
+                  ) : running ? <span className="session-live-dot" /> : null}
                 </span>
-                <span className="session-row-meta">
-                  {preview ? <span>{preview}</span> : null}
-                  <time>{compactAge(session.updatedAt)}</time>
-                </span>
+                {preview ? (
+                  <span className="session-row-meta">
+                    <span>{preview}</span>
+                    <time>{compactAge(session.updatedAt)}</time>
+                  </span>
+                ) : null}
               </button>
             );
           })}
@@ -408,22 +453,53 @@ export function ContextSidebar({
         </div>
       </section>
 
-      <nav className="sidebar-footer" aria-label="Primary">
-        <button
-          className={view === "chat" ? "footer-nav active" : "footer-nav"}
-          onClick={() => onChangeView("chat")}
-        >
-          <ShellIcon name="chat" />
-          <span>Workspace</span>
-        </button>
-        <button
-          className={view === "settings" ? "footer-nav active" : "footer-nav"}
-          onClick={() => onChangeView("settings")}
-        >
-          <ShellIcon name="settings" />
-          <span>Settings</span>
-        </button>
-      </nav>
+      <div className="sidebar-footer">
+        <div className="profile-menu-anchor" ref={profileMenuRef}>
+          {profileMenuOpen ? (
+            <div className="profile-menu" role="menu" aria-label="User menu">
+              <div className="profile-menu-identity">
+                <span className="profile-avatar" aria-hidden="true">
+                  {profileInitials(userProfile.displayName)}
+                </span>
+                <span className="profile-menu-copy">
+                  <strong>{userProfile.displayName}</strong>
+                  <small>{userProfile.accountKind === "local" ? "Local account" : "OpenPPX account"}</small>
+                </span>
+              </div>
+              <div className="profile-menu-divider" />
+              <button
+                className={view === "settings" ? "profile-menu-item active" : "profile-menu-item"}
+                type="button"
+                role="menuitem"
+                onClick={() => {
+                  setProfileMenuOpen(false);
+                  onChangeView("settings");
+                }}
+              >
+                <ShellIcon name="settings" />
+                <span>Settings</span>
+              </button>
+            </div>
+          ) : null}
+          <button
+            ref={profileTriggerRef}
+            className={view === "settings" ? "profile-trigger active" : "profile-trigger"}
+            type="button"
+            aria-label="User profile"
+            aria-haspopup="menu"
+            aria-expanded={profileMenuOpen}
+            onClick={() => setProfileMenuOpen((current) => !current)}
+          >
+            <span className="profile-avatar" aria-hidden="true">
+              {profileInitials(userProfile.displayName)}
+            </span>
+            <span className="profile-trigger-name">{userProfile.displayName}</span>
+            <span className={profileMenuOpen ? "profile-trigger-chevron open" : "profile-trigger-chevron"}>
+              <ShellIcon name="expand" />
+            </span>
+          </button>
+        </div>
+      </div>
     </aside>
   );
 }

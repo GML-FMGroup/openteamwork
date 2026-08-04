@@ -154,7 +154,13 @@ function installLocalStorage(): { storage: Storage; restore: () => void } {
 function installClient(overrides: Partial<PpxClientApi> = {}): { client: PpxClientApi; emit: (event: RunEvent) => void } {
   let listener: ((event: RunEvent) => void) | null = null;
   const client: PpxClientApi = {
+    platform: "macos",
     bootstrap: async () => buildBootstrapPayload(),
+    getUserProfile: async () => ({
+      id: "ppx-client-user",
+      displayName: "Wenhao Jiang",
+      accountKind: "local",
+    }),
     getDiagnostics: async () => buildDiagnostics(),
     testConnectionSettings: async () => buildDiagnostics(),
     saveConnectionSettings: async () => buildDiagnostics(),
@@ -179,6 +185,7 @@ function installClient(overrides: Partial<PpxClientApi> = {}): { client: PpxClie
       steps: { node: "complete", agent: "complete", model: "complete", credential: "available", hello: "verified" },
       revisions: { node: "node-revision", agent: "agent-revision", profile: "profile-revision" },
       recommendedWorkspace: "/workspace",
+      diagnostic: null,
       current: { node: null, agent: null, profile: null },
       providers: [],
     }),
@@ -350,6 +357,11 @@ function installClient(overrides: Partial<PpxClientApi> = {}): { client: PpxClie
   };
 }
 
+async function openSettings(): Promise<void> {
+  fireEvent.click(await screen.findByRole("button", { name: "User profile" }));
+  fireEvent.click(await screen.findByRole("menuitem", { name: "Settings" }));
+}
+
 describe("App sending state", () => {
   it("completes first-run setup only after a real Hello is verified", async () => {
     const needsConfiguration = {
@@ -357,6 +369,7 @@ describe("App sending state", () => {
       steps: { node: "missing", agent: "missing", model: "missing", credential: "missing", hello: "pending" },
       revisions: { node: null, agent: null, profile: null },
       recommendedWorkspace: "/workspace/openppx",
+      diagnostic: null,
       current: { node: null, agent: null, profile: null },
       providers: [
         {
@@ -401,12 +414,48 @@ describe("App sending state", () => {
     expect(await screen.findByRole("button", { name: "Send" })).toBeInTheDocument();
   });
 
+  it("renders an invalid setup resource without failing Desktop initialization", async () => {
+    installClient({
+      bootstrap: async () => {
+        throw new Error("Loading agents failed because configuration is invalid.");
+      },
+      getSetupStatus: async () => ({
+        state: "needs_configuration",
+        steps: { node: "complete", agent: "complete", model: "invalid", credential: "not_required", hello: "not_started" },
+        revisions: { node: "node-revision", agent: "agent-revision", profile: null },
+        recommendedWorkspace: "/workspace/openppx",
+        diagnostic: {
+          component: "model",
+          errorKind: "invalid_schema",
+          issues: [{
+            code: "invalid_value",
+            path: ["spec", "displayName"],
+            message: "Setting has an invalid value.",
+            source: "model-profile:primary",
+          }],
+        },
+        current: { node: null, agent: null, profile: null },
+        providers: [],
+      }),
+    });
+
+    render(<App />);
+
+    expect(await screen.findByRole("heading", { name: "Set up your agent workspace." })).toBeInTheDocument();
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "Model profile configuration is invalid (spec.displayName). Setting has an invalid value. Repair the Node configuration and retry.",
+    );
+    expect(screen.getByRole("button", { name: "Set up & say Hello" })).toBeDisabled();
+    expect(screen.queryByText(/failed to initialize/i)).not.toBeInTheDocument();
+  });
+
   it("uses Node-owned Codex authentication and an authoritative model selector", async () => {
     const status = {
       state: "needs_configuration" as const,
       steps: { node: "missing", agent: "missing", model: "missing", credential: "not_required", hello: "pending" },
       revisions: { node: null, agent: null, profile: null },
       recommendedWorkspace: "/workspace/openppx",
+      diagnostic: null,
       current: { node: null, agent: null, profile: null },
       providers: [
         {
@@ -488,8 +537,12 @@ describe("App sending state", () => {
 
     render(<App />);
 
-    fireEvent.click(await screen.findByRole("button", { name: "New Agent" }));
+    await screen.findByRole("button", { name: "Send" });
+    await openSettings();
+    await screen.findByRole("heading", { name: "Connection" });
+    fireEvent.click(screen.getByRole("button", { name: "New Agent" }));
     expect(await screen.findByRole("heading", { name: "Create a focused workspace." })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Connection" })).not.toBeInTheDocument();
     expect(screen.queryByLabelText("Owner")).not.toBeInTheDocument();
     fireEvent.change(screen.getByLabelText("Agent name"), { target: { value: "Research" } });
     expect(screen.getByLabelText("Agent ID")).toHaveValue("research");
@@ -587,6 +640,10 @@ describe("App sending state", () => {
     const search = await screen.findByPlaceholderText("Search sessions");
     const collapseSidebar = screen.getByRole("button", { name: "Collapse sidebar" });
     const closeTaskPanel = screen.getByRole("button", { name: "Close task panel" });
+    const sidebarHeader = screen.getByLabelText("OpenPPX navigation").querySelector(".sidebar-brand-row");
+    expect(sidebarHeader).not.toBeNull();
+    expect(within(sidebarHeader as HTMLElement).getAllByRole("button")[0]).toHaveAccessibleName("Collapse sidebar");
+    expect(sidebarHeader?.querySelector(".brand-lockup")).not.toBeInTheDocument();
     expect(collapseSidebar.querySelector('[data-icon="sidebar"]')).toBeInTheDocument();
     expect(closeTaskPanel.querySelector('[data-icon="sidebar-right"]')).toBeInTheDocument();
     fireEvent.keyDown(window, { key: "k", metaKey: true });
@@ -681,7 +738,7 @@ describe("App sending state", () => {
     installClient();
     render(<App />);
 
-    fireEvent.click(await screen.findByRole("button", { name: "Settings" }));
+    await openSettings();
     fireEvent.keyDown(window, { key: "b", metaKey: true });
 
     expect(screen.queryByLabelText("OpenPPX navigation")).not.toBeInTheDocument();
@@ -762,7 +819,7 @@ describe("App sending state", () => {
       render(<App />);
 
       fireEvent.click(await screen.findByRole("button", { name: "Open sidebar" }));
-      fireEvent.click(await screen.findByRole("button", { name: "Settings" }));
+      await openSettings();
 
       expect(screen.queryByLabelText("OpenPPX navigation")).not.toBeInTheDocument();
       expect(await screen.findByRole("button", { name: "Open sidebar" })).toBeInTheDocument();
@@ -788,6 +845,8 @@ describe("App sending state", () => {
     fireEvent.click(screen.getByRole("button", { name: "Send" }));
 
     await screen.findByRole("button", { name: "Running" });
+    expect(screen.queryByText("The current Agent is running. Progress appears in the right panel.")).not.toBeInTheDocument();
+    expect(screen.getByText("Enter to send · Shift+Enter for a new line")).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: /Session B/ }));
     fireEvent.change(screen.getByPlaceholderText("Describe the outcome you want..."), {
@@ -1104,6 +1163,8 @@ describe("App sending state", () => {
     await screen.findByText("Loaded Session A");
     expect(screen.queryByText("OpenPPX session")).not.toBeInTheDocument();
     expect(document.querySelectorAll(".session-row-meta > span")).toHaveLength(0);
+    expect(document.querySelectorAll(".session-row.compact")).toHaveLength(2);
+    expect(document.querySelectorAll(".session-row.compact .session-row-meta")).toHaveLength(0);
   });
 
   it("uses the visible Agent list for the Node count", async () => {
@@ -1282,10 +1343,13 @@ describe("App sending state", () => {
     fireEvent.pointerDown(screen.getByText("Sessions"));
     expect(screen.queryByRole("listbox", { name: "Select Agent" })).not.toBeInTheDocument();
 
+    await openSettings();
+    await screen.findByRole("heading", { name: "Connection" });
     fireEvent.click(agentTrigger);
     fireEvent.click(screen.getByRole("option", { name: /Agent 2 Remote test agent/ }));
 
     await screen.findByText("Agent 2 transcript");
+    expect(screen.queryByRole("heading", { name: "Connection" })).not.toBeInTheDocument();
     taskPanel = screen.getByLabelText("Task panel");
     expect(screen.queryByText("Agent 1 transcript")).not.toBeInTheDocument();
     expect(within(taskPanel).getByText("Agent 2 progress")).toBeInTheDocument();
@@ -1365,7 +1429,7 @@ describe("App sending state", () => {
 
     await screen.findByRole("button", { name: "Send" });
 
-    fireEvent.click(screen.getByRole("button", { name: "Settings" }));
+    await openSettings();
 
     await screen.findByRole("heading", { name: "Connection" });
     expect(screen.getByText("http://127.0.0.1:8765")).toBeInTheDocument();
@@ -1374,6 +1438,7 @@ describe("App sending state", () => {
     expect(screen.getByText("v1")).toBeInTheDocument();
     expect(screen.getByText("0.5.1")).toBeInTheDocument();
     expect(screen.getByText("0.4")).toBeInTheDocument();
+    expect(screen.queryByTitle("Return to conversation")).not.toBeInTheDocument();
     const deviceCard = screen.getByRole("heading", { name: "Device" }).closest("section");
     expect(deviceCard).not.toBeNull();
     expect(within(deviceCard as HTMLElement).getByText("Node")).toBeInTheDocument();
@@ -1386,13 +1451,100 @@ describe("App sending state", () => {
     render(<App />);
 
     await screen.findByRole("button", { name: "Send" });
-    expect(screen.getByText("OpenPPX")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "OpenPPX workspace" })).not.toBeInTheDocument();
     expect(screen.queryByText(/Agent workspace/i)).not.toBeInTheDocument();
-    expect(screen.getByText("Workspace")).toBeInTheDocument();
-    expect(screen.getByText("Settings")).toBeInTheDocument();
+    expect(screen.queryByText("Workspace")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "User profile" })).toBeInTheDocument();
+    expect(screen.getByText("Wenhao Jiang")).toBeInTheDocument();
+    expect(screen.queryByRole("menuitem", { name: "Settings" })).not.toBeInTheDocument();
     expect(screen.queryByText("Connections & Settings")).not.toBeInTheDocument();
     expect(screen.getByPlaceholderText("Search sessions")).toBeInTheDocument();
     expect(screen.queryByText("工作区")).not.toBeInTheDocument();
+  });
+
+  it("opens Settings from the user profile menu", async () => {
+    installClient();
+    render(<App />);
+
+    await screen.findByRole("button", { name: "Send" });
+    fireEvent.click(screen.getByRole("button", { name: "User profile" }));
+
+    const menu = await screen.findByRole("menu", { name: "User menu" });
+    expect(within(menu).getByText("Wenhao Jiang")).toBeInTheDocument();
+    expect(within(menu).getByText("Local account")).toBeInTheDocument();
+    fireEvent.click(within(menu).getByRole("menuitem", { name: "Settings" }));
+
+    expect(await screen.findByRole("heading", { name: "Connection" })).toBeInTheDocument();
+    expect(screen.queryByRole("menu", { name: "User menu" })).not.toBeInTheDocument();
+  });
+
+  it("returns from Settings to Workspace when a history Session is selected", async () => {
+    installClient({
+      loadSession: async (sessionId) => ({
+        messages: sessionId === "session-b"
+          ? [
+              {
+                id: "message-b",
+                sessionId: "session-b",
+                role: "assistant",
+                status: "completed",
+                createdAt: "2026-04-02T10:00:02.000Z",
+                parts: [{ type: "markdown", text: "Loaded Session B from Settings" }],
+              },
+            ]
+          : [],
+      }),
+    });
+    render(<App />);
+
+    await screen.findByRole("button", { name: "Send" });
+    await openSettings();
+    await screen.findByRole("heading", { name: "Connection" });
+
+    fireEvent.click(screen.getByRole("button", { name: /Session B/ }));
+
+    expect(await screen.findByText("Loaded Session B from Settings")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Send" })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Connection" })).not.toBeInTheDocument();
+  });
+
+  it("returns from Settings to Workspace from the Node card", async () => {
+    installClient();
+    render(<App />);
+
+    await screen.findByRole("button", { name: "Send" });
+    await openSettings();
+    await screen.findByRole("heading", { name: "Connection" });
+
+    const navigation = screen.getByLabelText("OpenPPX navigation");
+    fireEvent.click(navigation.querySelector(".node-card") as HTMLElement);
+
+    expect(await screen.findByRole("button", { name: "Send" })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Connection" })).not.toBeInTheDocument();
+  });
+
+  it("returns from Settings to Workspace when a Session is created", async () => {
+    const createdSession: SessionSummary = {
+      id: "session-created-from-settings",
+      agentId: "agent-1",
+      title: "New session from Settings",
+      updatedAt: "2026-08-04T15:00:00.000Z",
+      lastMessagePreview: "",
+    };
+    const createSession = vi.fn(async () => ({ session: createdSession }));
+    installClient({ createSession });
+    render(<App />);
+
+    await screen.findByRole("button", { name: "Send" });
+    await openSettings();
+    await screen.findByRole("heading", { name: "Connection" });
+    const navigation = screen.getByLabelText("OpenPPX navigation");
+    fireEvent.click(within(navigation).getByTitle("New session"));
+
+    await waitFor(() => expect(createSession).toHaveBeenCalledWith("agent-1"));
+    expect(await screen.findByRole("button", { name: "Send" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /New session from Settings/ })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Connection" })).not.toBeInTheDocument();
   });
 
   it("uses a balanced settings grid without redundant helper copy", async () => {
@@ -1401,7 +1553,7 @@ describe("App sending state", () => {
     render(<App />);
 
     await screen.findByRole("button", { name: "Send" });
-    fireEvent.click(screen.getByRole("button", { name: "Settings" }));
+    await openSettings();
 
     fireEvent.click(screen.getByRole("button", { name: "Operations" }));
     await screen.findByRole("heading", { name: "Runtime" });
@@ -1441,8 +1593,7 @@ describe("App sending state", () => {
     });
 
     render(<App />);
-    await screen.findByRole("button", { name: "Settings" });
-    fireEvent.click(screen.getByRole("button", { name: "Settings" }));
+    await openSettings();
     fireEvent.click(screen.getByRole("button", { name: "Extensions" }));
 
     expect(await screen.findByText("Repository guide")).toBeInTheDocument();
@@ -1473,8 +1624,7 @@ describe("App sending state", () => {
     installClient({ getOperationsOverview });
     render(<App />);
 
-    await screen.findByRole("button", { name: "Settings" });
-    fireEvent.click(screen.getByRole("button", { name: "Settings" }));
+    await openSettings();
     const targetName = await screen.findByLabelText("Target name");
     fireEvent.change(targetName, { target: { value: "Draft Node Name" } });
     fireEvent.click(screen.getByRole("button", { name: "Operations" }));
@@ -1507,8 +1657,7 @@ describe("App sending state", () => {
     });
     render(<App />);
 
-    await screen.findByRole("button", { name: "Settings" });
-    fireEvent.click(screen.getByRole("button", { name: "Settings" }));
+    await openSettings();
     fireEvent.click(screen.getByRole("button", { name: "Operations" }));
     fireEvent.click(await screen.findByRole("button", { name: "Retry" }));
 
@@ -1532,7 +1681,7 @@ describe("App sending state", () => {
     render(<App />);
 
     await screen.findByRole("button", { name: "Send" });
-    fireEvent.click(screen.getByRole("button", { name: "Settings" }));
+    await openSettings();
 
     const deviceCard = (await screen.findByRole("heading", { name: "Device" })).closest("section");
     expect(deviceCard).not.toBeNull();
@@ -1564,7 +1713,7 @@ describe("App sending state", () => {
     render(<App />);
 
     await screen.findByRole("button", { name: "Send" });
-    fireEvent.click(screen.getByRole("button", { name: "Settings" }));
+    await openSettings();
 
     fireEvent.change(screen.getByDisplayValue("This Mac"), {
       target: { value: "Ops Gateway" },
@@ -1603,7 +1752,7 @@ describe("App sending state", () => {
 
     render(<App />);
     await screen.findByRole("button", { name: "Send" });
-    fireEvent.click(screen.getByRole("button", { name: "Settings" }));
+    await openSettings();
     fireEvent.change(screen.getByLabelText("Run location"), { target: { value: "lan" } });
     fireEvent.change(screen.getByDisplayValue("http://127.0.0.1:8765"), {
       target: { value: "http://192.168.1.8:8765" },

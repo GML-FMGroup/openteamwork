@@ -1,8 +1,23 @@
 import { contextBridge, ipcRenderer } from "electron";
-import type { AgentCreateRequest, ConnectionSettings, ExtensionEnablementRequest, ModelProfileCreateInput, ModelProfileUpdateInput, PpxClientApi, RunEvent, RuntimeCommand, SendMessageInput, SetupApplyRequest, SlashCommandRequest } from "../../app/src/types";
+import type { AgentCreateRequest, ConnectionSettings, DesktopPlatform, ExtensionEnablementRequest, ModelProfileCreateInput, ModelProfileUpdateInput, PpxClientApi, RunEvent, RuntimeCommand, SendMessageInput, SetupApplyRequest, SlashCommandRequest } from "../../app/src/types";
+
+function desktopPlatform(): DesktopPlatform {
+  if (process.platform === "darwin") {
+    return "macos";
+  }
+  if (process.platform === "win32") {
+    return "windows";
+  }
+  if (process.platform === "linux") {
+    return "linux";
+  }
+  return "other";
+}
 
 const api: PpxClientApi = {
+  platform: desktopPlatform(),
   bootstrap: () => ipcRenderer.invoke("ppx-client:bootstrap"),
+  getUserProfile: () => ipcRenderer.invoke("ppx-client:get-user-profile"),
   getDiagnostics: () => ipcRenderer.invoke("ppx-client:get-diagnostics"),
   testConnectionSettings: (settings: ConnectionSettings) => ipcRenderer.invoke("ppx-client:test-connection-settings", settings),
   saveConnectionSettings: (settings: ConnectionSettings) => ipcRenderer.invoke("ppx-client:save-connection-settings", settings),

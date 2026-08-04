@@ -38,7 +38,6 @@ interface SettingsViewProps {
   onRevealSidebar: () => void;
   onNewSession: () => void;
   onSearchSessions: () => void;
-  onReturnToChat: () => void;
   onRuntimeAction: () => void;
   onStopRuntime: () => void;
   onRefreshOperations: () => void;
@@ -85,9 +84,6 @@ export function SettingsView(props: SettingsViewProps) {
           ) : null}
           <strong>Settings</strong><span className="topbar-location">{sectionTitle(section)}</span>
         </div>
-        <button className="topbar-pill" onClick={props.onReturnToChat} title="Return to conversation">
-          <span className={`runtime-dot ${props.runtime.state}`} />{props.runtime.state}
-        </button>
       </header>
       <div className="workspace-frame settings-frame settings-control-frame">
         <nav className="settings-section-nav" aria-label="Settings sections">

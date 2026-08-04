@@ -22,6 +22,7 @@ import type {
   SetupForm,
   SetupStatusResult,
   SlashCommandResult,
+  UserProfile,
 } from "../types";
 import { normalizeConnectionSettings } from "../lib/connection-profile";
 import { LOCAL_USER_ID } from "../types";
@@ -76,6 +77,26 @@ function buildConnectionSettings(diagnostics: ClientDiagnostics | null): Connect
     targetName: diagnostics?.target.name ?? "This Mac",
     clientApiBaseUrl: diagnostics?.clientApiBaseUrl ?? "http://127.0.0.1:18765",
     accessToken: "",
+  };
+}
+
+function onboardingBootstrap(diagnostics: ClientDiagnostics): BootstrapPayload {
+  return {
+    runtime: {
+      target: diagnostics.target,
+      state: diagnostics.clientApiHealthy ? "starting" : "error",
+      summary: diagnostics.clientApiHealthy
+        ? "OpenPPX Node needs configuration."
+        : "OpenPPX Node is unavailable.",
+      detail: diagnostics.clientApiHealthy
+        ? "Repair or complete the Node configuration to load the workspace."
+        : diagnostics.clientApiLastError,
+    },
+    agents: [],
+    sessions: [],
+    messages: [],
+    selectedAgentId: "",
+    selectedSessionId: "",
   };
 }
 
@@ -265,6 +286,11 @@ export function useDesktopWorkspace() {
   const [bootstrapError, setBootstrapError] = useState<string | null>(null);
   const [runtime, setRuntime] = useState<RuntimeStatus | null>(null);
   const [diagnostics, setDiagnostics] = useState<ClientDiagnostics | null>(null);
+  const [userProfile, setUserProfile] = useState<UserProfile>({
+    id: LOCAL_USER_ID,
+    displayName: "Local user",
+    accountKind: "local",
+  });
   const [agents, setAgents] = useState<AgentProfile[]>([]);
   const [agentCreating, setAgentCreating] = useState(false);
   const [agentCreateError, setAgentCreateError] = useState<string | null>(null);
@@ -364,9 +390,16 @@ export function useDesktopWorkspace() {
     Promise.all([
       window.ppxClient.getSetupStatus(),
       window.ppxClient.getDiagnostics(),
-      window.ppxClient.bootstrap(),
+      window.ppxClient.getUserProfile(),
     ])
-      .then(async ([nextSetupStatus, nextDiagnostics, payload]: [SetupStatusResult, ClientDiagnostics, BootstrapPayload]) => {
+      .then(async ([nextSetupStatus, nextDiagnostics, nextUserProfile]: [SetupStatusResult, ClientDiagnostics, UserProfile]) => {
+        let payload: BootstrapPayload;
+        try {
+          payload = await window.ppxClient.bootstrap();
+        } catch (error) {
+          if (nextSetupStatus.state === "ready") throw error;
+          payload = onboardingBootstrap(nextDiagnostics);
+        }
         if (!mounted) {
           return;
         }
@@ -385,6 +418,7 @@ export function useDesktopWorkspace() {
         setRuntime(payload.runtime);
         setSetupStatus(nextSetupStatus);
         setDiagnostics(nextDiagnostics);
+        setUserProfile(nextUserProfile);
         if (!setupFormInitializedRef.current) {
           setupFormInitializedRef.current = true;
           setSetupForm(setupFormFromStatus(nextSetupStatus, nextDiagnostics));
@@ -1054,6 +1088,7 @@ export function useDesktopWorkspace() {
     bootstrapError,
     runtime,
     diagnostics,
+    userProfile,
     agents,
     agentCreating,
     agentCreateError,

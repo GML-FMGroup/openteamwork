@@ -96,8 +96,24 @@ export function App() {
   }
 
   function createSessionFromTopbar(): void {
-    setView("chat");
+    handleChangeView("chat");
     void workspace.createSession();
+  }
+
+  function selectAgentFromSidebar(agentId: string): void {
+    handleChangeView("chat");
+    void workspace.switchAgent(agentId);
+  }
+
+  function openNewAgentFromSidebar(): void {
+    handleChangeView("chat");
+    workspace.clearAgentCreateError();
+    setNewAgentOpen(true);
+  }
+
+  function selectSessionFromSidebar(session: Parameters<typeof workspace.switchSession>[0]): void {
+    handleChangeView("chat");
+    void workspace.switchSession(session);
   }
 
   if (workspace.bootstrapError) {
@@ -197,9 +213,11 @@ export function App() {
         />
       ) : null}
       <ContextSidebar
+        platform={window.ppxClient.platform}
         view={view}
         runtime={runtime}
         diagnostics={workspace.diagnostics}
+        userProfile={workspace.userProfile}
         agents={workspace.agents}
         sessions={workspace.sessions}
         selectedAgentId={workspace.selectedAgentId}
@@ -209,13 +227,10 @@ export function App() {
         searchFocusRequest={sidebarSearchRequest}
         onToggleCollapse={() => setLeftSidebarCollapsed((current) => !current)}
         onChangeView={handleChangeView}
-        onSelectAgent={(agentId) => void workspace.switchAgent(agentId)}
-        onSelectSession={(session) => void workspace.switchSession(session)}
-        onNewAgent={() => {
-          workspace.clearAgentCreateError();
-          setNewAgentOpen(true);
-        }}
-        onNewSession={() => void workspace.createSession()}
+        onSelectAgent={selectAgentFromSidebar}
+        onSelectSession={selectSessionFromSidebar}
+        onNewAgent={openNewAgentFromSidebar}
+        onNewSession={createSessionFromTopbar}
       />
 
       {view === "chat" ? (
@@ -274,12 +289,7 @@ export function App() {
                   busy={workspace.selectedAgentBusy}
                   canStop={Boolean(workspace.activeRunId)}
                   stopping={workspace.cancellingCurrentRun}
-                  helperText={
-                    workspace.sendError ??
-                    (workspace.selectedAgentBusy
-                      ? "The current Agent is running. Progress appears in the right panel."
-                      : "")
-                  }
+                  helperText={workspace.sendError ?? ""}
                   agentName={workspaceAgentName}
                   commands={workspace.slashCommands}
                   onChange={workspace.setComposer}
@@ -325,7 +335,6 @@ export function App() {
           onNewSession={createSessionFromTopbar}
           onSearchSessions={revealSidebarForSearch}
           canCreateSession={Boolean(workspace.selectedAgentId)}
-          onReturnToChat={() => setView("chat")}
           onRuntimeAction={() => void workspace.runRuntimeAction()}
           onStopRuntime={() => void workspace.stopRuntime()}
           onRefreshOperations={() => void workspace.refreshOperations()}
