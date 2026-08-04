@@ -66,6 +66,7 @@ def profile(
             "kind": "ModelProfile",
             "metadata": {"name": name},
             "spec": {
+                "displayName": name.replace("-", " ").title(),
                 "provider": provider,
                 "model": f"{provider}/model",
                 "credential": credential_payload,

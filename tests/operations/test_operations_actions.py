@@ -88,6 +88,7 @@ def _configure(root: Path) -> InMemorySecretStore:
                 "kind": "ModelProfile",
                 "metadata": {"name": "primary"},
                 "spec": {
+                    "displayName": "Primary",
                     "provider": "openai",
                     "model": "openai/gpt-test",
                     "credential": {"store": "system", "name": "primary-key"},

@@ -17,6 +17,7 @@ def setup_payload(tmp_path: Path, *, api_key: str | None = "secret-canary-value"
         "kind": "ModelProfile",
         "metadata": {"name": "primary"},
         "spec": {
+            "displayName": "Primary",
             "provider": "google",
             "model": "gemini-3-flash-preview",
             "credential": {"store": "system", "name": "google-primary"},

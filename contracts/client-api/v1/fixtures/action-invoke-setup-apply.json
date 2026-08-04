@@ -58,6 +58,7 @@
             "name": "primary-model-api-key",
             "store": "system"
           },
+          "displayName": "Primary",
           "executionLocation": "remote",
           "model": "gemini-2.5-flash",
           "provider": "google"

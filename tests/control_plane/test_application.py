@@ -68,6 +68,7 @@ def profile_payload() -> dict[str, object]:
         "kind": "ModelProfile",
         "metadata": {"name": "primary"},
         "spec": {
+            "displayName": "Primary",
             "provider": "openai",
             "model": "openai/gpt-5.4",
             "credential": {"store": "system", "name": "openai-primary"},
@@ -83,7 +84,7 @@ def profile_payload() -> dict[str, object]:
 
 
 def context(*, write: bool = True) -> ActionContext:
-    capabilities = frozenset({"system.read", "config.read", "config.write", "model.read", "model.use"})
+    capabilities = frozenset({"system.read", "config.read", "config.write", "model.read", "model.write", "model.use"})
     permissions = capabilities if write else frozenset({"system.read", "config.read", "model.read", "model.use"})
     return ActionContext(
         request_id="req_control_plane",
@@ -204,10 +205,68 @@ def test_model_actions_return_readiness_without_secret_material(tmp_path: Path) 
     selection = application.invoke("model.select", {"agentId": "low-main"}, context())
 
     assert profiles.ok and profiles.data["items"][0]["id"] == "primary"
+    assert profiles.data["items"][0]["displayName"] == "Primary"
     assert selection.ok
     assert selection.data["profileId"] == "primary"
     assert selection.data["provider"] == "openai"
     assert "never-visible" not in str(selection)
+
+
+def test_model_profile_update_is_node_owned_revision_safe_and_secret_free(tmp_path: Path) -> None:
+    application = configured_application(tmp_path)
+    current = application.invoke("model.profile.read", {"profileId": "primary"}, context())
+
+    saved = application.invoke(
+        "model.profile.update",
+        {
+            "profileId": "primary",
+            "displayName": "Daily work",
+            "providerId": "openai",
+            "model": "openai/gpt-5.5",
+            "executionLocation": "remote",
+            "apiBase": "http://127.0.0.1:8000/v1",
+            "capabilities": ["text", "tool_calling"],
+            "contextWindowTokens": 200000,
+            "inputCostPerMillionUsd": None,
+            "outputCostPerMillionUsd": None,
+            "fallbackProfileIds": [],
+            "enabled": True,
+            "apiKey": "rotated-never-project",
+            "expectedRevision": current.data["revision"],
+        },
+        context(),
+    )
+    conflict = application.invoke(
+        "model.profile.update",
+        {
+            "profileId": "primary",
+            "displayName": "Daily work",
+            "providerId": "openai",
+            "model": "openai/gpt-5.5",
+            "executionLocation": "remote",
+            "apiBase": None,
+            "capabilities": ["text"],
+            "contextWindowTokens": None,
+            "inputCostPerMillionUsd": None,
+            "outputCostPerMillionUsd": None,
+            "fallbackProfileIds": [],
+            "enabled": True,
+            "apiKey": "must-not-write",
+            "expectedRevision": current.data["revision"],
+        },
+        context(),
+    )
+
+    assert saved.ok
+    assert saved.data["effect"] == "next_run"
+    assert saved.data["credentialState"] == "available"
+    assert saved.data["document"]["metadata"]["name"] == "primary"
+    assert saved.data["document"]["spec"]["displayName"] == "Daily work"
+    assert saved.data["document"]["spec"]["apiBase"] == "http://127.0.0.1:8000/v1"
+    assert "rotated-never-project" not in str(saved)
+    assert conflict.error is not None and conflict.error.code == "revision_conflict"
+    spec = application.registry.resolve("model.profile.update").spec
+    assert spec.scope == "node" and spec.risk == "medium"
 
 
 def test_provider_catalog_and_auth_actions_are_node_owned_and_secret_free(tmp_path: Path) -> None:

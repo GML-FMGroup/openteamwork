@@ -114,6 +114,71 @@ export interface SetupProvider {
   defaultModel: string;
 }
 
+export type ModelCapability =
+  | "text"
+  | "vision"
+  | "audio_input"
+  | "audio_output"
+  | "tool_calling"
+  | "structured_output"
+  | "reasoning"
+  | "long_context";
+
+export interface ModelSecretRef {
+  store: "system";
+  name: string;
+}
+
+export interface ModelProfileDocument extends Record<string, unknown> {
+  apiVersion: "openppx.io/v1alpha1";
+  kind: "ModelProfile";
+  metadata: { name: string };
+  spec: {
+    displayName: string;
+    provider: string;
+    model: string;
+    credential: ModelSecretRef | null;
+    executionLocation: "local" | "remote";
+    apiBase: string | null;
+    capabilities: ModelCapability[];
+    contextWindowTokens: number | null;
+    inputCostPerMillionUsd: string | null;
+    outputCostPerMillionUsd: string | null;
+    fallbackProfiles: string[];
+    enabled: boolean;
+  };
+}
+
+export interface ModelProfileResourceResult extends Record<string, unknown> {
+  resourceId: string;
+  revision: string;
+  document: ModelProfileDocument;
+  credentialState?: string;
+  effect?: "next_run";
+}
+
+export interface ModelProfileWriteInput extends Record<string, unknown> {
+  displayName: string;
+  providerId: string;
+  model: string;
+  executionLocation: "local" | "remote";
+  apiBase: string | null;
+  capabilities: ModelCapability[];
+  contextWindowTokens: number | null;
+  inputCostPerMillionUsd: string | null;
+  outputCostPerMillionUsd: string | null;
+  fallbackProfileIds: string[];
+  enabled: boolean;
+  apiKey: string | null;
+}
+
+export interface ModelProfileCreateInput extends ModelProfileWriteInput {}
+
+export interface ModelProfileUpdateInput extends ModelProfileWriteInput {
+  profileId: string;
+  expectedRevision: string;
+}
+
 export interface ProviderModel {
   id: string;
   displayName: string;
@@ -217,6 +282,7 @@ export interface SetupApplyRequest extends Record<string, unknown> {
     kind: "ModelProfile";
     metadata: { name: string };
     spec: {
+      displayName: string;
       provider: string;
       model: string;
       credential?: { store: "system"; name: string };
@@ -416,16 +482,24 @@ export class ModelClient {
     return this.actions.invoke("model.select", input);
   }
 
-  public readProfile(profileId: string): Promise<ActionEnvelope<Record<string, unknown>>> {
+  public readProfile(profileId: string): Promise<ActionEnvelope<ModelProfileResourceResult>> {
     return this.actions.invoke("model.profile.read", { profileId });
   }
 
   public applyProfile(
     profileId: string,
-    candidate: Record<string, unknown>,
+    candidate: ModelProfileDocument,
     expectedRevision: string | null,
-  ): Promise<ActionEnvelope<Record<string, unknown>>> {
+  ): Promise<ActionEnvelope<ModelProfileResourceResult>> {
     return this.actions.invoke("model.profile.apply", { profileId, candidate, expectedRevision });
+  }
+
+  public createProfile(input: ModelProfileCreateInput): Promise<ActionEnvelope<ModelProfileResourceResult>> {
+    return this.actions.invoke("model.profile.create", input);
+  }
+
+  public updateProfile(input: ModelProfileUpdateInput): Promise<ActionEnvelope<ModelProfileResourceResult>> {
+    return this.actions.invoke("model.profile.update", input);
   }
 }
 

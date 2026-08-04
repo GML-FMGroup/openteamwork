@@ -11,6 +11,9 @@ import {
   validateIdentifier,
   validateRuntimeCommand,
   validateProviderId,
+  validateModelProfileCreateInput,
+  validateModelProfileUpdateInput,
+  validateModelProfileId,
   validateSendMessageInput,
   validateSetupApplyRequest,
   validateSetupHelloText,
@@ -116,6 +119,15 @@ app.whenReady().then(() => {
     await shell.openExternal(validateExternalUrl(url));
   });
   ipcMain.handle("ppx-client:list-model-profiles", async () => adapter!.listModelProfiles());
+  ipcMain.handle("ppx-client:read-model-profile", async (_event, profileId: unknown) =>
+    adapter!.readModelProfile(validateModelProfileId(profileId)),
+  );
+  ipcMain.handle("ppx-client:create-model-profile", async (_event, input: unknown) =>
+    adapter!.createModelProfile(validateModelProfileCreateInput(input)),
+  );
+  ipcMain.handle("ppx-client:update-model-profile", async (_event, input: unknown) =>
+    adapter!.updateModelProfile(validateModelProfileUpdateInput(input)),
+  );
   ipcMain.handle("ppx-client:get-operations-overview", async () => adapter!.getOperationsOverview());
   ipcMain.handle("ppx-client:list-operations-audit", async (_event, limit: unknown) =>
     adapter!.listOperationsAudit(

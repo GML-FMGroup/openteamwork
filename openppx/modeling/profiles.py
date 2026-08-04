@@ -4,10 +4,11 @@ from __future__ import annotations
 
 from decimal import Decimal, InvalidOperation
 from typing import Annotated, Literal, TypeAlias
+from urllib.parse import urlsplit
 
 from pydantic import Field, StrictBool, StrictInt, StringConstraints, field_validator, model_validator
 
-from openppx.config.models import ResourceMetadata, ResourceName, StrictConfigModel
+from openppx.config.models import DisplayName, ResourceMetadata, ResourceName, StrictConfigModel
 from openppx.config.secrets import SecretRef
 
 
@@ -35,10 +36,12 @@ ModelName: TypeAlias = Annotated[str, StringConstraints(min_length=1, max_length
 class ModelProfileSpec(StrictConfigModel):
     """Provider, model, cost, capability, and explicit fallback policy."""
 
+    display_name: DisplayName
     provider: ProviderId
     model: ModelName
     credential: SecretRef | None = None
     execution_location: Literal["local", "remote"]
+    api_base: Annotated[str, StringConstraints(min_length=1, max_length=2048)] | None = None
     capabilities: list[ModelCapability] = Field(default_factory=list)
     context_window_tokens: StrictInt | None = Field(default=None, ge=1)
     input_cost_per_million_usd: Decimal | None = Field(default=None, ge=0)
@@ -53,6 +56,24 @@ class ModelProfileSpec(StrictConfigModel):
         if not value.strip() or any(ord(character) < 32 or ord(character) == 127 for character in value):
             raise ValueError("model must contain visible characters")
         return value
+
+    @field_validator("api_base")
+    @classmethod
+    def api_base_must_be_an_http_origin(cls, value: str | None) -> str | None:
+        """Accept explicit HTTP(S) API bases without credentials, queries, or fragments."""
+        if value is None:
+            return None
+        parsed = urlsplit(value)
+        if (
+            parsed.scheme not in {"http", "https"}
+            or not parsed.hostname
+            or parsed.username is not None
+            or parsed.password is not None
+            or parsed.query
+            or parsed.fragment
+        ):
+            raise ValueError("apiBase must be an HTTP(S) URL without credentials, query, or fragment")
+        return value.rstrip("/")
 
     @field_validator("input_cost_per_million_usd", "output_cost_per_million_usd", mode="before")
     @classmethod

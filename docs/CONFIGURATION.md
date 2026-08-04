@@ -127,6 +127,7 @@ The supported privilege levels are `low`, `medium`, `high`, and `root`. Permissi
   "kind": "ModelProfile",
   "metadata": {"name": "primary"},
   "spec": {
+    "displayName": "Primary",
     "provider": "google",
     "model": "<provider-model-id>",
     "credential": {"store": "system", "name": "primary-model-api-key"},

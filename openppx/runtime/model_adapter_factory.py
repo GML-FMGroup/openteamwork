@@ -51,7 +51,7 @@ class ModelAdapterFactory:
             kwargs: dict[str, Any] = {"drop_params": True}
             if credential:
                 kwargs["api_key"] = credential
-            api_base = provider_default_api_base(provider)
+            api_base = resolution.profile.spec.api_base or provider_default_api_base(provider)
             if api_base:
                 kwargs["api_base"] = api_base
             return LiteLlm(model=model_name, **kwargs)
@@ -61,7 +61,7 @@ class ModelAdapterFactory:
 
             return OpenAICodexLlm(
                 model=model_name,
-                codex_url=provider_default_api_base(provider),
+                codex_url=resolution.profile.spec.api_base or provider_default_api_base(provider),
             )
 
         raise ModelAdapterError(f"Model Provider '{provider}' has no supported ADK adapter.")

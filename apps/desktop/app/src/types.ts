@@ -17,6 +17,9 @@ import type {
   ModelCatalogResult,
   ProviderAuthStatus,
   AgentCreateResult,
+  ModelProfileResourceResult,
+  ModelProfileCreateInput,
+  ModelProfileUpdateInput,
 } from "@openppx/client";
 
 export type {
@@ -45,6 +48,12 @@ export type {
   ProviderAuthStatus,
   ProviderModel,
   AgentCreateResult,
+  ModelCapability,
+  ModelProfileDocument,
+  ModelProfileResourceResult,
+  ModelProfileCreateInput,
+  ModelProfileUpdateInput,
+  SetupProvider,
 } from "@openppx/client";
 
 export type RuntimeState = "stopped" | "starting" | "reconnecting" | "healthy" | "error";
@@ -152,6 +161,7 @@ export interface SetupForm {
 
 export interface ModelProfileSummary {
   id: string;
+  displayName: string;
   revision: string;
   provider: string;
   model: string;
@@ -194,6 +204,9 @@ export interface PpxClientApi {
   refreshProviderAuth(providerId: string): Promise<ProviderAuthStatus>;
   openExternalUrl(url: string): Promise<void>;
   listModelProfiles(): Promise<{ profiles: ModelProfileSummary[] }>;
+  readModelProfile(profileId: string): Promise<ModelProfileResourceResult>;
+  createModelProfile(input: ModelProfileCreateInput): Promise<ModelProfileResourceResult>;
+  updateModelProfile(input: ModelProfileUpdateInput): Promise<ModelProfileResourceResult>;
   getOperationsOverview(): Promise<OperationsOverviewResult>;
   listOperationsAudit(limit?: number): Promise<{ items: OperationsAuditItem[] }>;
   listExtensions(): Promise<{ extensions: ExtensionSummary[] }>;

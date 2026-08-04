@@ -6,6 +6,9 @@ import {
   validateIdentifier,
   validateRuntimeCommand,
   validateProviderId,
+  validateModelProfileId,
+  validateModelProfileCreateInput,
+  validateModelProfileUpdateInput,
   validateSendMessageInput,
   validateSetupApplyRequest,
   validateSetupHelloText,
@@ -41,6 +44,7 @@ function setupRequest() {
       kind: "ModelProfile",
       metadata: { name: "primary" },
       spec: {
+        displayName: "Primary",
         provider: "google",
         model: "gemini-2.5-flash",
         credential: { store: "system", name: "primary-api-key" },
@@ -58,6 +62,7 @@ describe("Electron IPC validation", () => {
     expect(validateRuntimeCommand("restart")).toBe("restart");
     expect(validateIdentifier("run-1", "Run id")).toBe("run-1");
     expect(validateProviderId("openai_codex")).toBe("openai_codex");
+    expect(validateModelProfileId("coding-primary")).toBe("coding-primary");
     expect(validateExternalUrl("https://auth.openai.com/codex/device")).toBe("https://auth.openai.com/codex/device");
     expect(validateSendMessageInput({ agentId: "writer", sessionId: "session-1", text: "hello" })).toEqual({
       agentId: "writer",
@@ -108,12 +113,60 @@ describe("Electron IPC validation", () => {
       privilegeLevel: "medium",
       modelProfileId: "primary",
     });
+    expect(validateModelProfileCreateInput({
+      displayName: "  Coding  ",
+      providerId: "openai_codex",
+      model: "openai-codex/gpt-5.5-codex",
+      executionLocation: "remote",
+      apiBase: "https://api.example.com/v1",
+      capabilities: ["text", "tool_calling", "reasoning"],
+      contextWindowTokens: 200000,
+      inputCostPerMillionUsd: "1.25",
+      outputCostPerMillionUsd: null,
+      fallbackProfileIds: ["primary"],
+      enabled: true,
+      apiKey: "write-only-key",
+      profileId: "renderer-must-not-select-id",
+      credential: { store: "system", name: "renderer-must-not-control-this" },
+    })).toEqual({
+      displayName: "Coding",
+      providerId: "openai_codex",
+      model: "openai-codex/gpt-5.5-codex",
+      executionLocation: "remote",
+      apiBase: "https://api.example.com/v1",
+      capabilities: ["text", "tool_calling", "reasoning"],
+      contextWindowTokens: 200000,
+      inputCostPerMillionUsd: "1.25",
+      outputCostPerMillionUsd: null,
+      fallbackProfileIds: ["primary"],
+      enabled: true,
+      apiKey: "write-only-key",
+    });
+    expect(validateModelProfileUpdateInput({
+      ...validateModelProfileCreateInput({
+        displayName: "Coding",
+        providerId: "openai_codex",
+        model: "openai-codex/gpt-5.5-codex",
+        executionLocation: "remote",
+        apiBase: null,
+        capabilities: ["text"],
+        contextWindowTokens: null,
+        inputCostPerMillionUsd: null,
+        outputCostPerMillionUsd: null,
+        fallbackProfileIds: [],
+        enabled: true,
+        apiKey: null,
+      }),
+      profileId: "coding-primary",
+      expectedRevision: "revision-1",
+    })).toMatchObject({ profileId: "coding-primary", expectedRevision: "revision-1" });
   });
 
   it("rejects malformed renderer requests before they reach services", () => {
     expect(() => validateRuntimeCommand("delete")).toThrow("Runtime command");
     expect(() => validateIdentifier("", "Run id")).toThrow("Run id is required");
     expect(() => validateProviderId("OpenAI Codex")).toThrow("Provider id");
+    expect(() => validateModelProfileId("Primary Profile")).toThrow("lowercase resource name");
     expect(() => validateExternalUrl("file:///tmp/token")).toThrow("must use HTTPS");
     expect(() => validateSendMessageInput({ agentId: "writer", sessionId: [], text: "hello" })).toThrow(
       "Session id must be a string",
@@ -123,5 +176,19 @@ describe("Electron IPC validation", () => {
     expect(() => validateSetupHelloText("")).toThrow("Setup Hello is required");
     expect(() => validateSetupApplyRequest({ ...setupRequest(), secret: { ref: { store: "system", name: "Primary Key" }, value: "secret" } })).toThrow("lowercase resource name");
     expect(() => validateAgentCreateRequest({ agentId: "Research Agent", displayName: "Research", privilegeLevel: "medium", modelProfileId: "primary" })).toThrow("lowercase resource name");
+    expect(() => validateModelProfileCreateInput({
+      displayName: "Primary",
+      providerId: "google",
+      model: "gemini-2.5-flash",
+      executionLocation: "remote",
+      apiBase: null,
+      capabilities: ["text", "made_up"],
+      contextWindowTokens: null,
+      inputCostPerMillionUsd: null,
+      outputCostPerMillionUsd: null,
+      fallbackProfileIds: [],
+      enabled: true,
+      apiKey: null,
+    })).toThrow("capability is not supported");
   });
 });

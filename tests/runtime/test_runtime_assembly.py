@@ -108,6 +108,7 @@ def _configured(tmp_path: Path) -> tuple[ConfigService, InMemorySecretStore]:
                 "kind": "ModelProfile",
                 "metadata": {"name": "primary"},
                 "spec": {
+                    "displayName": "Primary",
                     "provider": "openai",
                     "model": "openai/gpt-test",
                     "credential": {"store": "system", "name": "primary-key"},

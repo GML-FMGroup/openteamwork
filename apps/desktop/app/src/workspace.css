@@ -1599,6 +1599,7 @@
 
 .settings-resource-row {
   display: flex;
+  width: 100%;
   align-items: center;
   justify-content: space-between;
   gap: 16px;
@@ -1606,10 +1607,52 @@
   border: 1px solid var(--hairline);
   border-radius: 12px;
   background: var(--surface-soft);
+  text-align: left;
+  transition: border-color 120ms ease, background 120ms ease;
+}
+
+.settings-resource-row:hover {
+  border-color: var(--hairline-strong);
+  background: var(--paper-deep);
 }
 
 .settings-resource-row p {
   margin: 3px 0 0;
+}
+
+.settings-resource-meta,
+.settings-heading-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.settings-resource-meta em {
+  color: var(--ink-faint);
+  font-size: 10px;
+  font-style: normal;
+}
+
+.settings-resource-meta > span:last-child {
+  color: var(--ink-faint);
+  font-size: 18px;
+}
+
+.settings-heading-actions > button {
+  min-height: 34px;
+  padding: 0 13px;
+  border: 1px solid var(--ink);
+  border-radius: 9px;
+  background: var(--ink);
+  color: white;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.settings-heading-actions > button.secondary {
+  border-color: var(--hairline-strong);
+  background: var(--surface-soft);
+  color: var(--ink-soft);
 }
 
 .resource-state {
@@ -2452,6 +2495,275 @@
   opacity: 0.42;
 }
 
+.model-profile-dialog {
+  display: flex;
+  width: min(720px, 100%);
+  max-height: min(900px, calc(100vh - 56px));
+  flex-direction: column;
+}
+
+.model-profile-dialog-header {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 24px;
+}
+
+.model-profile-dialog-header > div {
+  min-width: 0;
+}
+
+.model-profile-enabled {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 7px;
+  padding-top: 5px;
+  color: var(--ink-soft);
+  font-size: 11px;
+}
+
+.model-profile-enabled input,
+.model-profile-capabilities input,
+.model-profile-fallbacks input {
+  accent-color: var(--ink);
+}
+
+.model-profile-dialog > form {
+  overflow-y: auto;
+}
+
+.model-profile-fields {
+  gap: 14px 16px;
+}
+
+.model-profile-loading {
+  min-height: 160px;
+  margin: 0;
+  color: var(--ink-faint);
+}
+
+.model-profile-access {
+  display: grid;
+  grid-template-columns: minmax(120px, 0.7fr) minmax(260px, 1.3fr);
+  align-items: center;
+  gap: 18px;
+  margin-top: 18px;
+  padding: 14px;
+  border: 1px solid var(--hairline);
+  border-radius: 12px;
+  background: var(--canvas-deep);
+}
+
+.model-profile-access > div:first-child {
+  display: grid;
+  gap: 5px;
+}
+
+.model-profile-access > div:first-child > strong {
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.model-profile-access > label {
+  display: grid;
+  gap: 6px;
+}
+
+.model-profile-access > label > span,
+.model-profile-access small,
+.model-profile-access > p {
+  color: var(--ink-faint);
+  font-size: 10px;
+}
+
+.model-profile-access > label > input {
+  width: 100%;
+  height: 40px;
+  padding: 0 11px;
+  border: 1px solid var(--hairline-strong);
+  border-radius: 9px;
+  outline: none;
+  background: var(--paper-warm);
+  color: var(--ink);
+}
+
+.model-profile-oauth {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.model-profile-oauth button {
+  min-height: 34px;
+  padding: 0 12px;
+  border: 1px solid var(--hairline-strong);
+  border-radius: 9px;
+  background: var(--surface-strong);
+  color: var(--ink-soft);
+  font-size: 11px;
+}
+
+.model-profile-auth-state {
+  color: var(--ink-faint);
+  font-size: 10px;
+  text-transform: capitalize;
+}
+
+.model-profile-auth-state::before {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-right: 5px;
+  border-radius: 50%;
+  background: var(--amber);
+  content: "";
+}
+
+.model-profile-auth-state.ready::before {
+  background: var(--success);
+}
+
+.model-profile-auth-code {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  letter-spacing: 0.06em;
+}
+
+.model-profile-advanced {
+  margin-top: 16px;
+  border-top: 1px solid var(--hairline);
+}
+
+.model-profile-advanced summary {
+  padding: 15px 0 2px;
+  color: var(--ink-soft);
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.model-profile-advanced-fields {
+  margin-top: 14px;
+}
+
+.model-profile-technical-id {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 4px 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--hairline);
+  border-radius: 10px;
+  background: var(--surface-soft);
+}
+
+.model-profile-technical-id > span,
+.model-profile-technical-id small {
+  color: var(--ink-faint);
+  font-size: 10px;
+}
+
+.model-profile-technical-id code {
+  overflow: hidden;
+  color: var(--ink-soft);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.model-profile-technical-id small {
+  grid-column: 1 / -1;
+}
+
+.model-profile-capabilities,
+.model-profile-fallbacks {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.model-profile-capabilities legend,
+.model-profile-fallbacks legend {
+  margin-bottom: 8px;
+  color: var(--ink-soft);
+  font-size: 11px;
+}
+
+.model-profile-capabilities > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+.model-profile-capabilities label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 9px;
+  border: 1px solid var(--hairline);
+  border-radius: 999px;
+  background: var(--surface-soft);
+  color: var(--ink-soft);
+  cursor: pointer;
+  font-size: 10px;
+}
+
+.model-profile-capabilities label.selected {
+  border-color: var(--hairline-strong);
+  background: var(--paper-deep);
+  color: var(--ink);
+}
+
+.model-profile-capabilities input {
+  width: auto;
+  height: auto;
+  margin: 0;
+}
+
+.model-profile-fallbacks > div {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 7px;
+}
+
+.model-profile-fallbacks label {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 2px 8px;
+  padding: 9px;
+  border: 1px solid var(--hairline);
+  border-radius: 9px;
+  background: var(--surface-soft);
+}
+
+.model-profile-fallbacks input {
+  grid-row: 1 / 3;
+  align-self: center;
+  width: auto;
+  height: auto;
+  margin: 0;
+}
+
+.model-profile-fallbacks span {
+  color: var(--ink);
+  font-size: 11px;
+}
+
+.model-profile-fallbacks small {
+  overflow: hidden;
+  color: var(--ink-faint);
+  font-size: 9px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 @keyframes dialog-backdrop-in {
   from { opacity: 0; }
   to { opacity: 1; }
@@ -2597,6 +2909,15 @@
 
   .agent-dialog-full-row {
     grid-column: 1;
+  }
+
+  .model-profile-access,
+  .model-profile-fallbacks > div {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .model-profile-oauth {
+    justify-content: flex-start;
   }
 
   .app-shell,

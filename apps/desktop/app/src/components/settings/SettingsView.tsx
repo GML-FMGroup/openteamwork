@@ -46,6 +46,8 @@ interface SettingsViewProps {
   onSaveConnection: () => void;
   onRefreshExtensions: () => void;
   onRefreshModels: () => void;
+  onNewModelProfile: () => void;
+  onEditModelProfile: (profileId: string) => void;
   onSetExtensionEnabled: (extension: ExtensionSummary, enabled: boolean) => void;
 }
 
@@ -143,13 +145,13 @@ export function SettingsView(props: SettingsViewProps) {
 
           {section === "models" ? (
             <section className="settings-card settings-card-models">
-              <div className="settings-card-heading"><div><h3>Model Profiles</h3><p>Configured provider and model choices for this Node.</p></div><button className="secondary settings-quiet-button" onClick={props.onRefreshModels}>Refresh</button></div>
+              <div className="settings-card-heading"><div><h3>Model Profiles</h3><p>Reusable provider, model, access, and fallback policies for Agents on this Node.</p></div><div className="settings-heading-actions"><button className="secondary settings-quiet-button" onClick={props.onRefreshModels}>Refresh</button><button onClick={props.onNewModelProfile}>New Profile</button></div></div>
               <div className="settings-resource-list">
                 {props.modelProfiles.length ? props.modelProfiles.map((profile) => (
-                  <article key={profile.id} className="settings-resource-row">
-                    <div><strong>{profile.id}</strong><p>{profile.provider} · {profile.model}</p></div>
-                    <span className={profile.credentialState === "available" || profile.credentialState === "not_required" ? "resource-state ready" : "resource-state blocked"}>{profile.credentialState}</span>
-                  </article>
+                  <button key={profile.id} className="settings-resource-row" onClick={() => props.onEditModelProfile(profile.id)}>
+                    <div><strong>{profile.displayName}</strong><p>{profile.provider} · {profile.model}</p></div>
+                    <span className="settings-resource-meta"><span className={profile.credentialState === "available" || profile.credentialState === "not_required" ? "resource-state ready" : "resource-state blocked"}>{profile.credentialState.replace("_", " ")}</span>{!profile.enabled ? <em>disabled</em> : null}<span aria-hidden="true">›</span></span>
+                  </button>
                 )) : <p className="extension-empty">No Model Profiles configured.</p>}
               </div>
             </section>

@@ -7,7 +7,7 @@ from pathlib import Path
 
 from openppx.agents import AgentLifecycleService
 from openppx.config import ConfigService, FilesystemConfigRepository, SecretStore, SystemCredentialSecretStore
-from openppx.modeling import ModelCatalog, ModelProfileRepository, ModelProfileSelector, ProviderAccessService
+from openppx.modeling import ModelCatalog, ModelProfileLifecycleService, ModelProfileRepository, ModelProfileSelector, ProviderAccessService
 from openppx.setup import SetupService
 from openppx.governance import ActionAuditStore
 
@@ -33,6 +33,11 @@ def build_control_plane(
         catalog,
         secrets,
     )
+    model_profile_lifecycle = ModelProfileLifecycleService(
+        profile_repository,
+        catalog,
+        secrets,
+    )
     config_service = ConfigService(config_repository, profile_repository, selector)
     agent_lifecycle = AgentLifecycleService(
         config_repository,
@@ -51,6 +56,7 @@ def build_control_plane(
         config_repository=config_repository,
         config_service=config_service,
         profile_repository=profile_repository,
+        model_profile_lifecycle=model_profile_lifecycle,
         model_selector=selector,
         provider_access=resolved_provider_access,
         agent_lifecycle=agent_lifecycle,

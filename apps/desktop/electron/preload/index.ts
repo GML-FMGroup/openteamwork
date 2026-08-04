@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from "electron";
-import type { AgentCreateRequest, ConnectionSettings, ExtensionEnablementRequest, PpxClientApi, RunEvent, RuntimeCommand, SendMessageInput, SetupApplyRequest, SlashCommandRequest } from "../../app/src/types";
+import type { AgentCreateRequest, ConnectionSettings, ExtensionEnablementRequest, ModelProfileCreateInput, ModelProfileUpdateInput, PpxClientApi, RunEvent, RuntimeCommand, SendMessageInput, SetupApplyRequest, SlashCommandRequest } from "../../app/src/types";
 
 const api: PpxClientApi = {
   bootstrap: () => ipcRenderer.invoke("ppx-client:bootstrap"),
@@ -18,6 +18,9 @@ const api: PpxClientApi = {
   refreshProviderAuth: (providerId: string) => ipcRenderer.invoke("ppx-client:refresh-provider-auth", providerId),
   openExternalUrl: (url: string) => ipcRenderer.invoke("ppx-client:open-external-url", url),
   listModelProfiles: () => ipcRenderer.invoke("ppx-client:list-model-profiles"),
+  readModelProfile: (profileId: string) => ipcRenderer.invoke("ppx-client:read-model-profile", profileId),
+  createModelProfile: (input: ModelProfileCreateInput) => ipcRenderer.invoke("ppx-client:create-model-profile", input),
+  updateModelProfile: (input: ModelProfileUpdateInput) => ipcRenderer.invoke("ppx-client:update-model-profile", input),
   getOperationsOverview: () => ipcRenderer.invoke("ppx-client:get-operations-overview"),
   listOperationsAudit: (limit?: number) => ipcRenderer.invoke("ppx-client:list-operations-audit", limit),
   listSessions: (agentId: string) => ipcRenderer.invoke("ppx-client:list-sessions", agentId),

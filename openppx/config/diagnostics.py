@@ -17,6 +17,7 @@ ConfigErrorKind: TypeAlias = Literal[
     "invalid_root",
     "invalid_schema",
     "name_mismatch",
+    "name_conflict",
     "path_outside_root",
     "io_error",
     "revision_conflict",

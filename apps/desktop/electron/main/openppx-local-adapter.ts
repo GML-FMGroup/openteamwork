@@ -32,6 +32,9 @@ import type {
   ExtensionEnablementRequest,
   ExtensionSummary,
   ModelProfileSummary,
+  ModelProfileResourceResult,
+  ModelProfileCreateInput,
+  ModelProfileUpdateInput,
   OperationsAuditItem,
   OperationsOverviewResult,
   ModelCatalogResult,
@@ -581,6 +584,7 @@ export class OpenPpxLocalAdapter implements Omit<PpxClientApi, "openExternalUrl"
     const envelope = await this.models.list();
     const profiles = envelope.result.items.map((item) => ({
       id: String(item.id ?? ""),
+      displayName: String(item.displayName ?? ""),
       revision: String(item.revision ?? ""),
       provider: String(item.provider ?? ""),
       model: String(item.model ?? ""),
@@ -588,6 +592,21 @@ export class OpenPpxLocalAdapter implements Omit<PpxClientApi, "openExternalUrl"
       credentialState: String(item.credentialState ?? "unknown"),
     }));
     return { profiles };
+  }
+
+  public async readModelProfile(profileId: string): Promise<ModelProfileResourceResult> {
+    await this.ensureClientApiAvailable();
+    return (await this.models.readProfile(profileId)).result;
+  }
+
+  public async createModelProfile(input: ModelProfileCreateInput): Promise<ModelProfileResourceResult> {
+    await this.ensureClientApiAvailable();
+    return (await this.models.createProfile(input)).result;
+  }
+
+  public async updateModelProfile(input: ModelProfileUpdateInput): Promise<ModelProfileResourceResult> {
+    await this.ensureClientApiAvailable();
+    return (await this.models.updateProfile(input)).result;
   }
 
   public async getOperationsOverview(): Promise<OperationsOverviewResult> {

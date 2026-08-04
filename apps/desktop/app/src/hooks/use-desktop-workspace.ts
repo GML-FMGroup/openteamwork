@@ -8,6 +8,9 @@ import type {
   ConnectionSettings,
   ExtensionSummary,
   ModelProfileSummary,
+  ModelProfileResourceResult,
+  ModelProfileCreateInput,
+  ModelProfileUpdateInput,
   ModelCatalogResult,
   ProviderAuthStatus,
   OperationsAuditItem,
@@ -171,6 +174,7 @@ function buildSetupRequest(
       kind: "ModelProfile",
       metadata: { name: form.profileId },
       spec: {
+        displayName: "Primary",
         provider: form.provider,
         model: form.model,
         ...(usesApiKey ? { credential } : {}),
@@ -717,6 +721,42 @@ export function useDesktopWorkspace() {
     setModelProfiles(result.profiles);
   }
 
+  async function readModelProfile(profileId: string): Promise<ModelProfileResourceResult> {
+    return window.ppxClient.readModelProfile(profileId);
+  }
+
+  async function createModelProfile(input: ModelProfileCreateInput): Promise<ModelProfileResourceResult> {
+    const result = await window.ppxClient.createModelProfile(input);
+    await refreshModelProfiles();
+    return result;
+  }
+
+  async function updateModelProfile(input: ModelProfileUpdateInput): Promise<ModelProfileResourceResult> {
+    const result = await window.ppxClient.updateModelProfile(input);
+    await refreshModelProfiles();
+    return result;
+  }
+
+  async function getModelProviderModels(providerId: string): Promise<ModelCatalogResult> {
+    return window.ppxClient.getProviderModels(providerId);
+  }
+
+  async function getModelProviderAuth(providerId: string): Promise<ProviderAuthStatus> {
+    return window.ppxClient.getProviderAuthStatus(providerId);
+  }
+
+  async function beginModelProviderAuth(providerId: string): Promise<ProviderAuthStatus> {
+    return window.ppxClient.beginProviderAuth(providerId);
+  }
+
+  async function refreshModelProviderAuth(providerId: string): Promise<ProviderAuthStatus> {
+    return window.ppxClient.refreshProviderAuth(providerId);
+  }
+
+  async function openExternalUrl(url: string): Promise<void> {
+    await window.ppxClient.openExternalUrl(url);
+  }
+
   async function completeSetup(): Promise<void> {
     if (!setupStatus || setupSubmitting) {
       return;
@@ -1065,6 +1105,14 @@ export function useDesktopWorkspace() {
     refreshOperations,
     refreshExtensions,
     refreshModelProfiles,
+    readModelProfile,
+    createModelProfile,
+    updateModelProfile,
+    getModelProviderModels,
+    getModelProviderAuth,
+    beginModelProviderAuth,
+    refreshModelProviderAuth,
+    openExternalUrl,
     completeSetup,
     beginProviderAuth,
     refreshProviderAuth,

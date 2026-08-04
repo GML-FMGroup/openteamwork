@@ -321,6 +321,7 @@ def _setup_request_fixture() -> dict[str, Any]:
             "kind": "ModelProfile",
             "metadata": {"name": "primary"},
             "spec": {
+                "displayName": "Primary",
                 "provider": "google",
                 "model": "gemini-2.5-flash",
                 "credential": {"store": "system", "name": "primary-model-api-key"},

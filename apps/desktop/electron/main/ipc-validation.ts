@@ -1,4 +1,4 @@
-import type { AgentCreateRequest, ConnectionSettings, ExtensionEnablementRequest, RuntimeCommand, SendMessageInput, SetupApplyRequest, SlashCommandRequest } from "../../app/src/types";
+import type { AgentCreateRequest, ConnectionSettings, ExtensionEnablementRequest, ModelCapability, ModelProfileCreateInput, ModelProfileUpdateInput, RuntimeCommand, SendMessageInput, SetupApplyRequest, SlashCommandRequest } from "../../app/src/types";
 
 function record(value: unknown, label: string): Record<string, unknown> {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
@@ -84,6 +84,113 @@ function resourceName(value: unknown, label: string): string {
     throw new TypeError(`${label} must be a lowercase resource name.`);
   }
   return candidate;
+}
+
+/** Validate a Model Profile resource identifier crossing the IPC boundary. */
+export function validateModelProfileId(value: unknown): string {
+  return resourceName(value, "Model Profile id");
+}
+
+const MODEL_CAPABILITIES = new Set<ModelCapability>([
+  "text",
+  "vision",
+  "audio_input",
+  "audio_output",
+  "tool_calling",
+  "structured_output",
+  "reasoning",
+  "long_context",
+]);
+
+function optionalText(value: unknown, label: string, maxLength: number): string | null {
+  if (value === null || value === undefined || value === "") {
+    return null;
+  }
+  return string(value, label, maxLength);
+}
+
+function optionalPositiveInteger(value: unknown, label: string): number | null {
+  if (value === null || value === undefined || value === "") {
+    return null;
+  }
+  if (!Number.isInteger(value) || Number(value) < 1) {
+    throw new TypeError(`${label} must be a positive integer.`);
+  }
+  return Number(value);
+}
+
+function optionalDecimalText(value: unknown, label: string): string | null {
+  const candidate = optionalText(value, label, 64);
+  if (candidate === null) {
+    return null;
+  }
+  if (!/^(?:0|[1-9]\d*)(?:\.\d+)?$/.test(candidate)) {
+    throw new TypeError(`${label} must be a non-negative decimal.`);
+  }
+  return candidate;
+}
+
+/** Reconstruct mutable Model Profile fields at the Renderer/Main trust boundary. */
+function validateModelProfileWriteInput(value: unknown, label: string): ModelProfileCreateInput {
+  const input = record(value, label);
+  if (input.executionLocation !== "local" && input.executionLocation !== "remote") {
+    throw new TypeError("Model execution location must be local or remote.");
+  }
+  if (typeof input.enabled !== "boolean") {
+    throw new TypeError("Model Profile enabled must be a boolean.");
+  }
+  if (!Array.isArray(input.capabilities)) {
+    throw new TypeError("Model capabilities must be an array.");
+  }
+  const capabilities = input.capabilities.map((item) => {
+    if (typeof item !== "string" || !MODEL_CAPABILITIES.has(item as ModelCapability)) {
+      throw new TypeError("Model capability is not supported.");
+    }
+    return item as ModelCapability;
+  });
+  if (new Set(capabilities).size !== capabilities.length) {
+    throw new TypeError("Model capabilities must be unique.");
+  }
+  if (!Array.isArray(input.fallbackProfileIds)) {
+    throw new TypeError("Fallback Model Profiles must be an array.");
+  }
+  const fallbackProfileIds = input.fallbackProfileIds.map((item) => resourceName(item, "Fallback Model Profile id"));
+  if (new Set(fallbackProfileIds).size !== fallbackProfileIds.length) {
+    throw new TypeError("Fallback Model Profiles must be unique.");
+  }
+  return {
+    displayName: string(input.displayName, "Model Profile name", 80).trim(),
+    providerId: validateProviderId(input.providerId),
+    model: string(input.model, "Model", 256),
+    executionLocation: input.executionLocation,
+    apiBase: optionalText(input.apiBase, "API Base URL", 2_048),
+    capabilities,
+    contextWindowTokens: optionalPositiveInteger(input.contextWindowTokens, "Context window"),
+    inputCostPerMillionUsd: optionalDecimalText(input.inputCostPerMillionUsd, "Input cost"),
+    outputCostPerMillionUsd: optionalDecimalText(input.outputCostPerMillionUsd, "Output cost"),
+    fallbackProfileIds,
+    enabled: input.enabled,
+    apiKey: optionalText(input.apiKey, "API key", 16_384),
+  };
+}
+
+/** Validate a create request without accepting a Renderer-selected resource ID. */
+export function validateModelProfileCreateInput(value: unknown): ModelProfileCreateInput {
+  return validateModelProfileWriteInput(value, "Model Profile create request");
+}
+
+/** Validate an update request with immutable identity and optimistic concurrency. */
+export function validateModelProfileUpdateInput(value: unknown): ModelProfileUpdateInput {
+  const input = record(value, "Model Profile update request");
+  const expectedRevision = revision(input.expectedRevision, "Expected Model Profile revision");
+  if (expectedRevision === null) {
+    throw new TypeError("Expected Model Profile revision is required.");
+  }
+  return {
+    ...validateModelProfileWriteInput(input, "Model Profile update request"),
+    profileId: resourceName(input.profileId, "Model Profile id"),
+    expectedRevision,
+  };
 }
 
 /** Validate Agent creation fields while keeping owner identity out of Renderer control. */
@@ -181,6 +288,7 @@ export function validateSetupApplyRequest(value: unknown): SetupApplyRequest {
       kind: "ModelProfile",
       metadata: { name: profileId },
       spec: {
+        displayName: string(profileSpec.displayName, "Model Profile name", 80).trim(),
         provider: string(profileSpec.provider, "Model provider", 63),
         model: string(profileSpec.model, "Model", 256),
         ...(credential

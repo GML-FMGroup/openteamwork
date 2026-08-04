@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from openppx.config import AgentConfig, ConfigLoadError, ConfigRevisionConflict
+from openppx.config import AgentConfig, ConfigLoadError, ConfigRevisionConflict, ConfigWriteError
 from openppx.modeling import ModelProfile, ModelProfileRepository, export_model_profile_schema
 
 
@@ -19,10 +19,12 @@ def profile_document(*, name: str = "general-primary") -> dict[str, object]:
         "kind": "ModelProfile",
         "metadata": {"name": name},
         "spec": {
+            "displayName": "General Primary",
             "provider": "openai",
             "model": "openai/gpt-5.4",
             "credential": {"store": "system", "name": "openai-primary"},
             "executionLocation": "remote",
+            "apiBase": "https://models.example.test/v1/",
             "capabilities": ["text", "tool_calling", "structured_output"],
             "contextWindowTokens": 128000,
             "inputCostPerMillionUsd": "2.50",
@@ -59,6 +61,7 @@ def test_model_profile_parses_strict_typed_fields() -> None:
     assert profile.metadata.name == "general-primary"
     assert profile.spec.provider == "openai"
     assert profile.spec.credential is not None
+    assert profile.spec.api_base == "https://models.example.test/v1"
     assert str(profile.spec.input_cost_per_million_usd) == "2.50"
     assert profile.spec.capabilities == ["text", "tool_calling", "structured_output"]
 
@@ -82,6 +85,8 @@ def test_agent_model_policy_is_typed_and_role_keys_are_strict() -> None:
         (("spec", "model"), "\n"),
         (("spec", "inputCostPerMillionUsd"), "-1"),
         (("spec", "capabilities"), ["text", "unregistered_capability"]),
+        (("spec", "apiBase"), "https://user:secret@example.test/v1"),
+        (("spec", "apiBase"), "file:///tmp/model"),
     ],
 )
 def test_model_profile_rejects_invalid_values(path: tuple[str, str], value: object) -> None:
@@ -152,3 +157,21 @@ def test_model_profile_path_name_mismatch_never_writes(tmp_path: Path) -> None:
 
     assert raised.value.kind == "name_mismatch"
     assert not (tmp_path / "model-profiles" / "general-primary" / "profile.json").exists()
+
+
+def test_repository_rejects_duplicate_display_names_across_distinct_ids(tmp_path: Path) -> None:
+    repository = ModelProfileRepository(tmp_path)
+    first = ModelProfile.model_validate(profile_document(name="first"))
+    repository.write_profile("first", first, expected_revision=None)
+    duplicate_payload = profile_document(name="second")
+    duplicate_payload["spec"]["displayName"] = " general primary "  # type: ignore[index]
+
+    with pytest.raises(ConfigWriteError) as raised:
+        repository.write_profile(
+            "second",
+            ModelProfile.model_validate(duplicate_payload),
+            expected_revision=None,
+        )
+
+    assert raised.value.kind == "name_conflict"
+    assert not (tmp_path / "model-profiles" / "second" / "profile.json").exists()

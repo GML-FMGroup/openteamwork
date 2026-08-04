@@ -9,6 +9,8 @@ from openppx.actions import ActionError, ActionFailure, ActionRegistry, ActionSp
 from openppx.config import ConfigError
 from openppx.modeling import (
     ModelProfileRepository,
+    ModelProfileLifecycleError,
+    ModelProfileLifecycleService,
     ModelProfileSelector,
     ModelRequirements,
     ModelSelectionError,
@@ -17,13 +19,14 @@ from openppx.modeling import (
 )
 
 from .errors import raise_config_failure, raise_model_failure
-from .input_models import EmptyInput, ModelProfileMutationInput, ModelProfileReadInput, ModelProviderInput, ModelSelectionInput
+from .input_models import EmptyInput, ModelProfileCreateInput, ModelProfileMutationInput, ModelProfileReadInput, ModelProfileUpdateInput, ModelProfileWriteInput, ModelProviderInput, ModelSelectionInput
 from .projections import project_resolution, project_resource
 
 
 def register_model_actions(
     registry: ActionRegistry,
     profiles: ModelProfileRepository,
+    lifecycle: ModelProfileLifecycleService,
     selector: ModelProfileSelector,
     config_repository,
     provider_access: ProviderAccessService,
@@ -59,7 +62,21 @@ def register_model_actions(
     registry.register(
         _spec("model.profile.apply", "Apply Model Profile", "Create or update one strict Model Profile.", ModelProfileMutationInput, "model.write"),
         lambda _context, input_data: _profile_call(
-            lambda: _apply_profile(profiles, cast(ModelProfileMutationInput, input_data))
+            lambda: _apply_profile(profiles, selector, cast(ModelProfileMutationInput, input_data))
+        ),
+    )
+    registry.register(
+        _spec("model.profile.create", "Create Model Profile", "Create one named Model Profile with a Node-generated identity.", ModelProfileCreateInput, "model.write"),
+        lambda _context, input_data: _create_profile(
+            lifecycle,
+            cast(ModelProfileCreateInput, input_data),
+        ),
+    )
+    registry.register(
+        _spec("model.profile.update", "Update Model Profile", "Edit one Model Profile without changing its identity.", ModelProfileUpdateInput, "model.write"),
+        lambda _context, input_data: _update_profile(
+            lifecycle,
+            cast(ModelProfileUpdateInput, input_data),
         ),
     )
     registry.register(
@@ -110,6 +127,10 @@ def _spec(action_id: str, title: str, description: str, input_model, permission:
         input_model=input_model,
         scope="node" if action_id in {
             "model.list",
+            "model.profile.read",
+            "model.profile.apply",
+            "model.profile.create",
+            "model.profile.update",
             "model.catalog.list",
             "model.auth.status",
             "model.auth.begin",
@@ -117,6 +138,7 @@ def _spec(action_id: str, title: str, description: str, input_model, permission:
         } else "agent",
         required_capabilities=frozenset({permission}),
         permission=permission,
+        risk="medium" if action_id in {"model.profile.apply", "model.profile.create", "model.profile.update"} else "low",
         projections=projections,
         slash_commands=slash_commands,
     )
@@ -132,6 +154,7 @@ def _list_profiles(profiles: ModelProfileRepository, selector: ModelProfileSelec
             items.append(
                 {
                     "id": profile_id,
+                    "displayName": resource.document.spec.display_name,
                     "revision": resource.revision,
                     "provider": resource.document.spec.provider,
                     "model": resource.document.spec.model,
@@ -144,13 +167,96 @@ def _list_profiles(profiles: ModelProfileRepository, selector: ModelProfileSelec
         raise_config_failure(exc)
 
 
-def _apply_profile(profiles: ModelProfileRepository, input_data: ModelProfileMutationInput) -> dict[str, object]:
+def _apply_profile(
+    profiles: ModelProfileRepository,
+    selector: ModelProfileSelector,
+    input_data: ModelProfileMutationInput,
+) -> dict[str, object]:
+    candidate = input_data.candidate
+    provider = selector.catalog.get(candidate.spec.provider)
+    if provider is None or provider.runtime == "unsupported":
+        raise ActionFailure(ActionError("provider_not_supported", "The selected model provider is not supported."))
+    if provider.credential_mode == "api_key" and candidate.spec.credential is None:
+        raise ActionFailure(ActionError("credential_required", "The selected provider requires a protected credential."))
+    if provider.credential_mode != "api_key" and candidate.spec.credential is not None:
+        raise ActionFailure(ActionError("credential_not_supported", "This provider does not use a Model Profile credential."))
+    if candidate.spec.api_base is not None and provider.runtime not in {"litellm", "codex"}:
+        raise ActionFailure(ActionError("api_base_not_supported", "This provider does not support a custom API Base."))
+    model_snapshot = selector.catalog.list_models(candidate.spec.provider)
+    if model_snapshot.authoritative and candidate.spec.model not in {
+        item.model_id for item in model_snapshot.models
+    }:
+        raise ActionFailure(ActionError("model_not_available", "The selected model is not advertised by this provider on the Node."))
     resource = profiles.write_profile(
         input_data.profile_id,
-        input_data.candidate,
+        candidate,
         expected_revision=input_data.expected_revision,
     )
     return project_resource(resource)
+
+
+def _profile_write_kwargs(input_data: ModelProfileWriteInput) -> dict[str, object]:
+    """Project validated product fields into the lifecycle call without identity data."""
+    return {
+        "display_name": input_data.display_name,
+        "provider_id": input_data.provider_id,
+        "model": input_data.model,
+        "execution_location": input_data.execution_location,
+        "api_base": input_data.api_base,
+        "capabilities": input_data.capabilities,
+        "context_window_tokens": input_data.context_window_tokens,
+        "input_cost_per_million_usd": (
+            Decimal(input_data.input_cost_per_million_usd)
+            if input_data.input_cost_per_million_usd is not None
+            else None
+        ),
+        "output_cost_per_million_usd": (
+            Decimal(input_data.output_cost_per_million_usd)
+            if input_data.output_cost_per_million_usd is not None
+            else None
+        ),
+        "fallback_profile_ids": input_data.fallback_profile_ids,
+        "enabled": input_data.enabled,
+        "api_key": input_data.api_key,
+    }
+
+
+def _create_profile(
+    lifecycle: ModelProfileLifecycleService,
+    input_data: ModelProfileCreateInput,
+) -> dict[str, object]:
+    try:
+        result = lifecycle.create(**_profile_write_kwargs(input_data))
+    except ModelProfileLifecycleError as exc:
+        raise ActionFailure(ActionError(exc.code, str(exc))) from None
+    except ConfigError as exc:
+        raise_config_failure(exc)
+    return {
+        **project_resource(result.profile),
+        "credentialState": result.credential_state,
+        "effect": "next_run",
+    }
+
+
+def _update_profile(
+    lifecycle: ModelProfileLifecycleService,
+    input_data: ModelProfileUpdateInput,
+) -> dict[str, object]:
+    try:
+        result = lifecycle.update(
+            profile_id=input_data.profile_id,
+            expected_revision=input_data.expected_revision,
+            **_profile_write_kwargs(input_data),
+        )
+    except ModelProfileLifecycleError as exc:
+        raise ActionFailure(ActionError(exc.code, str(exc))) from None
+    except ConfigError as exc:
+        raise_config_failure(exc)
+    return {
+        **project_resource(result.profile),
+        "credentialState": result.credential_state,
+        "effect": "next_run",
+    }
 
 
 def _profile_call(operation):

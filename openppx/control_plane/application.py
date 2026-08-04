@@ -8,7 +8,7 @@ from openppx.actions import ActionContext, ActionExecutor, ActionOutcome, Action
 from openppx.actions import ActionError, ActionFailure, SlashCommandError, SlashInvocationContext
 from openppx.agents import AgentLifecycleService
 from openppx.config import ConfigService, FilesystemConfigRepository
-from openppx.modeling import ModelProfileRepository, ModelProfileSelector, ProviderAccessService
+from openppx.modeling import ModelProfileLifecycleService, ModelProfileRepository, ModelProfileSelector, ProviderAccessService
 from openppx.setup import SetupService
 from openppx.governance import ActionAuditStore, ActionPolicy
 
@@ -32,6 +32,7 @@ class ControlPlaneApplication:
         config_repository: FilesystemConfigRepository,
         config_service: ConfigService,
         profile_repository: ModelProfileRepository,
+        model_profile_lifecycle: ModelProfileLifecycleService,
         model_selector: ModelProfileSelector,
         provider_access: ProviderAccessService,
         agent_lifecycle: AgentLifecycleService,
@@ -42,6 +43,7 @@ class ControlPlaneApplication:
         self.config_repository = config_repository
         self.config_service = config_service
         self.profile_repository = profile_repository
+        self.model_profile_lifecycle = model_profile_lifecycle
         self.model_selector = model_selector
         self.provider_access = provider_access
         self.agent_lifecycle = agent_lifecycle
@@ -52,7 +54,14 @@ class ControlPlaneApplication:
         executor = ActionExecutor(registry, policy=ActionPolicy(), audit=audit_store)
         register_config_actions(registry, config_repository, config_service)
         register_agent_actions(registry, agent_lifecycle)
-        register_model_actions(registry, profile_repository, model_selector, config_repository, provider_access)
+        register_model_actions(
+            registry,
+            profile_repository,
+            model_profile_lifecycle,
+            model_selector,
+            config_repository,
+            provider_access,
+        )
         register_setup_actions(registry, setup_service)
         register_system_actions(
             registry,

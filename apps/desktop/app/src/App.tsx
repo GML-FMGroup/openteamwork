@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { SettingsView } from "./components/settings/SettingsView";
 import { OnboardingView } from "./components/setup/OnboardingView";
 import { NewAgentDialog } from "./components/agents/NewAgentDialog";
+import { ModelProfileDialog } from "./components/models/ModelProfileDialog";
 import { Composer } from "./components/workspace/Composer";
 import {
   CollapsedSidebarTools,
@@ -40,6 +41,7 @@ export function App() {
   const [inspectorCollapsed, setInspectorCollapsed] = useState(false);
   const [sidebarSearchRequest, setSidebarSearchRequest] = useState(0);
   const [newAgentOpen, setNewAgentOpen] = useState(false);
+  const [modelProfileDialog, setModelProfileDialog] = useState<{ mode: "new" | "edit"; profileId: string | null } | null>(null);
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
 
   useEffect(() => {
@@ -160,7 +162,6 @@ export function App() {
     while (workspace.agents.some((agent) => agent.id === `agent-${index}`)) index += 1;
     return `agent-${index}`;
   })();
-
   return (
     <div
       ref={columnLayout.shellRef}
@@ -332,6 +333,8 @@ export function App() {
           onSaveConnection={() => void workspace.saveConnection()}
           onRefreshExtensions={() => void workspace.refreshExtensions()}
           onRefreshModels={() => void workspace.refreshModelProfiles()}
+          onNewModelProfile={() => setModelProfileDialog({ mode: "new", profileId: null })}
+          onEditModelProfile={(profileId) => setModelProfileDialog({ mode: "edit", profileId })}
           onSetExtensionEnabled={(extension, enabled) => void workspace.setExtensionEnabled(extension, enabled)}
         />
       )}
@@ -350,6 +353,24 @@ export function App() {
               }
             });
           }}
+        />
+      ) : null}
+      {modelProfileDialog ? (
+        <ModelProfileDialog
+          mode={modelProfileDialog.mode}
+          profileId={modelProfileDialog.profileId}
+          profiles={workspace.modelProfiles}
+          providers={workspace.setupStatus.providers}
+          onRead={workspace.readModelProfile}
+          onGetModels={workspace.getModelProviderModels}
+          onGetAuth={workspace.getModelProviderAuth}
+          onBeginAuth={workspace.beginModelProviderAuth}
+          onRefreshAuth={workspace.refreshModelProviderAuth}
+          onOpenExternal={workspace.openExternalUrl}
+          onCreate={workspace.createModelProfile}
+          onUpdate={workspace.updateModelProfile}
+          onCancel={() => setModelProfileDialog(null)}
+          onSaved={() => setModelProfileDialog(null)}
         />
       ) : null}
     </div>

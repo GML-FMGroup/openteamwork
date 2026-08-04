@@ -84,6 +84,7 @@ def _apply_input(args: Any, status: dict[str, Any], *, api_key: str | None) -> d
     workspace = str(Path(args.workspace or recommended_workspace).expanduser().resolve(strict=False))
     credential_ref = {"store": "system", "name": args.credential_name}
     profile_spec: dict[str, object] = {
+        "displayName": "Primary",
         "provider": args.provider,
         "model": model,
         "executionLocation": args.execution_location,

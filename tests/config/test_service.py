@@ -67,6 +67,7 @@ def model_profile() -> ModelProfile:
             "kind": "ModelProfile",
             "metadata": {"name": "primary"},
             "spec": {
+                "displayName": "Primary",
                 "provider": "openai",
                 "model": "openai/gpt-5.4",
                 "credential": {"store": "system", "name": "openai-primary"},

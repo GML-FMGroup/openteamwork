@@ -139,7 +139,7 @@ export function NewAgentDialog({
               <span>Model Profile</span>
               <select value={modelProfileId} onChange={(event) => setModelProfileId(event.target.value)}>
                 {enabledProfiles.map((profile) => (
-                  <option key={profile.id} value={profile.id}>{profile.id} · {profile.model}</option>
+                  <option key={profile.id} value={profile.id}>{profile.displayName} · {profile.model}</option>
                 ))}
               </select>
             </label>

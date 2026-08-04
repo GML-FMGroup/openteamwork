@@ -10,17 +10,24 @@ from openppx.modeling.selection import ModelResolution
 from openppx.runtime.model_adapter_factory import ModelAdapterFactory
 
 
-def _resolution(*, provider: str = "openai", model: str = "openai/gpt-test") -> ModelResolution:
+def _resolution(
+    *,
+    provider: str = "openai",
+    model: str = "openai/gpt-test",
+    api_base: str | None = None,
+) -> ModelResolution:
     profile = ModelProfile.model_validate(
         {
             "apiVersion": "openppx.io/v1alpha1",
             "kind": "ModelProfile",
             "metadata": {"name": "primary"},
             "spec": {
+                "displayName": "Primary",
                 "provider": provider,
                 "model": model,
                 "credential": {"store": "system", "name": "primary-key"},
                 "executionLocation": "remote",
+                "apiBase": api_base,
                 "capabilities": ["text", "tool_calling"],
                 "fallbackProfiles": [],
                 "enabled": True,
@@ -49,6 +56,18 @@ def test_litellm_adapter_uses_explicit_secret_without_mutating_environment() -> 
     assert model.model == "openai/gpt-test"
     assert dict(os.environ) == before
     assert "model-secret-never-log" not in repr(model)
+
+
+def test_litellm_adapter_prefers_profile_api_base() -> None:
+    secrets = InMemorySecretStore()
+    ref = SecretRef(store="system", name="primary-key")
+    secrets.put(ref, SecretValue("model-secret-never-log"))
+
+    model = ModelAdapterFactory(secrets).build(
+        _resolution(api_base="http://127.0.0.1:8000/v1")
+    )
+
+    assert model._additional_args["api_base"] == "http://127.0.0.1:8000/v1"
 
 
 def test_google_adapter_injects_a_client_instead_of_provider_environment() -> None:

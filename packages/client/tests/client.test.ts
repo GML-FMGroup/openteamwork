@@ -226,6 +226,90 @@ describe("OpenPPX Client public contract", () => {
     expect(bodies.every((body) => body.input.providerId === "openai_codex")).toBe(true);
   });
 
+  it("reads, creates, and updates Model Profiles through distinct typed Node Actions", async () => {
+    const document = {
+      apiVersion: "openppx.io/v1alpha1" as const,
+      kind: "ModelProfile" as const,
+      metadata: { name: "local-vllm" },
+      spec: {
+        displayName: "Local VLLM",
+        provider: "vllm",
+        model: "meta-llama/Llama-3.1-8B-Instruct",
+        credential: { store: "system" as const, name: "model-local-vllm-fixture" },
+        executionLocation: "local" as const,
+        apiBase: "http://127.0.0.1:8000/v1",
+        capabilities: ["text" as const, "tool_calling" as const],
+        contextWindowTokens: 128000,
+        inputCostPerMillionUsd: null,
+        outputCostPerMillionUsd: null,
+        fallbackProfiles: [],
+        enabled: true,
+      },
+    };
+    const fetchMock = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body));
+      return new Response(JSON.stringify({
+        protocolVersion: 1,
+        requestId: body.requestId,
+        correlationId: body.correlationId,
+        ok: true,
+        result: { resourceId: "model-profile/local-vllm", revision: "sha256:model", document },
+      }), { status: 200, headers: { "Content-Type": "application/json" } });
+    });
+    const client = new OpenPpxClient({
+      baseUrl: "http://127.0.0.1:18765",
+      fetch: fetchMock as unknown as typeof fetch,
+      idFactory: () => "request-model-profile",
+    });
+
+    await client.model.readProfile("local-vllm");
+    await client.model.createProfile({
+      displayName: "Local VLLM",
+      providerId: "vllm",
+      model: document.spec.model,
+      executionLocation: "local",
+      apiBase: document.spec.apiBase,
+      capabilities: document.spec.capabilities,
+      contextWindowTokens: 128000,
+      inputCostPerMillionUsd: null,
+      outputCostPerMillionUsd: null,
+      fallbackProfileIds: [],
+      enabled: true,
+      apiKey: "write-only-secret",
+    });
+    await client.model.updateProfile({
+      displayName: "Local VLLM 8B",
+      profileId: "local-vllm",
+      providerId: "vllm",
+      model: document.spec.model,
+      executionLocation: "local",
+      apiBase: document.spec.apiBase,
+      capabilities: document.spec.capabilities,
+      contextWindowTokens: 128000,
+      inputCostPerMillionUsd: null,
+      outputCostPerMillionUsd: null,
+      fallbackProfileIds: [],
+      enabled: true,
+      apiKey: null,
+      expectedRevision: "sha256:model",
+    });
+
+    const calls = fetchMock.mock.calls as unknown as Array<[string, RequestInit]>;
+    const bodies = calls.map((call) => JSON.parse(String(call[1].body)));
+    expect(bodies.map((body) => body.actionId)).toEqual(["model.profile.read", "model.profile.create", "model.profile.update"]);
+    expect(bodies[1].input).toMatchObject({
+      displayName: "Local VLLM",
+      apiBase: "http://127.0.0.1:8000/v1",
+      apiKey: "write-only-secret",
+    });
+    expect(bodies[1].input).not.toHaveProperty("profileId");
+    expect(bodies[2].input).toMatchObject({
+      profileId: "local-vllm",
+      displayName: "Local VLLM 8B",
+      expectedRevision: "sha256:model",
+    });
+  });
+
   it("creates Agents through the typed Node Action facade", async () => {
     const result = {
       agent: {
