@@ -6,6 +6,7 @@ The current source tree is a developer preview. It is not yet a stable or produc
 
 ## News
 
+- **2026-08-05 — Attachment and Artifact closure on the development branch:** added Node-authoritative validation and bounded extraction for DOCX, XLSX, CSV, text PDFs, PPTX, PNG, JPEG, and WebP; durable Session references; restart/fork/delete lifecycle rules; archive-bomb, path, MIME, corruption, encryption, and image-size defenses; and one canonical verification command. These post-tag changes are not part of the already-uploaded v0.5.3 assets.
 - **2026-08-05 — v0.5.3 Extension Platform Preview:** published a prerelease with the long-term Plugin/App/MCP/Skill taxonomy, Codex-compatible `.agent-plugin` packages, curated Extension starters, local product icons, full Desktop management flows, and a quieter OpenWorker-inspired grouped-list interface.
 - **2026-08-04 — Product closure on the development branch:** Desktop now manages Plugin/App/MCP/Skill lifecycles, Cron/Heartbeat/Task operations, Agent and Session resources, multiple saved Node targets, and session-scoped file/image/audio Artifacts through the shared Node contract. These changes are newer than the v0.5.2 prerelease artifacts.
 - **2026-08-04 — v0.5.2 Developer Preview:** published the unified Node architecture as a prerelease, including governed Config and Actions, Plugin/App/MCP/Skill extensions, Operations, OpenAI Codex authentication, Agent and Model Profile management, and a more polished Desktop workspace. The release remains intended for developer evaluation rather than production use.
@@ -42,7 +43,8 @@ The Node is the source of truth. Clients may keep device-local preferences such 
 - Persistent sessions, artifacts, memory, TaskRuns, checkpoints, supervised long tasks, and workflow facts.
 - Node-owned Task scheduling, Cron, Heartbeat, usage, health, and redacted Action audit facts.
 - A thin TypeScript client and an Electron/React Desktop workspace that can save and switch between a local Node and multiple trusted-LAN Nodes without exposing their bearer tokens to the Renderer.
-- Desktop lifecycle management for Extensions, Operations, Agents, and Sessions, plus session-scoped file, image, and audio upload/download with durable Artifact references.
+- Desktop lifecycle management for Extensions, Operations, Agents, and Sessions, plus Session-scoped document, spreadsheet, PDF, presentation, text/code, and image upload/download with durable Artifact references.
+- Node-authoritative attachment policy with extension, MIME, magic-byte, archive, XML, page, cell, character, image-pixel, per-file, per-message, and Session-ownership limits. Original bytes remain downloadable while bounded deterministic projections are supplied to the model.
 - Google ADK-native Agent, Runner, Session, Artifact, Memory, MCP, confirmation, rewind, compaction, and evaluation integration.
 
 ## Requirements
@@ -50,7 +52,7 @@ The Node is the source of truth. Clients may keep device-local preferences such 
 - Python 3.14
 - Node.js and pnpm for Desktop development
 - A supported model provider account or local model endpoint
-- macOS or Linux for the current user-service installer
+- macOS ARM64 for the currently supported packaged Desktop preview. Source development on other systems is not a release-support commitment.
 
 ## Install from source
 
@@ -216,19 +218,19 @@ docs/                       User and operator documentation
 
 ## Development verification
 
+Run the canonical offline-friendly gate from the repository root. It uses package-local tools and does not require Corepack to download pnpm:
+
 ```bash
-source .venv/bin/activate
-python -m pytest -q
-
-cd packages/client
-./node_modules/.bin/vitest run
-./node_modules/.bin/tsc --noEmit
-
-cd ../../apps/desktop
-./node_modules/.bin/vitest run
-node --test scripts/verify-preload.node-test.mjs
-npm run build
+./.venv/bin/python scripts/verify.py
 ```
+
+Before creating a macOS ARM64 preview artifact, include the unsigned directory package and packaged-preload check:
+
+```bash
+./.venv/bin/python scripts/verify.py --package
+```
+
+Use `--list`, `--skip-python`, or `--skip-build` only for diagnostics; the full gate remains the acceptance source of truth.
 
 ## Documentation
 
@@ -246,5 +248,6 @@ npm run build
 
 - CLI and Desktop are first-class clients; a mobile client is a future consumer of the same contract, not part of the current build.
 - Multiple trusted-LAN targets and encrypted endpoint-bound tokens are implemented. Automatic TLS, discovery, identity pairing, token rotation/revocation, SSH/Tailnet setup, and a public relay are future work.
+- Message attachments currently support modern DOCX, XLSX, CSV, text-based PDF, PPTX, PNG, JPEG, WebP, and a bounded set of UTF-8 text/code formats. Legacy `.doc`, `.xls`, and `.ppt`, scanned-PDF OCR, encrypted PDFs, and arbitrary binary files are deliberately rejected with a conversion or capability message.
 - Public extension catalogs, cloud hosting, improved memory, self-evolution, and deeper long-task intelligence remain later product layers over the current Node foundation.
 - The current macOS Desktop artifact is a developer preview and is not signed or notarized.

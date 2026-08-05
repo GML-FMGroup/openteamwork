@@ -6,7 +6,7 @@ OpenPPX stores Session lifecycle metadata and Artifact content on the Node. Desk
 
 Desktop supports creating, renaming, forking, exporting, archiving, restoring through the archived configuration, and permanently deleting a Session. The display title and archive state are durable Node-owned metadata layered over the Google ADK Session facts.
 
-Deletion is explicit. It removes the selected Session through the Control Plane and does not silently turn a missing Session into an empty conversation. Export returns a bounded JSON representation for user-controlled storage.
+Deletion is explicit. It removes the selected Session and every Session-scoped Artifact key/version through the Control Plane; it does not silently turn a missing Session into an empty conversation. Forking copies all Artifact versions into the new Session, while archiving retains them. Export returns a bounded JSON representation for user-controlled storage.
 
 ## Attachment flow
 
@@ -24,7 +24,11 @@ Current client limits are:
 - 1 byte to 20 MB per file;
 - no more than 50 MB for all attachments in one message.
 
-The Node independently validates the Artifact key, encoded content, Session ownership, and request size. A reference from another Session is rejected.
+The Node independently validates the filename, extension, MIME, content signature, encoded content, Session ownership, per-file size, and message aggregate. A reference from another Session is rejected. Persisted files are validated again when resolved for a Run, so a stale or externally damaged Artifact cannot bypass the upload boundary.
+
+Supported attachment formats are modern Word `.docx`, Excel `.xlsx`, UTF-8 `.csv`, text-based `.pdf`, PowerPoint `.pptx`, PNG/JPEG/WebP images, and a bounded set of UTF-8 text/code extensions. Legacy `.doc`, `.xls`, and `.ppt` require conversion. Scanned-PDF OCR and encrypted PDFs are not supported in the current preview.
+
+Office archives are checked for unsafe paths, symlinks, encryption, duplicate members, entry count, expanded size, compression ratio, required OOXML parts, content type, XML entities, and malformed XML. PDF page count, spreadsheet cell count, extracted characters, and image pixel count are bounded. The original bytes remain the durable Artifact.
 
 ## Artifact panel
 
@@ -41,6 +45,6 @@ Text content is rendered as text, not HTML, so an Artifact cannot inject markup 
 
 ## Runtime use
 
-The Client API resolves each reference inside the selected Agent and Session scope, loads bytes through the Google ADK Artifact service, and creates model input parts using the validated MIME type. The runtime does not trust the client-supplied filename as a server path.
+The Client API resolves each reference inside the selected Agent and Session scope and loads bytes through the Google ADK Artifact service. Office, PDF, CSV, and text formats become deterministic bounded text parts; supported images remain validated binary parts for vision-capable models. The runtime does not trust the client-supplied filename as a server path.
 
 Artifacts remain associated with the Session and are available after restarting Desktop or switching Node targets, provided the selected Node still owns that Session.

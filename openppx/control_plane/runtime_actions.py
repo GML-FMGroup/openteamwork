@@ -552,7 +552,7 @@ def _delete_session(
     except RuntimeSupervisorError as exc:
         raise ActionFailure(ActionError("session_not_found", "The requested Session was not found.")) from exc
     metadata.delete(input_data.session_id)
-    return {"sessionId": input_data.session_id, "deleted": True, "artifactsRetained": True}
+    return {"sessionId": input_data.session_id, "deleted": True, "artifactsRetained": False}
 
 
 def _task_controller_from_supervisor(supervisor: NodeRuntimeSupervisor) -> TaskController | None:

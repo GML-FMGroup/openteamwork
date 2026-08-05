@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { ClipboardEvent, DragEvent, KeyboardEvent, RefObject } from "react";
 import type { ProjectedSlashCommand } from "../../types";
 import type { PendingAttachment } from "../../hooks/use-desktop-workspace";
+import { ATTACHMENT_ACCEPT } from "../../attachment-policy";
 
 interface ComposerProps {
   value: string;
@@ -194,6 +195,7 @@ export function Composer({
             className="composer-file-input"
             type="file"
             multiple
+            accept={ATTACHMENT_ACCEPT}
             onChange={(event) => { addFiles(event.target.files); event.currentTarget.value = ""; }}
           />
           <button type="button" className="composer-attach-button" aria-label="Attach files" title="Attach files" disabled={busy} onClick={() => fileInputRef.current?.click()}>+</button>

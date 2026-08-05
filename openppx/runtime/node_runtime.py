@@ -180,7 +180,7 @@ class NodeRuntimeSupervisor:
         )
 
     async def delete_session(self, agent_id: str, *, user_id: str, session_id: str) -> None:
-        """Delete one principal-scoped ADK Session after verifying it exists."""
+        """Delete one principal-scoped ADK Session and its scoped Artifacts."""
         runtime = self.runtime_for(agent_id)
         current = await runtime.session_service.get_session(
             app_name=runtime.agent.name,
@@ -194,6 +194,12 @@ class NodeRuntimeSupervisor:
             user_id=user_id,
             session_id=session_id,
         )
+        try:
+            await self._delete_session_artifacts(runtime, user_id=user_id, session_id=session_id)
+        except Exception as exc:
+            raise RuntimeSupervisorError(
+                "The Session was deleted, but its Artifacts could not be fully removed."
+            ) from exc
 
     def delete_session_sync(self, agent_id: str, *, user_id: str, session_id: str) -> None:
         """Delete one Session from synchronous Action boundaries."""
@@ -221,12 +227,93 @@ class NodeRuntimeSupervisor:
                 update={"id": uuid.uuid4().hex, "timestamp": time.time()},
             )
             await runtime.session_service.append_event(forked, cloned)
+        try:
+            await self._copy_session_artifacts(
+                runtime,
+                user_id=user_id,
+                source_session_id=session_id,
+                target_session_id=str(forked.id),
+            )
+        except Exception as exc:
+            await self._delete_session_artifacts(
+                runtime,
+                user_id=user_id,
+                session_id=str(forked.id),
+            )
+            await runtime.session_service.delete_session(
+                app_name=runtime.agent.name,
+                user_id=user_id,
+                session_id=str(forked.id),
+            )
+            raise RuntimeSupervisorError("The Session could not be forked with its Artifacts.") from exc
         refreshed = await runtime.session_service.get_session(
             app_name=runtime.agent.name,
             user_id=user_id,
             session_id=str(forked.id),
         )
         return refreshed or forked
+
+    @staticmethod
+    async def _delete_session_artifacts(runtime: AssembledRuntime, *, user_id: str, session_id: str) -> None:
+        """Remove every Artifact in one Session scope without touching user-scoped files."""
+        service = runtime.artifact_service
+        if service is None:
+            return
+        keys = await service.list_artifact_keys(
+            app_name=runtime.agent.name,
+            user_id=user_id,
+            session_id=session_id,
+        )
+        for key in keys:
+            await service.delete_artifact(
+                app_name=runtime.agent.name,
+                user_id=user_id,
+                session_id=session_id,
+                filename=key,
+            )
+
+    @staticmethod
+    async def _copy_session_artifacts(
+        runtime: AssembledRuntime,
+        *,
+        user_id: str,
+        source_session_id: str,
+        target_session_id: str,
+    ) -> None:
+        """Copy all Artifact versions so forked history keeps stable references."""
+        service = runtime.artifact_service
+        if service is None:
+            return
+        keys = await service.list_artifact_keys(
+            app_name=runtime.agent.name,
+            user_id=user_id,
+            session_id=source_session_id,
+        )
+        for key in keys:
+            versions = await service.list_artifact_versions(
+                app_name=runtime.agent.name,
+                user_id=user_id,
+                session_id=source_session_id,
+                filename=key,
+            )
+            for version in versions:
+                artifact = await service.load_artifact(
+                    app_name=runtime.agent.name,
+                    user_id=user_id,
+                    session_id=source_session_id,
+                    filename=key,
+                    version=int(version.version),
+                )
+                if artifact is None:
+                    raise RuntimeSupervisorError("A referenced Artifact version is unavailable.")
+                await service.save_artifact(
+                    app_name=runtime.agent.name,
+                    user_id=user_id,
+                    session_id=target_session_id,
+                    filename=key,
+                    artifact=artifact,
+                    custom_metadata=dict(version.custom_metadata or {}),
+                )
 
     def fork_session_sync(self, agent_id: str, *, user_id: str, session_id: str) -> object:
         """Fork one Session from synchronous Action boundaries."""

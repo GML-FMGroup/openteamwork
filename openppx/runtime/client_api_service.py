@@ -28,6 +28,13 @@ from ..extensions.mcp_oauth import CALLBACK_PATH
 from .access_policy import AccessPolicy
 from .agent_access_runtime import ensure_access_principal
 from .agent_access_store import AgentAccessStore, AgentMembership, AgentRecord
+from .attachment_service import (
+    AttachmentValidationError,
+    MAX_ATTACHMENT_BYTES,
+    MAX_MESSAGE_ATTACHMENT_BYTES,
+    MAX_MESSAGE_ATTACHMENTS,
+    prepare_attachment,
+)
 from .client_api_auth import (
     ClientApiAuthPolicy,
 )
@@ -46,7 +53,6 @@ from .sqlite_memory_service import SQLiteMemoryService
 from .session_metadata_store import SessionMetadataStore
 
 
-_MAX_ARTIFACT_BYTES = 20 * 1024 * 1024
 _MAX_JSON_BODY_BYTES = 30 * 1024 * 1024
 
 
@@ -58,16 +64,6 @@ def _safe_artifact_name(value: object) -> str:
     if "/" in name or "\\" in name or any(ord(character) < 32 for character in name):
         raise ValueError("Artifact filename must not contain a path or control characters.")
     return name
-
-
-def _safe_artifact_mime_type(value: object) -> str:
-    """Validate a bounded media type used by an uploaded artifact."""
-    mime_type = str(value or "application/octet-stream").strip().lower()
-    if not mime_type or len(mime_type) > 127 or "/" not in mime_type:
-        raise ValueError("Artifact mime type is invalid.")
-    if any(character.isspace() or ord(character) < 32 for character in mime_type):
-        raise ValueError("Artifact mime type is invalid.")
-    return mime_type
 
 
 def _iso_now() -> str:
@@ -1736,19 +1732,19 @@ class ClientApiCoordinator:
         runtime, requester = scope
         try:
             resolved_name = _safe_artifact_name(file_name)
-            resolved_mime_type = _safe_artifact_mime_type(mime_type)
             encoded = str(data_base64 or "")
-            if len(encoded) > ((_MAX_ARTIFACT_BYTES + 2) // 3) * 4 + 16:
-                raise ValueError(f"Artifact exceeds the {_MAX_ARTIFACT_BYTES // 1024 // 1024} MB limit.")
+            if len(encoded) > ((MAX_ATTACHMENT_BYTES + 2) // 3) * 4 + 16:
+                raise ValueError(f"Artifact exceeds the {MAX_ATTACHMENT_BYTES // 1024 // 1024} MB limit.")
             data = base64.b64decode(encoded, validate=True)
-        except (ValueError, binascii.Error) as exc:
+            prepared = prepare_attachment(
+                file_name=resolved_name,
+                mime_type=str(mime_type or "application/octet-stream"),
+                data=data,
+            )
+        except (AttachmentValidationError, ValueError, binascii.Error) as exc:
             return _error("INVALID_ARTIFACT", str(exc))
-        if not data:
-            return _error("INVALID_ARTIFACT", "Artifact content must not be empty.")
-        if len(data) > _MAX_ARTIFACT_BYTES:
-            return _error("INVALID_ARTIFACT", f"Artifact exceeds the {_MAX_ARTIFACT_BYTES // 1024 // 1024} MB limit.")
         artifact_id = f"artifact_{os.urandom(8).hex()}"
-        storage_key = f"uploads/{artifact_id}/{resolved_name}"
+        storage_key = f"uploads/{artifact_id}/{prepared.file_name}"
         created_at = _iso_now()
         try:
             version = asyncio.run(
@@ -1759,30 +1755,31 @@ class ClientApiCoordinator:
                     filename=storage_key,
                     artifact=types.Part(
                         inline_data=types.Blob(
-                            data=data,
-                            mime_type=resolved_mime_type,
-                            display_name=resolved_name,
+                            data=prepared.data,
+                            mime_type=prepared.mime_type,
+                            display_name=prepared.file_name,
                         )
                     ),
                     custom_metadata={
                         "artifact_id": artifact_id,
                         "source": "user_upload",
-                        "file_name": resolved_name,
-                        "size_bytes": len(data),
+                        "file_name": prepared.file_name,
+                        "size_bytes": len(prepared.data),
                         "created_at": created_at,
+                        **prepared.metadata,
                     },
                 )
             )
-        except Exception as exc:
-            return _error("ARTIFACT_SAVE_FAILED", str(exc))
+        except Exception:
+            return _error("ARTIFACT_SAVE_FAILED", "The attachment could not be saved.")
         return _ok(
             {
                 "artifact": {
                     "id": artifact_id,
                     "key": storage_key,
-                    "file_name": resolved_name,
-                    "mime_type": resolved_mime_type,
-                    "size_bytes": len(data),
+                    "file_name": prepared.file_name,
+                    "mime_type": prepared.mime_type,
+                    "size_bytes": len(prepared.data),
                     "version": int(version),
                     "source": "user_upload",
                     "created_at": created_at,
@@ -1836,8 +1833,8 @@ class ClientApiCoordinator:
                         "created_at": str(metadata.get("created_at") or dt.datetime.fromtimestamp(latest.create_time).astimezone().isoformat()),
                     }
                 )
-        except Exception as exc:
-            return _error("ARTIFACT_LIST_FAILED", str(exc))
+        except Exception:
+            return _error("ARTIFACT_LIST_FAILED", "Artifacts could not be listed.")
         items.sort(key=lambda item: item["created_at"], reverse=True)
         return _ok({"items": items})
 
@@ -1874,13 +1871,40 @@ class ClientApiCoordinator:
                     version=version,
                 )
             )
-        except Exception as exc:
-            return _error("ARTIFACT_LOAD_FAILED", str(exc)), None
+        except Exception:
+            return _error("ARTIFACT_LOAD_FAILED", "The Artifact could not be loaded."), None
         blob = getattr(part, "inline_data", None) if part is not None else None
         data = getattr(blob, "data", None) if blob is not None else None
         if not isinstance(data, bytes):
             return _error("ARTIFACT_NOT_FOUND", "Artifact content is unavailable."), None
-        return _ok({"mime_type": str(getattr(blob, "mime_type", None) or "application/octet-stream")}), data
+        metadata: dict[str, Any] = {}
+        try:
+            versions = asyncio.run(
+                runtime.artifact_service.list_artifact_versions(
+                    app_name=runtime.agent.name,
+                    user_id=requester.principal_id,
+                    session_id=session_id,
+                    filename=key,
+                )
+            )
+            selected = next(
+                (
+                    item
+                    for item in reversed(versions)
+                    if version is None or int(item.version) == version
+                ),
+                None,
+            )
+            metadata = dict(getattr(selected, "custom_metadata", None) or {})
+        except Exception:
+            metadata = {}
+        return _ok(
+            {
+                "mime_type": str(getattr(blob, "mime_type", None) or "application/octet-stream"),
+                "file_name": str(metadata.get("file_name") or key.rsplit("/", 1)[-1]),
+                "source": str(metadata.get("source") or "agent_output"),
+            }
+        ), data
 
     def _resolve_artifact_parts(
         self,
@@ -1892,8 +1916,12 @@ class ClientApiCoordinator:
     ) -> tuple[tuple[types.Part, ...], dict[str, Any] | None]:
         """Resolve opaque ArtifactRefs into ADK Parts after Session authorization."""
         parts: list[types.Part] = []
-        if len(artifact_refs) > 10:
-            return (), _error("INVALID_ARTIFACT", "A message can reference at most 10 artifacts.")
+        if len(artifact_refs) > MAX_MESSAGE_ATTACHMENTS:
+            return (), _error(
+                "INVALID_ARTIFACT",
+                f"A message can reference at most {MAX_MESSAGE_ATTACHMENTS} artifacts.",
+            )
+        total_bytes = 0
         for reference in artifact_refs:
             key = str(reference.get("key") or "")
             raw_version = reference.get("version")
@@ -1907,16 +1935,31 @@ class ClientApiCoordinator:
             )
             if data is None:
                 return (), payload
-            mime_type = str(payload.get("data", {}).get("mime_type") or "application/octet-stream")
-            parts.append(
-                types.Part(
-                    inline_data=types.Blob(
-                        data=data,
-                        mime_type=mime_type,
-                        display_name=key.rsplit("/", 1)[-1],
+            total_bytes += len(data)
+            if total_bytes > MAX_MESSAGE_ATTACHMENT_BYTES:
+                return (), _error(
+                    "INVALID_ARTIFACT",
+                    f"Attachments for one message cannot exceed {MAX_MESSAGE_ATTACHMENT_BYTES // 1024 // 1024} MB in total.",
+                )
+            metadata = payload.get("data", {})
+            mime_type = str(metadata.get("mime_type") or "application/octet-stream")
+            file_name = str(metadata.get("file_name") or key.rsplit("/", 1)[-1])
+            try:
+                prepared = prepare_attachment(file_name=file_name, mime_type=mime_type, data=data)
+            except AttachmentValidationError as exc:
+                return (), _error("INVALID_ARTIFACT", str(exc))
+            if prepared.model_text is not None:
+                parts.append(types.Part(text=prepared.model_text))
+            else:
+                parts.append(
+                    types.Part(
+                        inline_data=types.Blob(
+                            data=prepared.data,
+                            mime_type=prepared.mime_type,
+                            display_name=prepared.file_name,
+                        )
                     )
                 )
-            )
         return tuple(parts), None
 
     def create_run(

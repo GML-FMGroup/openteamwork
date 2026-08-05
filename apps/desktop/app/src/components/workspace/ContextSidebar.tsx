@@ -481,7 +481,7 @@ export function ContextSidebar({
                 <button onClick={() => { setSessionMenuId(null); onArchiveSession(session); }}>{session.archived ? "Restore" : "Archive"}</button>
                 <button onClick={() => { setSessionMenuId(null); onForkSession(session); }}>Duplicate</button>
                 <button onClick={() => { setSessionMenuId(null); onExportSession(session); }}>Export JSON</button>
-                <button className="danger" onClick={() => { setSessionMenuId(null); if (window.confirm(`Delete ${session.title}? Generated artifacts will be retained.`)) onDeleteSession(session); }}>Delete</button>
+                <button className="danger" onClick={() => { setSessionMenuId(null); if (window.confirm(`Delete ${session.title}? Its conversation and Session files will be permanently removed.`)) onDeleteSession(session); }}>Delete</button>
               </div> : null}
               </div>
             );

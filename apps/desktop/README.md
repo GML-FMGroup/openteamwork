@@ -29,7 +29,7 @@ If the Client API is unavailable, unauthorized, or incompatible, Desktop reports
 - Plugin/App/MCP/Skill creation or installation, editing, readiness tests, Agent enablement, updates, authorization, and safe removal where each resource type permits it
 - Task controls, Cron CRUD and run-now, Heartbeat controls, usage, health, and audit projections
 - Agent create/edit/enable/archive and Session create/rename/fork/export/archive/delete lifecycles
-- Drag, paste, or select file/image/audio attachments and preview or download durable Session Artifacts
+- Drag, paste, or select modern Office, PDF, UTF-8 text/code, and image attachments; preview or download durable Session Artifacts
 - Multiple saved local/LAN Node targets with an explicit active target
 - Run streaming, bounded reconnect, replay, cancellation, and connection recovery
 - Resizable side panels with device-local layout persistence
@@ -89,6 +89,13 @@ cd apps/desktop
 ./node_modules/.bin/tsc --noEmit
 node --test scripts/verify-preload.node-test.mjs
 npm run build
+```
+
+The repository-level acceptance gate runs those checks consistently and can also package macOS ARM64:
+
+```bash
+./.venv/bin/python scripts/verify.py
+./.venv/bin/python scripts/verify.py --package
 ```
 
 ## Local Node
@@ -151,7 +158,20 @@ Automatic TLS, discovery, identity pairing, token rotation/revocation, SSH/Tailn
 
 The Composer accepts drag-and-drop, clipboard paste, and file selection. One message can include up to 10 files, at most 20 MB per file and 50 MB in total. Files are uploaded to the selected Node as Session-scoped Artifacts before the Run starts; the model receives only validated Artifact references.
 
+Desktop preflights the public limits, but the selected Node is authoritative: it validates extension, MIME, content signature, archive structure, corruption, and bounded extraction before saving the original bytes. Supported message attachments are:
+
+- Word `.docx`;
+- Excel `.xlsx` and UTF-8 `.csv`;
+- text-based `.pdf` (up to 300 pages; scanned files require OCR and are rejected clearly);
+- PowerPoint `.pptx`;
+- `.png`, `.jpg`, `.jpeg`, and `.webp` images;
+- a bounded set of UTF-8 text/code formats including Markdown, JSON, YAML, Python, JavaScript, and TypeScript.
+
+Legacy `.doc`, `.xls`, and `.ppt`, encrypted PDFs, scanned PDFs without extractable text, damaged or spoofed files, unsafe Office archives, and arbitrary binary formats are not accepted. The original attachment remains downloadable. Office, PDF, CSV, and text files are converted to a bounded deterministic text projection for the model; images retain validated bytes for a vision-capable model.
+
 The right-side Artifacts section reads durable Node facts rather than inferring filenames from the transcript. Images, text/code, and audio have inline previews; other formats remain downloadable. A remote Node never receives an arbitrary path on the Desktop machine.
+
+Forking a Session copies every Artifact key and version into the new Session. Permanently deleting a Session also removes its Session-scoped Artifacts; archiving retains them. Storage failures return stable errors without exposing Node paths or secret material.
 
 ## Development environment overrides
 

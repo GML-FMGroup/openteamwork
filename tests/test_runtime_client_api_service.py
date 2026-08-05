@@ -462,7 +462,8 @@ def test_create_run_rejects_a_session_that_the_node_does_not_own(tmp_path: Path)
 
 def test_session_artifact_upload_list_download_and_run_reference(tmp_path: Path) -> None:
     coordinator, supervisor = _coordinator_with_runtime(tmp_path)
-    artifact_service = FileArtifactService(root_dir=str(tmp_path / "artifacts"))
+    artifact_root = tmp_path / "artifacts"
+    artifact_service = FileArtifactService(root_dir=str(artifact_root))
     supervisor.runtime_for = lambda _agent_id: SimpleNamespace(  # type: ignore[attr-defined]
         artifact_service=artifact_service,
         agent=SimpleNamespace(name="writer"),
@@ -483,6 +484,11 @@ def test_session_artifact_upload_list_download_and_run_reference(tmp_path: Path)
     artifact = uploaded["data"]["artifact"]
     assert artifact["file_name"] == "notes.txt"
     assert artifact["size_bytes"] == 5
+    restarted_artifact_service = FileArtifactService(root_dir=str(artifact_root))
+    supervisor.runtime_for = lambda _agent_id: SimpleNamespace(  # type: ignore[attr-defined]
+        artifact_service=restarted_artifact_service,
+        agent=SimpleNamespace(name="writer"),
+    )
     listed = coordinator.list_artifacts("writer", session_id, user_id="owner")
     assert listed["data"]["items"] == [artifact]
     metadata, content = coordinator.load_artifact(
@@ -503,8 +509,41 @@ def test_session_artifact_upload_list_download_and_run_reference(tmp_path: Path)
         user_id="owner",
     )
     callback = supervisor.callbacks[run["data"]["run"]["id"]]
-    assert callback["artifact_parts"][0].inline_data.data == b"hello"
-    assert callback["artifact_parts"][0].inline_data.display_name == "notes.txt"
+    assert "[Attachment: notes.txt]" in callback["artifact_parts"][0].text
+    assert "hello" in callback["artifact_parts"][0].text
+
+
+def test_session_artifact_enforces_the_node_message_total_limit(tmp_path: Path, monkeypatch) -> None:
+    coordinator, supervisor = _coordinator_with_runtime(tmp_path)
+    artifact_service = FileArtifactService(root_dir=str(tmp_path / "artifacts"))
+    supervisor.runtime_for = lambda _agent_id: SimpleNamespace(  # type: ignore[attr-defined]
+        artifact_service=artifact_service,
+        agent=SimpleNamespace(name="writer"),
+    )
+    session_id = coordinator.create_session("writer", user_id="owner")["data"]["session"]["id"]
+    monkeypatch.setattr("openppx.runtime.client_api_service.MAX_MESSAGE_ATTACHMENT_BYTES", 10)
+    artifacts = [
+        coordinator.upload_artifact(
+            "writer",
+            session_id,
+            file_name=f"notes-{index}.txt",
+            mime_type="text/plain",
+            data_base64="aGVsbG8h",
+            user_id="owner",
+        )["data"]["artifact"]
+        for index in range(2)
+    ]
+
+    result = coordinator.create_run(
+        "writer",
+        session_id,
+        "Read both",
+        artifact_refs=[{"key": item["key"], "version": item["version"]} for item in artifacts],
+        user_id="owner",
+    )
+
+    assert result["error"]["code"] == "INVALID_ARTIFACT"
+    assert "cannot exceed" in result["error"]["message"]
 
 
 def test_session_artifact_rejects_invalid_names_and_cross_session_access(tmp_path: Path) -> None:
@@ -533,6 +572,14 @@ def test_session_artifact_rejects_invalid_names_and_cross_session_access(tmp_pat
         data_base64="not-base64",
         user_id="owner",
     )
+    spoofed_mime = coordinator.upload_artifact(
+        "writer",
+        first,
+        file_name="notes.txt",
+        mime_type="image/png",
+        data_base64="aGVsbG8=",
+        user_id="owner",
+    )
     uploaded = coordinator.upload_artifact(
         "writer",
         first,
@@ -551,8 +598,53 @@ def test_session_artifact_rejects_invalid_names_and_cross_session_access(tmp_pat
 
     assert invalid_name["error"]["code"] == "INVALID_ARTIFACT"
     assert invalid_data["error"]["code"] == "INVALID_ARTIFACT"
+    assert spoofed_mime["error"]["code"] == "INVALID_ARTIFACT"
+    assert "MIME type" in spoofed_mime["error"]["message"]
     assert wrong_session["error"]["code"] == "ARTIFACT_NOT_FOUND"
     assert content is None
+
+
+def test_session_artifact_storage_errors_do_not_expose_sensitive_details(tmp_path: Path) -> None:
+    class _FailingArtifactService:
+        async def save_artifact(self, **_kwargs):
+            raise RuntimeError("/Users/private/.openppx/token-secret")
+
+        async def list_artifact_keys(self, **_kwargs):
+            raise RuntimeError("/Users/private/.openppx/token-secret")
+
+    coordinator, supervisor = _coordinator_with_runtime(tmp_path)
+    failing_service = _FailingArtifactService()
+    supervisor.runtime_for = lambda _agent_id: SimpleNamespace(  # type: ignore[attr-defined]
+        artifact_service=failing_service,
+        agent=SimpleNamespace(name="writer"),
+    )
+    session_id = coordinator.create_session("writer", user_id="owner")["data"]["session"]["id"]
+
+    upload = coordinator.upload_artifact(
+        "writer",
+        session_id,
+        file_name="notes.txt",
+        mime_type="text/plain",
+        data_base64="aGVsbG8=",
+        user_id="owner",
+    )
+    listing = coordinator.list_artifacts("writer", session_id, user_id="owner")
+    loaded, content = coordinator.load_artifact(
+        "writer",
+        session_id,
+        key="uploads/missing/notes.txt",
+        user_id="owner",
+    )
+
+    assert upload["error"]["code"] == "ARTIFACT_SAVE_FAILED"
+    assert upload["error"]["message"] == "The attachment could not be saved."
+    assert listing["error"]["code"] == "ARTIFACT_LIST_FAILED"
+    assert listing["error"]["message"] == "Artifacts could not be listed."
+    assert loaded["error"]["code"] == "ARTIFACT_LOAD_FAILED"
+    assert loaded["error"]["message"] == "The Artifact could not be loaded."
+    assert content is None
+    assert "private" not in json.dumps([upload, listing, loaded])
+    assert "token-secret" not in json.dumps([upload, listing, loaded])
 
 
 def test_create_run_treats_empty_final_as_failed_message(tmp_path: Path, monkeypatch) -> None:

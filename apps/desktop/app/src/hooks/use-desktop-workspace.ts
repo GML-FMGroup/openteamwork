@@ -25,6 +25,11 @@ import type {
   SlashCommandResult,
   UserProfile,
 } from "../types";
+import {
+  attachmentPreflightError,
+  MAX_MESSAGE_ATTACHMENT_BYTES,
+  MAX_MESSAGE_ATTACHMENTS,
+} from "../attachment-policy";
 import { normalizeConnectionSettings } from "../lib/connection-profile";
 import { LOCAL_USER_ID } from "../types";
 import { useActiveRuns } from "./use-active-runs";
@@ -1223,19 +1228,19 @@ export function useDesktopWorkspace() {
 
   async function addAttachments(files: File[]): Promise<void> {
     if (!files.length) return;
-    if (attachments.length + files.length > 10) {
-      setSendError("A message can include at most 10 files.");
+    if (attachments.length + files.length > MAX_MESSAGE_ATTACHMENTS) {
+      setSendError(`A message can include at most ${MAX_MESSAGE_ATTACHMENTS} files.`);
       return;
     }
     const accepted: PendingAttachment[] = [];
-    const maximumTotalBytes = 50 * 1024 * 1024;
     let totalBytes = attachments.reduce((sum, attachment) => sum + attachment.sizeBytes, 0);
     for (const file of files) {
-      if (file.size <= 0 || file.size > 20 * 1024 * 1024) {
-        setSendError(`${file.name} must be between 1 byte and 20 MB.`);
+      const preflightError = attachmentPreflightError(file);
+      if (preflightError) {
+        setSendError(preflightError);
         continue;
       }
-      if (totalBytes + file.size > maximumTotalBytes) {
+      if (totalBytes + file.size > MAX_MESSAGE_ATTACHMENT_BYTES) {
         setSendError("Attachments for one message cannot exceed 50 MB in total.");
         continue;
       }
@@ -1254,7 +1259,7 @@ export function useDesktopWorkspace() {
       }
     }
     if (accepted.length) {
-      setAttachments((current) => [...current, ...accepted].slice(0, 10));
+      setAttachments((current) => [...current, ...accepted].slice(0, MAX_MESSAGE_ATTACHMENTS));
       setSendError(null);
     }
   }
