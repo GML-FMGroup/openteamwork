@@ -379,6 +379,7 @@ def _extension_item_fixture() -> dict[str, Any]:
         risk="low",
         enabled_agent_ids=[],
         readiness={"ready": True, "issues": []},
+        presentation={"icon": "skill", "brandColor": None},
         managed_by=None,
     ).model_dump(mode="json", by_alias=True)
 

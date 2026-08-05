@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from copy import deepcopy
 from datetime import UTC, datetime
 from time import perf_counter
 from typing import cast
@@ -478,9 +479,13 @@ def _install_app_starter(
             "invalid_operation",
             "This starter is not a directly installable App definition.",
         )
-    raw = starter.template.get("definition")
+    raw = deepcopy(starter.template.get("definition"))
     if not isinstance(raw, dict):
         raise ExtensionError("invalid_catalog", "The App starter definition is missing.")
+    spec = raw.get("spec")
+    if not isinstance(spec, dict):
+        raise ExtensionError("invalid_catalog", "The App starter definition spec is missing.")
+    spec["presentation"] = starter.presentation.model_dump(mode="json", by_alias=True)
     try:
         definition = AppDefinition.model_validate(raw)
     except Exception as exc:

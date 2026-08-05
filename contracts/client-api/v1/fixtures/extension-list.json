@@ -7,6 +7,10 @@
       "id": "fixture-skill",
       "kind": "skill",
       "managedBy": null,
+      "presentation": {
+        "brandColor": null,
+        "icon": "skill"
+      },
       "readiness": {
         "issues": [],
         "ready": true

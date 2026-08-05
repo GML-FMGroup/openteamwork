@@ -1,6 +1,7 @@
 [
   {
     "id": "app-telegram",
+    "presentation": { "icon": "telegram", "brandColor": "#229ed9" },
     "kind": "app",
     "runtimeKind": "app",
     "displayName": "Telegram",
@@ -56,6 +57,7 @@
   },
   {
     "id": "app-slack",
+    "presentation": { "icon": "slack", "brandColor": "#611f69" },
     "kind": "app",
     "runtimeKind": "app",
     "displayName": "Slack",
@@ -112,6 +114,7 @@
   },
   {
     "id": "app-email",
+    "presentation": { "icon": "email", "brandColor": "#6b7280" },
     "kind": "app",
     "runtimeKind": "app",
     "displayName": "Email (IMAP)",
@@ -137,6 +140,7 @@
   },
   {
     "id": "app-gmail",
+    "presentation": { "icon": "gmail", "brandColor": "#ea4335" },
     "kind": "app",
     "runtimeKind": "app",
     "displayName": "Gmail",
@@ -193,6 +197,7 @@
   },
   {
     "id": "app-google-calendar",
+    "presentation": { "icon": "google-calendar", "brandColor": "#4285f4" },
     "kind": "app",
     "runtimeKind": "app",
     "displayName": "Google Calendar",
@@ -249,6 +254,7 @@
   },
   {
     "id": "app-github",
+    "presentation": { "icon": "github", "brandColor": "#1f2328" },
     "kind": "app",
     "runtimeKind": "mcp",
     "displayName": "GitHub",
@@ -302,6 +308,7 @@
   },
   {
     "id": "app-outlook",
+    "presentation": { "icon": "outlook", "brandColor": "#0078d4" },
     "kind": "app",
     "runtimeKind": "app",
     "displayName": "Outlook",
@@ -359,6 +366,7 @@
   },
   {
     "id": "app-jira",
+    "presentation": { "icon": "jira", "brandColor": "#0052cc" },
     "kind": "app",
     "runtimeKind": "mcp",
     "displayName": "Jira",
@@ -394,6 +402,7 @@
   },
   {
     "id": "app-monday",
+    "presentation": { "icon": "monday", "brandColor": "#6161ff" },
     "kind": "app",
     "runtimeKind": "mcp",
     "displayName": "monday.com",
@@ -429,6 +438,7 @@
   },
   {
     "id": "app-confluence",
+    "presentation": { "icon": "confluence", "brandColor": "#172b4d" },
     "kind": "app",
     "runtimeKind": "app",
     "displayName": "Confluence",
@@ -454,6 +464,7 @@
   },
   {
     "id": "app-zendesk",
+    "presentation": { "icon": "zendesk", "brandColor": "#03363d" },
     "kind": "app",
     "runtimeKind": "app",
     "displayName": "Zendesk",
@@ -479,6 +490,7 @@
   },
   {
     "id": "app-linear",
+    "presentation": { "icon": "linear", "brandColor": "#5e6ad2" },
     "kind": "app",
     "runtimeKind": "app",
     "displayName": "Linear",
@@ -504,6 +516,7 @@
   },
   {
     "id": "app-gitlab",
+    "presentation": { "icon": "gitlab", "brandColor": "#fc6d26" },
     "kind": "app",
     "runtimeKind": "app",
     "displayName": "GitLab",
@@ -529,6 +542,7 @@
   },
   {
     "id": "app-discord",
+    "presentation": { "icon": "discord", "brandColor": "#5865f2" },
     "kind": "app",
     "runtimeKind": "app",
     "displayName": "Discord",
@@ -554,6 +568,7 @@
   },
   {
     "id": "app-stripe",
+    "presentation": { "icon": "stripe", "brandColor": "#635bff" },
     "kind": "app",
     "runtimeKind": "app",
     "displayName": "Stripe",
@@ -579,6 +594,7 @@
   },
   {
     "id": "app-asana",
+    "presentation": { "icon": "asana", "brandColor": "#f06a6a" },
     "kind": "app",
     "runtimeKind": "app",
     "displayName": "Asana",
@@ -604,6 +620,7 @@
   },
   {
     "id": "app-hubspot",
+    "presentation": { "icon": "hubspot", "brandColor": "#ff7a59" },
     "kind": "app",
     "runtimeKind": "app",
     "displayName": "HubSpot",
@@ -629,6 +646,7 @@
   },
   {
     "id": "app-dropbox",
+    "presentation": { "icon": "dropbox", "brandColor": "#0061ff" },
     "kind": "app",
     "runtimeKind": "app",
     "displayName": "Dropbox",
@@ -654,6 +672,7 @@
   },
   {
     "id": "app-box",
+    "presentation": { "icon": "box", "brandColor": "#0061d5" },
     "kind": "app",
     "runtimeKind": "app",
     "displayName": "Box",
@@ -679,6 +698,7 @@
   },
   {
     "id": "app-whatsapp",
+    "presentation": { "icon": "whatsapp", "brandColor": "#25d366" },
     "kind": "app",
     "runtimeKind": "app",
     "displayName": "WhatsApp",
@@ -704,6 +724,7 @@
   },
   {
     "id": "app-quickbooks",
+    "presentation": { "icon": "quickbooks", "brandColor": "#2ca01c" },
     "kind": "app",
     "runtimeKind": "app",
     "displayName": "QuickBooks",
@@ -729,6 +750,7 @@
   },
   {
     "id": "app-docusign",
+    "presentation": { "icon": "docusign", "brandColor": "#4c00ff" },
     "kind": "app",
     "runtimeKind": "app",
     "displayName": "Docusign",
@@ -754,6 +776,7 @@
   },
   {
     "id": "app-clickup",
+    "presentation": { "icon": "clickup", "brandColor": "#7b68ee" },
     "kind": "app",
     "runtimeKind": "app",
     "displayName": "ClickUp",
@@ -779,6 +802,7 @@
   },
   {
     "id": "app-google-drive",
+    "presentation": { "icon": "google-drive", "brandColor": "#4285f4" },
     "kind": "app",
     "runtimeKind": "app",
     "displayName": "Google Drive",
@@ -804,6 +828,7 @@
   },
   {
     "id": "app-canva",
+    "presentation": { "icon": "canva", "brandColor": "#00c4cc" },
     "kind": "app",
     "runtimeKind": "app",
     "displayName": "Canva",
@@ -829,6 +854,7 @@
   },
   {
     "id": "app-figma",
+    "presentation": { "icon": "figma", "brandColor": "#f24e1e" },
     "kind": "app",
     "runtimeKind": "mcp",
     "displayName": "Figma",
@@ -862,6 +888,7 @@
   },
   {
     "id": "app-close",
+    "presentation": { "icon": "close", "brandColor": "#276392" },
     "kind": "app",
     "runtimeKind": "app",
     "displayName": "Close",
@@ -887,6 +914,7 @@
   },
   {
     "id": "app-notion",
+    "presentation": { "icon": "notion", "brandColor": "#1f2328" },
     "kind": "app",
     "runtimeKind": "app",
     "displayName": "Notion",
@@ -912,6 +940,7 @@
   },
   {
     "id": "app-attio",
+    "presentation": { "icon": "attio", "brandColor": "#2d7ff9" },
     "kind": "app",
     "runtimeKind": "app",
     "displayName": "Attio",
@@ -937,6 +966,7 @@
   },
   {
     "id": "app-posthog",
+    "presentation": { "icon": "posthog", "brandColor": "#f54e00" },
     "kind": "app",
     "runtimeKind": "app",
     "displayName": "PostHog",
@@ -962,6 +992,7 @@
   },
   {
     "id": "app-mixpanel",
+    "presentation": { "icon": "mixpanel", "brandColor": "#7856ff" },
     "kind": "app",
     "runtimeKind": "app",
     "displayName": "Mixpanel",
@@ -987,6 +1018,7 @@
   },
   {
     "id": "app-amplitude",
+    "presentation": { "icon": "amplitude", "brandColor": "#1e61f0" },
     "kind": "app",
     "runtimeKind": "app",
     "displayName": "Amplitude",
@@ -1012,6 +1044,7 @@
   },
   {
     "id": "app-apollo",
+    "presentation": { "icon": "apollo", "brandColor": "#fbbf24" },
     "kind": "app",
     "runtimeKind": "app",
     "displayName": "Apollo.io",
@@ -1037,6 +1070,7 @@
   },
   {
     "id": "app-hunter",
+    "presentation": { "icon": "hunter", "brandColor": "#fa5320" },
     "kind": "app",
     "runtimeKind": "app",
     "displayName": "Hunter",
@@ -1062,6 +1096,7 @@
   },
   {
     "id": "app-granola",
+    "presentation": { "icon": "granola", "brandColor": "#6b7280" },
     "kind": "app",
     "runtimeKind": "mcp",
     "displayName": "Granola",
@@ -1097,6 +1132,7 @@
   },
   {
     "id": "app-browserbase",
+    "presentation": { "icon": "browserbase", "brandColor": "#1f2328" },
     "kind": "app",
     "runtimeKind": "mcp",
     "displayName": "Browserbase",
@@ -1142,6 +1178,7 @@
   },
   {
     "id": "app-firecrawl",
+    "presentation": { "icon": "firecrawl", "brandColor": "#f54e00" },
     "kind": "app",
     "runtimeKind": "mcp",
     "displayName": "Firecrawl",
@@ -1191,6 +1228,7 @@
   },
   {
     "id": "app-exa",
+    "presentation": { "icon": "exa", "brandColor": "#1f2328" },
     "kind": "app",
     "runtimeKind": "mcp",
     "displayName": "Exa",
@@ -1224,6 +1262,7 @@
   },
   {
     "id": "app-brave-search",
+    "presentation": { "icon": "brave-search", "brandColor": "#fb542b" },
     "kind": "app",
     "runtimeKind": "mcp",
     "displayName": "Brave Search",
@@ -1275,6 +1314,7 @@
   },
   {
     "id": "app-postman",
+    "presentation": { "icon": "postman", "brandColor": "#ff6c37" },
     "kind": "app",
     "runtimeKind": "mcp",
     "displayName": "Postman",
@@ -1325,6 +1365,7 @@
   },
   {
     "id": "app-supabase",
+    "presentation": { "icon": "supabase", "brandColor": "#3ecf8e" },
     "kind": "app",
     "runtimeKind": "mcp",
     "displayName": "Supabase",
@@ -1375,6 +1416,7 @@
   },
   {
     "id": "app-parallel-search",
+    "presentation": { "icon": "parallel-search", "brandColor": "#6b7280" },
     "kind": "app",
     "runtimeKind": "mcp",
     "displayName": "Parallel Search",
@@ -1408,6 +1450,7 @@
   },
   {
     "id": "mcp-playwright",
+    "presentation": { "icon": "playwright", "brandColor": "#2eAD33" },
     "kind": "mcp",
     "runtimeKind": "mcp",
     "displayName": "Playwright",
@@ -1445,6 +1488,7 @@
   },
   {
     "id": "mcp-context7",
+    "presentation": { "icon": "context7", "brandColor": "#6b7280" },
     "kind": "mcp",
     "runtimeKind": "mcp",
     "displayName": "Context7",
@@ -1482,6 +1526,7 @@
   },
   {
     "id": "mcp-microsoft-learn",
+    "presentation": { "icon": "microsoft-learn", "brandColor": "#0078d4" },
     "kind": "mcp",
     "runtimeKind": "mcp",
     "displayName": "Microsoft Learn",
@@ -1515,6 +1560,7 @@
   },
   {
     "id": "mcp-aws-docs",
+    "presentation": { "icon": "aws-docs", "brandColor": "#ff9900" },
     "kind": "mcp",
     "runtimeKind": "mcp",
     "displayName": "AWS Documentation",

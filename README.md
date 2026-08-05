@@ -6,6 +6,7 @@ The current source tree is a developer preview. It is not yet a stable or produc
 
 ## News
 
+- **2026-08-05 — v0.5.3 Extension Platform Preview:** published a prerelease with the long-term Plugin/App/MCP/Skill taxonomy, Codex-compatible `.agent-plugin` packages, curated Extension starters, local product icons, full Desktop management flows, and a quieter OpenWorker-inspired grouped-list interface.
 - **2026-08-04 — Product closure on the development branch:** Desktop now manages Plugin/App/MCP/Skill lifecycles, Cron/Heartbeat/Task operations, Agent and Session resources, multiple saved Node targets, and session-scoped file/image/audio Artifacts through the shared Node contract. These changes are newer than the v0.5.2 prerelease artifacts.
 - **2026-08-04 — v0.5.2 Developer Preview:** published the unified Node architecture as a prerelease, including governed Config and Actions, Plugin/App/MCP/Skill extensions, Operations, OpenAI Codex authentication, Agent and Model Profile management, and a more polished Desktop workspace. The release remains intended for developer evaluation rather than production use.
 - **2026-08-04 — Node architecture baseline:** the development branch now uses one Node, Action, Config, Extension, Operations, and Client Contract architecture. First setup, model profiles, Plugin/App/MCP/Skill management, slash commands, audit, usage, Cron, Heartbeat, Desktop onboarding, and LAN access share the same backend facts. The previous parallel runtime and configuration paths have been removed rather than retained as compatibility layers.

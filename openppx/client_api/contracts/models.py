@@ -137,6 +137,16 @@ class ExtensionReadiness(WireModel):
     issues: list[Identifier] = Field(default_factory=list)
 
 
+class ExtensionPresentation(WireModel):
+    """Client-safe Extension icon identity without remote image data."""
+
+    icon: Annotated[
+        str,
+        StringConstraints(pattern=r"^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$"),
+    ]
+    brand_color: Annotated[str, StringConstraints(pattern=r"^#[0-9A-Fa-f]{6}$")] | None = None
+
+
 class ExtensionSummaryItem(WireModel):
     """One stable row in the unified four-kind Extension inventory."""
 
@@ -151,6 +161,7 @@ class ExtensionSummaryItem(WireModel):
     risk: Literal["low", "medium", "high"]
     enabled_agent_ids: list[Identifier] = Field(default_factory=list)
     readiness: ExtensionReadiness
+    presentation: ExtensionPresentation
     managed_by: Identifier | None = None
 
 

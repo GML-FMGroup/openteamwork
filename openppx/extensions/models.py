@@ -21,6 +21,16 @@ Digest: TypeAlias = Annotated[str, StringConstraints(pattern=r"^sha256:[0-9a-f]{
 VisibleText: TypeAlias = Annotated[str, StringConstraints(min_length=1, max_length=512)]
 
 
+class ExtensionPresentation(StrictConfigModel):
+    """Client-safe visual identity shared by every Extension surface."""
+
+    icon: Annotated[
+        str,
+        StringConstraints(pattern=r"^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$"),
+    ]
+    brand_color: Annotated[str, StringConstraints(pattern=r"^#[0-9A-Fa-f]{6}$")] | None = None
+
+
 class ExtensionSourceRef(StrictConfigModel):
     """User-supplied immutable reference to one Extension source."""
 
@@ -100,6 +110,9 @@ class SkillRecordSpec(StrictConfigModel):
     digest: Digest
     source: ExtensionSourceIdentity
     risk: Literal["low", "medium", "high"]
+    presentation: ExtensionPresentation = Field(
+        default_factory=lambda: ExtensionPresentation(icon="skill")
+    )
     dependencies: SkillDependencies
     capabilities: list[str] = Field(default_factory=list)
     enabled_agent_ids: list[ResourceName] = Field(default_factory=list)
@@ -124,6 +137,7 @@ class SkillRecord(StrictConfigModel):
 
 __all__ = [
     "Digest",
+    "ExtensionPresentation",
     "ExtensionSourceIdentity",
     "ExtensionSourceRef",
     "ExtensionSourceType",

@@ -182,7 +182,7 @@ Artifacts are written below `apps/desktop/release/` and are not committed. Verif
 ```bash
 cd apps/desktop
 npm run verify:package
-hdiutil verify release/OpenPPX-Desktop-0.5.2-mac-arm64.dmg
+hdiutil verify release/OpenPPX-Desktop-0.5.3-mac-arm64.dmg
 cd release
 shasum -a 256 -c SHA256SUMS.txt
 ```

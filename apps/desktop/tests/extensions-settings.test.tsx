@@ -1,7 +1,7 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ExtensionsSettings } from "../app/src/components/settings/ExtensionsSettings";
-import type { ExtensionDetail, ExtensionSummary, PpxClientApi } from "../app/src/types";
+import type { ExtensionDetail, ExtensionStarter, ExtensionSummary, PpxClientApi } from "../app/src/types";
 
 const digest = `sha256:${"a".repeat(64)}`;
 
@@ -18,6 +18,7 @@ function extension(kind: ExtensionSummary["kind"], id: string): ExtensionSummary
     risk: "medium",
     enabledAgentIds: [],
     readiness: { ready: true, issues: [] },
+    presentation: { icon: kind === "app" ? id : kind, brandColor: null },
     managedBy: kind === "app" ? "github-plugin" : null,
   };
 }
@@ -77,6 +78,7 @@ describe("Extensions settings", () => {
         note: "A verified product adapter is required.",
         featured: true,
         provenance: { project: "OpenWorker", license: "MIT" },
+        presentation: { icon: "telegram", brandColor: "#229ed9" },
         template: {},
       }],
       counts: { plugin: 0, app: 1, mcp: 0, skill: 0 },
@@ -85,9 +87,46 @@ describe("Extensions settings", () => {
     renderSettings([], "app");
 
     expect(await screen.findByText("Telegram")).toBeInTheDocument();
+    expect(document.querySelector('[data-extension-icon="telegram"]')).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Details" }));
     expect(await screen.findByText("A verified product adapter is required.")).toBeInTheDocument();
     expect(screen.getAllByText("Not available yet").length).toBeGreaterThan(0);
+  });
+
+  it("uses an eight-row starter fold without repeating routine setup metadata", async () => {
+    const starters: ExtensionStarter[] = Array.from({ length: 9 }, (_, index) => ({
+      id: `app-starter-${index + 1}`,
+      kind: "app",
+      runtimeKind: "mcp",
+      displayName: `Starter ${index + 1}`,
+      description: `Starter ${index + 1} description.`,
+      category: "communication",
+      developer: "OpenPPX",
+      availability: "needs_auth",
+      installMode: "direct_mcp",
+      auth: "secret",
+      requirements: ["API token"],
+      note: "Credentials are requested during setup.",
+      featured: false,
+      provenance: { project: "test" },
+      presentation: { icon: "app", brandColor: null },
+      template: {},
+    }));
+    vi.mocked(window.ppxClient.listExtensionStarters).mockResolvedValue({
+      starters,
+      counts: { plugin: 0, app: starters.length, mcp: 0, skill: 0 },
+    });
+
+    renderSettings([], "app");
+
+    expect(await screen.findByText("Starter 1")).toBeInTheDocument();
+    expect(screen.getByText("1 more ·")).toBeInTheDocument();
+    expect(screen.queryByText("Starter 9")).not.toBeInTheDocument();
+    expect(screen.queryByText("Authentication required")).not.toBeInTheDocument();
+    expect(screen.queryByText("MCP-backed")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Show all 9" }));
+    expect(await screen.findByText("Starter 9")).toBeInTheDocument();
   });
 
   it("installs a direct App starter before opening its credential form", async () => {
@@ -116,6 +155,7 @@ describe("Extensions settings", () => {
         note: "Token remains protected.",
         featured: true,
         provenance: { project: "OpenWorker", license: "MIT" },
+        presentation: { icon: "telegram", brandColor: "#229ed9" },
         template: { definition: { metadata: { name: "telegram" } } },
       }],
       counts: { plugin: 0, app: 1, mcp: 0, skill: 0 },
@@ -152,6 +192,7 @@ describe("Extensions settings", () => {
         note: "",
         featured: true,
         provenance: { project: "nanobot", license: "MIT" },
+        presentation: { icon: "context7", brandColor: null },
         template: {
           serverId: "context7",
           displayName: "Context7",
@@ -168,6 +209,12 @@ describe("Extensions settings", () => {
     expect(screen.getByLabelText(/Server ID/)).toHaveValue("context7");
     expect(screen.getByLabelText("Name")).toHaveValue("Context7");
     expect(screen.getByLabelText("Server URL")).toHaveValue("https://mcp.context7.com/mcp");
+    fireEvent.click(screen.getByRole("button", { name: "Add server" }));
+    await waitFor(() => expect(window.ppxClient.createMcpServer).toHaveBeenCalled());
+    expect(vi.mocked(window.ppxClient.createMcpServer).mock.calls[0][0].resource.spec.presentation).toEqual({
+      icon: "context7",
+      brandColor: null,
+    });
   });
 
   it("connects the Granola starter through explicit browser OAuth before Agent enablement", async () => {
@@ -187,6 +234,7 @@ describe("Extensions settings", () => {
         note: "Sign in with Granola.",
         featured: true,
         provenance: { project: "OpenWorker", license: "MIT" },
+        presentation: { icon: "granola", brandColor: null },
         template: {
           serverId: "granola",
           displayName: "Granola",

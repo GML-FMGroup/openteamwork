@@ -18,6 +18,8 @@ from pydantic import (
 from openppx.config.models import DisplayName, ResourceMetadata, ResourceName, StrictConfigModel
 from openppx.config.secrets import SecretRef
 
+from .models import ExtensionPresentation
+
 
 VisibleValue: TypeAlias = Annotated[str, StringConstraints(min_length=1, max_length=4096)]
 ToolName: TypeAlias = Annotated[str, StringConstraints(pattern=r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$")]
@@ -277,6 +279,9 @@ class McpServerSpec(StrictConfigModel):
 
     display_name: DisplayName
     description: Annotated[str, StringConstraints(min_length=1, max_length=2048)]
+    presentation: ExtensionPresentation = Field(
+        default_factory=lambda: ExtensionPresentation(icon="mcp")
+    )
     transport: McpTransport
     policy: McpToolPolicy = Field(default_factory=McpToolPolicy)
     risk: Literal["low", "medium", "high"] = "medium"

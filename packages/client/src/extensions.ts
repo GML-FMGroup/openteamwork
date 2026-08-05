@@ -5,6 +5,11 @@ export type ExtensionKind = "plugin" | "app" | "mcp" | "skill";
 export type InstallableExtensionKind = "plugin" | "skill";
 export type AgentEnablementKind = "plugin" | "mcp" | "skill";
 
+export interface ExtensionPresentation extends Record<string, unknown> {
+  icon: string;
+  brandColor: string | null;
+}
+
 export interface ExtensionSourceRef extends Record<string, unknown> {
   type: "builtin" | "local_directory" | "local_archive" | "git" | "npm" | "catalog";
   locator: string;
@@ -84,6 +89,7 @@ export interface ExtensionSummary extends Record<string, unknown> {
   risk: "low" | "medium" | "high";
   enabledAgentIds: string[];
   readiness: { ready: boolean; issues: string[] };
+  presentation: ExtensionPresentation;
   managedBy: string | null;
 }
 
@@ -162,6 +168,7 @@ export interface McpServerResource extends Record<string, unknown> {
   spec: {
     displayName: string;
     description: string;
+    presentation: ExtensionPresentation;
     transport:
       | {
           type: "stdio";
@@ -251,6 +258,7 @@ export interface ExtensionStarter extends Record<string, unknown> {
   note: string;
   featured: boolean;
   provenance: Record<string, string>;
+  presentation: ExtensionPresentation;
   template: Record<string, unknown>;
 }
 
@@ -280,6 +288,7 @@ function parseExtensionStarter(value: unknown): ExtensionStarter {
     typeof item.note !== "string" ||
     typeof item.featured !== "boolean" ||
     !item.provenance || typeof item.provenance !== "object" || Array.isArray(item.provenance) ||
+    !isExtensionPresentation(item.presentation) ||
     !item.template || typeof item.template !== "object" || Array.isArray(item.template)
   ) {
     throw new ClientApiProtocolError("Extension starter result does not match the v1 catalog contract.");
@@ -309,11 +318,25 @@ function parseExtensionSummary(value: unknown): ExtensionSummary {
     !Array.isArray(item.enabledAgentIds) ||
     !readiness ||
     typeof readiness.ready !== "boolean" ||
-    !Array.isArray(readiness.issues)
+    !Array.isArray(readiness.issues) ||
+    !isExtensionPresentation(item.presentation)
   ) {
     throw new ClientApiProtocolError("Extension result does not match the v1 inventory contract.");
   }
   return item as unknown as ExtensionSummary;
+}
+
+function isExtensionPresentation(value: unknown): value is ExtensionPresentation {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const presentation = value as Record<string, unknown>;
+  return (
+    typeof presentation.icon === "string" &&
+    /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(presentation.icon) &&
+    (presentation.brandColor === null || (
+      typeof presentation.brandColor === "string" &&
+      /^#[0-9A-Fa-f]{6}$/.test(presentation.brandColor)
+    ))
+  );
 }
 
 function parseExtensionProbe(value: unknown): ExtensionProbeResult {

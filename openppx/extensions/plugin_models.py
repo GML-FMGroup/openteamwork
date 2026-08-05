@@ -10,7 +10,7 @@ from pydantic import Field, JsonValue, StrictBool, StringConstraints, field_vali
 
 from openppx.config.models import DisplayName, ResourceMetadata, ResourceName, StrictConfigModel
 
-from .models import ExtensionSourceIdentity
+from .models import ExtensionPresentation, ExtensionSourceIdentity
 
 
 PluginPath = Annotated[str, StringConstraints(min_length=3, max_length=512)]
@@ -242,6 +242,9 @@ class PluginRecordSpec(StrictConfigModel):
     source: ExtensionSourceIdentity
     trust: Annotated[str, StringConstraints(pattern=r"^(builtin|local|third_party)$")]
     risk: Annotated[str, StringConstraints(pattern=r"^(low|medium|high)$")]
+    presentation: ExtensionPresentation = Field(
+        default_factory=lambda: ExtensionPresentation(icon="plugin")
+    )
     resources: PluginResources
     enabled_agent_ids: list[ResourceName] = Field(default_factory=list)
 

@@ -136,11 +136,20 @@ def test_direct_app_starter_install_is_validated_and_idempotent(tmp_path: Path) 
         {"starterId": "app-granola"},
         _context(),
     )
+    inventory = application.invoke(
+        "extension.list",
+        {"kind": "app", "agentId": None},
+        _context(),
+    )
 
     assert installed.ok is True
     assert installed.data["id"] == "telegram"
     assert repeated.ok is True
     assert repeated.data["revision"] == installed.data["revision"]
+    assert inventory.data["items"][0]["presentation"] == {
+        "icon": "telegram",
+        "brandColor": "#229ed9",
+    }
     assert invalid.error is not None
     assert invalid.error.code == "invalid_operation"
 

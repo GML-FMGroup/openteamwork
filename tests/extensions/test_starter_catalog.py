@@ -57,6 +57,19 @@ def test_catalog_payloads_never_contain_credential_values() -> None:
     assert {"secretValues", "credentialValues", "accessToken", "refreshToken", "password"}.isdisjoint(keys)
 
 
+def test_app_and_mcp_starters_publish_explicit_local_icon_identity() -> None:
+    catalog = default_extension_starter_catalog()
+
+    branded = [*catalog.list(kind="app"), *catalog.list(kind="mcp")]
+
+    assert all(item.presentation.icon not in {"app", "mcp"} for item in branded)
+    assert catalog.get("app-telegram").to_payload()["presentation"] == {
+        "icon": "telegram",
+        "brandColor": "#229ed9",
+    }
+    assert catalog.get("mcp-context7").presentation.icon == "context7"
+
+
 def test_every_direct_mcp_starter_has_a_complete_one_click_template() -> None:
     for starter in default_extension_starter_catalog().list():
         if starter.install_mode != "direct_mcp":

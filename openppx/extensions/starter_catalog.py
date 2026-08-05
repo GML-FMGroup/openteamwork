@@ -11,6 +11,7 @@ from importlib.resources import files
 from typing import Any, Literal
 
 from .errors import ExtensionError
+from .models import ExtensionPresentation
 from .registry import ExtensionKind
 
 
@@ -34,6 +35,7 @@ _ALLOWED_KEYS = {
     "note",
     "featured",
     "provenance",
+    "presentation",
     "template",
 }
 
@@ -56,6 +58,7 @@ class ExtensionStarter:
     note: str
     featured: bool
     provenance: dict[str, str]
+    presentation: ExtensionPresentation
     template: dict[str, Any]
 
     def to_payload(self) -> dict[str, Any]:
@@ -75,6 +78,7 @@ class ExtensionStarter:
             "note": self.note,
             "featured": self.featured,
             "provenance": dict(self.provenance),
+            "presentation": self.presentation.model_dump(mode="json", by_alias=True),
             "template": deepcopy(self.template),
         }
 
@@ -149,7 +153,7 @@ def default_extension_starter_catalog() -> ExtensionStarterCatalog:
 def _parse_entry(raw: object) -> ExtensionStarter:
     if not isinstance(raw, dict) or set(raw) - _ALLOWED_KEYS:
         raise ValueError("Extension starter catalog entry has unsupported fields.")
-    required = _ALLOWED_KEYS - {"note", "featured", "template"}
+    required = _ALLOWED_KEYS - {"note", "featured", "presentation", "template"}
     if not required.issubset(raw):
         raise ValueError("Extension starter catalog entry is incomplete.")
     starter_id = _text(raw, "id", limit=63)
@@ -171,6 +175,11 @@ def _parse_entry(raw: object) -> ExtensionStarter:
         _visible(key, limit=64): _visible(value, limit=2048)
         for key, value in provenance_raw.items()
     }
+    presentation_raw = raw.get("presentation", {"icon": kind})
+    try:
+        presentation = ExtensionPresentation.model_validate(presentation_raw)
+    except Exception as exc:
+        raise ValueError(f"starter {starter_id} presentation is invalid") from exc
     template = raw.get("template", {})
     if not isinstance(template, dict):
         raise ValueError(f"starter {starter_id} template must be an object")
@@ -209,6 +218,7 @@ def _parse_entry(raw: object) -> ExtensionStarter:
         note=_optional_text(raw.get("note"), limit=1024),
         featured=featured,
         provenance=provenance,
+        presentation=presentation,
         template=deepcopy(template),
     )
 

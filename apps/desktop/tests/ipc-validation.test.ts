@@ -231,6 +231,7 @@ describe("Electron IPC validation", () => {
         spec: {
           displayName: "GitHub tools",
           description: "Repository access",
+          presentation: { icon: "github", brandColor: "#1f2328" },
           transport: {
             type: "stdio",
             command: "npx",
@@ -265,6 +266,7 @@ describe("Electron IPC validation", () => {
         spec: {
           displayName: "Browserbase",
           description: "Remote browser automation",
+          presentation: { icon: "browserbase", brandColor: "#1f2328" },
           transport: {
             type: "streamable_http",
             url: "https://mcp.browserbase.com/mcp",
@@ -351,6 +353,7 @@ describe("Electron IPC validation", () => {
         spec: {
           displayName: "Unsafe",
           description: "Unsafe MCP",
+          presentation: { icon: "mcp", brandColor: null },
           transport: { type: "stdio", command: "node", args: [], environment: { TOKEN: { kind: "secret", secretRef: { store: "renderer", name: "token" } } } },
           policy: { toolFilter: [], requireConfirmation: true, progressEvents: true, longTaskProxy: true, inlineBudgetMs: 1500 },
           risk: "high",

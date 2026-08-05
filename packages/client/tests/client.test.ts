@@ -381,6 +381,7 @@ describe("OpenPPX Client public contract", () => {
       kind: "skill",
       id: "fixture-skill",
       readiness: { ready: true },
+      presentation: { icon: "skill", brandColor: null },
     });
     const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
     expect(url).toBe("http://127.0.0.1:8765/api/v1/actions/invoke");
@@ -403,6 +404,7 @@ describe("OpenPPX Client public contract", () => {
       note: "",
       featured: true,
       provenance: { project: "nanobot", license: "MIT" },
+      presentation: { icon: "context7", brandColor: null },
       template: { serverId: "context7" },
     };
     const fetchMock = vi.fn(async () => new Response(JSON.stringify({
@@ -472,6 +474,7 @@ describe("OpenPPX Client public contract", () => {
       spec: {
         displayName: "GitHub tools",
         description: "Repository tools",
+        presentation: { icon: "github", brandColor: "#1f2328" },
         transport: { type: "stdio" as const, command: "npx", args: ["server"], environment: {} },
         policy: { toolFilter: [], requireConfirmation: true, progressEvents: true, longTaskProxy: true, inlineBudgetMs: 1500 },
         risk: "medium" as const,

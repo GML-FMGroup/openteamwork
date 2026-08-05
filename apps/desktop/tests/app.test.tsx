@@ -64,7 +64,7 @@ function buildBootstrapPayload(): BootstrapPayload {
 
 function buildDiagnostics(): ClientDiagnostics {
   return {
-    desktopVersion: "0.5.2",
+    desktopVersion: "0.5.3",
     mode: "local",
     target: { id: "local-default", type: "local", name: "This Mac" },
     openppxRoot: "/tmp/openppx_root",
@@ -1566,7 +1566,7 @@ describe("App sending state", () => {
     expect(screen.getByText("/tmp/openppx_root")).toBeInTheDocument();
     expect(screen.getAllByText("This Mac").length).toBeGreaterThanOrEqual(1);
     expect(screen.getByText("v1")).toBeInTheDocument();
-    expect(screen.getByText("0.5.2")).toBeInTheDocument();
+    expect(screen.getByText("0.5.3")).toBeInTheDocument();
     expect(screen.getByText("0.4")).toBeInTheDocument();
     expect(screen.queryByTitle("Return to conversation")).not.toBeInTheDocument();
     const deviceCard = screen.getByRole("heading", { name: "Device" }).closest("section");
@@ -1738,6 +1738,7 @@ describe("App sending state", () => {
       risk: "low",
       enabledAgentIds: [],
       readiness: { ready: true, issues: [] },
+      presentation: { icon: "skill", brandColor: null },
       managedBy: null,
     };
     const setExtensionAgentEnabled = vi.fn(async () => ({

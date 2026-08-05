@@ -528,6 +528,15 @@ export function validateMcpMutationRequest(value: unknown): McpMutationRequest {
   const spec = record(rawResource.spec, "MCP spec");
   const transport = record(spec.transport, "MCP transport");
   const policy = record(spec.policy, "MCP policy");
+  const presentation = record(spec.presentation, "MCP presentation");
+  const icon = string(presentation.icon, "MCP icon", 63);
+  if (!/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(icon)) {
+    throw new TypeError("MCP icon must be a lowercase identifier.");
+  }
+  const brandColor = presentation.brandColor;
+  if (brandColor !== null && (typeof brandColor !== "string" || !/^#[0-9A-Fa-f]{6}$/.test(brandColor))) {
+    throw new TypeError("MCP brand color must be a six-digit hex color or null.");
+  }
   let safeTransport: McpServerResource["spec"]["transport"];
   if (transport.type === "stdio") {
     safeTransport = {
@@ -573,6 +582,7 @@ export function validateMcpMutationRequest(value: unknown): McpMutationRequest {
     spec: {
       displayName: string(spec.displayName, "MCP display name", 80),
       description: string(spec.description, "MCP description", 2_048),
+      presentation: { icon, brandColor },
       transport: safeTransport,
       policy: {
         toolFilter: stringList(policy.toolFilter ?? [], "MCP tool filter", 256),

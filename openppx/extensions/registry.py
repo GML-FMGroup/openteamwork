@@ -12,6 +12,7 @@ from .apps import AppManager, VersionedAppConnection
 from .errors import ExtensionError
 from .mcp import McpManager
 from .mcp_models import McpStdioTransport
+from .models import ExtensionPresentation
 from .plugins import PluginManager
 from .skills import SkillManager
 
@@ -37,6 +38,7 @@ class ExtensionSummary:
     enabled_agent_ids: tuple[str, ...]
     ready: bool
     issues: tuple[str, ...]
+    presentation: ExtensionPresentation
     managed_by: str | None = None
 
     def to_payload(self) -> dict[str, Any]:
@@ -53,6 +55,7 @@ class ExtensionSummary:
             "risk": self.risk,
             "enabledAgentIds": list(self.enabled_agent_ids),
             "readiness": {"ready": self.ready, "issues": list(self.issues)},
+            "presentation": self.presentation.model_dump(mode="json", by_alias=True),
             "managedBy": self.managed_by,
         }
 
@@ -224,6 +227,7 @@ class ExtensionRegistry:
             enabled_agent_ids=tuple(item.record.spec.enabled_agent_ids),
             ready=readiness.ready,
             issues=readiness.issues,
+            presentation=item.record.spec.presentation,
         )
 
     def _mcp_summary(self, item) -> ExtensionSummary:
@@ -243,6 +247,7 @@ class ExtensionRegistry:
             enabled_agent_ids=tuple(item.record.spec.enabled_agent_ids),
             ready=readiness.ready,
             issues=readiness.issues,
+            presentation=item.record.spec.presentation,
             managed_by=None if managed is None else f"{managed.kind}:{managed.name}",
         )
 
@@ -262,6 +267,7 @@ class ExtensionRegistry:
             enabled_agent_ids=tuple(item.record.spec.enabled_agent_ids),
             ready=readiness.ready,
             issues=readiness.issues,
+            presentation=item.record.spec.presentation,
         )
 
     def _app_summary(
@@ -303,6 +309,7 @@ class ExtensionRegistry:
             enabled_agent_ids=enabled,
             ready=ready,
             issues=issues,
+            presentation=definition.spec.presentation,
             managed_by=None,
         )
 

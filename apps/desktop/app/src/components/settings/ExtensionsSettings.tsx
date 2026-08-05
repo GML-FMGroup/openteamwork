@@ -6,6 +6,7 @@ import type {
   AppToolSpec,
   ExtensionDetail,
   ExtensionPreview,
+  ExtensionPresentation,
   ExtensionProbeResult,
   ExtensionSourceRef,
   ExtensionSummary,
@@ -19,6 +20,7 @@ import type {
   PluginMarketplaceSource,
   PluginMarketplaceSourceSpec,
 } from "../../types";
+import { ExtensionIcon } from "./ExtensionIcon";
 
 interface ExtensionsSettingsProps {
   kind: ExtensionSummary["kind"];
@@ -61,12 +63,14 @@ interface StarterMcpCredential {
 interface StarterMcpTemplate {
   serverId: string;
   displayName: string;
+  presentation: ExtensionPresentation;
   risk: "low" | "medium" | "high";
   credentials: StarterMcpCredential[];
   transport: Record<string, unknown>;
 }
 
 const KIND_ORDER: ExtensionSummary["kind"][] = ["plugin", "app", "mcp", "skill"];
+const STARTER_FOLD = 8;
 
 function title(value: string): string {
   return value === "mcp" ? "MCP" : `${value.slice(0, 1).toUpperCase()}${value.slice(1)}`;
@@ -156,6 +160,12 @@ function starterStatus(starter: ExtensionStarter): string {
   return "Ready to add";
 }
 
+function starterListStatus(starter: ExtensionStarter): string | null {
+  if (starter.availability === "needs_dependency") return "Dependency required";
+  if (starter.availability === "planned") return "Not available yet";
+  return null;
+}
+
 function starterMcpTemplate(starter: ExtensionStarter | null): StarterMcpTemplate | null {
   if (!starter || starter.installMode !== "direct_mcp") return null;
   const template = asRecord(starter.template);
@@ -174,6 +184,7 @@ function starterMcpTemplate(starter: ExtensionStarter | null): StarterMcpTemplat
   return {
     serverId: template.serverId,
     displayName: template.displayName,
+    presentation: starter.presentation,
     risk: template.risk as StarterMcpTemplate["risk"],
     credentials,
     transport,
@@ -223,7 +234,7 @@ export function ExtensionsSettings(props: ExtensionsSettingsProps) {
     return !needle || `${item.displayName} ${item.description} ${item.category} ${item.developer} ${item.requirements.join(" ")}`.toLowerCase().includes(needle);
   }), [query, starters]);
   const visibleStarters = useMemo(
-    () => filteredStarters.slice(0, showAllStarters || query.trim() ? undefined : 12),
+    () => filteredStarters.slice(0, showAllStarters || query.trim() ? undefined : STARTER_FOLD),
     [filteredStarters, query, showAllStarters],
   );
 
@@ -337,6 +348,7 @@ export function ExtensionsSettings(props: ExtensionsSettingsProps) {
         note: `From ${entry.marketplaceId}. Preview verifies the exact package before installation.`,
         featured: false,
         provenance: { project: entry.marketplaceId },
+        presentation: { icon: "plugin", brandColor: null },
         template: { source: entry.source },
       },
     });
@@ -365,33 +377,30 @@ export function ExtensionsSettings(props: ExtensionsSettingsProps) {
             <p>{tab === "app" ? "App definitions come from trusted Plugins or the Node. Open an App to manage connections." : `${counts[tab]} configured on this Node.`}</p>
           </div>
           {filtered.length ? (
-            <div className="extension-resource-list">
-              {filtered.map((extension) => {
-                const enabled = props.selectedAgentId ? extension.enabledAgentIds.includes(props.selectedAgentId) : false;
-                const pending = props.mutationId === `${extension.kind}:${extension.id}`;
-                return (
-                  <article className="extension-resource-row" key={`${extension.kind}:${extension.id}`}>
-                    <button className="extension-resource-open" onClick={() => void openDetail(extension)}>
-                      <span className={`extension-kind-mark ${extension.kind}`}>{extension.kind === "mcp" ? "M" : title(extension.kind).slice(0, 1)}</span>
-                      <span className="extension-resource-copy"><strong>{extension.displayName}</strong><span>{extension.description || `Open ${title(extension.kind)} details`}</span><small>{sourceDescription(extension)}</small></span>
-                    </button>
-                    <span className={`extension-state ${extension.readiness.ready ? "ready" : "blocked"}`}><i />{extension.readiness.ready ? extension.status : "Needs attention"}</span>
-                    {extension.kind !== "app" ? (
-                      <button className="secondary extension-row-action" disabled={!props.selectedAgentId || extension.status === "builtin" || pending} onClick={() => props.onSetEnabled(extension, !enabled)}>
-                        {pending ? "Applying" : extension.status === "builtin" ? "Built in" : enabled ? "Disable" : "Enable"}
+            <div className="extension-resource-group">
+              <div className="extension-group-label">Configured · {filtered.length}</div>
+              <div className="extension-resource-list">
+                {filtered.map((extension) => {
+                  const enabled = props.selectedAgentId ? extension.enabledAgentIds.includes(props.selectedAgentId) : false;
+                  const pending = props.mutationId === `${extension.kind}:${extension.id}`;
+                  return (
+                    <article className="extension-resource-row" key={`${extension.kind}:${extension.id}`}>
+                      <button className="extension-resource-open" onClick={() => void openDetail(extension)}>
+                        <ExtensionIcon presentation={extension.presentation} kind={extension.kind} label={extension.displayName} />
+                        <span className="extension-resource-copy"><strong>{extension.displayName}</strong><span>{extension.description || `Open ${title(extension.kind)} details`}</span><small>{sourceDescription(extension)}</small></span>
                       </button>
-                    ) : <button className="secondary extension-row-action" onClick={() => void openDetail(extension)}>Connections</button>}
-                  </article>
-                );
-              })}
+                      <span className={`extension-state ${extension.readiness.ready ? "ready" : "blocked"}`}><i />{extension.readiness.ready ? extension.status : "Needs attention"}</span>
+                      {extension.kind !== "app" ? (
+                        <button className="secondary extension-row-action" disabled={!props.selectedAgentId || extension.status === "builtin" || pending} onClick={() => props.onSetEnabled(extension, !enabled)}>
+                          {pending ? "Applying" : extension.status === "builtin" ? "Built in" : enabled ? "Disable" : "Enable"}
+                        </button>
+                      ) : <button className="secondary extension-row-action" onClick={() => void openDetail(extension)}>Connections</button>}
+                    </article>
+                  );
+                })}
+              </div>
             </div>
-          ) : (
-            <section className="extension-empty-state">
-              <span>{query ? "No matches" : `No ${plural(tab).toLowerCase()} yet`}</span>
-              <p>{query ? "Try a different name or description." : tab === "app" ? "Apps appear here when a trusted definition is installed by the Node or a Plugin." : `Add your first ${tab === "mcp" ? "MCP server" : title(tab)} to extend what Agents can do.`}</p>
-              {!query && canAdd ? <button onClick={addForTab}>Add {tab === "mcp" ? "MCP server" : title(tab)}</button> : null}
-            </section>
-          )}
+          ) : null}
       </div>
 
       {tab === "plugin" ? (
@@ -415,7 +424,7 @@ export function ExtensionsSettings(props: ExtensionsSettingsProps) {
           ))}</div> : <div className="extension-empty-state compact"><span>No marketplace sources</span><p>Add a repository or local catalog to discover portable Plugins.</p></div>}
           {marketplaceEntries.length ? <div className="plugin-marketplace-entries">{marketplaceEntries.map((entry) => (
             <article key={`${entry.marketplaceId}:${entry.pluginId}`}>
-              <span className="extension-kind-mark plugin">{entry.displayName.slice(0, 1).toUpperCase()}</span>
+              <ExtensionIcon presentation={{ icon: "plugin", brandColor: null }} kind="plugin" label={entry.displayName} />
               <div><strong>{entry.displayName}</strong><span>{entry.description}</span><small>{entry.developer} · {entry.sourceKind}</small></div>
               <button className="secondary" disabled={!entry.ready || !entry.source} onClick={() => openMarketplaceEntry(entry)}>{entry.ready ? "Preview" : "Unavailable"}</button>
             </article>
@@ -424,34 +433,36 @@ export function ExtensionsSettings(props: ExtensionsSettingsProps) {
       ) : null}
 
       <section className="extension-starter-section" aria-label={`Available ${plural(tab)}`}>
-        <div className="extension-starter-heading">
-          <div><h4>Available</h4><p>Curated starters with explicit requirements and provenance.</p></div>
-          <span>{startersLoading ? "Loading…" : `${filteredStarters.length} starters`}</span>
-        </div>
-        {startersLoading ? <div className="extension-starter-loading">Loading catalog…</div> : filteredStarters.length ? (
-          <>
-          <div className="extension-starter-grid">
-            {visibleStarters.map((starter) => (
-              <article className="extension-starter-card" key={starter.id}>
-                <button className="extension-starter-copy" onClick={() => void openStarter(starter)}>
-                  <span className={`extension-kind-mark ${starter.kind}`}>{starter.displayName.slice(0, 1).toUpperCase()}</span>
-                  <span><strong>{starter.displayName}</strong><small>{starter.category} · {starter.runtimeKind === starter.kind ? title(starter.kind) : `${title(starter.runtimeKind)}-backed`}</small></span>
-                </button>
-                <p>{starter.description}</p>
-                <footer>
-                  <span className={`starter-availability ${starter.availability}`}><i />{starterStatus(starter)}</span>
-                  <button className="secondary" disabled={starterMutationId === starter.id} onClick={() => void openStarter(starter)}>{starterMutationId === starter.id ? "Installing…" : starterButtonLabel(starter)}</button>
-                </footer>
-              </article>
-            ))}
+        <div className="extension-starter-content">
+          <div className="extension-starter-heading">
+            <h4>Available</h4>
           </div>
-          {!query.trim() && !showAllStarters && filteredStarters.length > visibleStarters.length ? (
-            <button className="extension-show-all" onClick={() => setShowAllStarters(true)}>
-              Show all {filteredStarters.length}
-            </button>
-          ) : null}
-          </>
-        ) : <div className="extension-starter-loading">No available starters match this search.</div>}
+          {startersLoading ? <div className="extension-starter-loading">Loading catalog…</div> : filteredStarters.length ? (
+            <>
+            <div className="extension-starter-list">
+              {visibleStarters.map((starter) => {
+                const listStatus = starterListStatus(starter);
+                return (
+                  <article className="extension-starter-row" key={starter.id}>
+                    <button className="extension-starter-copy" onClick={() => void openStarter(starter)}>
+                      <ExtensionIcon presentation={starter.presentation} kind={starter.kind} label={starter.displayName} />
+                      <span><strong>{starter.displayName}</strong><small>{starter.description}</small></span>
+                    </button>
+                    {listStatus ? <span className={`starter-availability ${starter.availability}`}><i />{listStatus}</span> : null}
+                    <button className="secondary extension-starter-action" disabled={starterMutationId === starter.id} onClick={() => void openStarter(starter)}>{starterMutationId === starter.id ? "Installing…" : starterButtonLabel(starter)}</button>
+                  </article>
+                );
+              })}
+            </div>
+            {!query.trim() && !showAllStarters && filteredStarters.length > visibleStarters.length ? (
+              <div className="extension-show-all">
+                <span>{filteredStarters.length - visibleStarters.length} more · </span>
+                <button aria-label={`Show all ${filteredStarters.length}`} onClick={() => setShowAllStarters(true)}>show all</button>
+              </div>
+            ) : null}
+            </>
+          ) : <div className="extension-starter-loading">No available starters match this search.</div>}
+        </div>
       </section>
 
       {detailLoading ? <div className="extension-detail-loading">Loading extension…</div> : null}
@@ -738,7 +749,7 @@ function McpServerDialog(props: { state: McpDialogState; agents: AgentProfile[];
         : { type: transportType, url: url.trim(), headers: parsedBindings, query: parsedQueryBindings, auth: authMode };
       const nextResource: McpServerResource = {
         apiVersion: "openppx.io/v1alpha1", kind: "McpServer", metadata: { name: serverId.trim(), labels: resource?.metadata.labels ?? {}, annotations: resource?.metadata.annotations ?? {} },
-        spec: { displayName: displayName.trim(), description: description.trim(), transport, policy: { toolFilter: splitLines(toolFilter), toolNamePrefix: toolPrefix.trim() || null, requireConfirmation, runtimeHeaders: resource?.spec.policy.runtimeHeaders ?? {}, progressEvents, longTaskProxy, inlineBudgetMs: Number(inlineBudgetMs), jobProtocol: resource?.spec.policy.jobProtocol ?? null }, risk, enabledAgentIds, managedBy: null },
+        spec: { displayName: displayName.trim(), description: description.trim(), presentation: resource?.spec.presentation ?? starter?.presentation ?? { icon: "mcp", brandColor: null }, transport, policy: { toolFilter: splitLines(toolFilter), toolNamePrefix: toolPrefix.trim() || null, requireConfirmation, runtimeHeaders: resource?.spec.policy.runtimeHeaders ?? {}, progressEvents, longTaskProxy, inlineBudgetMs: Number(inlineBudgetMs), jobProtocol: resource?.spec.policy.jobProtocol ?? null }, risk, enabledAgentIds, managedBy: null },
       };
       const resolvedSecretValues = starter
         ? Object.fromEntries(Object.entries(starterSecretValues).filter(([, value]) => value.trim()))

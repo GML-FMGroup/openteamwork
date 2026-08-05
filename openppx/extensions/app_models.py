@@ -11,7 +11,7 @@ from openppx.config.models import DisplayName, ResourceMetadata, ResourceName, S
 from openppx.config.secrets import SecretRef
 
 from .mcp_models import McpJobProtocolSpec
-from .models import ExtensionSourceIdentity
+from .models import ExtensionPresentation, ExtensionSourceIdentity
 
 
 VisibleValue: TypeAlias = Annotated[str, StringConstraints(min_length=1, max_length=4096)]
@@ -210,30 +210,14 @@ class AppDefinitionSpec(StrictConfigModel):
     version: Annotated[str, StringConstraints(min_length=1, max_length=128)]
     category: Annotated[str, StringConstraints(pattern=r"^[a-z][a-z0-9_-]{0,63}$")]
     developer: Annotated[str, StringConstraints(min_length=1, max_length=128)]
-    icon_url: Annotated[str, StringConstraints(max_length=2048)] | None = None
+    presentation: ExtensionPresentation = Field(
+        default_factory=lambda: ExtensionPresentation(icon="app")
+    )
     source: ExtensionSourceIdentity
     auth: AppAuthSpec
     implementation: AppImplementation
     tools: list[AppToolSpec] = Field(min_length=1, max_length=256)
     policy: AppDefaultPolicy = Field(default_factory=AppDefaultPolicy)
-
-    @field_validator("icon_url")
-    @classmethod
-    def icon_must_be_public_https(cls, value: str | None) -> str | None:
-        """Keep branding references free of credentials and ambiguity."""
-        if value is None:
-            return None
-        parsed = urlsplit(value)
-        if (
-            parsed.scheme != "https"
-            or not parsed.hostname
-            or parsed.username is not None
-            or parsed.password is not None
-            or parsed.query
-            or parsed.fragment
-        ):
-            raise ValueError("iconUrl must be a clean HTTPS URL")
-        return value
 
     @model_validator(mode="after")
     def references_must_match_declared_contract(self) -> "AppDefinitionSpec":

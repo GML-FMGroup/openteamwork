@@ -38,7 +38,7 @@ from .mcp_models import (
     McpStdioTransport,
     McpToolPolicy,
 )
-from .models import ExtensionSourceRef, SkillManifest
+from .models import ExtensionPresentation, ExtensionSourceRef, SkillManifest
 from .plugin_models import (
     PluginManifest,
     PluginRecord,
@@ -375,6 +375,14 @@ class PluginManager:
                     source=staged.extension.source,
                     trust=preview.trust,
                     risk=preview.risk,
+                    presentation=ExtensionPresentation(
+                        icon="plugin",
+                        brand_color=(
+                            staged.manifest.interface.brand_color
+                            if staged.manifest.interface is not None
+                            else None
+                        ),
+                    ),
                     resources=staged.bundle.resources,
                     enabled_agent_ids=enabled_agents,
                 ),

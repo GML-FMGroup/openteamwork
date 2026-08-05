@@ -301,6 +301,9 @@
           "default": null,
           "title": "Managedby"
         },
+        "presentation": {
+          "$ref": "#/$defs/ExtensionPresentation"
+        },
         "readiness": {
           "$ref": "#/$defs/ExtensionReadiness"
         },
@@ -346,6 +349,7 @@
         "source",
         "risk",
         "readiness",
+        "presentation",
         "details"
       ],
       "title": "ExtensionDetailPayload",
@@ -367,6 +371,35 @@
         "items"
       ],
       "title": "ExtensionListPayload",
+      "type": "object"
+    },
+    "ExtensionPresentation": {
+      "additionalProperties": false,
+      "description": "Client-safe Extension icon identity without remote image data.",
+      "properties": {
+        "brandColor": {
+          "anyOf": [
+            {
+              "pattern": "^#[0-9A-Fa-f]{6}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Brandcolor"
+        },
+        "icon": {
+          "pattern": "^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$",
+          "title": "Icon",
+          "type": "string"
+        }
+      },
+      "required": [
+        "icon"
+      ],
+      "title": "ExtensionPresentation",
       "type": "object"
     },
     "ExtensionPreviewPayload": {
@@ -507,6 +540,9 @@
           "default": null,
           "title": "Managedby"
         },
+        "presentation": {
+          "$ref": "#/$defs/ExtensionPresentation"
+        },
         "readiness": {
           "$ref": "#/$defs/ExtensionReadiness"
         },
@@ -551,7 +587,8 @@
         "revision",
         "source",
         "risk",
-        "readiness"
+        "readiness",
+        "presentation"
       ],
       "title": "ExtensionSummaryItem",
       "type": "object"

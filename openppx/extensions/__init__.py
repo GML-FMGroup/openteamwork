@@ -57,6 +57,7 @@ from .starter_catalog import (
     default_extension_starter_catalog,
 )
 from .models import (
+    ExtensionPresentation,
     ExtensionSourceIdentity,
     ExtensionSourceRef,
     ExtensionSourceType,
@@ -116,6 +117,7 @@ __all__ = [
     "PluginRecord",
     "PluginSnapshot",
     "PluginSnapshotEntry",
+    "ExtensionPresentation",
     "ExtensionSourceIdentity",
     "ExtensionSourceRef",
     "ExtensionSourceType",
