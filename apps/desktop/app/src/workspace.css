@@ -4,6 +4,7 @@
   position: relative;
   display: grid;
   grid-template-columns: var(--left-column) minmax(0, 1fr) var(--right-column);
+  grid-template-rows: minmax(0, 1fr);
   height: 100vh;
   gap: 0;
   padding: 0;
@@ -1974,8 +1975,11 @@
 
 .settings-control-frame {
   display: grid;
+  height: 100%;
+  min-height: 0;
   grid-template-columns: 176px minmax(0, 1fr);
   align-items: stretch;
+  overflow: hidden;
 }
 
 .settings-section-nav {
@@ -2002,11 +2006,15 @@
 }
 
 .settings-page {
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
   grid-template-columns: repeat(12, minmax(0, 1fr));
   align-content: start;
   gap: 14px;
   padding: 20px;
   background: var(--paper-warm);
+  scrollbar-gutter: stable;
 }
 
 .settings-card-runtime,
@@ -2621,7 +2629,6 @@
 .extensions-console {
   grid-column: 1 / -1;
   min-width: 0;
-  overflow: hidden;
   border: 1px solid var(--hairline);
   border-radius: 16px;
   background: var(--surface-strong);
