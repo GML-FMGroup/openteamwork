@@ -36,6 +36,7 @@ from .sources import (
     GitSourceAdapter,
     LocalArchiveSourceAdapter,
     LocalDirectorySourceAdapter,
+    NpmSourceAdapter,
     SourceAdapter,
     SourceLimits,
     StagedExtension,
@@ -209,6 +210,7 @@ class SkillManager:
             "local_directory": LocalDirectorySourceAdapter(),
             "local_archive": LocalArchiveSourceAdapter(),
             "git": GitSourceAdapter(),
+            "npm": NpmSourceAdapter(),
         }
         self._catalog_adapters = dict(catalog_adapters or {})
         self._builtins = self._load_builtins()

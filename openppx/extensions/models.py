@@ -14,6 +14,7 @@ ExtensionSourceType: TypeAlias = Literal[
     "local_directory",
     "local_archive",
     "git",
+    "npm",
     "catalog",
 ]
 Digest: TypeAlias = Annotated[str, StringConstraints(pattern=r"^sha256:[0-9a-f]{64}$")]

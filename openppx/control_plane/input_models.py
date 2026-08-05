@@ -13,6 +13,7 @@ from openppx.config import SecretRef
 from openppx.extensions.app_models import AppConnection, AppDefinition
 from openppx.extensions.mcp_models import McpServer
 from openppx.extensions.models import ExtensionSourceRef
+from openppx.extensions.plugin_marketplace import PluginMarketplaceSourceSpec
 from openppx.modeling import ModelCapability, ModelProfile
 from openppx.setup import SetupApplyRequest
 
@@ -561,6 +562,34 @@ class ExtensionRemoveInput(ActionInput):
 
     kind: AgentEnablementKind
     extension_id: ResourceId
+    expected_revision: str
+
+
+class PluginHookTrustInput(ActionInput):
+    """Identify one installed Plugin and its optimistic revision for Hook trust."""
+
+    plugin_id: ResourceId
+    expected_revision: str
+
+
+class PluginMarketplaceListInput(ActionInput):
+    """Filter configured Plugin marketplace entries."""
+
+    query: Annotated[str, StringConstraints(max_length=256)] | None = None
+
+
+class PluginMarketplaceMutationInput(ActionInput):
+    """Create or update one Plugin marketplace source."""
+
+    marketplace_id: ResourceId
+    spec: PluginMarketplaceSourceSpec
+    expected_revision: str | None
+
+
+class PluginMarketplaceIdentityInput(ActionInput):
+    """Identify one Plugin marketplace source under optimistic concurrency."""
+
+    marketplace_id: ResourceId
     expected_revision: str
 
 

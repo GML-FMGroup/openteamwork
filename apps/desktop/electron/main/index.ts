@@ -29,6 +29,7 @@ import {
   validateOperationsCronUpdateInput,
   validateHeartbeatConfiguration,
   validateOperationsTaskControlInput,
+  validatePluginMarketplaceSaveRequest,
   validateSendMessageInput,
   validateSetupApplyRequest,
   validateSetupHelloText,
@@ -270,6 +271,9 @@ app.whenReady().then(() => {
       query === null || query === undefined || query === "" ? undefined : validateSearchQuery(query),
     ),
   );
+  ipcMain.handle("ppx-client:install-app-starter", async (_event, starterId: unknown) =>
+    adapter!.installAppStarter(validateIdentifier(starterId, "App starter id")),
+  );
   ipcMain.handle("ppx-client:get-extension", async (_event, kind: unknown, extensionId: unknown) =>
     adapter!.getExtension(
       validateExtensionKind(kind),
@@ -293,6 +297,41 @@ app.whenReady().then(() => {
   );
   ipcMain.handle("ppx-client:remove-extension", async (_event, input: unknown) =>
     adapter!.removeExtension(validateExtensionRemoveRequest(input)),
+  );
+  ipcMain.handle("ppx-client:get-plugin-hook-status", async (_event, pluginId: unknown, expectedRevision: unknown) =>
+    adapter!.getPluginHookStatus(
+      validateIdentifier(pluginId, "Plugin id"),
+      validateIdentifier(expectedRevision, "Expected Plugin revision"),
+    ),
+  );
+  ipcMain.handle("ppx-client:set-plugin-hook-trust", async (_event, pluginId: unknown, expectedRevision: unknown, trusted: unknown) => {
+    if (typeof trusted !== "boolean") throw new TypeError("Plugin Hook trust state must be boolean.");
+    return adapter!.setPluginHookTrust(
+      validateIdentifier(pluginId, "Plugin id"),
+      validateIdentifier(expectedRevision, "Expected Plugin revision"),
+      trusted,
+    );
+  });
+  ipcMain.handle("ppx-client:list-plugin-marketplaces", async () => adapter!.listPluginMarketplaces());
+  ipcMain.handle("ppx-client:list-plugin-marketplace-entries", async (_event, query: unknown) =>
+    adapter!.listPluginMarketplaceEntries(
+      query === null || query === undefined || query === "" ? undefined : validateSearchQuery(query),
+    ),
+  );
+  ipcMain.handle("ppx-client:save-plugin-marketplace", async (_event, input: unknown) =>
+    adapter!.savePluginMarketplace(validatePluginMarketplaceSaveRequest(input)),
+  );
+  ipcMain.handle("ppx-client:refresh-plugin-marketplace", async (_event, marketplaceId: unknown, expectedRevision: unknown) =>
+    adapter!.refreshPluginMarketplace(
+      validateIdentifier(marketplaceId, "Plugin Marketplace id"),
+      validateIdentifier(expectedRevision, "Expected Plugin Marketplace revision"),
+    ),
+  );
+  ipcMain.handle("ppx-client:remove-plugin-marketplace", async (_event, marketplaceId: unknown, expectedRevision: unknown) =>
+    adapter!.removePluginMarketplace(
+      validateIdentifier(marketplaceId, "Plugin Marketplace id"),
+      validateIdentifier(expectedRevision, "Expected Plugin Marketplace revision"),
+    ),
   );
   ipcMain.handle("ppx-client:create-mcp-server", async (_event, input: unknown) =>
     adapter!.createMcpServer(validateMcpMutationRequest(input)),

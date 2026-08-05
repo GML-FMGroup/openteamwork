@@ -33,6 +33,7 @@ from .context_engine import LongTaskContextStore
 from .memory_service import MemoryConfig, create_memory_service
 from .mcp_adapter import McpRuntimeAdapter
 from .model_adapter_factory import ModelAdapterFactory
+from .plugin_hook_bridge import OpenPpxPluginHookBridge
 from .runner_factory import create_runner
 from .session_service import SessionConfig, create_session_service
 from .task_store import TaskStore
@@ -299,6 +300,17 @@ class RuntimeAssembler:
             artifact_service=self.services.artifact_service,
             task_store=self.services.task_store,
             context_store=self.services.context_store,
+            extra_plugins=(
+                ()
+                if not resolved_extensions.plugins.hooks.entries
+                else (
+                    OpenPpxPluginHookBridge(
+                        resolved_extensions.plugins.hooks,
+                        workspace=Path(snapshot.agent.spec.workspace),
+                        root_agent_name=agent.name,
+                    ),
+                )
+            ),
         )
         metadata = RuntimeMetadata(
             node_id=snapshot.node.metadata.name,

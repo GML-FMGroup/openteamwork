@@ -55,7 +55,24 @@ def _write_plugin(
         hooks_dir = root / "hooks"
         hooks_dir.mkdir(parents=True, exist_ok=True)
         (hooks_dir / "hooks.json").write_text(
-            json.dumps({"hooks": {"SessionStart": []}}),
+            json.dumps(
+                {
+                    "hooks": {
+                        "SessionStart": [
+                            {
+                                "matcher": "startup",
+                                "hooks": [
+                                    {
+                                        "type": "command",
+                                        "command": "printf started > \"$PLUGIN_DATA/session-started\"",
+                                        "timeout": 5,
+                                    }
+                                ],
+                            }
+                        ]
+                    }
+                }
+            ),
             encoding="utf-8",
         )
         manifest["hooks"] = "./hooks/hooks.json"
@@ -263,7 +280,15 @@ def test_plugin_readiness_covers_environment_registered_apps_and_hooks(tmp_path:
         hook_manager.stage(ExtensionSourceRef(type="local_directory", locator=str(hook_source))),
         expected_revision=None,
     )
-    assert hook_manager.readiness("plugin-fixture").issues == ("plugin_hooks_unsupported",)
+    hook = hook_manager.get("plugin-fixture")
+    assert hook_manager.readiness("plugin-fixture").issues == ("plugin_hooks_untrusted",)
+    status = hook_manager.hook_status("plugin-fixture")
+    assert status.declared_events == ("SessionStart",)
+    assert status.executable_count == 1
+    assert not status.trusted
+    trusted = hook_manager.trust_hooks("plugin-fixture", expected_revision=hook.revision)
+    assert trusted.trusted
+    assert hook_manager.readiness("plugin-fixture").ready
 
 
 def test_high_risk_skill_requires_confirmation(tmp_path: Path) -> None:

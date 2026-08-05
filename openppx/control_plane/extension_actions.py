@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from datetime import UTC, datetime
+from time import perf_counter
 from typing import cast
 
 from openppx.actions import (
@@ -23,6 +24,7 @@ from openppx.extensions import (
     PluginManager,
     SkillManager,
 )
+from openppx.extensions.app_models import AppDefinition
 
 from .errors import raise_extension_failure
 from .input_models import (
@@ -45,6 +47,10 @@ from .input_models import (
     McpOAuthInput,
     McpTestInput,
     McpUpdateInput,
+    PluginHookTrustInput,
+    PluginMarketplaceIdentityInput,
+    PluginMarketplaceListInput,
+    PluginMarketplaceMutationInput,
 )
 
 
@@ -56,6 +62,7 @@ def register_extension_actions(
     mcp: McpManager,
     apps: AppManager,
     plugins: PluginManager,
+    plugin_marketplaces,
     mcp_probe,
     starters: ExtensionStarterCatalog,
     mcp_oauth,
@@ -95,6 +102,23 @@ def register_extension_actions(
         lambda _context, value: _call(lambda: starters.get(cast(ExtensionStarterIdentityInput, value).starter_id).to_payload()),
     )
     actions.register(
+        _domain_spec(
+            "app.starter.install",
+            "Install App starter",
+            "Install one Node-shipped App definition from the validated starter catalog.",
+            ExtensionStarterIdentityInput,
+            "extension.write",
+            risk="medium",
+        ),
+        lambda _context, value: _call(
+            lambda: _install_app_starter(
+                starters,
+                apps,
+                cast(ExtensionStarterIdentityInput, value),
+            )
+        ),
+    )
+    actions.register(
         _spec("extension.preview", "Preview Extension install", "Stage and validate a Skill or Plugin source.", ExtensionPreviewInput, "extension.write"),
         lambda _context, value: _call(lambda: _preview(skills, plugins, cast(ExtensionPreviewInput, value))),
     )
@@ -113,6 +137,145 @@ def register_extension_actions(
     actions.register(
         _spec("extension.remove", "Remove Extension", "Remove an inactive Skill, MCP, or Plugin.", ExtensionRemoveInput, "extension.write", risk="high", confirmation="required"),
         lambda _context, value: _call(lambda: _remove(skills, mcp, plugins, cast(ExtensionRemoveInput, value))),
+    )
+    actions.register(
+        _domain_spec(
+            "plugin.hooks.status",
+            "Get Plugin Hook status",
+            "Inspect exact-definition Hook trust and runtime support.",
+            PluginHookTrustInput,
+            "extension.read",
+        ),
+        lambda _context, value: _call(
+            lambda: plugins.hook_status(cast(PluginHookTrustInput, value).plugin_id).to_payload()
+        ),
+    )
+    actions.register(
+        _domain_spec(
+            "plugin.marketplace.source.list",
+            "List Plugin marketplaces",
+            "List configured Plugin marketplace sources.",
+            PluginMarketplaceListInput,
+            "extension.read",
+        ),
+        lambda _context, _value: _call(
+            lambda: {"items": [item.to_payload() for item in plugin_marketplaces.list()]}
+        ),
+    )
+    actions.register(
+        _domain_spec(
+            "plugin.marketplace.entry.list",
+            "List marketplace Plugins",
+            "List cached Plugin packages across configured marketplaces.",
+            PluginMarketplaceListInput,
+            "extension.read",
+        ),
+        lambda _context, value: _call(
+            lambda: {
+                "items": [
+                    item.to_payload()
+                    for item in plugin_marketplaces.list_entries(
+                        query=cast(PluginMarketplaceListInput, value).query
+                    )
+                ]
+            }
+        ),
+    )
+    actions.register(
+        _domain_spec(
+            "plugin.marketplace.source.create",
+            "Add Plugin marketplace",
+            "Add one local or Git Plugin marketplace source.",
+            PluginMarketplaceMutationInput,
+            "extension.write",
+        ),
+        lambda _context, value: _call(
+            lambda: plugin_marketplaces.create(
+                cast(PluginMarketplaceMutationInput, value).marketplace_id,
+                cast(PluginMarketplaceMutationInput, value).spec,
+                expected_revision=None,
+            ).to_payload()
+        ),
+    )
+    actions.register(
+        _domain_spec(
+            "plugin.marketplace.source.update",
+            "Update Plugin marketplace",
+            "Update and invalidate one Plugin marketplace source.",
+            PluginMarketplaceMutationInput,
+            "extension.write",
+        ),
+        lambda _context, value: _call(
+            lambda: plugin_marketplaces.update(
+                cast(PluginMarketplaceMutationInput, value).marketplace_id,
+                cast(PluginMarketplaceMutationInput, value).spec,
+                expected_revision=_required_revision(
+                    cast(PluginMarketplaceMutationInput, value).expected_revision
+                ),
+            ).to_payload()
+        ),
+    )
+    actions.register(
+        _domain_spec(
+            "plugin.marketplace.source.refresh",
+            "Refresh Plugin marketplace",
+            "Resolve and cache an immutable marketplace snapshot.",
+            PluginMarketplaceIdentityInput,
+            "extension.write",
+            risk="medium",
+        ),
+        lambda _context, value: _call(
+            lambda: plugin_marketplaces.refresh(
+                cast(PluginMarketplaceIdentityInput, value).marketplace_id,
+                expected_revision=cast(PluginMarketplaceIdentityInput, value).expected_revision,
+            ).to_payload()
+        ),
+    )
+    actions.register(
+        _domain_spec(
+            "plugin.marketplace.source.remove",
+            "Remove Plugin marketplace",
+            "Remove one configured Plugin marketplace source.",
+            PluginMarketplaceIdentityInput,
+            "extension.write",
+            risk="high",
+            confirmation="required",
+        ),
+        lambda _context, value: _call(
+            lambda: _remove_marketplace(plugin_marketplaces, cast(PluginMarketplaceIdentityInput, value))
+        ),
+    )
+    actions.register(
+        _domain_spec(
+            "plugin.hooks.trust",
+            "Trust Plugin Hooks",
+            "Allow the exact installed Hook definitions to execute host commands.",
+            PluginHookTrustInput,
+            "extension.auth",
+            risk="high",
+            confirmation="required",
+        ),
+        lambda _context, value: _call(
+            lambda: plugins.trust_hooks(
+                cast(PluginHookTrustInput, value).plugin_id,
+                expected_revision=cast(PluginHookTrustInput, value).expected_revision,
+            ).to_payload()
+        ),
+    )
+    actions.register(
+        _domain_spec(
+            "plugin.hooks.untrust",
+            "Revoke Plugin Hook trust",
+            "Stop executing the installed Plugin Hook definitions.",
+            PluginHookTrustInput,
+            "extension.auth",
+        ),
+        lambda _context, value: _call(
+            lambda: plugins.untrust_hooks(
+                cast(PluginHookTrustInput, value).plugin_id,
+                expected_revision=cast(PluginHookTrustInput, value).expected_revision,
+            ).to_payload()
+        ),
     )
 
     actions.register(
@@ -303,6 +466,40 @@ def _list_starters(
     }
 
 
+def _install_app_starter(
+    starters: ExtensionStarterCatalog,
+    apps: AppManager,
+    value: ExtensionStarterIdentityInput,
+) -> dict[str, object]:
+    """Install one validated direct-App starter without trusting client JSON."""
+    starter = starters.get(value.starter_id)
+    if starter.kind != "app" or starter.install_mode != "direct_app":
+        raise ExtensionError(
+            "invalid_operation",
+            "This starter is not a directly installable App definition.",
+        )
+    raw = starter.template.get("definition")
+    if not isinstance(raw, dict):
+        raise ExtensionError("invalid_catalog", "The App starter definition is missing.")
+    try:
+        definition = AppDefinition.model_validate(raw)
+    except Exception as exc:
+        raise ExtensionError("invalid_catalog", "The App starter definition is invalid.") from exc
+    try:
+        current = apps.get_definition(definition.metadata.name)
+    except ExtensionError as exc:
+        if exc.code != "extension_not_found":
+            raise
+    else:
+        if current.record != definition:
+            raise ExtensionError(
+                "revision_conflict",
+                "An App definition with this identity is already installed from another source.",
+            )
+        return _versioned(current)
+    return _versioned(apps.install_definition(definition, expected_revision=None))
+
+
 def _begin_mcp_oauth(mcp: McpManager, oauth, value: McpOAuthInput) -> dict[str, object]:
     """Validate the persisted resource before starting its explicit OAuth flow."""
     from openppx.extensions.mcp_models import McpRemoteTransport
@@ -388,6 +585,11 @@ def _remove_connection(apps: AppManager, value: AppConnectionIdentityInput) -> d
     return {"id": value.connection_id, "kind": "AppConnection", "removed": True}
 
 
+def _remove_marketplace(manager, value: PluginMarketplaceIdentityInput) -> dict[str, object]:
+    manager.remove(value.marketplace_id, expected_revision=value.expected_revision)
+    return {"id": value.marketplace_id, "kind": "PluginMarketplaceSource", "removed": True}
+
+
 def _test_mcp(mcp: McpManager, probe, value: McpTestInput) -> dict[str, object]:
     """Run one live MCP probe after the inexpensive dependency check passes."""
     current = mcp.get(value.server_id)
@@ -431,21 +633,27 @@ def _test_app_connection(
                 for tool in tools
             }
         )
+        started = perf_counter()
+        probe_result = asyncio.run(apps.probe_native_connection(value.connection_id))
+        elapsed_ms = max(0, round((perf_counter() - started) * 1000))
+        issues = ([] if probe_result.ready else [probe_result.issue or "connection_failed"])
         return {
             "kind": "app_connection",
             "id": value.connection_id,
             "revision": current.revision,
             "checkedAt": _checked_at(),
-            "ready": bool(names),
-            "status": "ok" if names else "error",
+            "ready": bool(names) and probe_result.ready,
+            "status": "ok" if names and probe_result.ready else "error",
             "transport": "native",
-            "elapsedMs": 0,
+            "elapsedMs": elapsed_ms,
             "attempts": 1,
             "toolCount": len(names),
             "toolNames": names,
-            "issues": [] if names else ["tool_projection_empty"],
-            "errorKind": None if names else "configuration",
-            "message": "",
+            "issues": (["tool_projection_empty"] if not names else []) + issues,
+            "errorKind": None if names and probe_result.ready else (
+                "configuration" if not names else "authentication"
+            ),
+            "message": "" if probe_result.ready else (probe_result.issue or "connection_failed"),
         }
     return _live_probe(
         probe,

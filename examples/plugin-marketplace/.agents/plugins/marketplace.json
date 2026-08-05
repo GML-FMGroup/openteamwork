@@ -1,0 +1,17 @@
+{
+  "name": "openppx-examples",
+  "description": "Portable OpenPPX Plugin examples",
+  "plugins": [
+    {
+      "name": "openppx-workbench",
+      "version": "1.0.0",
+      "description": "A complete portable Plugin demonstrating Skills, MCP, Apps, Hooks, and assets.",
+      "author": { "name": "OpenPPX" },
+      "category": "Developer Tools",
+      "source": "./plugins/openppx-workbench",
+      "installationPolicy": "AVAILABLE",
+      "authenticationPolicy": "ON_INSTALL",
+      "interface": { "displayName": "OpenPPX Workbench" }
+    }
+  ]
+}

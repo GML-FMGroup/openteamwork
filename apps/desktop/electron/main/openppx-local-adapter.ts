@@ -52,6 +52,10 @@ import type {
   AppConnectionEnablementRequest,
   AppConnectionRemoveRequest,
   AppConnectionSaveRequest,
+  PluginHookStatus,
+  PluginMarketplaceEntry,
+  PluginMarketplaceSource,
+  PluginMarketplaceSourceSpec,
   ModelProfileSummary,
   ModelProfileResourceResult,
   ModelProfileCreateInput,
@@ -883,6 +887,11 @@ export class OpenPpxLocalAdapter implements Omit<
     return { starters: envelope.result.items, counts: envelope.result.counts };
   }
 
+  public async installAppStarter(starterId: string): Promise<ExtensionMutationResult> {
+    await this.ensureClientApiAvailable();
+    return (await this.extensions.installAppStarter(starterId)).result as ExtensionMutationResult;
+  }
+
   public async getExtension(
     kind: ExtensionSummary["kind"],
     extensionId: string,
@@ -945,6 +954,60 @@ export class OpenPpxLocalAdapter implements Omit<
       input.extensionId,
       input.expectedRevision,
     )).result;
+  }
+
+  public async getPluginHookStatus(pluginId: string, expectedRevision: string): Promise<PluginHookStatus> {
+    await this.ensureClientApiAvailable();
+    return (await this.extensions.getPluginHookStatus(pluginId, expectedRevision)).result;
+  }
+
+  public async setPluginHookTrust(
+    pluginId: string,
+    expectedRevision: string,
+    trusted: boolean,
+  ): Promise<PluginHookStatus> {
+    await this.ensureClientApiAvailable();
+    return trusted
+      ? (await this.extensions.trustPluginHooks(pluginId, expectedRevision)).result
+      : (await this.extensions.untrustPluginHooks(pluginId, expectedRevision)).result;
+  }
+
+  public async listPluginMarketplaces(): Promise<{ marketplaces: PluginMarketplaceSource[] }> {
+    await this.ensureClientApiAvailable();
+    return { marketplaces: (await this.extensions.listPluginMarketplaces()).result.items };
+  }
+
+  public async listPluginMarketplaceEntries(query?: string): Promise<{ entries: PluginMarketplaceEntry[] }> {
+    await this.ensureClientApiAvailable();
+    return { entries: (await this.extensions.listPluginMarketplaceEntries(query)).result.items };
+  }
+
+  public async savePluginMarketplace(input: {
+    marketplaceId: string;
+    spec: PluginMarketplaceSourceSpec;
+    expectedRevision: string | null;
+  }): Promise<PluginMarketplaceSource> {
+    await this.ensureClientApiAvailable();
+    return input.expectedRevision
+      ? (await this.extensions.updatePluginMarketplace(
+          input.marketplaceId,
+          input.spec,
+          input.expectedRevision,
+        )).result
+      : (await this.extensions.createPluginMarketplace(input.marketplaceId, input.spec)).result;
+  }
+
+  public async refreshPluginMarketplace(
+    marketplaceId: string,
+    expectedRevision: string,
+  ): Promise<PluginMarketplaceSource> {
+    await this.ensureClientApiAvailable();
+    return (await this.extensions.refreshPluginMarketplace(marketplaceId, expectedRevision)).result;
+  }
+
+  public async removePluginMarketplace(marketplaceId: string, expectedRevision: string): Promise<void> {
+    await this.ensureClientApiAvailable();
+    await this.extensions.removePluginMarketplace(marketplaceId, expectedRevision);
   }
 
   public async createMcpServer(input: McpMutationRequest): Promise<ExtensionMutationResult> {

@@ -251,6 +251,7 @@ def _build_profile_plugins(
     policy: RunnerProfilePolicy,
     task_store: Any | None = None,
     context_store: Any | None = None,
+    extra_plugins: tuple[Any, ...] = (),
 ) -> list[Any]:
     """Build plugins according to one profile lifecycle policy."""
     target_agent_name = _target_agent_name(agent)
@@ -278,6 +279,7 @@ def _build_profile_plugins(
         )
     if policy.enable_input_file_artifacts:
         plugins.append(SaveFilesAsArtifactsPlugin())
+    plugins.extend(extra_plugins)
     return plugins
 
 
@@ -288,6 +290,7 @@ def _build_profile_app(
     policy: RunnerProfilePolicy,
     task_store: Any | None = None,
     context_store: Any | None = None,
+    extra_plugins: tuple[Any, ...] = (),
 ) -> App:
     """Build an ADK App according to one profile lifecycle policy."""
     resumability_config = None
@@ -315,6 +318,7 @@ def _build_profile_app(
             policy=policy,
             task_store=task_store,
             context_store=context_store,
+            extra_plugins=extra_plugins,
         ),
     )
 
@@ -356,6 +360,7 @@ def create_runner(
     artifact_service: Any | None = None,
     task_store: Any | None = None,
     context_store: Any | None = None,
+    extra_plugins: tuple[Any, ...] = (),
 ) -> tuple[Runner, Any]:
     """Create a runner with a shared session service contract.
 
@@ -378,6 +383,7 @@ def create_runner(
         policy=policy,
         task_store=task_store,
         context_store=context_store,
+        extra_plugins=extra_plugins,
     )
 
     runner = Runner(

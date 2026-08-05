@@ -1,4 +1,4 @@
-import type { AgentCreateRequest, AgentUpdateInput, AppConnectionEnablementRequest, AppConnectionRemoveRequest, AppConnectionSaveRequest, ArtifactSummary, ArtifactUploadInput, ConnectionSettings, CronCreateInput, CronUpdateInput, ExtensionEnablementRequest, ExtensionInstallRequest, ExtensionPreviewRequest, ExtensionRemoveRequest, HeartbeatConfiguration, McpMutationRequest, McpServerResource, McpValueBinding, ModelCapability, ModelProfileCreateInput, ModelProfileUpdateInput, OperationsTaskControlInput, RuntimeCommand, SendMessageInput, SessionMutationRequest, SetupApplyRequest, SlashCommandRequest } from "../../app/src/types";
+import type { AgentCreateRequest, AgentUpdateInput, AppConnectionEnablementRequest, AppConnectionRemoveRequest, AppConnectionSaveRequest, ArtifactSummary, ArtifactUploadInput, ConnectionSettings, CronCreateInput, CronUpdateInput, ExtensionEnablementRequest, ExtensionInstallRequest, ExtensionPreviewRequest, ExtensionRemoveRequest, HeartbeatConfiguration, McpMutationRequest, McpServerResource, McpValueBinding, ModelCapability, ModelProfileCreateInput, ModelProfileUpdateInput, OperationsTaskControlInput, PluginMarketplaceSourceSpec, RuntimeCommand, SendMessageInput, SessionMutationRequest, SetupApplyRequest, SlashCommandRequest } from "../../app/src/types";
 
 function record(value: unknown, label: string): Record<string, unknown> {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
@@ -453,7 +453,7 @@ export function validateExtensionPreviewRequest(value: unknown): ExtensionPrevie
     throw new TypeError("Installable Extension kind must be plugin or skill.");
   }
   const source = record(input.source, "Extension source");
-  if (!["builtin", "local_directory", "local_archive", "git", "catalog"].includes(String(source.type))) {
+  if (!["builtin", "local_directory", "local_archive", "git", "npm", "catalog"].includes(String(source.type))) {
     throw new TypeError("Extension source type is not supported.");
   }
   return {
@@ -466,6 +466,29 @@ export function validateExtensionPreviewRequest(value: unknown): ExtensionPrevie
       ...(source.provider ? { provider: string(source.provider, "Extension source provider", 63) } : {}),
       ...(source.subpath ? { subpath: string(source.subpath, "Extension source subpath", 256) } : {}),
     },
+  };
+}
+
+/** Validate a Plugin Marketplace create or update request. */
+export function validatePluginMarketplaceSaveRequest(value: unknown): {
+  marketplaceId: string;
+  spec: PluginMarketplaceSourceSpec;
+  expectedRevision: string | null;
+} {
+  const input = record(value, "Plugin Marketplace request");
+  const spec = record(input.spec, "Plugin Marketplace source");
+  if (spec.type !== "local" && spec.type !== "git") {
+    throw new TypeError("Plugin Marketplace source type must be local or git.");
+  }
+  return {
+    marketplaceId: resourceName(input.marketplaceId, "Plugin Marketplace id"),
+    spec: {
+      displayName: string(spec.displayName, "Plugin Marketplace name", 80),
+      type: spec.type,
+      locator: string(spec.locator, "Plugin Marketplace locator", 2_048),
+      ref: string(spec.ref ?? "HEAD", "Plugin Marketplace Git ref", 256),
+    },
+    expectedRevision: revision(input.expectedRevision, "Expected Plugin Marketplace revision"),
   };
 }
 

@@ -118,6 +118,33 @@ def test_extension_starter_actions_filter_and_get_safe_catalog_entries(tmp_path:
     assert "tokens" not in str(fetched.data).lower()
 
 
+def test_direct_app_starter_install_is_validated_and_idempotent(tmp_path: Path) -> None:
+    application = _application(tmp_path)
+
+    installed = application.invoke(
+        "app.starter.install",
+        {"starterId": "app-telegram"},
+        _context(),
+    )
+    repeated = application.invoke(
+        "app.starter.install",
+        {"starterId": "app-telegram"},
+        _context(),
+    )
+    invalid = application.invoke(
+        "app.starter.install",
+        {"starterId": "app-granola"},
+        _context(),
+    )
+
+    assert installed.ok is True
+    assert installed.data["id"] == "telegram"
+    assert repeated.ok is True
+    assert repeated.data["revision"] == installed.data["revision"]
+    assert invalid.error is not None
+    assert invalid.error.code == "invalid_operation"
+
+
 def test_skill_preview_install_list_enable_disable_remove_use_one_action_path(tmp_path: Path) -> None:
     application = _application(tmp_path)
     source = _skill(tmp_path / "source")

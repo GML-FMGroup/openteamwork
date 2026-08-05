@@ -12,6 +12,7 @@ from openppx.config import InMemorySecretStore, SecretRef, SecretValue
 from openppx.extensions import ExtensionError, McpManager, McpServer
 from openppx.extensions.app_models import AppConnection, AppDefinition
 from openppx.extensions.app_adapters import (
+    NativeAppAdapterProbe,
     NativeAppAdapterReadiness,
     NativeAppAdapterRegistry,
     NativeAppContext,
@@ -32,6 +33,9 @@ class _FixtureNativeAdapter:
 
     def readiness(self, context: NativeAppContext) -> NativeAppAdapterReadiness:
         return NativeAppAdapterReadiness(ready=bool(context.tools))
+
+    async def probe(self, context: NativeAppContext) -> NativeAppAdapterProbe:
+        return NativeAppAdapterProbe(ready=bool(context.tools))
 
     def build_tools(self, context: NativeAppContext) -> tuple[object, ...]:
         return (_NativeTool(),) if context.tools else ()

@@ -14,6 +14,10 @@ import type {
   McpServerResource,
   McpOAuthStatus,
   McpValueBinding,
+  PluginHookStatus,
+  PluginMarketplaceEntry,
+  PluginMarketplaceSource,
+  PluginMarketplaceSourceSpec,
 } from "../../types";
 
 interface ExtensionsSettingsProps {
@@ -32,6 +36,10 @@ interface SourceDialogState {
   kind: InstallableExtensionKind;
   extension: ExtensionSummary | null;
   starter: ExtensionStarter | null;
+}
+
+interface MarketplaceDialogState {
+  marketplace: PluginMarketplaceSource | null;
 }
 
 interface McpDialogState {
@@ -194,7 +202,12 @@ export function ExtensionsSettings(props: ExtensionsSettingsProps) {
   const [starters, setStarters] = useState<ExtensionStarter[]>([]);
   const [startersLoading, setStartersLoading] = useState(false);
   const [starterDetail, setStarterDetail] = useState<ExtensionStarter | null>(null);
+  const [starterMutationId, setStarterMutationId] = useState<string | null>(null);
   const [showAllStarters, setShowAllStarters] = useState(false);
+  const [marketplaces, setMarketplaces] = useState<PluginMarketplaceSource[]>([]);
+  const [marketplaceEntries, setMarketplaceEntries] = useState<PluginMarketplaceEntry[]>([]);
+  const [marketplaceLoading, setMarketplaceLoading] = useState(false);
+  const [marketplaceDialog, setMarketplaceDialog] = useState<MarketplaceDialogState | null>(null);
 
   const counts = useMemo(() => Object.fromEntries(KIND_ORDER.map((kind) => [
     kind,
@@ -223,6 +236,26 @@ export function ExtensionsSettings(props: ExtensionsSettingsProps) {
       .catch((error) => { if (active) setLocalError(errorMessage(error)); })
       .finally(() => { if (active) setStartersLoading(false); });
     return () => { active = false; };
+  }, [tab]);
+
+  async function loadPluginMarketplaces(): Promise<void> {
+    setMarketplaceLoading(true);
+    try {
+      const [sourceResult, entryResult] = await Promise.all([
+        window.ppxClient.listPluginMarketplaces(),
+        window.ppxClient.listPluginMarketplaceEntries(),
+      ]);
+      setMarketplaces(sourceResult.marketplaces);
+      setMarketplaceEntries(entryResult.entries);
+    } catch (error) {
+      setLocalError(errorMessage(error));
+    } finally {
+      setMarketplaceLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    if (tab === "plugin") void loadPluginMarketplaces();
   }, [tab]);
 
   useEffect(() => {
@@ -255,7 +288,24 @@ export function ExtensionsSettings(props: ExtensionsSettingsProps) {
     if (tab === "mcp") setMcpDialog({ extension: null, starter: null });
   }
 
-  function openStarter(starter: ExtensionStarter): void {
+  async function openStarter(starter: ExtensionStarter): Promise<void> {
+    if (starter.installMode === "direct_app") {
+      setStarterMutationId(starter.id);
+      setLocalError(null);
+      try {
+        const installed = await window.ppxClient.installAppStarter(starter.id);
+        props.onRefresh();
+        const appId = String(installed.id ?? "");
+        if (!appId) throw new Error("The App starter did not return an installed App identity.");
+        const app = (await window.ppxClient.getExtension("app", appId)).extension;
+        setAppConnectionDialog({ app, connection: null });
+      } catch (error) {
+        setLocalError(errorMessage(error));
+      } finally {
+        setStarterMutationId(null);
+      }
+      return;
+    }
     if (starter.installMode === "direct_mcp") {
       setMcpDialog({ extension: null, starter });
       return;
@@ -265,6 +315,31 @@ export function ExtensionsSettings(props: ExtensionsSettingsProps) {
       return;
     }
     setStarterDetail(starter);
+  }
+
+  function openMarketplaceEntry(entry: PluginMarketplaceEntry): void {
+    if (!entry.source) return;
+    setSourceDialog({
+      kind: "plugin",
+      extension: null,
+      starter: {
+        id: `${entry.marketplaceId}-${entry.pluginId}`,
+        kind: "plugin",
+        runtimeKind: "plugin",
+        displayName: entry.displayName,
+        description: entry.description,
+        category: entry.category,
+        developer: entry.developer,
+        availability: "ready",
+        installMode: "source",
+        auth: "none",
+        requirements: [],
+        note: `From ${entry.marketplaceId}. Preview verifies the exact package before installation.`,
+        featured: false,
+        provenance: { project: entry.marketplaceId },
+        template: { source: entry.source },
+      },
+    });
   }
 
   const canAdd = tab === "plugin" || tab === "skill" || tab === "mcp";
@@ -319,6 +394,35 @@ export function ExtensionsSettings(props: ExtensionsSettingsProps) {
           )}
       </div>
 
+      {tab === "plugin" ? (
+        <section className="plugin-marketplace-section" aria-label="Plugin marketplaces">
+          <header>
+            <div><h4>Marketplaces</h4><p>Add local or Git catalogs. Packages still require preview and exact-digest confirmation.</p></div>
+            <button className="secondary" onClick={() => setMarketplaceDialog({ marketplace: null })}>Add source</button>
+          </header>
+          {marketplaces.length ? <div className="plugin-marketplace-sources">{marketplaces.map((marketplace) => (
+            <article key={marketplace.id}>
+              <button className="plugin-marketplace-open" onClick={() => setMarketplaceDialog({ marketplace })}>
+                <strong>{marketplace.displayName}</strong>
+                <span>{marketplace.type === "git" ? `${marketplace.locator} · ${marketplace.ref}` : marketplace.locator}</span>
+                <small>{marketplace.ready ? `${marketplace.entryCount} packages · refreshed ${marketplace.refreshedAt ? new Date(marketplace.refreshedAt).toLocaleString() : "now"}` : "Refresh required"}</small>
+              </button>
+              <button className="secondary" disabled={marketplaceLoading} onClick={() => void (async () => {
+                try { await window.ppxClient.refreshPluginMarketplace(marketplace.id, marketplace.revision); await loadPluginMarketplaces(); }
+                catch (error) { setLocalError(errorMessage(error)); }
+              })()}>{marketplaceLoading ? "Working…" : "Refresh"}</button>
+            </article>
+          ))}</div> : <div className="extension-empty-state compact"><span>No marketplace sources</span><p>Add a repository or local catalog to discover portable Plugins.</p></div>}
+          {marketplaceEntries.length ? <div className="plugin-marketplace-entries">{marketplaceEntries.map((entry) => (
+            <article key={`${entry.marketplaceId}:${entry.pluginId}`}>
+              <span className="extension-kind-mark plugin">{entry.displayName.slice(0, 1).toUpperCase()}</span>
+              <div><strong>{entry.displayName}</strong><span>{entry.description}</span><small>{entry.developer} · {entry.sourceKind}</small></div>
+              <button className="secondary" disabled={!entry.ready || !entry.source} onClick={() => openMarketplaceEntry(entry)}>{entry.ready ? "Preview" : "Unavailable"}</button>
+            </article>
+          ))}</div> : null}
+        </section>
+      ) : null}
+
       <section className="extension-starter-section" aria-label={`Available ${plural(tab)}`}>
         <div className="extension-starter-heading">
           <div><h4>Available</h4><p>Curated starters with explicit requirements and provenance.</p></div>
@@ -329,14 +433,14 @@ export function ExtensionsSettings(props: ExtensionsSettingsProps) {
           <div className="extension-starter-grid">
             {visibleStarters.map((starter) => (
               <article className="extension-starter-card" key={starter.id}>
-                <button className="extension-starter-copy" onClick={() => openStarter(starter)}>
+                <button className="extension-starter-copy" onClick={() => void openStarter(starter)}>
                   <span className={`extension-kind-mark ${starter.kind}`}>{starter.displayName.slice(0, 1).toUpperCase()}</span>
                   <span><strong>{starter.displayName}</strong><small>{starter.category} · {starter.runtimeKind === starter.kind ? title(starter.kind) : `${title(starter.runtimeKind)}-backed`}</small></span>
                 </button>
                 <p>{starter.description}</p>
                 <footer>
                   <span className={`starter-availability ${starter.availability}`}><i />{starterStatus(starter)}</span>
-                  <button className="secondary" onClick={() => openStarter(starter)}>{starterButtonLabel(starter)}</button>
+                  <button className="secondary" disabled={starterMutationId === starter.id} onClick={() => void openStarter(starter)}>{starterMutationId === starter.id ? "Installing…" : starterButtonLabel(starter)}</button>
                 </footer>
               </article>
             ))}
@@ -384,7 +488,66 @@ export function ExtensionsSettings(props: ExtensionsSettingsProps) {
       {mcpDialog ? <McpServerDialog state={mcpDialog} agents={props.agents} initialAgentId={props.selectedAgentId} onClose={() => setMcpDialog(null)} onSaved={() => { setMcpDialog(null); props.onRefresh(); }} /> : null}
       {appConnectionDialog ? <AppConnectionDialog state={appConnectionDialog} onClose={() => setAppConnectionDialog(null)} onSaved={() => { setAppConnectionDialog(null); props.onRefresh(); }} /> : null}
       {starterDetail ? <StarterDetailDialog starter={starterDetail} onClose={() => setStarterDetail(null)} /> : null}
+      {marketplaceDialog ? <PluginMarketplaceDialog state={marketplaceDialog} onClose={() => setMarketplaceDialog(null)} onSaved={() => { setMarketplaceDialog(null); void loadPluginMarketplaces(); }} onRemoved={() => { setMarketplaceDialog(null); void loadPluginMarketplaces(); }} /> : null}
     </section>
+  );
+}
+
+function PluginMarketplaceDialog(props: {
+  state: MarketplaceDialogState;
+  onClose: () => void;
+  onSaved: () => void;
+  onRemoved: () => void;
+}) {
+  const existing = props.state.marketplace;
+  const [marketplaceId, setMarketplaceId] = useState(existing?.id ?? "");
+  const [displayName, setDisplayName] = useState(existing?.displayName ?? "");
+  const [sourceType, setSourceType] = useState<PluginMarketplaceSourceSpec["type"]>(existing?.type ?? "git");
+  const [locator, setLocator] = useState(existing?.locator ?? "");
+  const [ref, setRef] = useState(existing?.ref ?? "HEAD");
+  const [working, setWorking] = useState(false);
+  const [removeArmed, setRemoveArmed] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function save(event: FormEvent<HTMLFormElement>): Promise<void> {
+    event.preventDefault(); setWorking(true); setError(null);
+    try {
+      await window.ppxClient.savePluginMarketplace({
+        marketplaceId: marketplaceId.trim(),
+        spec: { displayName: displayName.trim(), type: sourceType, locator: locator.trim(), ref: sourceType === "git" ? ref.trim() || "HEAD" : "HEAD" },
+        expectedRevision: existing?.revision ?? null,
+      });
+      props.onSaved();
+    } catch (nextError) { setError(errorMessage(nextError)); }
+    finally { setWorking(false); }
+  }
+
+  async function remove(): Promise<void> {
+    if (!existing) return;
+    setWorking(true); setError(null);
+    try { await window.ppxClient.removePluginMarketplace(existing.id, existing.revision); props.onRemoved(); }
+    catch (nextError) { setError(errorMessage(nextError)); setWorking(false); }
+  }
+
+  return (
+    <DialogShell title={existing ? `Edit ${existing.displayName}` : "Add marketplace"} eyebrow="Plugin marketplace" description="Catalog metadata is cached by the Node. Installing an entry still uses the normal preview and confirmation boundary." busy={working} onClose={props.onClose}>
+      <form onSubmit={(event) => void save(event)}>
+        <div className="agent-dialog-fields extension-dialog-fields">
+          <label><span>Source ID</span><input value={marketplaceId} onChange={(event) => setMarketplaceId(event.target.value)} disabled={Boolean(existing)} placeholder="team-plugins" spellCheck={false} /></label>
+          <label><span>Name</span><input value={displayName} onChange={(event) => setDisplayName(event.target.value)} placeholder="Team Plugins" /></label>
+          <label><span>Source</span><select value={sourceType} onChange={(event) => setSourceType(event.target.value as PluginMarketplaceSourceSpec["type"])}><option value="git">Git repository</option><option value="local">Local directory</option></select></label>
+          <label><span>{sourceType === "git" ? "Repository URL" : "Directory"}</span><input value={locator} onChange={(event) => setLocator(event.target.value)} placeholder={sourceType === "git" ? "https://github.com/org/plugins" : "/path/to/marketplace"} spellCheck={false} /></label>
+          {sourceType === "git" ? <label className="agent-dialog-full-row"><span>Git ref</span><input value={ref} onChange={(event) => setRef(event.target.value)} placeholder="main, tag, or commit" spellCheck={false} /><small>The Node resolves this ref to one immutable commit during refresh.</small></label> : null}
+        </div>
+        {error ? <p className="agent-dialog-error">{error}</p> : null}
+        <footer className="agent-dialog-actions">
+          {existing ? removeArmed ? <button type="button" className="danger-button" disabled={working} onClick={() => void remove()}>Confirm remove</button> : <button type="button" className="secondary danger-quiet" disabled={working} onClick={() => setRemoveArmed(true)}>Remove source</button> : null}
+          <span />
+          <button type="button" className="agent-dialog-cancel" onClick={props.onClose} disabled={working}>Cancel</button>
+          <button className="agent-dialog-create" disabled={working || !marketplaceId.trim() || !displayName.trim() || !locator.trim()}>{working ? "Saving…" : existing ? "Save changes" : "Add source"}</button>
+        </footer>
+      </form>
+    </DialogShell>
   );
 }
 
@@ -445,9 +608,9 @@ function ExtensionSourceDialog(props: { state: SourceDialogState; onClose: () =>
   return (
     <DialogShell title={props.state.extension ? `Update ${props.state.extension.displayName}` : props.state.starter ? `Add ${props.state.starter.displayName}` : `Add ${title(props.state.kind)}`} eyebrow={`${title(props.state.kind)} source`} description={props.state.starter?.note || "Preview the exact artifact and risk before the Node installs it."} busy={working} onClose={props.onClose}>
       <div className="agent-dialog-fields extension-dialog-fields">
-        <label><span>Source</span><select value={sourceType} onChange={(event) => { setSourceType(event.target.value as ExtensionSourceRef["type"]); setPreview(null); }}><option value="git">Git repository</option><option value="local_directory">Local directory</option><option value="local_archive">Local archive</option><option value="catalog">Catalog</option></select></label>
-        <label><span>{sourceType === "git" ? "Repository URL" : sourceType === "catalog" ? "Catalog entry" : "Path"}</span><input value={locator} onChange={(event) => { setLocator(event.target.value); setPreview(null); }} placeholder={sourceType === "git" ? "https://github.com/org/repository" : sourceType === "catalog" ? "publisher/package" : "/path/to/extension"} spellCheck={false} /></label>
-        <label><span>Version</span><input value={version} onChange={(event) => { setVersion(event.target.value); setPreview(null); }} placeholder="Optional release" /></label>
+        <label><span>Source</span><select value={sourceType} onChange={(event) => { setSourceType(event.target.value as ExtensionSourceRef["type"]); setPreview(null); }}><option value="git">Git repository</option><option value="npm">npm package</option><option value="local_directory">Local directory</option><option value="local_archive">Local archive</option><option value="catalog">Catalog</option></select></label>
+        <label><span>{sourceType === "git" ? "Repository URL" : sourceType === "npm" ? "Package" : sourceType === "catalog" ? "Catalog entry" : "Path"}</span><input value={locator} onChange={(event) => { setLocator(event.target.value); setPreview(null); }} placeholder={sourceType === "git" ? "https://github.com/org/repository" : sourceType === "npm" ? "@scope/plugin" : sourceType === "catalog" ? "publisher/package" : "/path/to/extension"} spellCheck={false} /></label>
+        <label><span>Version</span><input value={version} onChange={(event) => { setVersion(event.target.value); setPreview(null); }} placeholder={sourceType === "npm" ? "Required exact version, e.g. 1.2.3" : "Optional release"} /></label>
         <label><span>Revision</span><input value={revision} onChange={(event) => { setRevision(event.target.value); setPreview(null); }} placeholder="Optional commit or tag" /></label>
         <details className="agent-dialog-full-row extension-advanced"><summary>Advanced source options</summary><div className="extension-inline-fields"><label><span>Provider</span><input value={provider} onChange={(event) => { setProvider(event.target.value); setPreview(null); }} placeholder="Optional" /></label><label><span>Subpath</span><input value={subpath} onChange={(event) => { setSubpath(event.target.value); setPreview(null); }} placeholder="Optional folder" /></label></div></details>
       </div>
@@ -691,6 +854,7 @@ function ExtensionDetailDialog(props: {
   const [removeArmed, setRemoveArmed] = useState(false);
   const [mcpProbe, setMcpProbe] = useState<ExtensionProbeResult | null>(null);
   const [connectionProbes, setConnectionProbes] = useState<Record<string, ExtensionProbeResult>>({});
+  const [hookStatus, setHookStatus] = useState<PluginHookStatus | null>(null);
   const detail = props.detail;
   const builtin = detail.status === "builtin";
   const enabled = builtin || Boolean(props.selectedAgentId && detail.enabledAgentIds.includes(props.selectedAgentId));
@@ -702,6 +866,15 @@ function ExtensionDetailDialog(props: {
   const dependencies = Array.isArray(detail.details.dependencies) ? detail.details.dependencies.map(String) : [];
   const resource = asMcpResource(detail.details.resource);
   const removable = detail.kind !== "app" && detail.status !== "builtin" && !detail.managedBy && detail.enabledAgentIds.length === 0;
+
+  useEffect(() => {
+    if (detail.kind !== "plugin") return undefined;
+    let active = true;
+    window.ppxClient.getPluginHookStatus(detail.id, detail.revision)
+      .then((status) => { if (active) setHookStatus(status); })
+      .catch((nextError) => { if (active) setError(errorMessage(nextError)); });
+    return () => { active = false; };
+  }, [detail.id, detail.kind, detail.revision]);
 
   async function run(action: () => Promise<void>): Promise<void> {
     setWorking(true); setError(null);
@@ -723,12 +896,19 @@ function ExtensionDetailDialog(props: {
     });
   }
 
+  async function setHookTrust(trusted: boolean): Promise<void> {
+    await run(async () => {
+      setHookStatus(await window.ppxClient.setPluginHookTrust(detail.id, detail.revision, trusted));
+    });
+  }
+
   return (
     <DialogShell title={detail.displayName} eyebrow={title(detail.kind)} description={detail.description || `${title(detail.kind)} resource on this Node.`} busy={working} onClose={props.onClose} wide>
       <div className="extension-detail-status"><span className={`extension-state ${detail.readiness.ready ? "ready" : "blocked"}`}><i />{stateLabel}</span>{visibleVersion ? <span>{visibleVersion}</span> : null}<span>{trustLabel}</span><span>{detail.risk} risk</span></div>
       {detail.readiness.issues.length ? <section className="extension-issues"><strong>Needs attention</strong>{detail.readiness.issues.map((issue) => <p key={issue}>{issue}</p>)}</section> : null}
       {detail.kind === "mcp" && resource ? <section className="extension-detail-section"><header><strong>Server</strong><div className="extension-section-actions"><button className="secondary" disabled={working} onClick={() => void testMcp()}>{working ? "Testing…" : "Test connection"}</button><button className="secondary" onClick={props.onEditMcp}>Edit</button></div></header><dl className="extension-detail-grid"><div><dt>Transport</dt><dd>{resource.spec.transport.type.replace("_", " ")}</dd></div><div><dt>Tool prefix</dt><dd>{resource.spec.policy.toolNamePrefix || "None"}</dd></div><div><dt>Tool access</dt><dd>{resource.spec.policy.toolFilter.length ? `${resource.spec.policy.toolFilter.length} allowed` : "All tools"}</dd></div><div><dt>Long tasks</dt><dd>{resource.spec.policy.longTaskProxy ? "proxied" : "inline"}</dd></div></dl>{mcpProbe ? <ExtensionProbePanel result={mcpProbe} /> : <p className="extension-probe-hint">Run a live check to verify the server and discover its current tools.</p>}</section> : null}
       {detail.kind === "app" ? <section className="extension-detail-section"><header><div><strong>Connections</strong><p>Each connection owns its credentials, tool policy, and Agent access.</p></div><button onClick={props.onAddConnection}>Add connection</button></header>{connections.length ? <div className="app-connection-list">{connections.map((connection) => { const connectionEnabled = Boolean(props.selectedAgentId && connection.enabledAgentIds.includes(props.selectedAgentId)); const probe = connectionProbes[connection.id]; const authType = String(detail.details.authType ?? "none"); return <article key={connection.id}><button className="app-connection-open" onClick={() => props.onEditConnection(connection)}><strong>{connection.displayName}</strong><span>{connection.ready ? "Ready" : connection.authState.replace("_", " ")}</span><small>{connection.enabledTools ? `${connection.enabledTools.length} tools` : "Default tools"}</small></button><div className="app-connection-actions"><button className="secondary" disabled={working} onClick={() => void testConnection(connection.id)}>{working ? "Testing…" : "Test"}</button><button className="secondary" disabled={working} onClick={() => props.onEditConnection(connection)}>{authType === "oauth" ? "Reauthorize" : authType === "secret" ? "Update credentials" : "Edit"}</button><button className="secondary" disabled={!props.selectedAgentId || working} onClick={() => void run(() => props.onConnectionEnabled(connection, !connectionEnabled))}>{connectionEnabled ? "Disable" : "Enable"}</button><button className="secondary danger-quiet" disabled={working || connection.enabledAgentIds.length > 0} onClick={() => void run(() => props.onRemoveConnection(connection))}>Remove</button></div>{probe ? <ExtensionProbePanel result={probe} compact /> : null}</article>; })}</div> : <div className="extension-empty-state compact"><span>No connections</span><p>Add an account before an Agent can use this App.</p></div>}</section> : null}
+      {detail.kind === "plugin" && hookStatus ? <section className="extension-detail-section plugin-hook-section"><header><div><strong>Lifecycle Hooks</strong><p>Host commands execute only after you trust this exact Hook definition. Updating the Plugin revokes trust automatically.</p></div>{hookStatus.handlerCount > 0 ? <button className={hookStatus.trusted ? "secondary" : ""} disabled={working || hookStatus.executableCount === 0} onClick={() => void setHookTrust(!hookStatus.trusted)}>{working ? "Applying…" : hookStatus.trusted ? "Revoke trust" : "Trust exact Hooks"}</button> : null}</header><dl className="extension-detail-grid"><div><dt>Status</dt><dd>{hookStatus.handlerCount === 0 ? "No Hooks" : hookStatus.trusted ? "Trusted for this version" : "Not trusted"}</dd></div><div><dt>Handlers</dt><dd>{hookStatus.executableCount} executable · {hookStatus.unsupportedHandlers} skipped</dd></div></dl>{hookStatus.handlers.length ? <div className="plugin-hook-list">{hookStatus.handlers.map((handler, index) => <article key={`${handler.event}:${index}`}><div><strong>{handler.event}</strong><span>{handler.type} · {handler.timeout}s · {handler.supported ? "supported" : "skipped"}</span></div>{handler.command ? <code>{handler.command}</code> : <span>Prompt/agent Hooks are visible but are not executed by OpenPPX.</span>}</article>)}</div> : null}</section> : null}
       {capabilities.length || dependencies.length ? <section className="extension-detail-section"><strong>{capabilities.length ? "Capabilities" : "Dependencies"}</strong><div className="extension-chip-list">{(capabilities.length ? capabilities : dependencies).map((item) => <span key={item}>{item}</span>)}</div></section> : null}
       {detail.kind !== "app" ? <section className="extension-agent-access"><div><strong>Selected Agent</strong><p>{builtin ? "Built-in capabilities are available to every Agent." : props.selectedAgentId ? (enabled ? "This capability is available to the selected Agent." : "This capability is not available to the selected Agent.") : "Select an Agent in the sidebar to manage access."}</p></div><button className="secondary" disabled={!props.selectedAgentId || builtin || working} onClick={() => props.onSetEnabled(!enabled)}>{builtin ? "Always on" : enabled ? "Disable" : "Enable"}</button></section> : null}
       {error ? <p className="agent-dialog-error">{error}</p> : null}

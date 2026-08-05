@@ -6,12 +6,67 @@ export type InstallableExtensionKind = "plugin" | "skill";
 export type AgentEnablementKind = "plugin" | "mcp" | "skill";
 
 export interface ExtensionSourceRef extends Record<string, unknown> {
-  type: "builtin" | "local_directory" | "local_archive" | "git" | "catalog";
+  type: "builtin" | "local_directory" | "local_archive" | "git" | "npm" | "catalog";
   locator: string;
   version?: string;
   revision?: string;
   provider?: string;
   subpath?: string;
+}
+
+export interface PluginHookStatus extends Record<string, unknown> {
+  pluginId: string;
+  pluginRevision: string;
+  pluginDigest: string;
+  hookDigest: string;
+  trusted: boolean;
+  declaredEvents: string[];
+  supportedEvents: string[];
+  handlerCount: number;
+  executableCount: number;
+  unsupportedHandlers: number;
+  handlers: Array<{
+    event: string;
+    matcher: string;
+    type: "command" | "prompt" | "agent";
+    command: string | null;
+    timeout: number;
+    async: boolean;
+    supported: boolean;
+  }>;
+}
+
+export interface PluginMarketplaceSourceSpec extends Record<string, unknown> {
+  displayName: string;
+  type: "local" | "git";
+  locator: string;
+  ref: string;
+}
+
+export interface PluginMarketplaceSource extends PluginMarketplaceSourceSpec {
+  id: string;
+  revision: string;
+  resolvedRevision: string | null;
+  catalogDigest: string | null;
+  entryCount: number;
+  refreshedAt: string | null;
+  ready: boolean;
+}
+
+export interface PluginMarketplaceEntry extends Record<string, unknown> {
+  marketplaceId: string;
+  pluginId: string;
+  displayName: string;
+  description: string;
+  version: string;
+  developer: string;
+  category: string;
+  installationPolicy: string;
+  authenticationPolicy: string;
+  sourceKind: string;
+  source: ExtensionSourceRef | null;
+  ready: boolean;
+  issue: string | null;
 }
 
 export interface ExtensionSummary extends Record<string, unknown> {
@@ -23,7 +78,7 @@ export interface ExtensionSummary extends Record<string, unknown> {
   status: string;
   revision: string;
   source: {
-    type: "builtin" | "local_directory" | "local_archive" | "git" | "catalog" | "direct" | "plugin";
+    type: "builtin" | "local_directory" | "local_archive" | "git" | "npm" | "catalog" | "direct" | "plugin";
     trust: "builtin" | "local" | "third_party";
   };
   risk: "low" | "medium" | "high";
@@ -179,7 +234,7 @@ export interface ExtensionListFilter {
 }
 
 export type ExtensionStarterAvailability = "ready" | "needs_auth" | "needs_dependency" | "planned";
-export type ExtensionStarterInstallMode = "direct_mcp" | "source" | "builtin" | "reference" | "unavailable";
+export type ExtensionStarterInstallMode = "direct_app" | "direct_mcp" | "source" | "builtin" | "reference" | "unavailable";
 
 export interface ExtensionStarter extends Record<string, unknown> {
   id: string;
@@ -218,7 +273,7 @@ function parseExtensionStarter(value: unknown): ExtensionStarter {
     typeof item.category !== "string" ||
     typeof item.developer !== "string" ||
     !["ready", "needs_auth", "needs_dependency", "planned"].includes(String(item.availability)) ||
-    !["direct_mcp", "source", "builtin", "reference", "unavailable"].includes(String(item.installMode)) ||
+    !["direct_app", "direct_mcp", "source", "builtin", "reference", "unavailable"].includes(String(item.installMode)) ||
     !["none", "secret", "oauth"].includes(String(item.auth)) ||
     !Array.isArray(item.requirements) ||
     item.requirements.some((entry) => typeof entry !== "string") ||
@@ -334,6 +389,10 @@ export class ExtensionClient {
     return { ...envelope, result: parseExtensionStarter(envelope.result) };
   }
 
+  public installAppStarter(starterId: string): Promise<ActionEnvelope<Record<string, unknown>>> {
+    return this.actions.invoke("app.starter.install", { starterId });
+  }
+
   public async get(kind: ExtensionKind, extensionId: string): Promise<ActionEnvelope<ExtensionDetail>> {
     const envelope = await this.actions.invoke<Record<string, unknown>, ExtensionDetail>(
       "extension.get",
@@ -348,6 +407,68 @@ export class ExtensionClient {
 
   public readiness(kind: ExtensionKind, extensionId: string): Promise<ActionEnvelope<ExtensionReadinessResult>> {
     return this.actions.invoke("extension.readiness", { kind, extensionId });
+  }
+
+  public getPluginHookStatus(pluginId: string, expectedRevision: string): Promise<ActionEnvelope<PluginHookStatus>> {
+    return this.actions.invoke("plugin.hooks.status", { pluginId, expectedRevision });
+  }
+
+  public trustPluginHooks(
+    pluginId: string,
+    expectedRevision: string,
+    options: ActionInvocationOptions = {},
+  ): Promise<ActionEnvelope<PluginHookStatus>> {
+    return this.actions.invoke(
+      "plugin.hooks.trust",
+      { pluginId, expectedRevision },
+      { ...options, confirmed: options.confirmed ?? true },
+    );
+  }
+
+  public untrustPluginHooks(pluginId: string, expectedRevision: string): Promise<ActionEnvelope<PluginHookStatus>> {
+    return this.actions.invoke("plugin.hooks.untrust", { pluginId, expectedRevision });
+  }
+
+  public listPluginMarketplaces(): Promise<ActionEnvelope<{ items: PluginMarketplaceSource[] }>> {
+    return this.actions.invoke("plugin.marketplace.source.list", { query: null });
+  }
+
+  public listPluginMarketplaceEntries(query?: string): Promise<ActionEnvelope<{ items: PluginMarketplaceEntry[] }>> {
+    return this.actions.invoke("plugin.marketplace.entry.list", { query: query ?? null });
+  }
+
+  public createPluginMarketplace(
+    marketplaceId: string,
+    spec: PluginMarketplaceSourceSpec,
+  ): Promise<ActionEnvelope<PluginMarketplaceSource>> {
+    return this.actions.invoke("plugin.marketplace.source.create", { marketplaceId, spec, expectedRevision: null });
+  }
+
+  public updatePluginMarketplace(
+    marketplaceId: string,
+    spec: PluginMarketplaceSourceSpec,
+    expectedRevision: string,
+  ): Promise<ActionEnvelope<PluginMarketplaceSource>> {
+    return this.actions.invoke("plugin.marketplace.source.update", { marketplaceId, spec, expectedRevision });
+  }
+
+  public refreshPluginMarketplace(
+    marketplaceId: string,
+    expectedRevision: string,
+  ): Promise<ActionEnvelope<PluginMarketplaceSource>> {
+    return this.actions.invoke("plugin.marketplace.source.refresh", { marketplaceId, expectedRevision });
+  }
+
+  public removePluginMarketplace(
+    marketplaceId: string,
+    expectedRevision: string,
+    options: ActionInvocationOptions = {},
+  ): Promise<ActionEnvelope<Record<string, unknown>>> {
+    return this.actions.invoke(
+      "plugin.marketplace.source.remove",
+      { marketplaceId, expectedRevision },
+      { ...options, confirmed: options.confirmed ?? true },
+    );
   }
 
   public preview(kind: InstallableExtensionKind, source: ExtensionSourceRef): Promise<ActionEnvelope<ExtensionPreview>> {

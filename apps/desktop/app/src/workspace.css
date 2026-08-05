@@ -2830,6 +2830,119 @@
   background: color-mix(in srgb, var(--canvas-deep) 52%, var(--surface-strong));
 }
 
+.plugin-marketplace-section {
+  display: grid;
+  gap: 12px;
+  margin: 0 24px 18px;
+  padding: 18px;
+  border: 1px solid var(--hairline);
+  border-radius: 14px;
+  background: var(--surface-strong);
+}
+
+.plugin-marketplace-section > header,
+.plugin-marketplace-sources article,
+.plugin-marketplace-entries article {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.plugin-marketplace-section h4,
+.plugin-marketplace-section p {
+  margin: 0;
+}
+
+.plugin-marketplace-section h4 {
+  font-size: 13px;
+}
+
+.plugin-marketplace-section p,
+.plugin-marketplace-open span,
+.plugin-marketplace-open small,
+.plugin-marketplace-entries span,
+.plugin-marketplace-entries small {
+  color: var(--ink-soft);
+  font-size: 11px;
+}
+
+.plugin-marketplace-sources,
+.plugin-marketplace-entries {
+  display: grid;
+  gap: 7px;
+}
+
+.plugin-marketplace-sources article,
+.plugin-marketplace-entries article {
+  padding: 11px 12px;
+  border: 1px solid var(--hairline);
+  border-radius: 11px;
+  background: var(--paper-warm);
+}
+
+.plugin-marketplace-open {
+  display: grid;
+  flex: 1 1 auto;
+  gap: 2px;
+  min-width: 0;
+  text-align: left;
+}
+
+.plugin-marketplace-open span,
+.plugin-marketplace-open small,
+.plugin-marketplace-entries article > div {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.plugin-marketplace-entries article {
+  justify-content: flex-start;
+}
+
+.plugin-marketplace-entries article > div {
+  display: grid;
+  flex: 1 1 auto;
+  gap: 2px;
+}
+
+.plugin-marketplace-entries article > button {
+  flex: 0 0 auto;
+}
+
+.plugin-hook-list {
+  display: grid;
+  gap: 7px;
+  margin-top: 12px;
+}
+
+.plugin-hook-list article {
+  display: grid;
+  gap: 6px;
+  padding: 10px 11px;
+  border-radius: 9px;
+  background: var(--canvas-deep);
+}
+
+.plugin-hook-list article > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.plugin-hook-list span,
+.plugin-hook-list code {
+  color: var(--ink-soft);
+  font-size: 10px;
+}
+
+.plugin-hook-list code {
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
 .extension-starter-heading {
   display: flex;
   align-items: flex-start;

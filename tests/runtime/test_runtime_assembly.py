@@ -32,6 +32,8 @@ from openppx.extensions import (
     McpServer,
     PluginManager,
     SkillManager,
+    default_extension_starter_catalog,
+    default_native_app_adapter_registry,
 )
 from openppx.extensions.app_models import AppConnection, AppDefinition
 from openppx.core.mcp_registry import ManagedMcpToolset
@@ -384,6 +386,96 @@ def test_supervisor_attaches_app_mcp_and_rebuilds_for_definition_change(tmp_path
     assert second.metadata.snapshot_revision == first.metadata.snapshot_revision
     assert second.metadata.extension_revision != first.metadata.extension_revision
     supervisor.close()
+
+
+def test_supervisor_attaches_branded_native_app_tools_to_the_same_agent_runtime(
+    tmp_path: Path,
+) -> None:
+    """Prove a direct App starter reaches the regular immutable ADK Agent path."""
+    config_service, secrets = _configured(tmp_path)
+    token_ref = SecretRef(store="system", name="telegram-runtime-token")
+    secrets.put(token_ref, SecretValue("private-runtime-token"))
+    manager = AppManager(
+        tmp_path,
+        secrets,
+        adapter_registry=default_native_app_adapter_registry(),
+    )
+    starter = default_extension_starter_catalog().get("app-telegram")
+    definition = AppDefinition.model_validate(starter.template["definition"])
+    manager.install_definition(definition, expected_revision=None)
+    connection = manager.create_connection(
+        AppConnection.model_validate(
+            {
+                "apiVersion": "openppx.io/v1alpha1",
+                "kind": "AppConnection",
+                "metadata": {"name": "telegram-runtime"},
+                "spec": {
+                    "appId": definition.metadata.name,
+                    "displayName": "Telegram runtime",
+                    "credentialRefs": {
+                        "bot-token": token_ref.model_dump(mode="json", by_alias=True)
+                    },
+                },
+            }
+        ),
+        expected_revision=None,
+    )
+    manager.enable_connection(
+        "telegram-runtime",
+        "low-main",
+        expected_revision=connection.revision,
+        confirmed=True,
+    )
+    assembler = RuntimeAssembler(
+        node_root=tmp_path,
+        secret_store=secrets,
+        model_factory=lambda _resolution: _HelloLlm(model="hello-model"),
+        app_manager=manager,
+    )
+    runtime = assembler.assemble(config_service.snapshot("low-main"))
+
+    assert {getattr(tool, "name", "") for tool in runtime.agent.tools} >= {
+        "telegram_get_updates",
+        "telegram_send_message",
+    }
+    assert runtime.metadata.extension_revision == assembler.extension_snapshot_for_agent(
+        "low-main"
+    ).revision
+
+
+def test_trusted_plugin_session_hook_executes_through_the_real_adk_runner(
+    tmp_path: Path,
+) -> None:
+    """Prove trusted Plugin Hooks are wired through the production Runner path."""
+    config_service, secrets = _configured(tmp_path)
+    source = _write_plugin(tmp_path / "hook-source", include_hooks=True)
+    manager = PluginManager(tmp_path, secrets)
+    installed = manager.install(
+        manager.stage(ExtensionSourceRef(type="local_directory", locator=str(source))),
+        expected_revision=None,
+    )
+    manager.trust_hooks("plugin-fixture", expected_revision=installed.revision)
+    enabled = manager.enable(
+        "plugin-fixture",
+        "low-main",
+        expected_revision=installed.revision,
+        confirmed=True,
+    )
+    runtime = RuntimeAssembler(
+        node_root=tmp_path,
+        secret_store=secrets,
+        model_factory=lambda _resolution: _HelloLlm(model="hello-model"),
+        plugin_manager=manager,
+    ).assemble(config_service.snapshot("low-main"))
+
+    response = asyncio.run(
+        runtime.run_text("Hello", user_id="local:test", session_id="hook-session")
+    )
+
+    assert enabled.record.spec.enabled_agent_ids == ["low-main"]
+    assert response == "Hello from immutable snapshot"
+    assert manager.root.joinpath("data", "plugin-fixture", "session-started").read_text() == "started"
+    asyncio.run(runtime.close())
 
 
 def test_supervisor_merges_plugin_resources_and_rebuilds_for_plugin_update(tmp_path: Path) -> None:

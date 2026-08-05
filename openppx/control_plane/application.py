@@ -152,11 +152,16 @@ class ControlPlaneApplication:
         apps,
         plugins,
         mcp_probe,
+        plugin_marketplaces=None,
         starters=None,
     ) -> None:
         """Attach the Node-owned Extension graph and register its shared Actions."""
         if self.extension_registry is not None:
             raise RuntimeError("An Extension Registry is already attached.")
+        if plugin_marketplaces is None:
+            from openppx.extensions import PluginMarketplaceManager
+
+            plugin_marketplaces = PluginMarketplaceManager(self.config_repository.paths.node_root)
         register_extension_actions(
             self.registry,
             registry,
@@ -164,6 +169,7 @@ class ControlPlaneApplication:
             mcp=mcp,
             apps=apps,
             plugins=plugins,
+            plugin_marketplaces=plugin_marketplaces,
             mcp_probe=mcp_probe,
             starters=starters or default_extension_starter_catalog(),
             mcp_oauth=mcp_probe.oauth_service,

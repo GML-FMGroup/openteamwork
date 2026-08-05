@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from "electron";
-import type { AgentCreateRequest, AgentUpdateInput, AppConnectionEnablementRequest, AppConnectionRemoveRequest, AppConnectionSaveRequest, ArtifactSummary, ArtifactUploadInput, ConnectionSettings, CronCreateInput, CronUpdateInput, DesktopPlatform, ExtensionEnablementRequest, ExtensionInstallRequest, ExtensionPreviewRequest, ExtensionRemoveRequest, HeartbeatConfiguration, McpMutationRequest, ModelProfileCreateInput, ModelProfileUpdateInput, OperationsTaskControlInput, PpxClientApi, RunEvent, RuntimeCommand, SendMessageInput, SessionMutationRequest, SetupApplyRequest, SlashCommandRequest } from "../../app/src/types";
+import type { AgentCreateRequest, AgentUpdateInput, AppConnectionEnablementRequest, AppConnectionRemoveRequest, AppConnectionSaveRequest, ArtifactSummary, ArtifactUploadInput, ConnectionSettings, CronCreateInput, CronUpdateInput, DesktopPlatform, ExtensionEnablementRequest, ExtensionInstallRequest, ExtensionPreviewRequest, ExtensionRemoveRequest, HeartbeatConfiguration, McpMutationRequest, ModelProfileCreateInput, ModelProfileUpdateInput, OperationsTaskControlInput, PluginMarketplaceSourceSpec, PpxClientApi, RunEvent, RuntimeCommand, SendMessageInput, SessionMutationRequest, SetupApplyRequest, SlashCommandRequest } from "../../app/src/types";
 
 function desktopPlatform(): DesktopPlatform {
   if (process.platform === "darwin") {
@@ -73,12 +73,20 @@ const api: PpxClientApi = {
   invokeSlashCommand: (input: SlashCommandRequest) => ipcRenderer.invoke("ppx-client:invoke-slash-command", input),
   listExtensions: () => ipcRenderer.invoke("ppx-client:list-extensions"),
   listExtensionStarters: (kind, query) => ipcRenderer.invoke("ppx-client:list-extension-starters", kind ?? null, query ?? null),
+  installAppStarter: (starterId: string) => ipcRenderer.invoke("ppx-client:install-app-starter", starterId),
   getExtension: (kind, extensionId) => ipcRenderer.invoke("ppx-client:get-extension", kind, extensionId),
   getExtensionReadiness: (kind, extensionId) => ipcRenderer.invoke("ppx-client:get-extension-readiness", kind, extensionId),
   previewExtension: (input: ExtensionPreviewRequest) => ipcRenderer.invoke("ppx-client:preview-extension", input),
   installExtension: (input: ExtensionInstallRequest) => ipcRenderer.invoke("ppx-client:install-extension", input),
   setExtensionAgentEnabled: (input: ExtensionEnablementRequest) => ipcRenderer.invoke("ppx-client:set-extension-agent-enabled", input),
   removeExtension: (input: ExtensionRemoveRequest) => ipcRenderer.invoke("ppx-client:remove-extension", input),
+  getPluginHookStatus: (pluginId: string, expectedRevision: string) => ipcRenderer.invoke("ppx-client:get-plugin-hook-status", pluginId, expectedRevision),
+  setPluginHookTrust: (pluginId: string, expectedRevision: string, trusted: boolean) => ipcRenderer.invoke("ppx-client:set-plugin-hook-trust", pluginId, expectedRevision, trusted),
+  listPluginMarketplaces: () => ipcRenderer.invoke("ppx-client:list-plugin-marketplaces"),
+  listPluginMarketplaceEntries: (query?: string) => ipcRenderer.invoke("ppx-client:list-plugin-marketplace-entries", query ?? null),
+  savePluginMarketplace: (input: { marketplaceId: string; spec: PluginMarketplaceSourceSpec; expectedRevision: string | null }) => ipcRenderer.invoke("ppx-client:save-plugin-marketplace", input),
+  refreshPluginMarketplace: (marketplaceId: string, expectedRevision: string) => ipcRenderer.invoke("ppx-client:refresh-plugin-marketplace", marketplaceId, expectedRevision),
+  removePluginMarketplace: (marketplaceId: string, expectedRevision: string) => ipcRenderer.invoke("ppx-client:remove-plugin-marketplace", marketplaceId, expectedRevision),
   createMcpServer: (input: McpMutationRequest) => ipcRenderer.invoke("ppx-client:create-mcp-server", input),
   updateMcpServer: (input: McpMutationRequest) => ipcRenderer.invoke("ppx-client:update-mcp-server", input),
   beginMcpOAuth: (serverId: string) => ipcRenderer.invoke("ppx-client:begin-mcp-oauth", serverId),

@@ -1,0 +1,16 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "mkdir -p \"$PLUGIN_DATA\" && printf 'session-started\\n' >> \"$PLUGIN_DATA/events.log\"",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  }
+}

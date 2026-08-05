@@ -3,10 +3,12 @@
 from .errors import ExtensionError
 from .app_adapters import (
     NativeAppAdapter,
+    NativeAppAdapterProbe,
     NativeAppAdapterReadiness,
     NativeAppAdapterRegistry,
     NativeAppContext,
 )
+from .native_app_adapters import default_native_app_adapter_registry
 from .apps import (
     AppManager,
     AppReadiness,
@@ -25,6 +27,19 @@ from .mcp import (
 )
 from .mcp_models import McpServer
 from .plugin_models import PluginManifest, PluginRecord
+from .plugin_marketplace import (
+    PluginMarketplaceEntry,
+    PluginMarketplaceManager,
+    PluginMarketplaceSourceRecord,
+    PluginMarketplaceSourceSpec,
+    VersionedPluginMarketplaceSource,
+)
+from .plugin_hooks import (
+    PluginHookExecutor,
+    PluginHookRejected,
+    PluginHookSnapshot,
+    PluginHookStatus,
+)
 from .plugins import (
     PluginManager,
     PluginPreview,
@@ -76,15 +91,25 @@ __all__ = [
     "AppSnapshot",
     "AppSnapshotEntry",
     "NativeAppAdapter",
+    "NativeAppAdapterProbe",
     "NativeAppAdapterReadiness",
     "NativeAppAdapterRegistry",
     "NativeAppContext",
+    "default_native_app_adapter_registry",
     "McpManager",
     "McpReadiness",
     "McpServer",
     "McpSnapshot",
     "McpSnapshotEntry",
     "PluginManager",
+    "PluginMarketplaceEntry",
+    "PluginMarketplaceManager",
+    "PluginMarketplaceSourceRecord",
+    "PluginMarketplaceSourceSpec",
+    "PluginHookExecutor",
+    "PluginHookRejected",
+    "PluginHookSnapshot",
+    "PluginHookStatus",
     "PluginManifest",
     "PluginPreview",
     "PluginReadiness",
@@ -107,6 +132,7 @@ __all__ = [
     "StagedPlugin",
     "VersionedSkill",
     "VersionedPlugin",
+    "VersionedPluginMarketplaceSource",
     "VersionedMcp",
     "VersionedAppConnection",
     "VersionedAppDefinition",

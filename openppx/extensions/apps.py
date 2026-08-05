@@ -36,7 +36,7 @@ from .app_models import (
     AppStdioMcpTemplate,
     AppToolSpec,
 )
-from .app_adapters import NativeAppAdapterRegistry, NativeAppContext
+from .app_adapters import NativeAppAdapterProbe, NativeAppAdapterRegistry, NativeAppContext
 from .errors import ExtensionError
 from .indexes import (
     ResourceIdentityIndex,
@@ -404,6 +404,16 @@ class AppManager:
         if not isinstance(definition.spec.implementation, AppNativeImplementation):
             raise ExtensionError("invalid_operation", "MCP-backed App connections require an MCP probe.")
         return self._build_native_tools(connection, definition)
+
+    async def probe_native_connection(self, connection_id: str) -> NativeAppAdapterProbe:
+        """Run one sanitized provider probe for a native App connection."""
+        connection = self.get_connection(connection_id).record.model_copy(deep=True)
+        definition = self.get_definition(connection.spec.app_id).record.model_copy(deep=True)
+        implementation = definition.spec.implementation
+        if not isinstance(implementation, AppNativeImplementation):
+            raise ExtensionError("invalid_operation", "MCP-backed App connections require an MCP probe.")
+        adapter = self.adapter_registry.require(implementation.adapter)
+        return await adapter.probe(self._native_context(connection, definition))
 
     def build_native_tools(self, snapshot: AppSnapshot) -> tuple[Any, ...]:
         """Build tools for native App entries captured in one immutable snapshot."""

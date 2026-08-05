@@ -40,6 +40,7 @@ describe("Extensions settings", () => {
   beforeEach(() => {
     window.ppxClient = {
       listExtensionStarters: vi.fn().mockResolvedValue({ starters: [], counts: { plugin: 0, app: 0, mcp: 0, skill: 0 } }),
+      installAppStarter: vi.fn(),
       previewExtension: vi.fn(),
       installExtension: vi.fn(),
       createMcpServer: vi.fn(),
@@ -87,6 +88,51 @@ describe("Extensions settings", () => {
     fireEvent.click(screen.getByRole("button", { name: "Details" }));
     expect(await screen.findByText("A verified product adapter is required.")).toBeInTheDocument();
     expect(screen.getAllByText("Not available yet").length).toBeGreaterThan(0);
+  });
+
+  it("installs a direct App starter before opening its credential form", async () => {
+    const app = extension("app", "telegram");
+    const detail: ExtensionDetail = {
+      ...app,
+      details: {
+        credentials: [{ name: "bot-token", label: "Bot token", required: true }],
+        tools: [{ name: "telegram_send_message", title: "Send message", description: "Send a message", access: "write", risk: "high", enabledByDefault: true }],
+        connections: [],
+      },
+    };
+    vi.mocked(window.ppxClient.listExtensionStarters).mockResolvedValue({
+      starters: [{
+        id: "app-telegram",
+        kind: "app",
+        runtimeKind: "app",
+        displayName: "Telegram",
+        description: "Telegram Bot API.",
+        category: "communication",
+        developer: "Telegram",
+        availability: "needs_auth",
+        installMode: "direct_app",
+        auth: "secret",
+        requirements: ["Telegram bot token"],
+        note: "Token remains protected.",
+        featured: true,
+        provenance: { project: "OpenWorker", license: "MIT" },
+        template: { definition: { metadata: { name: "telegram" } } },
+      }],
+      counts: { plugin: 0, app: 1, mcp: 0, skill: 0 },
+    });
+    vi.mocked(window.ppxClient.installAppStarter).mockResolvedValue({
+      id: "telegram",
+      revision: digest,
+      status: "installed",
+    });
+    vi.mocked(window.ppxClient.getExtension).mockResolvedValue({ extension: detail });
+
+    renderSettings([], "app");
+    fireEvent.click(await screen.findByRole("button", { name: "Connect" }));
+
+    await waitFor(() => expect(window.ppxClient.installAppStarter).toHaveBeenCalledWith("app-telegram"));
+    expect(await screen.findByLabelText("Bot token *")).toBeInTheDocument();
+    expect(screen.getByLabelText(/Connection ID/)).toHaveValue("telegram-default");
   });
 
   it("prefills a ready MCP starter without exposing a secret value", async () => {

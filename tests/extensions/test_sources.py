@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import hashlib
+import io
 import os
 import shutil
 import stat
 import subprocess
+import tarfile
 import zipfile
 from dataclasses import dataclass
 from pathlib import Path
@@ -21,9 +23,25 @@ from openppx.extensions.sources import (
     GitSourceAdapter,
     LocalArchiveSourceAdapter,
     LocalDirectorySourceAdapter,
+    NpmSourceAdapter,
     SourceLimits,
     StagingStore,
 )
+
+
+def _npm_plugin_archive(path: Path) -> Path:
+    with tarfile.open(path, "w:gz") as archive:
+        payloads = {
+            "package/.agent-plugin/plugin.json": '{"name":"demo-plugin","description":"Demo plugin."}',
+            "package/skills/demo/SKILL.md": "---\nname: demo\ndescription: Demo skill.\n---\n",
+        }
+        for name, payload in payloads.items():
+            data = payload.encode()
+            info = tarfile.TarInfo(name)
+            info.size = len(data)
+            info.mode = 0o644
+            archive.addfile(info, io.BytesIO(data))
+    return path
 
 
 def _skill(root: Path, name: str = "demo", *, body: str = "# Demo\n") -> Path:
@@ -228,6 +246,36 @@ def test_git_source_locator_redacts_credentials_and_query() -> None:
         "https://example.com/org/repo"
     )
     assert _git_locator("git@example.com:org/repo.git") == "example.com:org/repo"
+
+
+def test_npm_source_requires_exact_version_and_safely_stages_package(tmp_path: Path) -> None:
+    archive = _npm_plugin_archive(tmp_path / "demo-plugin-1.2.3.tgz")
+    fake_npm = tmp_path / "npm"
+    fake_npm.write_text(
+        "#!/bin/sh\n"
+        'destination=""\n'
+        'while [ "$#" -gt 0 ]; do\n'
+        '  if [ "$1" = "--pack-destination" ]; then destination="$2"; shift 2; else shift; fi\n'
+        "done\n"
+        f'cp "{archive}" "$destination/demo-plugin-1.2.3.tgz"\n'
+        "printf '[{\"filename\":\"demo-plugin-1.2.3.tgz\"}]'\n",
+        encoding="utf-8",
+    )
+    fake_npm.chmod(0o755)
+    staged = NpmSourceAdapter(npm_binary=str(fake_npm)).stage(
+        ExtensionSourceRef(type="npm", locator="@openppx/demo-plugin", version="1.2.3"),
+        StagingStore(tmp_path / "node", required_root_file=".agent-plugin/plugin.json"),
+    )
+    assert staged.source.type == "npm"
+    assert staged.source.locator == "npm:@openppx/demo-plugin"
+    assert staged.source.version == "1.2.3"
+    assert staged.content_root.joinpath(".agent-plugin/plugin.json").is_file()
+
+    with pytest.raises(ExtensionError, match="exact version"):
+        NpmSourceAdapter(npm_binary=str(fake_npm)).stage(
+            ExtensionSourceRef(type="npm", locator="@openppx/demo-plugin", version="latest"),
+            StagingStore(tmp_path / "invalid", required_root_file=".agent-plugin/plugin.json"),
+        )
 
 
 @dataclass(frozen=True)

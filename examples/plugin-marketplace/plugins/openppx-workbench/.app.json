@@ -1,0 +1,8 @@
+{
+  "apps": {
+    "example": {
+      "id": "openppx_example_app",
+      "required": false
+    }
+  }
+}

@@ -10,7 +10,15 @@ from typing import Any, Callable
 
 from openppx.config import ConfigLoadError, NodeOperationsSpec, SecretStore, SystemCredentialSecretStore
 from openppx.control_plane import ControlPlaneApplication, build_control_plane
-from openppx.extensions import AppManager, ExtensionRegistry, McpManager, PluginManager, SkillManager
+from openppx.extensions import (
+    AppManager,
+    ExtensionRegistry,
+    McpManager,
+    PluginManager,
+    PluginMarketplaceManager,
+    SkillManager,
+    default_native_app_adapter_registry,
+)
 from openppx.extensions.indexes import ExtensionReferenceIndex, ResourceIdentityIndex
 from openppx.extensions.prefixes import ToolPrefixIndex
 from openppx.operations import NodeAutomationExecutor, NodeOperationsRuntime, OperationsService
@@ -65,6 +73,7 @@ def build_node_composition(
         reference_index=reference_index,
         prefix_index=prefix_index,
     )
+    plugin_marketplaces = PluginMarketplaceManager(root)
     mcp_manager = McpManager(
         root,
         secrets,
@@ -76,6 +85,7 @@ def build_node_composition(
         secrets,
         prefix_index=prefix_index,
         identity_index=identity_index,
+        adapter_registry=default_native_app_adapter_registry(),
     )
     skill_manager = SkillManager(
         root,
@@ -95,6 +105,7 @@ def build_node_composition(
         mcp=mcp_manager,
         apps=app_manager,
         plugins=plugin_manager,
+        plugin_marketplaces=plugin_marketplaces,
         mcp_probe=mcp_adapter,
     )
     assembler = RuntimeAssembler(

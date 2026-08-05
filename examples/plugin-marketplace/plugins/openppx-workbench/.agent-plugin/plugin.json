@@ -1,0 +1,19 @@
+{
+  "name": "openppx-workbench",
+  "version": "1.0.0",
+  "description": "A complete portable Plugin demonstrating Skills, MCP, Apps, Hooks, and assets.",
+  "author": { "name": "OpenPPX", "url": "https://github.com/pipixia-labs/openppx" },
+  "keywords": ["openppx", "example", "portable"],
+  "skills": "./skills/",
+  "mcpServers": "./.mcp.json",
+  "apps": "./.app.json",
+  "hooks": "./hooks/hooks.json",
+  "interface": {
+    "displayName": "OpenPPX Workbench",
+    "shortDescription": "Portable Plugin reference package",
+    "developerName": "OpenPPX",
+    "category": "Developer Tools",
+    "capabilities": ["Research", "Echo", "Lifecycle Hooks"],
+    "logo": "./assets/logo.svg"
+  }
+}

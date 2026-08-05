@@ -15,7 +15,7 @@ from .registry import ExtensionKind
 
 
 StarterAvailability = Literal["ready", "needs_auth", "needs_dependency", "planned"]
-StarterInstallMode = Literal["direct_mcp", "source", "builtin", "reference", "unavailable"]
+StarterInstallMode = Literal["direct_app", "direct_mcp", "source", "builtin", "reference", "unavailable"]
 StarterAuth = Literal["none", "secret", "oauth"]
 
 _STARTER_ID_RE = re.compile(r"^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$")
@@ -158,7 +158,7 @@ def _parse_entry(raw: object) -> ExtensionStarter:
     kind = _choice(raw, "kind", {"plugin", "app", "mcp", "skill"})
     runtime_kind = _choice(raw, "runtimeKind", {"plugin", "app", "mcp", "skill"})
     availability = _choice(raw, "availability", {"ready", "needs_auth", "needs_dependency", "planned"})
-    install_mode = _choice(raw, "installMode", {"direct_mcp", "source", "builtin", "reference", "unavailable"})
+    install_mode = _choice(raw, "installMode", {"direct_app", "direct_mcp", "source", "builtin", "reference", "unavailable"})
     auth = _choice(raw, "auth", {"none", "secret", "oauth"})
     requirements_raw = raw.get("requirements")
     if not isinstance(requirements_raw, list) or len(requirements_raw) > 16:
@@ -186,6 +186,9 @@ def _parse_entry(raw: object) -> ExtensionStarter:
     if install_mode == "direct_mcp":
         if runtime_kind != "mcp" or not {"serverId", "displayName", "risk", "transport"}.issubset(template):
             raise ValueError(f"starter {starter_id} requires a complete direct MCP template")
+    if install_mode == "direct_app":
+        if kind != "app" or runtime_kind != "app" or not isinstance(template.get("definition"), dict):
+            raise ValueError(f"starter {starter_id} requires a complete direct App definition")
     if install_mode == "source" and not isinstance(template.get("source"), dict):
         raise ValueError(f"starter {starter_id} requires an Extension source template")
     featured = raw.get("featured", False)

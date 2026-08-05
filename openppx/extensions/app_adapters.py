@@ -25,6 +25,14 @@ class NativeAppAdapterReadiness:
 
 
 @dataclass(frozen=True, slots=True)
+class NativeAppAdapterProbe:
+    """Sanitized result of one provider-owned connection check."""
+
+    ready: bool
+    issue: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class NativeAppContext:
     """Bounded execution context exposed to a trusted native App adapter."""
 
@@ -52,6 +60,10 @@ class NativeAppAdapter(Protocol):
 
     def readiness(self, context: NativeAppContext) -> NativeAppAdapterReadiness:
         """Check adapter-specific dependencies without returning secret values."""
+        ...
+
+    async def probe(self, context: NativeAppContext) -> NativeAppAdapterProbe:
+        """Verify provider access without returning identity data or credentials."""
         ...
 
     def build_tools(self, context: NativeAppContext) -> tuple[Any, ...]:
@@ -91,6 +103,7 @@ class NativeAppAdapterRegistry:
 
 __all__ = [
     "NativeAppAdapter",
+    "NativeAppAdapterProbe",
     "NativeAppAdapterReadiness",
     "NativeAppAdapterRegistry",
     "NativeAppContext",

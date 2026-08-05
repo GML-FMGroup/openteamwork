@@ -44,6 +44,10 @@ import type {
   ModelProfileResourceResult,
   ModelProfileCreateInput,
   ModelProfileUpdateInput,
+  PluginHookStatus,
+  PluginMarketplaceEntry,
+  PluginMarketplaceSource,
+  PluginMarketplaceSourceSpec,
 } from "@openppx/client";
 
 export type {
@@ -58,6 +62,10 @@ export type {
   ExtensionDetail,
   ExtensionSummary,
   ExtensionStarter,
+  PluginHookStatus,
+  PluginMarketplaceEntry,
+  PluginMarketplaceSource,
+  PluginMarketplaceSourceSpec,
   AgentEnablementKind,
   InstallableExtensionKind,
   ExtensionSourceRef,
@@ -380,12 +388,20 @@ export interface PpxClientApi {
   configureOperationsHeartbeat(input: HeartbeatConfiguration): Promise<Record<string, unknown>>;
   listExtensions(): Promise<{ extensions: ExtensionSummary[] }>;
   listExtensionStarters(kind?: ExtensionSummary["kind"], query?: string): Promise<{ starters: ExtensionStarter[]; counts: Record<ExtensionSummary["kind"], number> }>;
+  installAppStarter(starterId: string): Promise<ExtensionMutationResult>;
   getExtension(kind: ExtensionSummary["kind"], extensionId: string): Promise<{ extension: ExtensionDetail }>;
   getExtensionReadiness(kind: ExtensionSummary["kind"], extensionId: string): Promise<ExtensionReadinessResult>;
   previewExtension(input: ExtensionPreviewRequest): Promise<ExtensionPreview>;
   installExtension(input: ExtensionInstallRequest): Promise<ExtensionMutationResult>;
   setExtensionAgentEnabled(input: ExtensionEnablementRequest): Promise<{ revision: string; status: string }>;
   removeExtension(input: ExtensionRemoveRequest): Promise<ExtensionMutationResult>;
+  getPluginHookStatus(pluginId: string, expectedRevision: string): Promise<PluginHookStatus>;
+  setPluginHookTrust(pluginId: string, expectedRevision: string, trusted: boolean): Promise<PluginHookStatus>;
+  listPluginMarketplaces(): Promise<{ marketplaces: PluginMarketplaceSource[] }>;
+  listPluginMarketplaceEntries(query?: string): Promise<{ entries: PluginMarketplaceEntry[] }>;
+  savePluginMarketplace(input: { marketplaceId: string; spec: PluginMarketplaceSourceSpec; expectedRevision: string | null }): Promise<PluginMarketplaceSource>;
+  refreshPluginMarketplace(marketplaceId: string, expectedRevision: string): Promise<PluginMarketplaceSource>;
+  removePluginMarketplace(marketplaceId: string, expectedRevision: string): Promise<void>;
   createMcpServer(input: McpMutationRequest): Promise<ExtensionMutationResult>;
   updateMcpServer(input: McpMutationRequest): Promise<ExtensionMutationResult>;
   beginMcpOAuth(serverId: string): Promise<McpOAuthStatus>;

@@ -4,16 +4,16 @@
     "kind": "app",
     "runtimeKind": "app",
     "displayName": "Telegram",
-    "description": "Two-way messaging with a Telegram bot.",
+    "description": "Read Telegram bot updates and send messages through the Bot API.",
     "category": "communication",
     "developer": "Telegram",
-    "availability": "planned",
-    "installMode": "unavailable",
+    "availability": "needs_auth",
+    "installMode": "direct_app",
     "auth": "secret",
     "requirements": [
-      "OpenPPX product adapter"
+      "Telegram bot token"
     ],
-    "note": "Catalog metadata is available; Connect remains disabled until OpenPPX ships a verified adapter.",
+    "note": "A Node-shipped adapter uses Telegram's Bot API. The bot token stays in the system credential store.",
     "featured": true,
     "provenance": {
       "project": "OpenWorker",
@@ -21,7 +21,37 @@
       "license": "MIT"
     },
     "template": {
-      "referenceId": "telegram"
+      "definition": {
+        "apiVersion": "openppx.io/v1alpha1",
+        "kind": "AppDefinition",
+        "metadata": { "name": "telegram" },
+        "spec": {
+          "displayName": "Telegram",
+          "description": "Read bot updates and send messages through Telegram Bot API.",
+          "version": "1.0.0",
+          "category": "communication",
+          "developer": "Telegram",
+          "source": {
+            "type": "builtin",
+            "locator": "builtin:app-telegram",
+            "version": "1.0.0",
+            "revision": "builtin",
+            "digest": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+          },
+          "auth": {
+            "type": "secret",
+            "credentials": [
+              { "name": "bot-token", "label": "Bot token", "required": true }
+            ]
+          },
+          "implementation": { "type": "native", "adapter": "telegram-bot-api" },
+          "tools": [
+            { "name": "telegram_get_updates", "title": "Get updates", "description": "Read recent updates received by the Telegram bot.", "access": "read", "risk": "low", "enabledByDefault": true },
+            { "name": "telegram_send_message", "title": "Send message", "description": "Send a message to a Telegram chat or forum topic.", "access": "write", "risk": "high", "enabledByDefault": true }
+          ],
+          "policy": { "requireConfirmation": true, "progressEvents": true, "longTaskProxy": true, "inlineBudgetMs": 5000 }
+        }
+      }
     }
   },
   {
@@ -29,16 +59,16 @@
     "kind": "app",
     "runtimeKind": "app",
     "displayName": "Slack",
-    "description": "Two-way messaging — one-click via OpenWorker Cloud, or a manual Slack app (Socket Mode).",
+    "description": "Read Slack channels and messages and send replies through a bot token.",
     "category": "communication",
     "developer": "Slack",
-    "availability": "planned",
-    "installMode": "unavailable",
+    "availability": "needs_auth",
+    "installMode": "direct_app",
     "auth": "secret",
     "requirements": [
-      "OpenPPX product adapter"
+      "Slack bot token with conversations and chat scopes"
     ],
-    "note": "Catalog metadata is available; Connect remains disabled until OpenPPX ships a verified adapter.",
+    "note": "The local adapter uses Slack Web API directly. It does not depend on OpenWorker Cloud or a relay.",
     "featured": true,
     "provenance": {
       "project": "OpenWorker",
@@ -46,7 +76,38 @@
       "license": "MIT"
     },
     "template": {
-      "referenceId": "slack"
+      "definition": {
+        "apiVersion": "openppx.io/v1alpha1",
+        "kind": "AppDefinition",
+        "metadata": { "name": "slack" },
+        "spec": {
+          "displayName": "Slack",
+          "description": "Read channels and messages and send replies through Slack Web API.",
+          "version": "1.0.0",
+          "category": "communication",
+          "developer": "Slack",
+          "source": {
+            "type": "builtin",
+            "locator": "builtin:app-slack",
+            "version": "1.0.0",
+            "revision": "builtin",
+            "digest": "sha256:2222222222222222222222222222222222222222222222222222222222222222"
+          },
+          "auth": {
+            "type": "secret",
+            "credentials": [
+              { "name": "bot-token", "label": "Bot token", "required": true }
+            ]
+          },
+          "implementation": { "type": "native", "adapter": "slack-web-api" },
+          "tools": [
+            { "name": "slack_list_channels", "title": "List channels", "description": "List channels visible to the Slack bot.", "access": "read", "risk": "low", "enabledByDefault": true },
+            { "name": "slack_read_messages", "title": "Read messages", "description": "Read recent messages from a Slack channel.", "access": "read", "risk": "medium", "enabledByDefault": true },
+            { "name": "slack_send_message", "title": "Send message", "description": "Send a Slack message or thread reply.", "access": "write", "risk": "high", "enabledByDefault": true }
+          ],
+          "policy": { "requireConfirmation": true, "progressEvents": true, "longTaskProxy": true, "inlineBudgetMs": 5000 }
+        }
+      }
     }
   },
   {
@@ -82,13 +143,13 @@
     "description": "Search, summarize, draft, and send email.",
     "category": "communication",
     "developer": "Gmail",
-    "availability": "planned",
-    "installMode": "unavailable",
-    "auth": "oauth",
+    "availability": "needs_auth",
+    "installMode": "direct_app",
+    "auth": "secret",
     "requirements": [
-      "OpenPPX product adapter"
+      "Google OAuth access token with Gmail scopes"
     ],
-    "note": "Catalog metadata is available; Connect remains disabled until OpenPPX ships a verified adapter.",
+    "note": "The current local adapter accepts an OAuth access token as a write-only credential. Managed browser OAuth can be added later without changing the App definition.",
     "featured": true,
     "provenance": {
       "project": "OpenWorker",
@@ -96,7 +157,38 @@
       "license": "MIT"
     },
     "template": {
-      "referenceId": "gmail"
+      "definition": {
+        "apiVersion": "openppx.io/v1alpha1",
+        "kind": "AppDefinition",
+        "metadata": { "name": "gmail" },
+        "spec": {
+          "displayName": "Gmail",
+          "description": "Search, read, and send Gmail messages through the official REST API.",
+          "version": "1.0.0",
+          "category": "communication",
+          "developer": "Google",
+          "source": {
+            "type": "builtin",
+            "locator": "builtin:app-gmail",
+            "version": "1.0.0",
+            "revision": "builtin",
+            "digest": "sha256:3333333333333333333333333333333333333333333333333333333333333333"
+          },
+          "auth": {
+            "type": "secret",
+            "credentials": [
+              { "name": "access-token", "label": "OAuth access token", "required": true }
+            ]
+          },
+          "implementation": { "type": "native", "adapter": "gmail-api" },
+          "tools": [
+            { "name": "gmail_search_messages", "title": "Search messages", "description": "Search Gmail messages using Gmail query syntax.", "access": "read", "risk": "low", "enabledByDefault": true },
+            { "name": "gmail_get_message", "title": "Read message", "description": "Read a Gmail message by its message ID.", "access": "read", "risk": "medium", "enabledByDefault": true },
+            { "name": "gmail_send_email", "title": "Send email", "description": "Send a plain text email through Gmail.", "access": "write", "risk": "high", "enabledByDefault": true }
+          ],
+          "policy": { "requireConfirmation": true, "progressEvents": true, "longTaskProxy": true, "inlineBudgetMs": 5000 }
+        }
+      }
     }
   },
   {
@@ -107,13 +199,13 @@
     "description": "Read availability, summarize schedules, and create events.",
     "category": "calendar",
     "developer": "Google Calendar",
-    "availability": "planned",
-    "installMode": "unavailable",
-    "auth": "oauth",
+    "availability": "needs_auth",
+    "installMode": "direct_app",
+    "auth": "secret",
     "requirements": [
-      "OpenPPX product adapter"
+      "Google OAuth access token with Calendar scopes"
     ],
-    "note": "Catalog metadata is available; Connect remains disabled until OpenPPX ships a verified adapter.",
+    "note": "The local adapter uses Google Calendar REST API and stores the supplied OAuth access token in the system credential store.",
     "featured": true,
     "provenance": {
       "project": "OpenWorker",
@@ -121,7 +213,38 @@
       "license": "MIT"
     },
     "template": {
-      "referenceId": "google_calendar"
+      "definition": {
+        "apiVersion": "openppx.io/v1alpha1",
+        "kind": "AppDefinition",
+        "metadata": { "name": "google-calendar" },
+        "spec": {
+          "displayName": "Google Calendar",
+          "description": "List availability and create events through Google Calendar REST API.",
+          "version": "1.0.0",
+          "category": "calendar",
+          "developer": "Google",
+          "source": {
+            "type": "builtin",
+            "locator": "builtin:app-google-calendar",
+            "version": "1.0.0",
+            "revision": "builtin",
+            "digest": "sha256:4444444444444444444444444444444444444444444444444444444444444444"
+          },
+          "auth": {
+            "type": "secret",
+            "credentials": [
+              { "name": "access-token", "label": "OAuth access token", "required": true }
+            ]
+          },
+          "implementation": { "type": "native", "adapter": "google-calendar-api" },
+          "tools": [
+            { "name": "gcal_list_events", "title": "List events", "description": "List Google Calendar events in a time range.", "access": "read", "risk": "low", "enabledByDefault": true },
+            { "name": "gcal_free_busy", "title": "Check availability", "description": "Read busy intervals for one or more calendars.", "access": "read", "risk": "low", "enabledByDefault": true },
+            { "name": "gcal_create_event", "title": "Create event", "description": "Create a Google Calendar event.", "access": "write", "risk": "high", "enabledByDefault": true }
+          ],
+          "policy": { "requireConfirmation": true, "progressEvents": true, "longTaskProxy": true, "inlineBudgetMs": 5000 }
+        }
+      }
     }
   },
   {
@@ -185,13 +308,13 @@
     "description": "Microsoft 365 mail and calendar: search, draft, and send email; manage events and respond to invites.",
     "category": "communication",
     "developer": "Outlook",
-    "availability": "planned",
-    "installMode": "unavailable",
-    "auth": "oauth",
+    "availability": "needs_auth",
+    "installMode": "direct_app",
+    "auth": "secret",
     "requirements": [
-      "OpenPPX product adapter"
+      "Microsoft OAuth access token with Mail and Calendar scopes"
     ],
-    "note": "Catalog metadata is available; Connect remains disabled until OpenPPX ships a verified adapter.",
+    "note": "The local adapter uses Microsoft Graph. The supplied OAuth access token remains write-only in the Node credential store.",
     "featured": true,
     "provenance": {
       "project": "OpenWorker",
@@ -199,7 +322,39 @@
       "license": "MIT"
     },
     "template": {
-      "referenceId": "outlook"
+      "definition": {
+        "apiVersion": "openppx.io/v1alpha1",
+        "kind": "AppDefinition",
+        "metadata": { "name": "outlook" },
+        "spec": {
+          "displayName": "Outlook",
+          "description": "Search and send mail and manage calendar events through Microsoft Graph.",
+          "version": "1.0.0",
+          "category": "communication",
+          "developer": "Microsoft",
+          "source": {
+            "type": "builtin",
+            "locator": "builtin:app-outlook",
+            "version": "1.0.0",
+            "revision": "builtin",
+            "digest": "sha256:5555555555555555555555555555555555555555555555555555555555555555"
+          },
+          "auth": {
+            "type": "secret",
+            "credentials": [
+              { "name": "access-token", "label": "OAuth access token", "required": true }
+            ]
+          },
+          "implementation": { "type": "native", "adapter": "microsoft-graph" },
+          "tools": [
+            { "name": "outlook_search_messages", "title": "Search messages", "description": "Search or list Outlook messages through Microsoft Graph.", "access": "read", "risk": "low", "enabledByDefault": true },
+            { "name": "outlook_send_mail", "title": "Send email", "description": "Send an email through Microsoft Graph.", "access": "write", "risk": "high", "enabledByDefault": true },
+            { "name": "outlook_list_events", "title": "List events", "description": "List Outlook calendar events.", "access": "read", "risk": "low", "enabledByDefault": true },
+            { "name": "outlook_create_event", "title": "Create event", "description": "Create an Outlook calendar event and optional invitations.", "access": "write", "risk": "high", "enabledByDefault": true }
+          ],
+          "policy": { "requireConfirmation": true, "progressEvents": true, "longTaskProxy": true, "inlineBudgetMs": 5000 }
+        }
+      }
     }
   },
   {

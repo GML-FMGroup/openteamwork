@@ -5,6 +5,7 @@ from __future__ import annotations
 import pytest
 
 from openppx.extensions import ExtensionStarterCatalog, default_extension_starter_catalog
+from openppx.extensions.app_models import AppDefinition
 
 
 def test_default_catalog_has_expected_domain_coverage() -> None:
@@ -61,6 +62,26 @@ def test_every_direct_mcp_starter_has_a_complete_one_click_template() -> None:
         if starter.install_mode != "direct_mcp":
             continue
         assert {"serverId", "displayName", "risk", "transport"}.issubset(starter.template), starter.starter_id
+
+
+def test_every_direct_app_starter_has_a_valid_native_definition() -> None:
+    expected = {
+        "app-telegram": "telegram-bot-api",
+        "app-slack": "slack-web-api",
+        "app-gmail": "gmail-api",
+        "app-google-calendar": "google-calendar-api",
+        "app-outlook": "microsoft-graph",
+    }
+
+    for starter_id, adapter_id in expected.items():
+        starter = default_extension_starter_catalog().get(starter_id)
+        definition = AppDefinition.model_validate(starter.template["definition"])
+
+        assert starter.install_mode == "direct_app"
+        assert starter.availability == "needs_auth"
+        assert definition.spec.implementation.type == "native"
+        assert definition.spec.implementation.adapter == adapter_id
+        assert definition.spec.tools
 
 
 def test_catalog_rejects_duplicate_ids() -> None:

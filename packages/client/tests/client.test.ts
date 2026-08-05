@@ -428,6 +428,30 @@ describe("OpenPPX Client public contract", () => {
     });
   });
 
+  it("installs a direct App starter through the typed Action boundary", async () => {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({
+      protocolVersion: 1,
+      requestId: "req-app-starter",
+      correlationId: "req-app-starter",
+      ok: true,
+      result: { id: "telegram", revision: "sha256:app", status: "installed" },
+    }), { status: 200, headers: { "Content-Type": "application/json" } }));
+    const client = new OpenPpxClient({
+      baseUrl: "http://127.0.0.1:8765",
+      fetch: fetchMock as unknown as typeof fetch,
+      idFactory: () => "req-app-starter",
+    });
+
+    const response = await client.extensions.installAppStarter("app-telegram");
+
+    expect(response.result).toMatchObject({ id: "telegram", status: "installed" });
+    const body = JSON.parse(String((fetchMock.mock.calls[0] as unknown as [string, RequestInit])[1].body));
+    expect(body).toMatchObject({
+      actionId: "app.starter.install",
+      input: { starterId: "app-telegram" },
+    });
+  });
+
   it("invokes typed MCP and App Connection lifecycle actions", async () => {
     const fetchMock = vi.fn(async () => new Response(JSON.stringify({
       protocolVersion: 1,

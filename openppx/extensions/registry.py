@@ -141,6 +141,7 @@ class ExtensionRegistry:
         if selected == "plugin":
             item = self.plugins.get(extension_id)
             readiness = self.plugins.readiness(extension_id)
+            hooks = self.plugins.hook_status(extension_id)
             resources = item.record.spec.resources
             return ExtensionDetail(
                 self._plugin_summary(item),
@@ -154,6 +155,7 @@ class ExtensionRegistry:
                         "hooks": len(resources.hook_paths) + resources.inline_hook_count,
                     },
                     "readinessIssues": list(readiness.issues),
+                    "hooks": hooks.to_payload(),
                 },
             )
         definition = self.apps.get_definition(extension_id)

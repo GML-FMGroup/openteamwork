@@ -47,6 +47,15 @@ from .plugin_models import (
     PluginResourceRef,
     PluginResources,
 )
+from .plugin_hooks import (
+    ParsedPluginHooks,
+    PluginHookSnapshot,
+    PluginHookSnapshotEntry,
+    PluginHookStatus,
+    PluginHookTrustStore,
+    SUPPORTED_HOOK_EVENTS,
+    parse_plugin_hooks,
+)
 from .prefixes import ToolPrefixIndex, ToolPrefixReservation
 from .skills import SkillSnapshot, SkillSnapshotEntry, parse_skill_manifest
 from .sources import (
@@ -55,6 +64,7 @@ from .sources import (
     GitSourceAdapter,
     LocalArchiveSourceAdapter,
     LocalDirectorySourceAdapter,
+    NpmSourceAdapter,
     SourceAdapter,
     SourceLimits,
     StagedExtension,
@@ -112,6 +122,7 @@ class PluginBundle:
     registered_apps: tuple[PluginRegisteredApp, ...]
     hook_paths: tuple[str, ...]
     inline_hook_count: int
+    hooks: ParsedPluginHooks
     effective_risk: str
 
     @property
@@ -189,6 +200,7 @@ class PluginSnapshot:
     entries: tuple[PluginSnapshotEntry, ...]
     skills: SkillSnapshot
     mcp: McpSnapshot
+    hooks: PluginHookSnapshot
 
     @property
     def plugin_ids(self) -> tuple[str, ...]:
@@ -204,6 +216,7 @@ class PluginSnapshot:
             entries=(),
             skills=SkillSnapshot.empty(),
             mcp=McpSnapshot.empty(),
+            hooks=PluginHookSnapshot.empty(),
         )
 
 
@@ -244,6 +257,7 @@ class PluginManager:
         self.reference_index = reference_index
         self.prefix_index = prefix_index
         self.lock_timeout = lock_timeout
+        self.hook_trust = PluginHookTrustStore(self.node_root, lock_timeout=lock_timeout)
         self._registered_app_resolvers: dict[str, RegisteredAppResolver] = {}
         builtin_roots = {
             identifier: path.expanduser().resolve(strict=False)
@@ -254,6 +268,7 @@ class PluginManager:
             "local_directory": LocalDirectorySourceAdapter(),
             "local_archive": LocalArchiveSourceAdapter(),
             "git": GitSourceAdapter(),
+            "npm": NpmSourceAdapter(),
         }
         self._catalog_adapters = dict(catalog_adapters or {})
         if identity_index is not None:
@@ -328,11 +343,14 @@ class PluginManager:
             self._require_identities_available(plugin_id, staged.bundle)
             if enabled_agents:
                 readiness = self._readiness_for(staged.bundle)
-                if not readiness.ready:
+                blocking_issues = tuple(
+                    issue for issue in readiness.issues if not issue.startswith("plugin_hooks_")
+                )
+                if blocking_issues:
                     raise ExtensionError(
                         "dependency_missing",
                         "Updated Plugin dependencies are not ready.",
-                        details={"issues": list(readiness.issues)},
+                        details={"issues": list(blocking_issues)},
                     )
                 if staged.bundle.effective_risk == "high" and not confirmed:
                     raise ExtensionError(
@@ -394,8 +412,71 @@ class PluginManager:
 
     def readiness(self, plugin_id: str) -> PluginReadiness:
         """Return current component readiness without executing content."""
-        _manifest, bundle = self._load_installed_bundle(self.get(plugin_id))
-        return self._readiness_for(bundle)
+        current = self.get(plugin_id)
+        _manifest, bundle = self._load_installed_bundle(current)
+        return self._readiness_for(
+            bundle,
+            plugin_id=plugin_id,
+            plugin_digest=current.record.spec.digest,
+        )
+
+    def hook_status(self, plugin_id: str) -> PluginHookStatus:
+        """Return exact-definition Hook trust and runtime support diagnostics."""
+        current = self.get(plugin_id)
+        _manifest, bundle = self._load_installed_bundle(current)
+        hooks = bundle.hooks
+        trusted = bool(hooks.handler_count) and self.hook_trust.is_trusted(
+            plugin_id,
+            current.record.spec.digest,
+            hooks.digest,
+        )
+        executable = hooks.executable_count
+        supported = tuple(event for event in hooks.event_names if event in SUPPORTED_HOOK_EVENTS)
+        return PluginHookStatus(
+            plugin_id=plugin_id,
+            plugin_revision=current.revision,
+            plugin_digest=current.record.spec.digest,
+            hook_digest=hooks.digest,
+            trusted=trusted,
+            declared_events=hooks.event_names,
+            supported_events=supported,
+            handler_count=hooks.handler_count,
+            executable_count=executable,
+            unsupported_handlers=hooks.handler_count - executable,
+            handlers=tuple(
+                {
+                    "event": event,
+                    "matcher": group.matcher,
+                    "type": handler.type,
+                    "command": handler.command,
+                    "timeout": handler.timeout,
+                    "async": handler.asynchronous,
+                    "supported": event in SUPPORTED_HOOK_EVENTS and handler.executable(),
+                }
+                for event, groups in hooks.events
+                for group in groups
+                for handler in group.hooks
+            ),
+        )
+
+    def trust_hooks(self, plugin_id: str, *, expected_revision: str) -> PluginHookStatus:
+        """Trust only the exact currently installed executable Hook definitions."""
+        current = self.get(plugin_id)
+        self._require_revision(current, expected_revision)
+        _manifest, bundle = self._load_installed_bundle(current)
+        if not bundle.hooks.handler_count:
+            raise ExtensionError("invalid_operation", "Plugin does not declare Hooks.")
+        if not bundle.hooks.executable_count:
+            raise ExtensionError("invalid_operation", "Plugin has no supported synchronous command Hooks.")
+        self.hook_trust.trust(plugin_id, current.record.spec.digest, bundle.hooks.digest)
+        return self.hook_status(plugin_id)
+
+    def untrust_hooks(self, plugin_id: str, *, expected_revision: str) -> PluginHookStatus:
+        """Revoke local Hook execution trust without changing Plugin installation."""
+        current = self.get(plugin_id)
+        self._require_revision(current, expected_revision)
+        self.hook_trust.untrust(plugin_id)
+        return self.hook_status(plugin_id)
 
     def enable(
         self,
@@ -412,7 +493,11 @@ class PluginManager:
         if agent_id in current.record.spec.enabled_agent_ids:
             return current
         _manifest, bundle = self._load_installed_bundle(current)
-        readiness = self._readiness_for(bundle)
+        readiness = self._readiness_for(
+            bundle,
+            plugin_id=plugin_id,
+            plugin_digest=current.record.spec.digest,
+        )
         if not readiness.ready:
             raise ExtensionError(
                 "dependency_missing",
@@ -450,6 +535,7 @@ class PluginManager:
                 self._require_revision(fresh, expected_revision)
                 path.unlink()
                 _fsync_directory(path.parent)
+                self.hook_trust.untrust(plugin_id)
         except Timeout as exc:
             raise ExtensionError("registry_busy", "Plugin registry is busy; retry with a fresh revision.") from exc
         except OSError as exc:
@@ -470,6 +556,7 @@ class PluginManager:
         entries: list[PluginSnapshotEntry] = []
         skills: list[SkillSnapshotEntry] = []
         mcp_entries: list[McpSnapshotEntry] = []
+        hook_entries: list[PluginHookSnapshotEntry] = []
         for plugin in self.list():
             if agent_id not in plugin.record.spec.enabled_agent_ids:
                 continue
@@ -505,6 +592,20 @@ class PluginManager:
                     },
                 )
                 mcp_entries.append(McpSnapshotEntry(server, config_revision(server)))
+            if bundle.hooks.handler_count and self.hook_trust.is_trusted(
+                plugin.record.metadata.name,
+                plugin.record.spec.digest,
+                bundle.hooks.digest,
+            ):
+                hook_entries.append(
+                    PluginHookSnapshotEntry(
+                        plugin_id=plugin.record.metadata.name,
+                        plugin_digest=plugin.record.spec.digest,
+                        content_root=plugin.content_root,
+                        data_root=self.root / "data" / plugin.record.metadata.name,
+                        hooks=bundle.hooks,
+                    )
+                )
         frozen_entries = tuple(entries)
         canonical = json.dumps(
             [(entry.record.metadata.name, entry.revision) for entry in frozen_entries],
@@ -515,6 +616,7 @@ class PluginManager:
             entries=frozen_entries,
             skills=_skill_snapshot(tuple(skills)),
             mcp=_mcp_snapshot(tuple(mcp_entries)),
+            hooks=_hook_snapshot(tuple(hook_entries)),
         )
 
     def _load_installed_bundle(self, plugin: VersionedPlugin) -> tuple[PluginManifest, PluginBundle]:
@@ -540,7 +642,7 @@ class PluginManager:
         skills = self._load_skills(content_root, manifest)
         servers = self._load_mcp_servers(content_root, manifest)
         registered_apps = self._load_registered_apps(content_root, manifest)
-        hook_paths, inline_hook_count = self._load_hooks(content_root, manifest)
+        hook_paths, inline_hook_count, hooks = self._load_hooks(content_root, manifest)
         self._validate_assets(content_root, manifest)
         risks = [
             "low",
@@ -557,6 +659,7 @@ class PluginManager:
             tuple(registered_apps),
             tuple(hook_paths),
             inline_hook_count,
+            hooks,
             max(risks, key=lambda item: _RISK_ORDER[item]),
         )
 
@@ -749,16 +852,21 @@ class PluginManager:
                 raise ExtensionError("invalid_manifest", "Plugin registered App entry is invalid.") from exc
         return values
 
-    def _load_hooks(self, content_root: Path, manifest: PluginManifest) -> tuple[list[str], int]:
+    def _load_hooks(
+        self,
+        content_root: Path,
+        manifest: PluginManifest,
+    ) -> tuple[list[str], int, ParsedPluginHooks]:
         declared = manifest.hooks
         default = "./hooks/hooks.json"
         if declared is None and self._resource_path(content_root, default).is_file():
             declared = default
         if declared is None:
-            return [], 0
+            return [], 0, ParsedPluginHooks.empty()
         values = declared if isinstance(declared, list) else [declared]
         paths: list[str] = []
         inline_count = 0
+        documents: list[dict[str, Any]] = []
         for value in values:
             if isinstance(value, str):
                 path = self._resource_path(content_root, value)
@@ -766,11 +874,13 @@ class PluginManager:
                 if not isinstance(raw, dict):
                     raise ExtensionError("invalid_manifest", "Plugin hook definition must be an object.")
                 paths.append(value)
+                documents.append(raw)
             elif isinstance(value, dict):
                 inline_count += 1
+                documents.append(value)
             else:
                 raise ExtensionError("invalid_manifest", "Plugin hooks contain an unsupported value.")
-        return paths, inline_count
+        return paths, inline_count, parse_plugin_hooks(documents)
 
     def _validate_assets(self, content_root: Path, manifest: PluginManifest) -> None:
         interface = manifest.interface
@@ -785,7 +895,13 @@ class PluginManager:
             if not self._resource_path(content_root, relative).is_file():
                 raise ExtensionError("invalid_manifest", "Plugin interface asset is unavailable.")
 
-    def _readiness_for(self, bundle: PluginBundle) -> PluginReadiness:
+    def _readiness_for(
+        self,
+        bundle: PluginBundle,
+        *,
+        plugin_id: str | None = None,
+        plugin_digest: str | None = None,
+    ) -> PluginReadiness:
         issues: list[str] = []
         for item in bundle.skills:
             for executable in item.manifest.dependencies.executables:
@@ -806,8 +922,15 @@ class PluginManager:
                 resolver(app) for resolver in self._registered_app_resolvers.values()
             ):
                 issues.append("registered_app_unavailable")
-        if bundle.hook_paths or bundle.inline_hook_count:
-            issues.append("plugin_hooks_unsupported")
+        if bundle.hooks.handler_count:
+            if not bundle.hooks.executable_count:
+                issues.append("plugin_hooks_no_supported_handlers")
+            elif (
+                plugin_id is None
+                or plugin_digest is None
+                or not self.hook_trust.is_trusted(plugin_id, plugin_digest, bundle.hooks.digest)
+            ):
+                issues.append("plugin_hooks_untrusted")
         return PluginReadiness(ready=not issues, issues=tuple(sorted(set(issues))))
 
     def _require_identities_available(self, plugin_id: str, bundle: PluginBundle) -> None:
@@ -1115,6 +1238,15 @@ def _mcp_snapshot(entries: tuple[McpSnapshotEntry, ...]) -> McpSnapshot:
     ).encode("utf-8")
     snapshot = McpSnapshot(f"sha256:{hashlib.sha256(canonical).hexdigest()}", entries)
     return merge_mcp_snapshots(McpSnapshot.empty(), snapshot)
+
+
+def _hook_snapshot(entries: tuple[PluginHookSnapshotEntry, ...]) -> PluginHookSnapshot:
+    ordered = tuple(sorted(entries, key=lambda item: item.plugin_id))
+    canonical = json.dumps(
+        [(entry.plugin_id, entry.plugin_digest, entry.hooks.digest) for entry in ordered],
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return PluginHookSnapshot(f"sha256:{hashlib.sha256(canonical).hexdigest()}", ordered)
 
 
 def _fsync_directory(directory: Path) -> None:

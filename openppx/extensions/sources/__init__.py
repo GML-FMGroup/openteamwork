@@ -5,6 +5,7 @@ from .base import SourceAdapter, SourceLimits, StagedExtension, StagingStore, co
 from .catalog import CatalogArtifact, CatalogProvider, CatalogSourceAdapter
 from .filesystem import BuiltinSourceAdapter, LocalDirectorySourceAdapter
 from .git import GitSourceAdapter
+from .npm import NpmSourceAdapter
 
 __all__ = [
     "BuiltinSourceAdapter",
@@ -14,6 +15,7 @@ __all__ = [
     "GitSourceAdapter",
     "LocalArchiveSourceAdapter",
     "LocalDirectorySourceAdapter",
+    "NpmSourceAdapter",
     "SourceAdapter",
     "SourceLimits",
     "StagedExtension",
