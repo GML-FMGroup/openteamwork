@@ -26,8 +26,11 @@ If the Client API is unavailable, unauthorized, or incompatible, Desktop reports
 - Three-column workspace with Agent, Session, conversation, Progress, and Artifacts
 - Action-backed slash command palette
 - Models, Extensions, Operations, Agent, and connection settings
-- Plugin/App/MCP/Skill inventory and Agent enablement
-- Task, Cron, Heartbeat, usage, health, and audit projections
+- Plugin/App/MCP/Skill creation or installation, editing, readiness tests, Agent enablement, updates, authorization, and safe removal where each resource type permits it
+- Task controls, Cron CRUD and run-now, Heartbeat controls, usage, health, and audit projections
+- Agent create/edit/enable/archive and Session create/rename/fork/export/archive/delete lifecycles
+- Drag, paste, or select file/image/audio attachments and preview or download durable Session Artifacts
+- Multiple saved local/LAN Node targets with an explicit active target
 - Run streaming, bounded reconnect, replay, cancellation, and connection recovery
 - Resizable side panels with device-local layout persistence
 
@@ -132,6 +135,8 @@ In Desktop Settings select the LAN run location and enter:
 
 Test the connection before applying it. Electron Main encrypts the token through `safeStorage`; the ordinary connection JSON contains only a credential reference bound to that exact endpoint.
 
+Each saved LAN target has its own encrypted, endpoint-bound credential. The General settings page can switch among saved targets and remove an inactive target. Switching performs a real connection test before changing the active Client API adapter.
+
 LAN rules:
 
 - HTTP requests and SSE use the same bearer token.
@@ -140,7 +145,13 @@ LAN rules:
 - URLs may contain only scheme, host, and explicit port—no credentials, path, query, or fragment.
 - Do not forward the current HTTP endpoint directly to the public internet.
 
-Automatic TLS, discovery, pairing, SSH/Tailnet configuration, a public relay, and multiple saved targets are future work.
+Automatic TLS, discovery, identity pairing, token rotation/revocation, SSH/Tailnet configuration, and a public relay are future work.
+
+## Attachments and Artifacts
+
+The Composer accepts drag-and-drop, clipboard paste, and file selection. One message can include up to 10 files, at most 20 MB per file and 50 MB in total. Files are uploaded to the selected Node as Session-scoped Artifacts before the Run starts; the model receives only validated Artifact references.
+
+The right-side Artifacts section reads durable Node facts rather than inferring filenames from the transcript. Images, text/code, and audio have inline previews; other formats remain downloadable. A remote Node never receives an arbitrary path on the Desktop machine.
 
 ## Development environment overrides
 
@@ -210,7 +221,7 @@ Check the backend independently:
 ppx operations health --url http://127.0.0.1:18765
 ```
 
-For LAN mode, add `--token '<token>'`, verify the host firewall, and confirm the configured Node identity before saving the target.
+For LAN mode, add `--token '<token>'`, verify the host firewall, and confirm the configured Node identity before saving the target. The current development build exposes the returned identity but does not yet implement a cryptographic pairing ceremony.
 
 ### Electron installation is incomplete
 

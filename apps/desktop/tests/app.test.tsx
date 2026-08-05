@@ -164,6 +164,9 @@ function installClient(overrides: Partial<PpxClientApi> = {}): { client: PpxClie
     getDiagnostics: async () => buildDiagnostics(),
     testConnectionSettings: async () => buildDiagnostics(),
     saveConnectionSettings: async () => buildDiagnostics(),
+    listConnectionProfiles: async () => ({ profiles: [] }),
+    activateConnectionProfile: async () => buildDiagnostics(),
+    removeConnectionProfile: async () => ({ removed: true }),
     runRuntimeCommand: async () => buildBootstrapPayload().runtime,
     createAgent: async () => ({
       agent: {
@@ -180,6 +183,23 @@ function installClient(overrides: Partial<PpxClientApi> = {}): { client: PpxClie
       nodeRevision: "sha256:node",
       effect: "next_run",
     }),
+    listManagedAgents: async () => ({ agents: [{
+      id: "agent-1", name: "Agent 1", description: "Local test agent", enabled: true, status: "healthy",
+      workspace: "/workspace", instruction: "", privilegeLevel: "medium", modelProfileId: "primary",
+      avatar: null, tags: ["local"], revision: "sha256:agent", nodeRevision: "sha256:node", effect: "none",
+    }] }),
+    updateAgent: async (input) => ({
+      id: input.agentId, name: input.displayName, description: `Workspace: ${input.workspace}`, enabled: true,
+      status: "healthy", workspace: input.workspace, instruction: input.instruction, privilegeLevel: input.privilegeLevel,
+      modelProfileId: input.modelProfileId, avatar: null, tags: ["local"], revision: "sha256:agent-next",
+      nodeRevision: "sha256:node", effect: "next_run",
+    }),
+    setAgentEnabled: async (agentId, enabled) => ({
+      id: agentId, name: "Agent 1", description: "Local test agent", enabled, status: enabled ? "healthy" : "disabled",
+      workspace: "/workspace", instruction: "", privilegeLevel: "medium", modelProfileId: "primary", avatar: null,
+      tags: ["local"], revision: "sha256:agent", nodeRevision: "sha256:node-next", effect: "next_run",
+    }),
+    removeAgent: async (agentId) => ({ agentId, workspaceRetained: true }),
     getSetupStatus: async () => ({
       state: "ready",
       steps: { node: "complete", agent: "complete", model: "complete", credential: "available", hello: "verified" },
@@ -326,9 +346,49 @@ function installClient(overrides: Partial<PpxClientApi> = {}): { client: PpxClie
       automation: { cronJobs: 0, heartbeatEnabled: false },
     }),
     listOperationsAudit: async () => ({ items: [] }),
+    getOperationsDashboard: async () => ({
+      overview: {
+        state: "healthy",
+        components: [],
+        tasks: { total: 0, byStatus: {} },
+        automation: { cronJobs: 0, heartbeatEnabled: false },
+      },
+      tasks: { ok: true, items: [] },
+      cron: { status: {}, items: [], history: [] },
+      heartbeat: { running: true, enabled: false, intervalMs: null, wakePending: false, lastRunAtMs: null, lastStatus: null, lastReason: null, lastDurationMs: null, configuration: { enabled: false, everySeconds: 1800, prompt: "Review tasks", activeHours: { start: null, end: null, timezone: "user" } } },
+      usage: { requests: 0, requestTokens: 0, responseTokens: 0, totalTokens: 0, recent: [] },
+      audit: [],
+    }),
+    getOperationsTask: async () => ({ ok: true, items: [], task: {}, events: [], checkpoints: [], deliveries: [] }),
+    getOperationsTaskOutput: async () => ({}),
+    controlOperationsTask: async () => ({}),
+    createOperationsCron: async () => ({}),
+    updateOperationsCron: async () => ({}),
+    setOperationsCronEnabled: async () => ({}),
+    runOperationsCron: async () => ({}),
+    removeOperationsCron: async () => ({}),
+    runOperationsHeartbeat: async () => ({}),
+    configureOperationsHeartbeat: async () => ({}),
     listSessions: async () => ({ sessions: buildBootstrapPayload().sessions }),
     createSession: async () => ({ session: buildBootstrapPayload().sessions[0] }),
+    renameSession: async ({ sessionId, title }) => ({ sessionId, title }),
+    archiveSession: async ({ sessionId, archived }) => ({ sessionId, archived }),
+    forkSession: async () => ({ session: buildBootstrapPayload().sessions[0] }),
+    exportSession: async ({ sessionId }) => ({ sessionId, items: [] }),
+    deleteSession: async ({ sessionId }) => ({ sessionId, deleted: true }),
     loadSession: async () => ({ messages: [] }),
+    uploadArtifact: async (input) => ({
+      id: "artifact-test",
+      key: `uploads/artifact-test/${input.fileName}`,
+      fileName: input.fileName,
+      mimeType: input.mimeType,
+      sizeBytes: 1,
+      version: 0,
+      source: "user_upload",
+      createdAt: "2026-08-04T00:00:00Z",
+    }),
+    listArtifacts: async () => ({ artifacts: [] }),
+    downloadArtifact: async (_agentId, _sessionId, artifact) => ({ dataBase64: "", mimeType: artifact.mimeType }),
     sendMessage: async () => new Promise<{ runId: string }>(() => undefined),
     cancelRun: async (runId) => ({ runId, status: "cancelled" }),
     listSlashCommands: async () => ({ commands: [] }),
@@ -336,10 +396,27 @@ function installClient(overrides: Partial<PpxClientApi> = {}): { client: PpxClie
       throw new Error("No fixture slash command configured.");
     },
     listExtensions: async () => ({ extensions: [] }),
+    listExtensionStarters: async () => ({ starters: [], counts: { plugin: 0, app: 0, mcp: 0, skill: 0 } }),
     getExtension: async () => {
       throw new Error("No fixture Extension configured.");
     },
+    getExtensionReadiness: async (kind, extensionId) => ({ kind, id: extensionId, ready: true, issues: [], status: "installed", revision: "sha256:fixture" }),
+    previewExtension: async () => {
+      throw new Error("No fixture Extension preview configured.");
+    },
+    installExtension: async () => ({ revision: "sha256:installed", status: "installed" }),
     setExtensionAgentEnabled: async () => ({ revision: "sha256:fixture", status: "enabled" }),
+    removeExtension: async () => ({ removed: true }),
+    createMcpServer: async () => ({ revision: "sha256:mcp-created", status: "installed" }),
+    updateMcpServer: async () => ({ revision: "sha256:mcp-updated", status: "installed" }),
+    beginMcpOAuth: async (serverId) => ({ serverId, status: "authorizing", authorizeUrl: "https://example.com/authorize", error: "" }),
+    getMcpOAuthStatus: async (serverId) => ({ serverId, status: "needs_auth", authorizeUrl: "", error: "" }),
+    signOutMcpOAuth: async (serverId) => ({ serverId, status: "needs_auth", authorizeUrl: "", error: "" }),
+    testMcpServer: async (serverId) => ({ kind: "mcp", id: serverId, revision: "sha256:mcp", checkedAt: "2026-08-04T12:00:00Z", ready: true, status: "ok", transport: "stdio", elapsedMs: 1, attempts: 1, toolCount: 0, toolNames: [], issues: [], errorKind: null, message: "" }),
+    saveAppConnection: async () => ({ revision: "sha256:connection", status: "ready" }),
+    testAppConnection: async (connectionId) => ({ kind: "app_connection", id: connectionId, revision: "sha256:connection", checkedAt: "2026-08-04T12:00:00Z", ready: true, status: "ok", transport: "stdio", elapsedMs: 1, attempts: 1, toolCount: 0, toolNames: [], issues: [], errorKind: null, message: "" }),
+    setAppConnectionAgentEnabled: async () => ({ revision: "sha256:connection-enabled", status: "enabled" }),
+    removeAppConnection: async () => ({ removed: true }),
     onRunEvent: (next) => {
       listener = next;
       return () => {
@@ -1475,7 +1552,32 @@ describe("App sending state", () => {
     fireEvent.click(within(menu).getByRole("menuitem", { name: "Settings" }));
 
     expect(await screen.findByRole("heading", { name: "Connection" })).toBeInTheDocument();
+    const settingsNav = screen.getByRole("navigation", { name: "Settings sections" });
+    expect(within(settingsNav).queryByRole("button", { name: "Extensions" })).not.toBeInTheDocument();
     expect(screen.queryByRole("menu", { name: "User menu" })).not.toBeInTheDocument();
+  });
+
+  it("opens Extensions with its types in the middle navigation column", async () => {
+    installClient();
+    render(<App />);
+
+    await screen.findByRole("button", { name: "Send" });
+    fireEvent.click(screen.getByRole("button", { name: "User profile" }));
+
+    const userMenu = await screen.findByRole("menu", { name: "User menu" });
+    fireEvent.click(within(userMenu).getByRole("menuitem", { name: "Extensions" }));
+
+    const extensionNav = await screen.findByRole("navigation", { name: "Extension sections" });
+    expect(within(extensionNav).getByRole("button", { name: "Plugins" })).toHaveClass("active");
+    expect(within(extensionNav).getByRole("button", { name: "Apps" })).toBeInTheDocument();
+    expect(within(extensionNav).getByRole("button", { name: "Skills" })).toBeInTheDocument();
+    expect(screen.queryByRole("navigation", { name: "Settings sections" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("menu", { name: "Extension types" })).not.toBeInTheDocument();
+    fireEvent.click(within(extensionNav).getByRole("button", { name: "MCP Servers" }));
+
+    expect(await screen.findByRole("heading", { name: "MCP Servers" })).toBeInTheDocument();
+    expect(within(extensionNav).getByRole("button", { name: "MCP Servers" })).toHaveClass("active");
+    expect(screen.getAllByRole("button", { name: "Add MCP server" }).length).toBeGreaterThan(0);
   });
 
   it("returns from Settings to Workspace when a history Session is selected", async () => {
@@ -1559,8 +1661,10 @@ describe("App sending state", () => {
     await screen.findByRole("heading", { name: "Runtime" });
     expect(document.querySelector(".settings-card-runtime")).toBeInTheDocument();
     expect(document.querySelector(".settings-card-health")).toBeInTheDocument();
-    expect(document.querySelector(".settings-card-operations-summary")).toBeInTheDocument();
-    expect(document.querySelector(".settings-card-audit")).toBeInTheDocument();
+    expect(document.querySelector(".operations-metrics")).toBeInTheDocument();
+    expect(screen.getByRole("navigation", { name: "Operations sections" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Audit" }));
+    expect(await screen.findByRole("heading", { name: "Action audit" })).toBeInTheDocument();
     expect(document.querySelector(".settings-card-diagnostics")).not.toBeInTheDocument();
     expect(document.querySelector(".settings-card-config")).not.toBeInTheDocument();
     expect(document.querySelectorAll(".settings-column")).toHaveLength(0);
@@ -1593,14 +1697,12 @@ describe("App sending state", () => {
     });
 
     render(<App />);
-    await openSettings();
-    fireEvent.click(screen.getByRole("button", { name: "Extensions" }));
+    fireEvent.click(await screen.findByRole("button", { name: "User profile" }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Extensions" }));
 
+    const extensionNav = await screen.findByRole("navigation", { name: "Extension sections" });
+    fireEvent.click(within(extensionNav).getByRole("button", { name: "Skills" }));
     expect(await screen.findByText("Repository guide")).toBeInTheDocument();
-    expect(screen.getByRole("region", { name: "plugin extensions" })).toBeInTheDocument();
-    expect(screen.getByRole("region", { name: "app extensions" })).toBeInTheDocument();
-    expect(screen.getByRole("region", { name: "mcp extensions" })).toBeInTheDocument();
-    expect(screen.getByRole("region", { name: "skill extensions" })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Enable" }));
 
     await waitFor(() => {
@@ -1615,22 +1717,24 @@ describe("App sending state", () => {
   });
 
   it("preserves unsaved connection edits during an Operations refresh", async () => {
-    const getOperationsOverview = vi.fn(async () => ({
-      state: "healthy" as const,
-      components: [],
-      tasks: { total: 0, byStatus: {} },
-      automation: { cronJobs: 0, heartbeatEnabled: false },
+    const getOperationsDashboard = vi.fn(async () => ({
+      overview: { state: "healthy" as const, components: [], tasks: { total: 0, byStatus: {} }, automation: { cronJobs: 0, heartbeatEnabled: false } },
+      tasks: { ok: true, items: [] },
+      cron: { status: {}, items: [], history: [] },
+      heartbeat: { running: true, enabled: false, intervalMs: null, wakePending: false, lastRunAtMs: null, lastStatus: null, lastReason: null, lastDurationMs: null, configuration: { enabled: false, everySeconds: 1800, prompt: "Review tasks", activeHours: { start: null, end: null, timezone: "user" } } },
+      usage: { requests: 0, requestTokens: 0, responseTokens: 0, totalTokens: 0, recent: [] },
+      audit: [],
     }));
-    installClient({ getOperationsOverview });
+    installClient({ getOperationsDashboard });
     render(<App />);
 
     await openSettings();
     const targetName = await screen.findByLabelText("Target name");
     fireEvent.change(targetName, { target: { value: "Draft Node Name" } });
     fireEvent.click(screen.getByRole("button", { name: "Operations" }));
-    fireEvent.click(screen.getByRole("button", { name: "Refresh" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Refresh" }));
 
-    await waitFor(() => expect(getOperationsOverview.mock.calls.length).toBeGreaterThanOrEqual(2));
+    await waitFor(() => expect(getOperationsDashboard.mock.calls.length).toBeGreaterThanOrEqual(2));
     fireEvent.click(screen.getByRole("button", { name: "General" }));
     expect(screen.getByLabelText("Target name")).toHaveValue("Draft Node Name");
   });
@@ -1769,5 +1873,69 @@ describe("App sending state", () => {
       }),
     );
     expect(saveConnectionSettings).not.toHaveBeenCalled();
+  });
+
+  it("switches saved Nodes and removes only an inactive target", async () => {
+    let activeTargetId = "local-this-mac";
+    const removedTargets = new Set<string>();
+    const profiles = () => [
+      {
+        targetType: "local" as const,
+        targetId: "local-this-mac",
+        targetName: "This Mac",
+        clientApiBaseUrl: "http://127.0.0.1:18765",
+        active: activeTargetId === "local-this-mac",
+        credentialConfigured: false,
+      },
+      {
+        targetType: "lan" as const,
+        targetId: "lan-studio",
+        targetName: "Studio Node",
+        clientApiBaseUrl: "http://studio.local:18765",
+        active: activeTargetId === "lan-studio",
+        credentialConfigured: true,
+      },
+    ].filter((profile) => !removedTargets.has(profile.targetId));
+    const activateConnectionProfile = vi.fn(async (targetId: string) => {
+      activeTargetId = targetId;
+      return {
+        ...buildDiagnostics(),
+        mode: "lan" as const,
+        target: { id: targetId, type: "remote" as const, name: "Studio Node" },
+      };
+    });
+    const removeConnectionProfile = vi.fn(async (targetId: string) => {
+      removedTargets.add(targetId);
+      return { removed: true };
+    });
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
+    try {
+      installClient({
+        listConnectionProfiles: async () => ({ profiles: profiles() }),
+        activateConnectionProfile,
+        removeConnectionProfile,
+      });
+      render(<App />);
+      await screen.findByRole("button", { name: "Send" });
+      await openSettings();
+      await screen.findByRole("button", { name: "Use" });
+
+      const savedNodes = (await screen.findByRole("heading", { name: "Saved Nodes" })).closest("section");
+      expect(savedNodes).not.toBeNull();
+      const savedNodesView = within(savedNodes as HTMLElement);
+      fireEvent.click(savedNodesView.getByRole("button", { name: "Use" }));
+
+      await waitFor(() => expect(activateConnectionProfile).toHaveBeenCalledWith("lan-studio"));
+      await waitFor(() => expect(savedNodesView.getByText("Studio Node").closest("article")).toHaveClass("active"));
+      const localProfile = savedNodesView.getByText("This computer").closest("article");
+      expect(localProfile).not.toBeNull();
+      fireEvent.click(within(localProfile as HTMLElement).getByRole("button", { name: "Remove" }));
+
+      await waitFor(() => expect(removeConnectionProfile).toHaveBeenCalledWith("local-this-mac"));
+      await waitFor(() => expect(savedNodesView.queryByText("This computer")).not.toBeInTheDocument());
+      expect(confirm).toHaveBeenCalledTimes(1);
+    } finally {
+      confirm.mockRestore();
+    }
   });
 });

@@ -26,6 +26,7 @@ export interface SessionSummary {
   title: string;
   updatedAt: string;
   lastMessagePreview: string;
+  archived?: boolean;
 }
 
 export interface ChatMessage {
@@ -68,4 +69,27 @@ export interface SendMessageInput {
   agentId: string;
   sessionId: string;
   text: string;
+  artifactRefs?: ArtifactReference[];
+}
+
+export interface ArtifactReference {
+  key: string;
+  version: number;
+}
+
+export interface ArtifactSummary extends ArtifactReference {
+  id: string;
+  fileName: string;
+  mimeType: string;
+  sizeBytes: number;
+  source: "user_upload" | "agent_output" | string;
+  createdAt: string;
+}
+
+export interface ArtifactUploadInput {
+  agentId: string;
+  sessionId: string;
+  fileName: string;
+  mimeType: string;
+  dataBase64: string;
 }

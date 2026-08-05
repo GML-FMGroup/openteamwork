@@ -822,6 +822,33 @@ class CronService:
             self._arm_timer()
         return removed
 
+    def update_job(
+        self,
+        job_id: str,
+        *,
+        name: str,
+        schedule: CronSchedule,
+        message: str,
+        agent_id: str | None,
+        user_id: str | None,
+        delete_after_run: bool,
+    ) -> CronJob | None:
+        """Update one persisted job while preserving its execution history."""
+        store = self._load_store()
+        for job in store.jobs:
+            if job.id != job_id:
+                continue
+            job.name = name
+            job.schedule = schedule
+            job.payload = CronPayload(message=message, agent_id=agent_id, user_id=user_id)
+            job.delete_after_run = delete_after_run
+            job.updated_at_ms = self._now()
+            job.state.next_run_at_ms = _compute_next_run(schedule, self._now()) if job.enabled else None
+            self._save_store()
+            self._arm_timer()
+            return job
+        return None
+
     def enable_job(self, job_id: str, *, enabled: bool = True) -> CronJob | None:
         store = self._load_store()
         for job in store.jobs:

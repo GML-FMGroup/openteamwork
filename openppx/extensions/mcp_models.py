@@ -5,7 +5,15 @@ from __future__ import annotations
 from typing import Annotated, Literal, TypeAlias
 from urllib.parse import urlsplit
 
-from pydantic import Field, JsonValue, StrictBool, StrictInt, StringConstraints, field_validator
+from pydantic import (
+    Field,
+    JsonValue,
+    StrictBool,
+    StrictInt,
+    StringConstraints,
+    field_validator,
+    model_validator,
+)
 
 from openppx.config.models import DisplayName, ResourceMetadata, ResourceName, StrictConfigModel
 from openppx.config.secrets import SecretRef
@@ -18,6 +26,10 @@ EnvironmentName: TypeAlias = Annotated[str, StringConstraints(pattern=r"^[A-Za-z
 HeaderName: TypeAlias = Annotated[
     str,
     StringConstraints(pattern=r"^[!#$%&'*+.^_`|~0-9A-Za-z-]{1,128}$"),
+]
+QueryName: TypeAlias = Annotated[
+    str,
+    StringConstraints(pattern=r"^[A-Za-z0-9][A-Za-z0-9_.~-]{0,127}$"),
 ]
 
 
@@ -60,8 +72,25 @@ class McpSecretValue(StrictConfigModel):
         return value
 
 
+class McpEnvironmentValue(StrictConfigModel):
+    """Value read from the Node process environment only at Runtime assembly."""
+
+    kind: Literal["environment"]
+    name: EnvironmentName
+    prefix: Annotated[str, StringConstraints(max_length=128)] = ""
+    suffix: Annotated[str, StringConstraints(max_length=128)] = ""
+
+    @field_validator("prefix", "suffix")
+    @classmethod
+    def decoration_cannot_contain_controls(cls, value: str) -> str:
+        """Keep rendered environment values on one line."""
+        if any(character in value for character in "\r\n\0"):
+            raise ValueError("environment decoration cannot contain line or NUL characters")
+        return value
+
+
 McpValueBinding: TypeAlias = Annotated[
-    McpLiteralValue | McpSecretValue,
+    McpLiteralValue | McpSecretValue | McpEnvironmentValue,
     Field(discriminator="kind"),
 ]
 
@@ -106,6 +135,8 @@ class McpRemoteTransport(StrictConfigModel):
     type: Literal["streamable_http", "sse"]
     url: Annotated[str, StringConstraints(min_length=1, max_length=2048)]
     headers: dict[HeaderName, McpValueBinding] = Field(default_factory=dict)
+    query: dict[QueryName, McpValueBinding] = Field(default_factory=dict)
+    auth: Literal["none", "oauth"] = "none"
 
     @field_validator("url")
     @classmethod
@@ -119,7 +150,7 @@ class McpRemoteTransport(StrictConfigModel):
         if parsed.username is not None or parsed.password is not None:
             raise ValueError("url userinfo is not allowed; use a SecretRef header")
         if parsed.query:
-            raise ValueError("url query is not allowed; use an explicit header binding")
+            raise ValueError("url query is not allowed; use an explicit query binding")
         if parsed.fragment:
             raise ValueError("url fragment is not allowed")
         return value
@@ -130,6 +161,14 @@ class McpRemoteTransport(StrictConfigModel):
         """Bound static header construction."""
         if len(value) > 64:
             raise ValueError("headers exceed the allowed entry count")
+        return value
+
+    @field_validator("query")
+    @classmethod
+    def query_is_bounded(cls, value: dict[str, McpValueBinding]) -> dict[str, McpValueBinding]:
+        """Keep protected runtime query expansion bounded and explicit."""
+        if len(value) > 64:
+            raise ValueError("query exceeds the allowed entry count")
         return value
 
 
@@ -185,6 +224,7 @@ class McpToolPolicy(StrictConfigModel):
     """Tool naming, filtering, confirmation, progress, and task behavior."""
 
     tool_filter: list[ToolName] = Field(default_factory=list)
+    disabled_tools: list[ToolName] = Field(default_factory=list)
     tool_name_prefix: ToolPrefix | None = None
     require_confirmation: StrictBool = False
     runtime_headers: dict[HeaderName, RuntimeHeaderSource] = Field(default_factory=dict)
@@ -193,7 +233,7 @@ class McpToolPolicy(StrictConfigModel):
     inline_budget_ms: StrictInt = Field(default=5000, ge=100, le=60_000)
     job_protocol: McpJobProtocolSpec | None = None
 
-    @field_validator("tool_filter")
+    @field_validator("tool_filter", "disabled_tools")
     @classmethod
     def tool_filter_is_unique(cls, value: list[str]) -> list[str]:
         """Reject ambiguous duplicate tool policy entries."""
@@ -202,6 +242,13 @@ class McpToolPolicy(StrictConfigModel):
         if len(value) > 256:
             raise ValueError("toolFilter exceeds the allowed entry count")
         return value
+
+    @model_validator(mode="after")
+    def include_and_exclude_are_mutually_exclusive(self) -> "McpToolPolicy":
+        """Keep the standard MCP allowlist and denylist semantics unambiguous."""
+        if self.tool_filter and self.disabled_tools:
+            raise ValueError("toolFilter and disabledTools cannot both be configured")
+        return self
 
     @field_validator("runtime_headers")
     @classmethod
@@ -255,6 +302,7 @@ class McpServer(StrictConfigModel):
 
 
 __all__ = [
+    "McpEnvironmentValue",
     "McpJobProtocolSpec",
     "McpLiteralValue",
     "McpOwnerRef",

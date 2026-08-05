@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type {
   AgentProfile,
   AgentCreateRequest,
+  ArtifactSummary,
   BootstrapPayload,
   ChatMessage,
   ClientDiagnostics,
@@ -78,6 +79,25 @@ function buildConnectionSettings(diagnostics: ClientDiagnostics | null): Connect
     clientApiBaseUrl: diagnostics?.clientApiBaseUrl ?? "http://127.0.0.1:18765",
     accessToken: "",
   };
+}
+
+export interface PendingAttachment {
+  id: string;
+  fileName: string;
+  mimeType: string;
+  sizeBytes: number;
+  dataBase64: string;
+  status: "ready" | "uploading" | "failed";
+}
+
+async function fileToBase64(file: File): Promise<string> {
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  let binary = "";
+  const chunkSize = 32_768;
+  for (let offset = 0; offset < bytes.length; offset += chunkSize) {
+    binary += String.fromCharCode(...bytes.subarray(offset, offset + chunkSize));
+  }
+  return btoa(binary);
 }
 
 function onboardingBootstrap(diagnostics: ClientDiagnostics): BootstrapPayload {
@@ -296,9 +316,11 @@ export function useDesktopWorkspace() {
   const [agentCreateError, setAgentCreateError] = useState<string | null>(null);
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [sessionArtifacts, setSessionArtifacts] = useState<ArtifactSummary[]>([]);
   const [selectedAgentId, setSelectedAgentId] = useState("");
   const [selectedSessionId, setSelectedSessionId] = useState("");
   const [composer, setComposer] = useState("");
+  const [attachments, setAttachments] = useState<PendingAttachment[]>([]);
   const [sendError, setSendError] = useState<string | null>(null);
   const [cancellingRunId, setCancellingRunId] = useState<string | null>(null);
   const [connectionForm, setConnectionForm] = useState<ConnectionSettings>(buildConnectionSettings(null));
@@ -330,6 +352,18 @@ export function useDesktopWorkspace() {
   const connectionProfileKeyRef = useRef("");
   const setupFormInitializedRef = useRef(false);
   const activeRuns = useActiveRuns();
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!selectedAgentId || !selectedSessionId) {
+      setSessionArtifacts([]);
+      return () => { cancelled = true; };
+    }
+    void window.ppxClient.listArtifacts(selectedAgentId, selectedSessionId)
+      .then(({ artifacts }) => { if (!cancelled) setSessionArtifacts(artifacts); })
+      .catch(() => { if (!cancelled) setSessionArtifacts([]); });
+    return () => { cancelled = true; };
+  }, [selectedAgentId, selectedSessionId]);
 
   const selectAgentId = (agentId: string): void => {
     selectedAgentIdRef.current = agentId;
@@ -636,6 +670,7 @@ export function useDesktopWorkspace() {
     }
     const requestId = ++switchRequestIdRef.current;
     setSendError(null);
+    setAttachments([]);
     selectAgentId(agentId);
     selectSessionId("");
     setSessions([]);
@@ -691,9 +726,22 @@ export function useDesktopWorkspace() {
     }
   }
 
+  async function reloadWorkspace(): Promise<void> {
+    // Refresh Node-owned workspace projections after lifecycle mutations.
+    const payload = await window.ppxClient.bootstrap();
+    setRuntime(payload.runtime);
+    setAgents(payload.agents);
+    setSessions(payload.sessions);
+    replaceMessages(payload.messages);
+    selectAgentId(payload.selectedAgentId);
+    selectSessionId(payload.selectedSessionId);
+    setDiagnostics(await window.ppxClient.getDiagnostics());
+  }
+
   async function switchSession(session: SessionSummary): Promise<void> {
     const requestId = ++switchRequestIdRef.current;
     setSendError(null);
+    setAttachments([]);
     selectAgentId(session.agentId);
     selectSessionId(session.id);
     replaceMessages([]);
@@ -934,6 +982,56 @@ export function useDesktopWorkspace() {
     replaceMessages([]);
   }
 
+  async function refreshSelectedAgentSessions(preferredSessionId = selectedSessionIdRef.current): Promise<void> {
+    const agentId = selectedAgentIdRef.current;
+    if (!agentId) return;
+    const listed = await window.ppxClient.listSessions(agentId);
+    setSessions(listed.sessions);
+    const next = listed.sessions.find((session) => session.id === preferredSessionId && !session.archived)
+      ?? listed.sessions.find((session) => !session.archived)
+      ?? listed.sessions[0];
+    if (!next) {
+      const created = await window.ppxClient.createSession(agentId);
+      setSessions([created.session]);
+      selectSessionId(created.session.id);
+      replaceMessages([]);
+      return;
+    }
+    selectSessionId(next.id);
+    replaceMessages((await window.ppxClient.loadSession(next.id)).messages);
+  }
+
+  async function renameSession(session: SessionSummary, title: string): Promise<void> {
+    await window.ppxClient.renameSession({ agentId: session.agentId, sessionId: session.id, title });
+    await refreshSelectedAgentSessions(session.id);
+  }
+
+  async function archiveSession(session: SessionSummary): Promise<void> {
+    await window.ppxClient.archiveSession({ agentId: session.agentId, sessionId: session.id, archived: !session.archived });
+    await refreshSelectedAgentSessions(session.archived ? session.id : "");
+  }
+
+  async function forkSession(session: SessionSummary): Promise<void> {
+    const created = await window.ppxClient.forkSession({ agentId: session.agentId, sessionId: session.id });
+    await refreshSelectedAgentSessions(created.session.id);
+  }
+
+  async function exportSession(session: SessionSummary): Promise<void> {
+    const payload = await window.ppxClient.exportSession({ agentId: session.agentId, sessionId: session.id });
+    const blob = new Blob([`${JSON.stringify(payload, null, 2)}\n`], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `${session.title.replace(/[^a-z0-9-_]+/gi, "-").replace(/^-+|-+$/g, "") || "openppx-session"}.json`;
+    link.click();
+    URL.revokeObjectURL(url);
+  }
+
+  async function deleteSession(session: SessionSummary): Promise<void> {
+    await window.ppxClient.deleteSession({ agentId: session.agentId, sessionId: session.id });
+    await refreshSelectedAgentSessions("");
+  }
+
   async function ensureActiveSession(agentId: string, preferredSessionId: string): Promise<SessionSummary> {
     const existing = sessions.find((session) => session.id === preferredSessionId && session.agentId === agentId);
     if (existing) {
@@ -1031,10 +1129,11 @@ export function useDesktopWorkspace() {
 
   async function sendMessage(rawText?: string): Promise<void> {
     const text = (rawText ?? composer).trim();
-    if (!text || !selectedAgentId) {
+    const queuedAttachments = [...attachments];
+    if ((!text && queuedAttachments.length === 0) || !selectedAgentId) {
       return;
     }
-    if (text.startsWith("/")) {
+    if (text.startsWith("/") && queuedAttachments.length === 0) {
       await executeSlashCommand(text);
       return;
     }
@@ -1047,26 +1146,129 @@ export function useDesktopWorkspace() {
       return;
     }
     const sessionId = session.id;
+    let uploadedArtifacts: ArtifactSummary[] = [];
+    if (queuedAttachments.length) {
+      setAttachments((current) => current.map((item) => ({ ...item, status: "uploading" })));
+      try {
+        for (const attachment of queuedAttachments) {
+          uploadedArtifacts.push(await window.ppxClient.uploadArtifact({
+            agentId: selectedAgentId,
+            sessionId,
+            fileName: attachment.fileName,
+            mimeType: attachment.mimeType,
+            dataBase64: attachment.dataBase64,
+          }));
+        }
+      } catch (error) {
+        setAttachments((current) => current.map((item) => ({ ...item, status: "failed" })));
+        setSendError(error instanceof Error ? error.message : String(error));
+        return;
+      }
+    }
+    if (uploadedArtifacts.length) {
+      setSessionArtifacts((current) => [
+        ...uploadedArtifacts,
+        ...current.filter((item) => !uploadedArtifacts.some((uploaded) => uploaded.id === item.id)),
+      ]);
+    }
     activeRuns.begin(sessionId);
     setComposer("");
+    setAttachments([]);
+    const attachmentParts: ChatMessage["parts"] = queuedAttachments.map((attachment) =>
+      attachment.mimeType.startsWith("image/")
+        ? {
+            type: "image" as const,
+            text: attachment.fileName,
+            url: `data:${attachment.mimeType};base64,${attachment.dataBase64}`,
+            mimeType: attachment.mimeType,
+          }
+        : {
+            type: "file" as const,
+            text: "Attached file",
+            fileName: attachment.fileName,
+            sizeBytes: attachment.sizeBytes,
+            mimeType: attachment.mimeType,
+          },
+    );
     const optimisticMessage: ChatMessage = {
       id: `local-user-${crypto.randomUUID()}`,
       sessionId,
       role: "user",
       status: "completed",
       createdAt: new Date().toISOString(),
-      parts: [{ type: "markdown", text }],
+      parts: [...(text ? [{ type: "markdown" as const, text }] : []), ...attachmentParts],
     };
-    applyFirstUserTitle(sessionId, text, optimisticMessage.createdAt);
+    applyFirstUserTitle(
+      sessionId,
+      text || queuedAttachments.map((item) => item.fileName).join(", "),
+      optimisticMessage.createdAt,
+    );
     setMessages((current) => [...current, optimisticMessage]);
     try {
-      const result = await window.ppxClient.sendMessage({ agentId: selectedAgentId, sessionId, text });
+      const artifactRefs = uploadedArtifacts.map(({ key, version }) => ({ key, version }));
+      const result = await window.ppxClient.sendMessage({
+        agentId: selectedAgentId,
+        sessionId,
+        text,
+        ...(artifactRefs.length ? { artifactRefs } : {}),
+      });
       activeRuns.attachRunId(sessionId, result.runId);
     } catch (error) {
       console.error("Failed to send message", error);
       activeRuns.finish(sessionId);
+      setAttachments(queuedAttachments.map((item) => ({ ...item, status: "ready" })));
       setSendError(error instanceof Error ? error.message : String(error));
     }
+  }
+
+  async function addAttachments(files: File[]): Promise<void> {
+    if (!files.length) return;
+    if (attachments.length + files.length > 10) {
+      setSendError("A message can include at most 10 files.");
+      return;
+    }
+    const accepted: PendingAttachment[] = [];
+    const maximumTotalBytes = 50 * 1024 * 1024;
+    let totalBytes = attachments.reduce((sum, attachment) => sum + attachment.sizeBytes, 0);
+    for (const file of files) {
+      if (file.size <= 0 || file.size > 20 * 1024 * 1024) {
+        setSendError(`${file.name} must be between 1 byte and 20 MB.`);
+        continue;
+      }
+      if (totalBytes + file.size > maximumTotalBytes) {
+        setSendError("Attachments for one message cannot exceed 50 MB in total.");
+        continue;
+      }
+      try {
+        accepted.push({
+          id: crypto.randomUUID(),
+          fileName: file.name,
+          mimeType: file.type || "application/octet-stream",
+          sizeBytes: file.size,
+          dataBase64: await fileToBase64(file),
+          status: "ready",
+        });
+        totalBytes += file.size;
+      } catch (error) {
+        setSendError(error instanceof Error ? error.message : String(error));
+      }
+    }
+    if (accepted.length) {
+      setAttachments((current) => [...current, ...accepted].slice(0, 10));
+      setSendError(null);
+    }
+  }
+
+  async function loadArtifactData(artifact: ArtifactSummary): Promise<string> {
+    if (!selectedAgentId || !selectedSessionId) {
+      throw new Error("Select a Session before opening an artifact.");
+    }
+    const result = await window.ppxClient.downloadArtifact(
+      selectedAgentId,
+      selectedSessionId,
+      artifact,
+    );
+    return `data:${result.mimeType};base64,${result.dataBase64}`;
   }
 
   async function cancelCurrentRun(): Promise<void> {
@@ -1095,12 +1297,17 @@ export function useDesktopWorkspace() {
     clearAgentCreateError: () => setAgentCreateError(null),
     sessions,
     messages,
+    sessionArtifacts,
     selectedAgentId,
     selectedSessionId,
     selectedAgent,
     selectedSession,
     composer,
     setComposer,
+    attachments,
+    addAttachments,
+    removeAttachment: (attachmentId: string) => setAttachments((current) => current.filter((item) => item.id !== attachmentId)),
+    loadArtifactData,
     sendError,
     activeSessionIds: activeRuns.sessionIds,
     currentSessionRunning,
@@ -1134,6 +1341,7 @@ export function useDesktopWorkspace() {
     transcriptResetKey,
     switchAgent,
     createAgent,
+    reloadWorkspace,
     switchSession,
     runRuntimeAction,
     stopRuntime,
@@ -1156,6 +1364,11 @@ export function useDesktopWorkspace() {
     saveConnection,
     testConnection,
     createSession,
+    renameSession,
+    archiveSession,
+    forkSession,
+    exportSession,
+    deleteSession,
     sendMessage,
     cancelCurrentRun,
   };

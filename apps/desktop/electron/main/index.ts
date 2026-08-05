@@ -5,24 +5,46 @@ import type { ClientDiagnostics } from "../../app/src/types";
 import {
   validateConnectionSettings,
   validateAgentCreateRequest,
+  validateAgentUpdateInput,
+  validateArtifactSummaryInput,
+  validateArtifactUploadInput,
   validateExtensionEnablement,
+  validateExtensionInstallRequest,
   validateExtensionKind,
+  validateExtensionPreviewRequest,
+  validateExtensionRemoveRequest,
+  validateMcpMutationRequest,
+  validateAppConnectionSaveRequest,
+  validateAppConnectionEnablementRequest,
+  validateAppConnectionRemoveRequest,
   validateExternalUrl,
   validateIdentifier,
   validateRuntimeCommand,
+  validateSearchQuery,
   validateProviderId,
   validateModelProfileCreateInput,
   validateModelProfileUpdateInput,
   validateModelProfileId,
+  validateOperationsCronCreateInput,
+  validateOperationsCronUpdateInput,
+  validateHeartbeatConfiguration,
+  validateOperationsTaskControlInput,
   validateSendMessageInput,
   validateSetupApplyRequest,
   validateSetupHelloText,
   validateSlashCommandRequest,
+  validateSessionArchiveRequest,
+  validateSessionMutationRequest,
+  validateSessionRenameRequest,
 } from "./ipc-validation";
 import { OpenPpxLocalAdapter } from "./openppx-local-adapter";
 import {
   readSecureConnectionSettings,
+  listSecureConnectionProfiles,
+  readSecureConnectionProfile,
+  removeSecureConnectionProfile,
   resolveCandidateConnectionSettings,
+  setActiveSecureConnectionProfile,
   writeSecureConnectionSettings,
 } from "./secure-connection-store";
 
@@ -87,11 +109,37 @@ app.whenReady().then(() => {
     adapter!.applyConnectionSettings(candidate);
     return withDesktopVersion(await adapter!.getDiagnostics());
   });
+  ipcMain.handle("ppx-client:list-connection-profiles", () => ({ profiles: listSecureConnectionProfiles() }));
+  ipcMain.handle("ppx-client:activate-connection-profile", async (_event, targetId: unknown) => {
+    const settings = readSecureConnectionProfile(validateIdentifier(targetId, "Node target id"));
+    await adapter!.testConnectionSettings(settings);
+    setActiveSecureConnectionProfile(settings.targetId);
+    adapter!.applyConnectionSettings(settings);
+    return withDesktopVersion(await adapter!.getDiagnostics());
+  });
+  ipcMain.handle("ppx-client:remove-connection-profile", (_event, targetId: unknown) => {
+    removeSecureConnectionProfile(validateIdentifier(targetId, "Node target id"));
+    return { removed: true };
+  });
   ipcMain.handle("ppx-client:runtime-command", async (_event, command: unknown) =>
     adapter!.runRuntimeCommand(validateRuntimeCommand(command)),
   );
   ipcMain.handle("ppx-client:create-agent", async (_event, input: unknown) =>
     adapter!.createAgent(validateAgentCreateRequest(input)),
+  );
+  ipcMain.handle("ppx-client:list-managed-agents", async () => adapter!.listManagedAgents());
+  ipcMain.handle("ppx-client:update-agent", async (_event, input: unknown) =>
+    adapter!.updateAgent(validateAgentUpdateInput(input)),
+  );
+  ipcMain.handle("ppx-client:set-agent-enabled", async (_event, agentId: unknown, enabled: unknown) => {
+    if (typeof enabled !== "boolean") throw new TypeError("Agent enabled must be a boolean.");
+    return adapter!.setAgentEnabled(validateIdentifier(agentId, "Agent id"), enabled);
+  });
+  ipcMain.handle("ppx-client:remove-agent", async (_event, agentId: unknown, expectedRevision: unknown) =>
+    adapter!.removeAgent(
+      validateIdentifier(agentId, "Agent id"),
+      validateIdentifier(expectedRevision, "Expected Agent revision"),
+    ),
   );
   ipcMain.handle("ppx-client:get-setup-status", async () => adapter!.getSetupStatus());
   ipcMain.handle("ppx-client:apply-setup", async (_event, request: unknown) =>
@@ -135,14 +183,75 @@ app.whenReady().then(() => {
       typeof limit === "number" && Number.isInteger(limit) && limit > 0 && limit <= 200 ? limit : 20,
     ),
   );
+  ipcMain.handle("ppx-client:get-operations-dashboard", async () => adapter!.getOperationsDashboard());
+  ipcMain.handle("ppx-client:get-operations-task", async (_event, taskId: unknown) =>
+    adapter!.getOperationsTask(validateIdentifier(taskId, "Task id")),
+  );
+  ipcMain.handle("ppx-client:get-operations-task-output", async (_event, taskId: unknown) =>
+    adapter!.getOperationsTaskOutput(validateIdentifier(taskId, "Task id")),
+  );
+  ipcMain.handle("ppx-client:control-operations-task", async (_event, input: unknown) =>
+    adapter!.controlOperationsTask(validateOperationsTaskControlInput(input)),
+  );
+  ipcMain.handle("ppx-client:create-operations-cron", async (_event, input: unknown) =>
+    adapter!.createOperationsCron(validateOperationsCronCreateInput(input)),
+  );
+  ipcMain.handle("ppx-client:update-operations-cron", async (_event, input: unknown) =>
+    adapter!.updateOperationsCron(validateOperationsCronUpdateInput(input)),
+  );
+  ipcMain.handle("ppx-client:set-operations-cron-enabled", async (_event, jobId: unknown, enabled: unknown) => {
+    if (typeof enabled !== "boolean") throw new TypeError("Cron enabled must be a boolean.");
+    return adapter!.setOperationsCronEnabled(validateIdentifier(jobId, "Cron job id"), enabled);
+  });
+  ipcMain.handle("ppx-client:run-operations-cron", async (_event, jobId: unknown) =>
+    adapter!.runOperationsCron(validateIdentifier(jobId, "Cron job id")),
+  );
+  ipcMain.handle("ppx-client:remove-operations-cron", async (_event, jobId: unknown) =>
+    adapter!.removeOperationsCron(validateIdentifier(jobId, "Cron job id")),
+  );
+  ipcMain.handle("ppx-client:run-operations-heartbeat", async () => adapter!.runOperationsHeartbeat());
+  ipcMain.handle("ppx-client:configure-operations-heartbeat", async (_event, input: unknown) =>
+    adapter!.configureOperationsHeartbeat(validateHeartbeatConfiguration(input)),
+  );
   ipcMain.handle("ppx-client:list-sessions", async (_event, agentId: unknown) =>
     adapter!.listSessions(validateIdentifier(agentId, "Agent id")),
   );
   ipcMain.handle("ppx-client:create-session", async (_event, agentId: unknown) =>
     adapter!.createSession(validateIdentifier(agentId, "Agent id")),
   );
+  ipcMain.handle("ppx-client:rename-session", async (_event, input: unknown) =>
+    adapter!.renameSession(validateSessionRenameRequest(input)),
+  );
+  ipcMain.handle("ppx-client:archive-session", async (_event, input: unknown) =>
+    adapter!.archiveSession(validateSessionArchiveRequest(input)),
+  );
+  ipcMain.handle("ppx-client:fork-session", async (_event, input: unknown) =>
+    adapter!.forkSession(validateSessionMutationRequest(input)),
+  );
+  ipcMain.handle("ppx-client:export-session", async (_event, input: unknown) =>
+    adapter!.exportSession(validateSessionMutationRequest(input)),
+  );
+  ipcMain.handle("ppx-client:delete-session", async (_event, input: unknown) =>
+    adapter!.deleteSession(validateSessionMutationRequest(input)),
+  );
   ipcMain.handle("ppx-client:load-session", async (_event, sessionId: unknown) =>
     adapter!.loadSession(validateIdentifier(sessionId, "Session id")),
+  );
+  ipcMain.handle("ppx-client:upload-artifact", async (_event, input: unknown) =>
+    adapter!.uploadArtifact(validateArtifactUploadInput(input)),
+  );
+  ipcMain.handle("ppx-client:list-artifacts", async (_event, agentId: unknown, sessionId: unknown) =>
+    adapter!.listArtifacts(
+      validateIdentifier(agentId, "Agent id"),
+      validateIdentifier(sessionId, "Session id"),
+    ),
+  );
+  ipcMain.handle("ppx-client:download-artifact", async (_event, agentId: unknown, sessionId: unknown, artifact: unknown) =>
+    adapter!.downloadArtifact(
+      validateIdentifier(agentId, "Agent id"),
+      validateIdentifier(sessionId, "Session id"),
+      validateArtifactSummaryInput(artifact),
+    ),
   );
   ipcMain.handle("ppx-client:send-message", async (_event, input: unknown) =>
     adapter!.sendMessage(validateSendMessageInput(input)),
@@ -155,14 +264,65 @@ app.whenReady().then(() => {
     adapter!.invokeSlashCommand(validateSlashCommandRequest(input)),
   );
   ipcMain.handle("ppx-client:list-extensions", async () => adapter!.listExtensions());
+  ipcMain.handle("ppx-client:list-extension-starters", async (_event, kind: unknown, query: unknown) =>
+    adapter!.listExtensionStarters(
+      kind === null || kind === undefined ? undefined : validateExtensionKind(kind),
+      query === null || query === undefined || query === "" ? undefined : validateSearchQuery(query),
+    ),
+  );
   ipcMain.handle("ppx-client:get-extension", async (_event, kind: unknown, extensionId: unknown) =>
     adapter!.getExtension(
       validateExtensionKind(kind),
       validateIdentifier(extensionId, "Extension id"),
     ),
   );
+  ipcMain.handle("ppx-client:get-extension-readiness", async (_event, kind: unknown, extensionId: unknown) =>
+    adapter!.getExtensionReadiness(
+      validateExtensionKind(kind),
+      validateIdentifier(extensionId, "Extension id"),
+    ),
+  );
+  ipcMain.handle("ppx-client:preview-extension", async (_event, input: unknown) =>
+    adapter!.previewExtension(validateExtensionPreviewRequest(input)),
+  );
+  ipcMain.handle("ppx-client:install-extension", async (_event, input: unknown) =>
+    adapter!.installExtension(validateExtensionInstallRequest(input)),
+  );
   ipcMain.handle("ppx-client:set-extension-agent-enabled", async (_event, input: unknown) =>
     adapter!.setExtensionAgentEnabled(validateExtensionEnablement(input)),
+  );
+  ipcMain.handle("ppx-client:remove-extension", async (_event, input: unknown) =>
+    adapter!.removeExtension(validateExtensionRemoveRequest(input)),
+  );
+  ipcMain.handle("ppx-client:create-mcp-server", async (_event, input: unknown) =>
+    adapter!.createMcpServer(validateMcpMutationRequest(input)),
+  );
+  ipcMain.handle("ppx-client:update-mcp-server", async (_event, input: unknown) =>
+    adapter!.updateMcpServer(validateMcpMutationRequest(input)),
+  );
+  ipcMain.handle("ppx-client:begin-mcp-oauth", async (_event, serverId: unknown) =>
+    adapter!.beginMcpOAuth(validateIdentifier(serverId, "MCP server id")),
+  );
+  ipcMain.handle("ppx-client:get-mcp-oauth-status", async (_event, serverId: unknown) =>
+    adapter!.getMcpOAuthStatus(validateIdentifier(serverId, "MCP server id")),
+  );
+  ipcMain.handle("ppx-client:sign-out-mcp-oauth", async (_event, serverId: unknown) =>
+    adapter!.signOutMcpOAuth(validateIdentifier(serverId, "MCP server id")),
+  );
+  ipcMain.handle("ppx-client:test-mcp-server", async (_event, serverId: unknown) =>
+    adapter!.testMcpServer(validateIdentifier(serverId, "MCP server id")),
+  );
+  ipcMain.handle("ppx-client:save-app-connection", async (_event, input: unknown) =>
+    adapter!.saveAppConnection(validateAppConnectionSaveRequest(input)),
+  );
+  ipcMain.handle("ppx-client:test-app-connection", async (_event, connectionId: unknown) =>
+    adapter!.testAppConnection(validateIdentifier(connectionId, "App Connection id")),
+  );
+  ipcMain.handle("ppx-client:set-app-connection-agent-enabled", async (_event, input: unknown) =>
+    adapter!.setAppConnectionAgentEnabled(validateAppConnectionEnablementRequest(input)),
+  );
+  ipcMain.handle("ppx-client:remove-app-connection", async (_event, input: unknown) =>
+    adapter!.removeAppConnection(validateAppConnectionRemoveRequest(input)),
   );
 
   createWindow();

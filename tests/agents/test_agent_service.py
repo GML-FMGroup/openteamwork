@@ -132,3 +132,44 @@ def test_conflicting_staged_agent_does_not_create_requested_workspace(tmp_path: 
 
     assert conflict.value.code == "agent_id_conflict"
     assert not conflicting_workspace.exists()
+
+
+def test_update_disable_and_recoverable_delete_preserve_workspace(tmp_path: Path) -> None:
+    application = configured_application(tmp_path)
+    created = application.agent_lifecycle.create(
+        agent_id="research",
+        display_name="Research",
+        owner_principal_id="ppx-client-user",
+        privilege_level="medium",
+        model_profile_id="primary",
+    )
+
+    updated = application.agent_lifecycle.update(
+        agent_id="research",
+        display_name="Research Desk",
+        workspace=str(created.workspace),
+        privilege_level="high",
+        model_profile_id="primary",
+        instruction="Prefer concise research notes.",
+        expected_revision=created.agent.revision,
+    )
+    assert updated.agent.document.spec.display_name == "Research Desk"
+    assert updated.agent.document.spec.instruction == "Prefer concise research notes."
+    assert updated.agent.document.spec.privilege_level == "high"
+
+    with pytest.raises(AgentLifecycleError) as active_delete:
+        application.agent_lifecycle.delete(
+            agent_id="research",
+            expected_revision=updated.agent.revision,
+        )
+    assert active_delete.value.code == "agent_must_be_disabled"
+
+    disabled = application.agent_lifecycle.set_enabled(agent_id="research", enabled=False)
+    assert disabled.enabled is False
+    removed = application.agent_lifecycle.delete(
+        agent_id="research",
+        expected_revision=updated.agent.revision,
+    )
+    assert removed.workspace.is_dir()
+    assert removed.archive_path.is_file()
+    assert "research" not in application.config_repository.list_agent_ids()

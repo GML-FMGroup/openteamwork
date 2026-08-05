@@ -302,6 +302,7 @@ class AgentSpec(StrictConfigModel):
 
     display_name: DisplayName
     workspace: Annotated[str, StringConstraints(min_length=1, max_length=1024)]
+    instruction: Annotated[str, StringConstraints(max_length=16_384)] = ""
     owner_principal_id: Annotated[str, StringConstraints(min_length=1, max_length=128)]
     privilege_level: PrivilegeLevel = "low"
     permission_overrides: PermissionOverrides = Field(default_factory=PermissionOverrides)
@@ -312,6 +313,14 @@ class AgentSpec(StrictConfigModel):
     def identity_text_must_be_meaningful(cls, value: str) -> str:
         """Reject blank or control-bearing identity and workspace fields."""
         return _visible_text(value)
+
+    @field_validator("instruction")
+    @classmethod
+    def instruction_must_not_contain_controls(cls, value: str) -> str:
+        """Allow an empty instruction while rejecting unsafe control characters."""
+        if any((ord(character) < 32 and character not in {"\n", "\t"}) or ord(character) == 127 for character in value):
+            raise ValueError("instruction must not contain control characters")
+        return value.strip()
 
     @model_validator(mode="after")
     def permission_overrides_must_only_narrow(self) -> "AgentSpec":

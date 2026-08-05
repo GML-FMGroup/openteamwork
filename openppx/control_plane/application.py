@@ -11,6 +11,8 @@ from openppx.config import ConfigService, FilesystemConfigRepository
 from openppx.modeling import ModelProfileLifecycleService, ModelProfileRepository, ModelProfileSelector, ProviderAccessService
 from openppx.setup import SetupService
 from openppx.governance import ActionAuditStore, ActionPolicy
+from openppx.runtime.session_metadata_store import SessionMetadataStore
+from openppx.extensions import default_extension_starter_catalog
 
 from .config_actions import register_config_actions
 from .agent_actions import register_agent_actions
@@ -50,6 +52,9 @@ class ControlPlaneApplication:
         self.setup_service = setup_service
         self.audit_store = audit_store
         self.product_version = product_version
+        self.session_metadata = SessionMetadataStore(
+            config_repository.paths.node_root / "database" / "sessions.db"
+        )
         registry = ActionRegistry()
         executor = ActionExecutor(registry, policy=ActionPolicy(), audit=audit_store)
         register_config_actions(registry, config_repository, config_service)
@@ -83,6 +88,7 @@ class ControlPlaneApplication:
         self.executor = executor
         self.runtime_supervisor = None
         self.extension_registry = None
+        self.mcp_oauth_service = None
         self.operations_service = None
 
     @staticmethod
@@ -145,6 +151,8 @@ class ControlPlaneApplication:
         mcp,
         apps,
         plugins,
+        mcp_probe,
+        starters=None,
     ) -> None:
         """Attach the Node-owned Extension graph and register its shared Actions."""
         if self.extension_registry is not None:
@@ -156,14 +164,23 @@ class ControlPlaneApplication:
             mcp=mcp,
             apps=apps,
             plugins=plugins,
+            mcp_probe=mcp_probe,
+            starters=starters or default_extension_starter_catalog(),
+            mcp_oauth=mcp_probe.oauth_service,
         )
         self.extension_registry = registry
+        self.mcp_oauth_service = mcp_probe.oauth_service
 
-    def attach_runtime(self, supervisor, *, task_controller=None) -> None:
+    def attach_runtime(self, supervisor, *, task_controller=None, session_metadata=None) -> None:
         """Attach the one Node Runtime Supervisor and register its Actions."""
         if self.runtime_supervisor is not None:
             raise RuntimeError("A Runtime Supervisor is already attached.")
-        register_runtime_actions(self.registry, supervisor, task_controller=task_controller)
+        register_runtime_actions(
+            self.registry,
+            supervisor,
+            task_controller=task_controller,
+            session_metadata=session_metadata or self.session_metadata,
+        )
         register_setup_runtime_actions(self.registry, self.setup_service, supervisor)
         self.runtime_supervisor = supervisor
 

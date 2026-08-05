@@ -152,6 +152,7 @@ class AssembledRuntime:
     runner: Any
     session_service: Any
     extension_toolsets: tuple[ManagedMcpToolset, ...] = ()
+    artifact_service: Any | None = None
 
     async def close(self) -> None:
         """Release every connection-bearing extension toolset."""
@@ -176,6 +177,25 @@ class AssembledRuntime:
             user_id=user_id,
             session_id=session_id,
             new_message=request,
+        )
+
+    async def run_message(
+        self,
+        message: types.Content,
+        *,
+        user_id: str,
+        session_id: str,
+        on_event: Callable[[Any], None] | None = None,
+        on_text_update: Callable[[str, str], None] | None = None,
+    ) -> str:
+        """Run one multimodal ADK turn from a validated user Content value."""
+        return await run_text_async(
+            self.runner,
+            on_event=on_event,
+            on_text_update=on_text_update,
+            user_id=user_id,
+            session_id=session_id,
+            new_message=message,
         )
 
 
@@ -255,7 +275,12 @@ class RuntimeAssembler:
             snapshot.agent.metadata.name
         )
         mcp_build = self._mcp_adapter.build(resolved_extensions.mcp)
-        resolved_extension_tools = (*mcp_build.toolsets, *extension_tools)
+        native_app_tools = (
+            ()
+            if self._app_manager is None
+            else self._app_manager.build_native_tools(resolved_extensions.apps)
+        )
+        resolved_extension_tools = (*mcp_build.toolsets, *native_app_tools, *extension_tools)
         model = self._model_factory(snapshot.model)
         agent = self._agent_factory(
             snapshot,
@@ -297,6 +322,7 @@ class RuntimeAssembler:
             agent=agent,
             runner=runner,
             session_service=session_service,
+            artifact_service=self.services.artifact_service,
             extension_toolsets=mcp_build.toolsets,
         )
 

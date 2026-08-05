@@ -67,28 +67,27 @@ OpenPPX does not infer remote-job semantics from arbitrary provider payloads. Lo
 
 ## Apps
 
-An App separates product identity and authorization from transport:
+An App separates public product identity and authorization from execution:
 
-- `AppDefinition` declares branding, developer, category, auth slots, tool catalog, risk, and an MCP transport template.
+- `AppDefinition` declares branding, developer, category, auth slots, tool catalog, risk, and exactly one implementation.
 - `AppConnection` binds a user-managed authorization instance, SecretRefs, selected tools, grants, and Agent enablement.
+- An MCP implementation points at a product's standard MCP service; a native implementation names a trusted adapter compiled into the Node.
 
-Connections may only narrow the definition's tool policy. High-risk tools require explicit confirmation. Updating a definition cannot invalidate an active referenced connection, and a Plugin-owned definition cannot be removed independently from its owner.
+Native adapter names in configuration never load arbitrary code. Only adapters explicitly registered by the Node can resolve Secrets and construct ADK tools. Connections may only narrow the definition's tool policy, and high-risk tools require explicit confirmation.
 
 ## Product Plugins
 
-Product Plugin v1 is declarative. Its root manifest is `.openppx-plugin/plugin.json` and may reference:
+OpenPPX uses the Codex Plugin package contract with one portable root alias: the manifest is `.agent-plugin/plugin.json` instead of `.codex-plugin/plugin.json`. All manifest fields and component formats otherwise follow the Codex Plugin standard. A Plugin may contain:
 
-- Skills;
-- App definitions;
-- MCP resources;
-- Agent templates;
-- object schemas;
-- documentation;
-- explicitly allowed runtime capability references.
+- `skills/` with standard `SKILL.md` packages;
+- `.mcp.json` with standard MCP server definitions;
+- `.app.json` with registered App connector IDs;
+- `hooks/` declarations;
+- `assets/` referenced by Plugin metadata.
 
-It cannot declare credentials, CLI entry points, arbitrary Python or ADK initialization hooks, package installers, background processes, or unbounded host code. Referenced files must be unique safe relative paths below the Plugin root.
+The package is not allowed to use the removed OpenPPX-private schema, inject arbitrary Python or ADK initialization code, or persist credential values. Referenced files must be safe relative paths below the Plugin root. Hooks are parsed and reported as unsupported until a reviewed hook runtime is available; they are never executed implicitly.
 
-Plugin-owned resources are projected from immutable installed content. They are not copied into independently mutable registries, preventing ownership and update drift.
+Plugin components are projected from immutable installed content into internal Skill, MCP, and registered-App views. Internal resource IDs are namespaced without rewriting the portable package on disk.
 
 ## Skills
 

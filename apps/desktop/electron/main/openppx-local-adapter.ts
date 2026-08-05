@@ -6,11 +6,14 @@ import path from "node:path";
 import {
   ActionClient,
   AgentClient,
+  ArtifactClient,
   CLIENT_API_PROTOCOL_VERSION,
   CommandClient,
   ExtensionClient,
   ModelClient,
   OperationsClient,
+  SecretClient,
+  SessionClient,
   SetupClient,
   normalizeClientApiMessage,
   normalizeClientApiPart,
@@ -23,6 +26,10 @@ import type {
   AgentProfile,
   AgentCreateRequest,
   AgentCreateResult,
+  AgentResourceSummary,
+  AgentUpdateInput,
+  ArtifactSummary,
+  ArtifactUploadInput,
   BootstrapPayload,
   ChatMessage,
   ClientDiagnostics,
@@ -30,13 +37,33 @@ import type {
   ConnectionTarget,
   ExtensionDetail,
   ExtensionEnablementRequest,
+  ExtensionInstallRequest,
+  ExtensionMutationResult,
+  ExtensionPreview,
+  ExtensionPreviewRequest,
+  ExtensionProbeResult,
+  ExtensionReadinessResult,
+  ExtensionRemoveRequest,
   ExtensionSummary,
+  McpServerResource,
+  McpMutationRequest,
+  McpOAuthStatus,
+  AppConnectionDetail,
+  AppConnectionEnablementRequest,
+  AppConnectionRemoveRequest,
+  AppConnectionSaveRequest,
   ModelProfileSummary,
   ModelProfileResourceResult,
   ModelProfileCreateInput,
   ModelProfileUpdateInput,
   OperationsAuditItem,
+  OperationsDashboard,
   OperationsOverviewResult,
+  OperationsTaskDetailResult,
+  OperationsTaskControlInput,
+  CronCreateInput,
+  CronUpdateInput,
+  HeartbeatConfiguration,
   ModelCatalogResult,
   ProviderAuthStatus,
   MessagePart,
@@ -46,6 +73,7 @@ import type {
   RuntimeStatus,
   SendMessageInput,
   SessionSummary,
+  SessionMutationRequest,
   SlashCommandRequest,
   ProjectedSlashCommand,
   SlashCommandResult,
@@ -68,6 +96,91 @@ type StepPart = Extract<MessagePart, { type: "step_ref" }>;
 
 function now(): string {
   return new Date().toISOString();
+}
+
+function appCredentialRefName(connectionId: string, slot: string): string {
+  const base = `app-${connectionId}-${slot}`.replace(/[^a-z0-9-]+/g, "-").replace(/^-+|-+$/g, "");
+  const suffix = randomBytes(4).toString("hex");
+  return `${base.slice(0, 54).replace(/-+$/g, "")}-${suffix}`;
+}
+
+function mcpSecretRefName(serverId: string, alias: string): string {
+  const base = `mcp-${serverId}-${alias}`.replace(/[^a-z0-9-]+/g, "-").replace(/^-+|-+$/g, "");
+  const suffix = randomBytes(4).toString("hex");
+  return `${base.slice(0, 54).replace(/-+$/g, "")}-${suffix}`;
+}
+
+async function cleanupSecrets(
+  secrets: SecretClient,
+  references: Array<{ store: "system"; name: string }>,
+): Promise<void> {
+  await Promise.allSettled(references.map((reference) => secrets.delete(reference, true)));
+}
+
+/**
+ * Stage write-only MCP values under fresh SecretRefs and return an immutable resource rewrite.
+ * Existing references are never overwritten, so a failed MCP revision cannot change the live server.
+ */
+async function stageMcpSecrets(
+  secrets: SecretClient,
+  resource: McpServerResource,
+  secretValues: Record<string, string>,
+): Promise<{
+  resource: McpServerResource;
+  createdRefs: Array<{ store: "system"; name: string }>;
+}> {
+  const bindingGroups = resource.spec.transport.type === "stdio"
+    ? [resource.spec.transport.environment]
+    : [resource.spec.transport.headers, resource.spec.transport.query ?? {}];
+  const referencedAliases = new Set(
+    bindingGroups.flatMap((bindings) => Object.values(bindings))
+      .filter((binding) => binding.kind === "secret")
+      .map((binding) => binding.kind === "secret" ? binding.secretRef.name : ""),
+  );
+  const replacements = new Map<string, { store: "system"; name: string }>();
+  const createdRefs: Array<{ store: "system"; name: string }> = [];
+
+  try {
+    for (const [alias, rawValue] of Object.entries(secretValues)) {
+      if (!rawValue.trim()) continue;
+      if (!referencedAliases.has(alias)) {
+        throw new Error(`MCP secret value '${alias}' is not referenced by an environment variable, header, or query parameter.`);
+      }
+      const reference = {
+        store: "system" as const,
+        name: mcpSecretRefName(resource.metadata.name, alias),
+      };
+      await secrets.put(reference, rawValue);
+      replacements.set(alias, reference);
+      createdRefs.push(reference);
+    }
+  } catch (error) {
+    await cleanupSecrets(secrets, createdRefs);
+    throw error;
+  }
+
+  const rewriteBindings = (bindings: Record<string, import("@openppx/client").McpValueBinding>) => Object.fromEntries(
+    Object.entries(bindings).map(([name, binding]) => {
+      if (binding.kind !== "secret") return [name, binding];
+      const replacement = replacements.get(binding.secretRef.name);
+      return [name, replacement ? { ...binding, secretRef: replacement } : binding];
+    }),
+  );
+  const transport: McpServerResource["spec"]["transport"] = resource.spec.transport.type === "stdio"
+    ? { ...resource.spec.transport, environment: rewriteBindings(resource.spec.transport.environment) }
+    : {
+        ...resource.spec.transport,
+        headers: rewriteBindings(resource.spec.transport.headers),
+        query: rewriteBindings(resource.spec.transport.query ?? {}),
+      };
+  return {
+    resource: {
+      ...resource,
+      metadata: { ...resource.metadata },
+      spec: { ...resource.spec, transport },
+    },
+    createdRefs,
+  };
 }
 
 function emptyBootstrap(runtime: RuntimeStatus): BootstrapPayload {
@@ -127,7 +240,10 @@ function normalizeAgentProfile(payload: Record<string, unknown>): AgentProfile {
   };
 }
 
-export class OpenPpxLocalAdapter implements Omit<PpxClientApi, "openExternalUrl" | "platform"> {
+export class OpenPpxLocalAdapter implements Omit<
+  PpxClientApi,
+  "openExternalUrl" | "platform" | "listConnectionProfiles" | "activateConnectionProfile" | "removeConnectionProfile"
+> {
   private readonly listeners = new Set<EventSink>();
 
   private readonly openppxRoot = detectOpenPpxRoot();
@@ -156,6 +272,10 @@ export class OpenPpxLocalAdapter implements Omit<PpxClientApi, "openExternalUrl"
 
   private readonly agentManagement: AgentClient;
 
+  private readonly sessions: SessionClient;
+
+  private readonly artifacts: ArtifactClient;
+
   private readonly commands: CommandClient;
 
   private readonly setup: SetupClient;
@@ -163,6 +283,8 @@ export class OpenPpxLocalAdapter implements Omit<PpxClientApi, "openExternalUrl"
   private readonly models: ModelClient;
 
   private readonly operations: OperationsClient;
+
+  private readonly secrets: SecretClient;
 
   private readonly nodeSupervisor: LocalNodeSupervisor;
 
@@ -185,10 +307,13 @@ export class OpenPpxLocalAdapter implements Omit<PpxClientApi, "openExternalUrl"
     this.actions = new ActionClient(this.connection);
     this.extensions = new ExtensionClient(this.actions);
     this.agentManagement = new AgentClient(this.actions);
+    this.sessions = new SessionClient(this.actions);
+    this.artifacts = new ArtifactClient(this.connection);
     this.commands = new CommandClient(this.actions);
     this.setup = new SetupClient(this.actions);
     this.models = new ModelClient(this.actions);
     this.operations = new OperationsClient(this.actions);
+    this.secrets = new SecretClient(this.actions);
     this.nodeSupervisor = new LocalNodeSupervisor({
       openppxRoot: this.openppxRoot,
       nodeRoot: dataRootPath(),
@@ -491,6 +616,27 @@ export class OpenPpxLocalAdapter implements Omit<PpxClientApi, "openExternalUrl"
     };
   }
 
+  public async listManagedAgents(): Promise<{ agents: AgentResourceSummary[] }> {
+    await this.ensureClientApiAvailable();
+    const result = (await this.agentManagement.list()).result;
+    return { agents: result.items };
+  }
+
+  public async updateAgent(input: AgentUpdateInput): Promise<AgentResourceSummary> {
+    await this.ensureClientApiAvailable();
+    return (await this.agentManagement.update(input)).result;
+  }
+
+  public async setAgentEnabled(agentId: string, enabled: boolean): Promise<AgentResourceSummary> {
+    await this.ensureClientApiAvailable();
+    return (await this.agentManagement.setEnabled(agentId, enabled)).result;
+  }
+
+  public async removeAgent(agentId: string, expectedRevision: string): Promise<Record<string, unknown>> {
+    await this.ensureClientApiAvailable();
+    return (await this.agentManagement.remove(agentId, expectedRevision)).result;
+  }
+
   public async saveConnectionSettings(settings: ConnectionSettings): Promise<ClientDiagnostics> {
     this.applyConnectionSettings(settings);
     return this.getDiagnostics();
@@ -638,10 +784,103 @@ export class OpenPpxLocalAdapter implements Omit<PpxClientApi, "openExternalUrl"
     };
   }
 
+  public async getOperationsDashboard(): Promise<OperationsDashboard> {
+    await this.ensureClientApiAvailable();
+    const [overview, tasks, cron, heartbeat, usage, audit] = await Promise.all([
+      this.operations.overview(),
+      this.operations.tasks(null, 50),
+      this.operations.cron(true, 30),
+      this.operations.heartbeat(),
+      this.operations.usage(30),
+      this.operations.audit({ limit: 50 }),
+    ]);
+    return {
+      overview: overview.result,
+      tasks: tasks.result,
+      cron: cron.result,
+      heartbeat: heartbeat.result,
+      usage: usage.result,
+      audit: audit.result.items.map((item) => this.projectAuditItem(item)),
+    };
+  }
+
+  public async getOperationsTask(taskId: string): Promise<OperationsTaskDetailResult> {
+    await this.ensureClientApiAvailable();
+    return (await this.operations.task(taskId)).result;
+  }
+
+  public async getOperationsTaskOutput(taskId: string): Promise<Record<string, unknown>> {
+    await this.ensureClientApiAvailable();
+    return (await this.operations.taskOutput(taskId)).result;
+  }
+
+  public async controlOperationsTask(input: OperationsTaskControlInput): Promise<Record<string, unknown>> {
+    await this.ensureClientApiAvailable();
+    return (await this.operations.controlTask(input, true)).result;
+  }
+
+  public async createOperationsCron(input: CronCreateInput): Promise<Record<string, unknown>> {
+    await this.ensureClientApiAvailable();
+    return (await this.operations.createCron(input, true)).result;
+  }
+
+  public async updateOperationsCron(input: CronUpdateInput): Promise<Record<string, unknown>> {
+    await this.ensureClientApiAvailable();
+    return (await this.operations.updateCron(input, true)).result;
+  }
+
+  public async setOperationsCronEnabled(jobId: string, enabled: boolean): Promise<Record<string, unknown>> {
+    await this.ensureClientApiAvailable();
+    return (await this.operations.setCronEnabled(jobId, enabled, true)).result;
+  }
+
+  public async runOperationsCron(jobId: string): Promise<Record<string, unknown>> {
+    await this.ensureClientApiAvailable();
+    return (await this.operations.runCron(jobId, true, true)).result;
+  }
+
+  public async removeOperationsCron(jobId: string): Promise<Record<string, unknown>> {
+    await this.ensureClientApiAvailable();
+    return (await this.operations.removeCron(jobId, true)).result;
+  }
+
+  public async runOperationsHeartbeat(): Promise<Record<string, unknown>> {
+    await this.ensureClientApiAvailable();
+    return (await this.operations.runHeartbeat("desktop", true)).result;
+  }
+
+  public async configureOperationsHeartbeat(input: HeartbeatConfiguration): Promise<Record<string, unknown>> {
+    await this.ensureClientApiAvailable();
+    return (await this.operations.configureHeartbeat(input, true)).result;
+  }
+
+  private projectAuditItem(item: Record<string, unknown>): OperationsAuditItem {
+    return {
+      id: String(item.id ?? ""),
+      recordedAt: String(item.recordedAt ?? ""),
+      completedAt: typeof item.completedAt === "string" ? item.completedAt : null,
+      actorId: String(item.actorId ?? ""),
+      actionId: String(item.actionId ?? ""),
+      risk: item.risk === "high" || item.risk === "medium" ? item.risk : "low",
+      decisionCode: String(item.decisionCode ?? "unknown"),
+      outcomeCode: typeof item.outcomeCode === "string" ? item.outcomeCode : null,
+      ok: typeof item.ok === "boolean" ? item.ok : null,
+    };
+  }
+
   public async listExtensions(): Promise<{ extensions: ExtensionSummary[] }> {
     await this.ensureClientApiAvailable();
     const envelope = await this.extensions.list();
     return { extensions: envelope.result.items };
+  }
+
+  public async listExtensionStarters(
+    kind?: ExtensionSummary["kind"],
+    query?: string,
+  ): Promise<{ starters: import("@openppx/client").ExtensionStarter[]; counts: Record<ExtensionSummary["kind"], number> }> {
+    await this.ensureClientApiAvailable();
+    const envelope = await this.extensions.listStarters({ kind, query });
+    return { starters: envelope.result.items, counts: envelope.result.counts };
   }
 
   public async getExtension(
@@ -651,6 +890,29 @@ export class OpenPpxLocalAdapter implements Omit<PpxClientApi, "openExternalUrl"
     await this.ensureClientApiAvailable();
     const envelope = await this.extensions.get(kind, extensionId);
     return { extension: envelope.result };
+  }
+
+  public async getExtensionReadiness(
+    kind: ExtensionSummary["kind"],
+    extensionId: string,
+  ): Promise<ExtensionReadinessResult> {
+    await this.ensureClientApiAvailable();
+    return (await this.extensions.readiness(kind, extensionId)).result;
+  }
+
+  public async previewExtension(input: ExtensionPreviewRequest): Promise<ExtensionPreview> {
+    await this.ensureClientApiAvailable();
+    return (await this.extensions.preview(input.kind, input.source)).result;
+  }
+
+  public async installExtension(input: ExtensionInstallRequest): Promise<ExtensionMutationResult> {
+    await this.ensureClientApiAvailable();
+    return (await this.extensions.install(
+      input.kind,
+      input.source,
+      input.expectedDigest,
+      input.expectedRevision,
+    )).result;
   }
 
   public async setExtensionAgentEnabled(
@@ -674,6 +936,212 @@ export class OpenPpxLocalAdapter implements Omit<PpxClientApi, "openExternalUrl"
       revision: String(envelope.result.revision ?? ""),
       status: String(envelope.result.status ?? ""),
     };
+  }
+
+  public async removeExtension(input: ExtensionRemoveRequest): Promise<ExtensionMutationResult> {
+    await this.ensureClientApiAvailable();
+    return (await this.extensions.remove(
+      input.kind,
+      input.extensionId,
+      input.expectedRevision,
+    )).result;
+  }
+
+  public async createMcpServer(input: McpMutationRequest): Promise<ExtensionMutationResult> {
+    await this.ensureClientApiAvailable();
+    if (input.expectedRevision !== null) {
+      throw new TypeError("A new MCP Server requires an empty revision precondition.");
+    }
+    const desiredAgentIds = [...input.resource.spec.enabledAgentIds];
+    const staged = await stageMcpSecrets(this.secrets, {
+      ...input.resource,
+      spec: { ...input.resource.spec, enabledAgentIds: [] },
+    }, input.secretValues);
+    try {
+      const created = (await this.extensions.createMcp(staged.resource)).result;
+      if (staged.resource.spec.transport.type !== "stdio" && staged.resource.spec.transport.auth === "oauth") {
+        return created;
+      }
+      return await this.reconcileMcpAgents(
+        staged.resource.metadata.name,
+        String(created.revision ?? ""),
+        [],
+        desiredAgentIds,
+      );
+    } catch (error) {
+      await cleanupSecrets(this.secrets, staged.createdRefs);
+      throw error;
+    }
+  }
+
+  public async updateMcpServer(input: McpMutationRequest): Promise<ExtensionMutationResult> {
+    await this.ensureClientApiAvailable();
+    if (!input.expectedRevision) {
+      throw new TypeError("An existing MCP Server requires its current revision.");
+    }
+    const desiredAgentIds = [...input.resource.spec.enabledAgentIds];
+    const current = (await this.extensions.get("mcp", input.resource.metadata.name)).result;
+    const currentAgentIds = [...current.enabledAgentIds];
+    const staged = await stageMcpSecrets(this.secrets, input.resource, input.secretValues);
+    try {
+      const updated = (await this.extensions.updateMcp(staged.resource, input.expectedRevision)).result;
+      if (staged.resource.spec.transport.type !== "stdio" && staged.resource.spec.transport.auth === "oauth") {
+        return updated;
+      }
+      return await this.reconcileMcpAgents(
+        staged.resource.metadata.name,
+        String(updated.revision ?? ""),
+        currentAgentIds,
+        desiredAgentIds,
+      );
+    } catch (error) {
+      await cleanupSecrets(this.secrets, staged.createdRefs);
+      throw error;
+    }
+  }
+
+  public async beginMcpOAuth(serverId: string): Promise<McpOAuthStatus> {
+    await this.ensureClientApiAvailable();
+    return (await this.extensions.beginMcpOAuth(serverId, this.connection.baseUrl)).result;
+  }
+
+  public async getMcpOAuthStatus(serverId: string): Promise<McpOAuthStatus> {
+    await this.ensureClientApiAvailable();
+    return (await this.extensions.getMcpOAuthStatus(serverId)).result;
+  }
+
+  public async signOutMcpOAuth(serverId: string): Promise<McpOAuthStatus> {
+    await this.ensureClientApiAvailable();
+    return (await this.extensions.signOutMcpOAuth(serverId)).result;
+  }
+
+  private async reconcileMcpAgents(
+    serverId: string,
+    initialRevision: string,
+    currentAgentIds: string[],
+    desiredAgentIds: string[],
+  ): Promise<ExtensionMutationResult> {
+    /** Apply Agent access one revision at a time after the MCP definition is durable. */
+    let revision = initialRevision;
+    let status = "installed";
+    const current = new Set(currentAgentIds);
+    const desired = new Set(desiredAgentIds);
+    for (const agentId of currentAgentIds.filter((item) => !desired.has(item))) {
+      const result = (await this.extensions.disable("mcp", serverId, agentId, revision)).result;
+      revision = String(result.revision ?? revision);
+      status = String(result.status ?? status);
+    }
+    for (const agentId of desiredAgentIds.filter((item) => !current.has(item))) {
+      const result = (await this.extensions.enable("mcp", serverId, agentId, revision)).result;
+      revision = String(result.revision ?? revision);
+      status = String(result.status ?? status);
+    }
+    return { revision, status };
+  }
+
+  public async testMcpServer(serverId: string): Promise<ExtensionProbeResult> {
+    await this.ensureClientApiAvailable();
+    return (await this.extensions.testMcp(serverId)).result;
+  }
+
+  public async saveAppConnection(input: AppConnectionSaveRequest): Promise<ExtensionMutationResult> {
+    await this.ensureClientApiAvailable();
+    const app = (await this.extensions.get("app", input.appId)).result;
+    const details = app.details;
+    const credentials = Array.isArray(details.credentials)
+      ? details.credentials.filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === "object" && !Array.isArray(item))
+      : [];
+    const connections = Array.isArray(details.connections)
+      ? details.connections.filter((item): item is AppConnectionDetail => Boolean(item) && typeof item === "object" && !Array.isArray(item))
+      : [];
+    const current = connections.find((item) => item.id === input.connectionId) ?? null;
+    if ((input.expectedRevision === null) === Boolean(current)) {
+      throw new Error(current
+        ? "This App Connection already exists. Refresh Extensions and edit it instead."
+        : "This App Connection changed or no longer exists. Refresh Extensions and retry.");
+    }
+
+    const credentialRefs = { ...(current?.credentialRefs ?? {}) };
+    const createdRefs: Array<{ store: "system"; name: string }> = [];
+    try {
+      for (const credential of credentials) {
+        const slot = String(credential.name ?? "");
+        if (!slot) continue;
+        const nextValue = input.credentialValues[slot] ?? "";
+        if (nextValue.trim()) {
+          const reference = {
+            store: "system" as const,
+            name: appCredentialRefName(input.connectionId, slot),
+          };
+          await this.secrets.put(reference, nextValue);
+          credentialRefs[slot] = reference;
+          createdRefs.push(reference);
+        }
+        if (credential.required === true && !credentialRefs[slot]) {
+          throw new Error(`${String(credential.label ?? slot)} is required.`);
+        }
+      }
+    } catch (error) {
+      await cleanupSecrets(this.secrets, createdRefs);
+      throw error;
+    }
+
+    const resource = {
+      apiVersion: "openppx.io/v1alpha1" as const,
+      kind: "AppConnection" as const,
+      metadata: { name: input.connectionId },
+      spec: {
+        appId: input.appId,
+        displayName: input.displayName,
+        credentialRefs: current?.credentialRefs ?? credentialRefs,
+        enabledTools: input.enabledTools,
+        requireConfirmation: input.requireConfirmation,
+        enabledAgentIds: [],
+      },
+    };
+
+    try {
+      if (!current) {
+        return (await this.extensions.createAppConnection(resource)).result;
+      }
+      const updated = await this.extensions.updateAppConnection(resource, input.expectedRevision!);
+      if (!createdRefs.length) {
+        return updated.result;
+      }
+      return (await this.extensions.reauthorizeAppConnection(
+        input.connectionId,
+        credentialRefs,
+        String(updated.result.revision ?? ""),
+      )).result;
+    } catch (error) {
+      await cleanupSecrets(this.secrets, createdRefs);
+      throw error;
+    }
+  }
+
+  public async testAppConnection(connectionId: string): Promise<ExtensionProbeResult> {
+    await this.ensureClientApiAvailable();
+    return (await this.extensions.testAppConnection(connectionId)).result;
+  }
+
+  public async setAppConnectionAgentEnabled(
+    input: AppConnectionEnablementRequest,
+  ): Promise<ExtensionMutationResult> {
+    await this.ensureClientApiAvailable();
+    return (await this.extensions.setAppConnectionEnabled(
+      input.connectionId,
+      input.agentId,
+      input.expectedRevision,
+      input.enabled,
+    )).result;
+  }
+
+  public async removeAppConnection(input: AppConnectionRemoveRequest): Promise<ExtensionMutationResult> {
+    await this.ensureClientApiAvailable();
+    return (await this.extensions.removeAppConnection(
+      input.connectionId,
+      input.expectedRevision,
+    )).result;
   }
 
   public async listSessions(agentId: string): Promise<{ sessions: SessionSummary[] }> {
@@ -725,6 +1193,41 @@ export class OpenPpxLocalAdapter implements Omit<PpxClientApi, "openExternalUrl"
     }
   }
 
+  public async renameSession(input: SessionMutationRequest & { title: string }): Promise<Record<string, unknown>> {
+    await this.ensureClientApiAvailable();
+    const result = (await this.sessions.rename(input.agentId, LOCAL_USER_ID, input.sessionId, input.title)).result;
+    this.sessionCache.invalidate(input.agentId, input.sessionId);
+    return result;
+  }
+
+  public async archiveSession(input: SessionMutationRequest & { archived: boolean }): Promise<Record<string, unknown>> {
+    await this.ensureClientApiAvailable();
+    const result = (await this.sessions.archive(input.agentId, LOCAL_USER_ID, input.sessionId, input.archived)).result;
+    this.sessionCache.invalidate(input.agentId, input.sessionId);
+    return result;
+  }
+
+  public async forkSession(input: SessionMutationRequest): Promise<{ session: SessionSummary }> {
+    await this.ensureClientApiAvailable();
+    const result = (await this.sessions.fork(input.agentId, LOCAL_USER_ID, input.sessionId)).result;
+    const session = normalizeClientApiSession(result.session);
+    if (!session) throw new Error("Node returned an invalid forked Session.");
+    this.sessionCache.invalidate(input.agentId);
+    return { session };
+  }
+
+  public async exportSession(input: SessionMutationRequest): Promise<Record<string, unknown>> {
+    await this.ensureClientApiAvailable();
+    return (await this.sessions.export(input.agentId, LOCAL_USER_ID, input.sessionId)).result;
+  }
+
+  public async deleteSession(input: SessionMutationRequest): Promise<Record<string, unknown>> {
+    await this.ensureClientApiAvailable();
+    const result = (await this.sessions.remove(input.agentId, LOCAL_USER_ID, input.sessionId)).result;
+    this.sessionCache.invalidate(input.agentId, input.sessionId);
+    return result;
+  }
+
   public async loadSession(sessionId: string): Promise<{ messages: ChatMessage[] }> {
     const cached = this.sessionCache.readMessages(sessionId);
     if (cached) {
@@ -750,6 +1253,29 @@ export class OpenPpxLocalAdapter implements Omit<PpxClientApi, "openExternalUrl"
       }
     }
     throw this.clientApiUnavailableError("Loading session messages");
+  }
+
+  public async uploadArtifact(input: ArtifactUploadInput): Promise<ArtifactSummary> {
+    await this.ensureClientApiAvailable();
+    return this.artifacts.upload(input);
+  }
+
+  public async listArtifacts(agentId: string, sessionId: string): Promise<{ artifacts: ArtifactSummary[] }> {
+    await this.ensureClientApiAvailable();
+    return { artifacts: await this.artifacts.list(agentId, sessionId) };
+  }
+
+  public async downloadArtifact(
+    agentId: string,
+    sessionId: string,
+    artifact: ArtifactSummary,
+  ): Promise<{ dataBase64: string; mimeType: string }> {
+    await this.ensureClientApiAvailable();
+    const result = await this.artifacts.download(agentId, sessionId, artifact);
+    return {
+      dataBase64: Buffer.from(result.bytes).toString("base64"),
+      mimeType: result.mimeType,
+    };
   }
 
   public async sendMessage(input: SendMessageInput): Promise<{ runId: string }> {
@@ -778,7 +1304,7 @@ export class OpenPpxLocalAdapter implements Omit<PpxClientApi, "openExternalUrl"
   private async sendMessageViaClientApi(input: SendMessageInput): Promise<{ runId: string }> {
     const payload = await this.fetchClientApiJson(`/api/v1/agents/${input.agentId}/sessions/${input.sessionId}/runs`, {
       method: "POST",
-      body: JSON.stringify({ text: input.text }),
+      body: JSON.stringify({ text: input.text, artifact_refs: input.artifactRefs ?? [] }),
     });
     const run = ((payload.data as Record<string, unknown> | undefined)?.run ?? {}) as Record<string, unknown>;
     const runId = String(run.id ?? `run-${crypto.randomUUID()}`);

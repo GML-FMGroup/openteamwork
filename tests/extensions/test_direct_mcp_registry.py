@@ -63,6 +63,20 @@ def test_mcp_schema_rejects_ambiguous_transport_secret_leaks_and_unknown_fields(
                 "headers": {},
             }
         )
+    protected_query = _server(
+        transport={
+            "type": "streamable_http",
+            "url": "https://example.com/mcp",
+            "headers": {},
+            "query": {
+                "apiKey": {
+                    "kind": "secret",
+                    "secretRef": {"store": "system", "name": "browserbase-key"},
+                }
+            },
+        }
+    )
+    assert protected_query.spec.transport.query["apiKey"].secret_ref.name == "browserbase-key"
     with pytest.raises(ValidationError):
         _server(
             transport={
@@ -187,3 +201,14 @@ def test_mcp_update_preserves_enablement_and_old_snapshot(tmp_path: Path) -> Non
     assert first.revision != second.revision
     assert first.entries[0].record.spec.description == "Deterministic direct MCP fixture."
     assert second.entries[0].record.spec.description == "Updated MCP description."
+
+
+def test_mcp_probe_snapshot_does_not_change_agent_enablement(tmp_path: Path) -> None:
+    manager = McpManager(tmp_path, InMemorySecretStore())
+    created = manager.create(_server("probe-only"), expected_revision=None)
+
+    snapshot = manager.snapshot_for_probe("probe-only")
+
+    assert snapshot.names == ("probe-only",)
+    assert snapshot.entries[0].revision == created.revision
+    assert manager.get("probe-only").record.spec.enabled_agent_ids == []

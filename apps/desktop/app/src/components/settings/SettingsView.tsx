@@ -1,20 +1,28 @@
-import { useState, type Dispatch, type SetStateAction } from "react";
+import { useEffect, useState, type Dispatch, type SetStateAction } from "react";
 import type {
   AgentProfile,
   ClientDiagnostics,
+  ConnectionProfileSummary,
   ConnectionSettings,
   ExtensionSummary,
   ModelProfileSummary,
-  OperationsAuditItem,
-  OperationsOverviewResult,
-  RuntimeState,
   RuntimeStatus,
 } from "../../types";
 import { CollapsedSidebarTools } from "../workspace/ContextSidebar";
+import { ExtensionsSettings } from "./ExtensionsSettings";
+import { OperationsSettings } from "./OperationsSettings";
+import { AgentSettings } from "./AgentSettings";
 
-type SettingsSection = "general" | "models" | "extensions" | "operations" | "agent";
+export type SettingsSection = "general" | "models" | "operations" | "agent";
+type ControlPanelArea = "settings" | "extensions";
+
+const SETTINGS_SECTIONS: SettingsSection[] = ["general", "models", "operations", "agent"];
+const EXTENSION_SECTIONS: ExtensionSummary["kind"][] = ["plugin", "app", "mcp", "skill"];
 
 interface SettingsViewProps {
+  area: ControlPanelArea;
+  initialSection?: SettingsSection;
+  initialExtensionKind?: ExtensionSummary["kind"];
   runtime: RuntimeStatus;
   diagnostics: ClientDiagnostics | null;
   connectionForm: ConnectionSettings;
@@ -27,10 +35,6 @@ interface SettingsViewProps {
   extensionsLoading: boolean;
   extensionsError: string | null;
   extensionMutationId: string | null;
-  operationsOverview: OperationsOverviewResult | null;
-  operationsAudit: OperationsAuditItem[];
-  operationsLoading: boolean;
-  operationsError: string | null;
   selectedAgentId: string;
   sidebarCollapsed: boolean;
   canCreateSession: boolean;
@@ -40,35 +44,88 @@ interface SettingsViewProps {
   onSearchSessions: () => void;
   onRuntimeAction: () => void;
   onStopRuntime: () => void;
-  onRefreshOperations: () => void;
   onTestConnection: () => void;
-  onSaveConnection: () => void;
+  onSaveConnection: () => Promise<void>;
   onRefreshExtensions: () => void;
   onRefreshModels: () => void;
   onNewModelProfile: () => void;
   onEditModelProfile: (profileId: string) => void;
   onSetExtensionEnabled: (extension: ExtensionSummary, enabled: boolean) => void;
-}
-
-function runtimeActionLabel(state: RuntimeState): string {
-  if (state === "stopped") return "Start";
-  if (state === "healthy") return "Restart";
-  return "Retry";
+  onWorkspaceChanged: () => Promise<void>;
 }
 
 function sectionTitle(section: string): string {
   return section[0].toUpperCase() + section.slice(1);
 }
 
-function formatOperationTime(value: string): string {
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
+function extensionSectionTitle(kind: ExtensionSummary["kind"]): string {
+  if (kind === "mcp") return "MCP Servers";
+  return `${sectionTitle(kind)}s`;
 }
 
-/** Stable five-section Desktop control interface backed only by Node contracts. */
+/** Contextual Desktop control interface for Settings and Extension management. */
 export function SettingsView(props: SettingsViewProps) {
-  const [section, setSection] = useState<SettingsSection>("general");
-  const selectedAgent = props.agents.find((item) => item.id === props.selectedAgentId) ?? null;
+  const [section, setSection] = useState<SettingsSection>(props.initialSection ?? "general");
+  const [extensionKind, setExtensionKind] = useState<ExtensionSummary["kind"]>(props.initialExtensionKind ?? "plugin");
+  const extensionsArea = props.area === "extensions";
+  const [connectionProfiles, setConnectionProfiles] = useState<ConnectionProfileSummary[]>([]);
+  const [profileWorkingId, setProfileWorkingId] = useState<string | null>(null);
+  const [profileError, setProfileError] = useState<string | null>(null);
+
+  async function refreshConnectionProfiles(): Promise<void> {
+    try {
+      const nextProfiles = (await window.ppxClient.listConnectionProfiles()).profiles;
+      if (JSON.stringify(nextProfiles) !== JSON.stringify(connectionProfiles)) {
+        setConnectionProfiles(nextProfiles);
+      }
+    } catch (reason) {
+      setProfileError(reason instanceof Error ? reason.message : String(reason));
+    }
+  }
+
+  useEffect(() => {
+    if (!extensionsArea && section === "general") void refreshConnectionProfiles();
+  }, [extensionsArea, section]);
+
+  async function activateConnectionProfile(profile: ConnectionProfileSummary): Promise<void> {
+    setProfileWorkingId(profile.targetId);
+    setProfileError(null);
+    try {
+      await window.ppxClient.activateConnectionProfile(profile.targetId);
+      props.setConnectionForm({
+        targetType: profile.targetType,
+        targetId: profile.targetId,
+        targetName: profile.targetName,
+        clientApiBaseUrl: profile.clientApiBaseUrl,
+        accessToken: "",
+      });
+      await props.onWorkspaceChanged();
+      await refreshConnectionProfiles();
+    } catch (reason) {
+      setProfileError(reason instanceof Error ? reason.message : String(reason));
+    } finally {
+      setProfileWorkingId(null);
+    }
+  }
+
+  async function removeConnectionProfile(profile: ConnectionProfileSummary): Promise<void> {
+    if (!window.confirm(`Remove the saved Node “${profile.targetName}”?`)) return;
+    setProfileWorkingId(profile.targetId);
+    setProfileError(null);
+    try {
+      await window.ppxClient.removeConnectionProfile(profile.targetId);
+      await refreshConnectionProfiles();
+    } catch (reason) {
+      setProfileError(reason instanceof Error ? reason.message : String(reason));
+    } finally {
+      setProfileWorkingId(null);
+    }
+  }
+
+  async function saveConnection(): Promise<void> {
+    await props.onSaveConnection();
+    await refreshConnectionProfiles();
+  }
 
   return (
     <section className="workspace-shell settings-shell">
@@ -82,20 +139,42 @@ export function SettingsView(props: SettingsViewProps) {
               onSearchSessions={props.onSearchSessions}
             />
           ) : null}
-          <strong>Settings</strong><span className="topbar-location">{sectionTitle(section)}</span>
+          <strong>{extensionsArea ? "Extensions" : "Settings"}</strong>
+          <span className="topbar-location">{extensionsArea ? extensionSectionTitle(extensionKind) : sectionTitle(section)}</span>
         </div>
       </header>
       <div className="workspace-frame settings-frame settings-control-frame">
-        <nav className="settings-section-nav" aria-label="Settings sections">
-          {(["general", "models", "extensions", "operations", "agent"] as const).map((item) => (
+        <nav className="settings-section-nav" aria-label={extensionsArea ? "Extension sections" : "Settings sections"}>
+          {extensionsArea ? EXTENSION_SECTIONS.map((kind) => (
+            <button key={kind} className={extensionKind === kind ? "active" : ""} onClick={() => setExtensionKind(kind)}>
+              {extensionSectionTitle(kind)}
+            </button>
+          )) : SETTINGS_SECTIONS.map((item) => (
             <button key={item} className={section === item ? "active" : ""} onClick={() => setSection(item)}>
               {sectionTitle(item)}
             </button>
           ))}
         </nav>
         <main className="settings-page">
-          {section === "general" ? (
+          {!extensionsArea && section === "general" ? (
             <>
+              <section className="settings-card settings-card-targets">
+                <div className="settings-card-heading"><div><h3>Saved Nodes</h3><p>Switch between local and trusted LAN Nodes without re-entering their address.</p></div></div>
+                {profileError ? <p className="settings-inline-error">{profileError}</p> : null}
+                <div className="connection-profile-list">
+                  {connectionProfiles.length ? connectionProfiles.map((profile) => (
+                    <article className={profile.active ? "connection-profile active" : "connection-profile"} key={profile.targetId}>
+                      <span className={profile.active ? "node-beacon healthy" : "node-beacon"} />
+                      <div><strong>{profile.targetName}</strong><p>{profile.targetType === "local" ? "This computer" : profile.clientApiBaseUrl}</p></div>
+                      {profile.credentialConfigured ? <small>Token secured</small> : null}
+                      <div className="extension-actions">
+                        <button className="secondary" disabled={profile.active || profileWorkingId === profile.targetId} onClick={() => void activateConnectionProfile(profile)}>{profile.active ? "Active" : profileWorkingId === profile.targetId ? "Connecting" : "Use"}</button>
+                        {!profile.active ? <button className="danger secondary" disabled={profileWorkingId === profile.targetId} onClick={() => void removeConnectionProfile(profile)}>Remove</button> : null}
+                      </div>
+                    </article>
+                  )) : <p className="extension-empty">Save the connection below to add the first Node target.</p>}
+                </div>
+              </section>
               <section className="settings-card settings-card-config">
                 <div className="settings-card-heading"><div><h3>Connection</h3><p>Choose whether this Desktop manages a local Node or connects over the LAN.</p></div></div>
                 <div className="settings-form settings-form-grid">
@@ -113,7 +192,7 @@ export function SettingsView(props: SettingsViewProps) {
                 </div>
                 <div className="runtime-actions">
                   <button className="secondary" onClick={props.onTestConnection} disabled={props.savingConnection || props.testingConnection}>{props.testingConnection ? "Testing" : "Test connection"}</button>
-                  <button onClick={props.onSaveConnection} disabled={props.savingConnection || props.testingConnection}>{props.savingConnection ? "Saving" : "Save & apply"}</button>
+                  <button onClick={() => void saveConnection()} disabled={props.savingConnection || props.testingConnection}>{props.savingConnection ? "Saving" : "Save & apply"}</button>
                 </div>
                 {props.connectionFeedback ? <small>{props.connectionFeedback}</small> : null}
               </section>
@@ -139,7 +218,7 @@ export function SettingsView(props: SettingsViewProps) {
             </>
           ) : null}
 
-          {section === "models" ? (
+          {!extensionsArea && section === "models" ? (
             <section className="settings-card settings-card-models">
               <div className="settings-card-heading"><div><h3>Model Profiles</h3><p>Reusable provider, model, access, and fallback policies for Agents on this Node.</p></div><div className="settings-heading-actions"><button className="secondary settings-quiet-button" onClick={props.onRefreshModels}>Refresh</button><button onClick={props.onNewModelProfile}>New Profile</button></div></div>
               <div className="settings-resource-list">
@@ -153,83 +232,33 @@ export function SettingsView(props: SettingsViewProps) {
             </section>
           ) : null}
 
-          {section === "extensions" ? (
-            <section className="settings-card settings-card-extensions">
-              <div className="settings-card-heading"><div><h3>Extensions</h3><p>Plugin, App, MCP, and Skill resources owned by this Node.</p></div><button className="secondary settings-quiet-button" onClick={props.onRefreshExtensions} disabled={props.extensionsLoading}>{props.extensionsLoading ? "Refreshing" : "Refresh"}</button></div>
-              {props.extensionsError ? <p className="settings-inline-error">{props.extensionsError}</p> : null}
-              <div className="extension-kind-grid">
-                {(["plugin", "app", "mcp", "skill"] as const).map((kind) => {
-                  const items = props.extensions.filter((item) => item.kind === kind);
-                  return (
-                    <section className="extension-kind" key={kind} aria-label={`${kind} extensions`}>
-                      <header><h4>{kind === "mcp" ? "MCP" : sectionTitle(kind)}</h4><span>{items.length}</span></header>
-                      {items.length ? <div className="extension-list">{items.map((extension) => {
-                        const enabled = props.selectedAgentId ? extension.enabledAgentIds.includes(props.selectedAgentId) : false;
-                        const mutable = extension.kind !== "app" && extension.status !== "builtin" && Boolean(props.selectedAgentId);
-                        const pending = props.extensionMutationId === `${extension.kind}:${extension.id}`;
-                        return (
-                          <article className="extension-row" key={`${extension.kind}:${extension.id}`}>
-                            <div className="extension-row-copy"><div className="extension-row-title"><strong>{extension.displayName}</strong><span className={`extension-ready ${extension.readiness.ready ? "ready" : "blocked"}`}>{extension.readiness.ready ? extension.status : "needs attention"}</span></div><p>{extension.description}</p><small>{extension.version} · {extension.source.trust} · {extension.risk} risk</small></div>
-                            <button className="secondary extension-toggle" disabled={!mutable || pending} onClick={() => props.onSetExtensionEnabled(extension, !enabled)}>{pending ? "Applying" : extension.kind === "app" ? "Connections" : extension.status === "builtin" ? "Built in" : enabled ? "Disable" : "Enable"}</button>
-                          </article>
-                        );
-                      })}</div> : <p className="extension-empty">No {kind === "mcp" ? "MCP servers" : `${kind}s`} installed.</p>}
-                    </section>
-                  );
-                })}
-              </div>
-            </section>
+          {extensionsArea ? (
+            <ExtensionsSettings
+              key={extensionKind}
+              kind={extensionKind}
+              extensions={props.extensions}
+              agents={props.agents}
+              selectedAgentId={props.selectedAgentId}
+              loading={props.extensionsLoading}
+              error={props.extensionsError}
+              mutationId={props.extensionMutationId}
+              onRefresh={props.onRefreshExtensions}
+              onSetEnabled={props.onSetExtensionEnabled}
+            />
           ) : null}
 
-          {section === "operations" ? (
-            <>
-              <section className="settings-card settings-card-runtime">
-                <div className="settings-runtime-copy"><h3>Runtime</h3><p>{props.runtime.summary}</p></div>
-                <div className="runtime-actions settings-runtime-actions"><button onClick={props.onRuntimeAction}>{runtimeActionLabel(props.runtime.state)}</button><button className="secondary" onClick={props.onStopRuntime}>Stop</button><button className="secondary" onClick={props.onRefreshOperations} disabled={props.operationsLoading}>{props.operationsLoading ? "Refreshing" : "Refresh"}</button></div>
-              </section>
-              {props.operationsError ? <p className="settings-inline-error settings-operations-error">{props.operationsError}</p> : null}
-              <section className="settings-card settings-card-health">
-                <div className="settings-card-heading"><div><h3>Node health</h3><p>One authoritative view of runtime, storage, credentials, Extensions, and isolation.</p></div><span className={`operations-state ${props.operationsOverview?.state ?? "unavailable"}`}>{props.operationsOverview?.state ?? "unavailable"}</span></div>
-                <div className="operations-component-list">
-                  {props.operationsOverview?.components.length ? props.operationsOverview.components.map((component) => (
-                    <article className="operations-component" key={component.component}>
-                      <span className={`operations-component-dot ${component.state}`} />
-                      <div><span>{component.component}</span><p>{component.reason}</p>{component.remediation ? <small>{component.remediation}</small> : null}</div>
-                      <em>{component.state}</em>
-                    </article>
-                  )) : <p className="extension-empty">Health information is not available yet.</p>}
-                </div>
-              </section>
-              <section className="settings-card settings-card-operations-summary">
-                <h3>Overview</h3>
-                <dl className="operations-summary-grid">
-                  <div><dt>Durable Tasks</dt><dd>{props.operationsOverview?.tasks.total ?? 0}</dd></div>
-                  <div><dt>Cron jobs</dt><dd>{props.operationsOverview?.automation.cronJobs ?? 0}</dd></div>
-                  <div><dt>Heartbeat</dt><dd>{props.operationsOverview?.automation.heartbeatEnabled ? "enabled" : "disabled"}</dd></div>
-                </dl>
-              </section>
-              <section className="settings-card settings-card-audit">
-                <div className="settings-card-heading"><div><h3>Recent activity</h3><p>Redacted Action decisions and outcomes. Request and result payloads are never stored here.</p></div></div>
-                <div className="operations-audit-list">
-                  {props.operationsAudit.length ? props.operationsAudit.map((item) => (
-                    <article className="operations-audit-row" key={item.id}>
-                      <div><span>{item.actionId}</span><p>{item.actorId} · {formatOperationTime(item.recordedAt)}</p></div>
-                      <span className={`operations-audit-outcome ${item.ok === false ? "failed" : item.ok === true ? "succeeded" : "pending"}`}>{item.outcomeCode ?? item.decisionCode}</span>
-                      <small>{item.risk} risk</small>
-                    </article>
-                  )) : <p className="extension-empty">No Action activity has been recorded yet.</p>}
-                </div>
-              </section>
-            </>
+          {!extensionsArea && section === "operations" ? (
+            <OperationsSettings
+              runtime={props.runtime}
+              agents={props.agents}
+              selectedAgentId={props.selectedAgentId}
+              onRuntimeAction={props.onRuntimeAction}
+              onStopRuntime={props.onStopRuntime}
+            />
           ) : null}
 
-          {section === "agent" ? (
-            <section className="settings-card settings-card-agent">
-              <h3>Selected Agent</h3>
-              {selectedAgent ? (
-                <><div className="agent-settings-identity"><span>{selectedAgent.name.slice(0, 1).toUpperCase()}</span><div><strong>{selectedAgent.name}</strong><p>{selectedAgent.description}</p></div></div><dl className="diagnostics-grid"><div><dt>ID</dt><dd>{selectedAgent.id}</dd></div><div><dt>Status</dt><dd>{selectedAgent.status}</dd></div><div><dt>Enabled Extensions</dt><dd>{props.extensions.filter((item) => item.enabledAgentIds.includes(selectedAgent.id)).length}</dd></div><div><dt>Tags</dt><dd>{selectedAgent.tags.join(", ") || "None"}</dd></div></dl></>
-              ) : <p className="extension-empty">Select an Agent in the workspace sidebar.</p>}
-            </section>
+          {!extensionsArea && section === "agent" ? (
+            <AgentSettings selectedAgentId={props.selectedAgentId} modelProfiles={props.modelProfiles} onWorkspaceChanged={props.onWorkspaceChanged} />
           ) : null}
         </main>
       </div>

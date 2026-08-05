@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { SettingsView } from "./components/settings/SettingsView";
+import { SettingsView, type SettingsSection } from "./components/settings/SettingsView";
 import { OnboardingView } from "./components/setup/OnboardingView";
 import { NewAgentDialog } from "./components/agents/NewAgentDialog";
 import { ModelProfileDialog } from "./components/models/ModelProfileDialog";
@@ -15,8 +15,12 @@ import { ColumnResizeHandle } from "./components/workspace/ColumnResizeHandle";
 import { COLUMN_WIDTH_LIMITS, useColumnLayout } from "./hooks/use-column-layout";
 import { useDesktopWorkspace } from "./hooks/use-desktop-workspace";
 import { useTranscriptFollow } from "./hooks/use-transcript-follow";
+import type { ExtensionSummary } from "./types";
 
 type NavView = "chat" | "settings";
+type SettingsDestination =
+  | { area: "settings"; section: SettingsSection }
+  | { area: "extensions"; extensionKind: ExtensionSummary["kind"] };
 
 function resizeComposer(textarea: HTMLTextAreaElement | null): void {
   if (!textarea) {
@@ -37,6 +41,7 @@ export function App() {
   const columnLayout = useColumnLayout();
   const transcript = useTranscriptFollow(workspace.messages, workspace.transcriptResetKey);
   const [view, setView] = useState<NavView>("chat");
+  const [settingsDestination, setSettingsDestination] = useState<SettingsDestination>({ area: "settings", section: "general" });
   const [leftSidebarCollapsed, setLeftSidebarCollapsed] = useState(false);
   const [inspectorCollapsed, setInspectorCollapsed] = useState(false);
   const [sidebarSearchRequest, setSidebarSearchRequest] = useState(0);
@@ -76,7 +81,7 @@ export function App() {
       return;
     }
     event.preventDefault();
-    if (workspace.selectedAgentBusy || !workspace.composer.trim()) {
+    if (workspace.selectedAgentBusy || (!workspace.composer.trim() && workspace.attachments.length === 0)) {
       return;
     }
     transcript.followLatest();
@@ -88,6 +93,16 @@ export function App() {
     if (columnLayout.compactLayout) {
       setLeftSidebarCollapsed(true);
     }
+  }
+
+  function openSettings(): void {
+    setSettingsDestination({ area: "settings", section: "general" });
+    handleChangeView("settings");
+  }
+
+  function openExtensions(): void {
+    setSettingsDestination({ area: "extensions", extensionKind: "plugin" });
+    handleChangeView("settings");
   }
 
   function revealSidebarForSearch(): void {
@@ -169,10 +184,11 @@ export function App() {
 
   const runtime = workspace.runtime;
   const workspaceAgentName = workspace.selectedAgent?.name ?? "OpenPPX";
-  const titlebarTitle =
-    view === "chat" ? workspace.selectedSession?.title ?? workspace.selectedAgent?.name ?? "No session" : "Settings";
+  const titlebarTitle = view === "chat"
+    ? workspace.selectedSession?.title ?? workspace.selectedAgent?.name ?? "No session"
+    : settingsDestination.area === "extensions" ? "Extensions" : "Settings";
   const titlebarSubtitle = view === "chat" ? workspace.selectedAgent?.name ?? "No agent selected" : "ppx-client";
-  const canSend = Boolean(workspace.composer.trim()) && Boolean(workspace.selectedAgentId) && !workspace.selectedAgentBusy;
+  const canSend = Boolean(workspace.composer.trim() || workspace.attachments.length) && Boolean(workspace.selectedAgentId) && !workspace.selectedAgentBusy;
   const suggestedAgentId = (() => {
     let index = workspace.agents.length + 1;
     while (workspace.agents.some((agent) => agent.id === `agent-${index}`)) index += 1;
@@ -215,6 +231,7 @@ export function App() {
       <ContextSidebar
         platform={window.ppxClient.platform}
         view={view}
+        controlArea={view === "settings" ? settingsDestination.area : null}
         runtime={runtime}
         diagnostics={workspace.diagnostics}
         userProfile={workspace.userProfile}
@@ -227,8 +244,15 @@ export function App() {
         searchFocusRequest={sidebarSearchRequest}
         onToggleCollapse={() => setLeftSidebarCollapsed((current) => !current)}
         onChangeView={handleChangeView}
+        onOpenSettings={openSettings}
+        onOpenExtensions={openExtensions}
         onSelectAgent={selectAgentFromSidebar}
         onSelectSession={selectSessionFromSidebar}
+        onRenameSession={(session, title) => void workspace.renameSession(session, title)}
+        onArchiveSession={(session) => void workspace.archiveSession(session)}
+        onForkSession={(session) => void workspace.forkSession(session)}
+        onExportSession={(session) => void workspace.exportSession(session)}
+        onDeleteSession={(session) => void workspace.deleteSession(session)}
         onNewAgent={openNewAgentFromSidebar}
         onNewSession={createSessionFromTopbar}
       />
@@ -253,7 +277,7 @@ export function App() {
                 </span>
               </div>
               <div className="topbar-actions">
-                <button className="topbar-pill" onClick={() => setView("settings")} title="View runtime status">
+                <button className="topbar-pill" onClick={openSettings} title="View runtime status">
                   <span className={`runtime-dot ${runtime.state}`} />
                   {runtime.state === "healthy"
                     ? "Connected"
@@ -292,6 +316,7 @@ export function App() {
                   helperText={workspace.sendError ?? ""}
                   agentName={workspaceAgentName}
                   commands={workspace.slashCommands}
+                  attachments={workspace.attachments}
                   onChange={workspace.setComposer}
                   onKeyDown={handleComposerKeyDown}
                   onSend={() => {
@@ -299,6 +324,8 @@ export function App() {
                     void workspace.sendMessage();
                   }}
                   onStop={() => void workspace.cancelCurrentRun()}
+                  onAddAttachments={(files) => void workspace.addAttachments(files)}
+                  onRemoveAttachment={workspace.removeAttachment}
                 />
               </main>
             </div>
@@ -308,10 +335,16 @@ export function App() {
             messages={workspace.messages}
             running={workspace.currentSessionRunning}
             collapsed={inspectorCollapsed}
+            artifacts={workspace.sessionArtifacts}
+            onLoadArtifact={workspace.loadArtifactData}
           />
         </>
       ) : (
         <SettingsView
+          key={settingsDestination.area === "settings" ? `settings:${settingsDestination.section}` : `extensions:${settingsDestination.extensionKind}`}
+          area={settingsDestination.area}
+          initialSection={settingsDestination.area === "settings" ? settingsDestination.section : undefined}
+          initialExtensionKind={settingsDestination.area === "extensions" ? settingsDestination.extensionKind : undefined}
           runtime={runtime}
           diagnostics={workspace.diagnostics}
           connectionForm={workspace.connectionForm}
@@ -324,10 +357,6 @@ export function App() {
           extensionsLoading={workspace.extensionsLoading}
           extensionsError={workspace.extensionsError}
           extensionMutationId={workspace.extensionMutationId}
-          operationsOverview={workspace.operationsOverview}
-          operationsAudit={workspace.operationsAudit}
-          operationsLoading={workspace.operationsLoading}
-          operationsError={workspace.operationsError}
           selectedAgentId={workspace.selectedAgentId}
           sidebarCollapsed={leftSidebarCollapsed}
           setConnectionForm={workspace.setConnectionForm}
@@ -337,14 +366,14 @@ export function App() {
           canCreateSession={Boolean(workspace.selectedAgentId)}
           onRuntimeAction={() => void workspace.runRuntimeAction()}
           onStopRuntime={() => void workspace.stopRuntime()}
-          onRefreshOperations={() => void workspace.refreshOperations()}
           onTestConnection={() => void workspace.testConnection()}
-          onSaveConnection={() => void workspace.saveConnection()}
+          onSaveConnection={workspace.saveConnection}
           onRefreshExtensions={() => void workspace.refreshExtensions()}
           onRefreshModels={() => void workspace.refreshModelProfiles()}
           onNewModelProfile={() => setModelProfileDialog({ mode: "new", profileId: null })}
           onEditModelProfile={(profileId) => setModelProfileDialog({ mode: "edit", profileId })}
           onSetExtensionEnabled={(extension, enabled) => void workspace.setExtensionEnabled(extension, enabled)}
+          onWorkspaceChanged={workspace.reloadWorkspace}
         />
       )}
       {newAgentOpen ? (

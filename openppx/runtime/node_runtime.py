@@ -4,9 +4,13 @@ from __future__ import annotations
 
 import asyncio
 import threading
+import time
+import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Callable, Literal
+
+from google.genai import types
 
 from openppx.config import ConfigService
 
@@ -175,6 +179,59 @@ class NodeRuntimeSupervisor:
             self.get_session(agent_id, user_id=user_id, session_id=session_id)
         )
 
+    async def delete_session(self, agent_id: str, *, user_id: str, session_id: str) -> None:
+        """Delete one principal-scoped ADK Session after verifying it exists."""
+        runtime = self.runtime_for(agent_id)
+        current = await runtime.session_service.get_session(
+            app_name=runtime.agent.name,
+            user_id=user_id,
+            session_id=session_id,
+        )
+        if current is None:
+            raise RuntimeSupervisorError(f"Session '{session_id}' was not found.")
+        await runtime.session_service.delete_session(
+            app_name=runtime.agent.name,
+            user_id=user_id,
+            session_id=session_id,
+        )
+
+    def delete_session_sync(self, agent_id: str, *, user_id: str, session_id: str) -> None:
+        """Delete one Session from synchronous Action boundaries."""
+        _run_sync(self.delete_session(agent_id, user_id=user_id, session_id=session_id))
+
+    async def fork_session(self, agent_id: str, *, user_id: str, session_id: str) -> object:
+        """Create a new ADK Session by replaying the source Session's durable events."""
+        runtime = self.runtime_for(agent_id)
+        source = await runtime.session_service.get_session(
+            app_name=runtime.agent.name,
+            user_id=user_id,
+            session_id=session_id,
+        )
+        if source is None:
+            raise RuntimeSupervisorError(f"Session '{session_id}' was not found.")
+        forked = await runtime.session_service.create_session(
+            app_name=runtime.agent.name,
+            user_id=user_id,
+        )
+        for event in source.events:
+            if getattr(event, "partial", False):
+                continue
+            cloned = event.model_copy(
+                deep=True,
+                update={"id": uuid.uuid4().hex, "timestamp": time.time()},
+            )
+            await runtime.session_service.append_event(forked, cloned)
+        refreshed = await runtime.session_service.get_session(
+            app_name=runtime.agent.name,
+            user_id=user_id,
+            session_id=str(forked.id),
+        )
+        return refreshed or forked
+
+    def fork_session_sync(self, agent_id: str, *, user_id: str, session_id: str) -> object:
+        """Fork one Session from synchronous Action boundaries."""
+        return _run_sync(self.fork_session(agent_id, user_id=user_id, session_id=session_id))
+
     async def session_history(
         self,
         agent_id: str,
@@ -315,6 +372,7 @@ class NodeRuntimeSupervisor:
         session_id: str,
         user_id: str,
         text: str,
+        artifact_parts: tuple[types.Part, ...] = (),
         on_event: Callable[[Any], None] | None = None,
         on_text_update: Callable[[str, str], None] | None = None,
         on_complete: Callable[[str], None] | None = None,
@@ -339,8 +397,14 @@ class NodeRuntimeSupervisor:
                 if task is None:  # pragma: no cover - asyncio always supplies it
                     raise RuntimeError("Run task is unavailable.")
                 control.attach(loop, task)
-                final_text = await runtime.run_text(
-                    inject_request_time(text, received_at=datetime.now().astimezone()),
+                request = types.UserContent(parts=[
+                    types.Part.from_text(
+                        text=inject_request_time(text, received_at=datetime.now().astimezone())
+                    ),
+                    *artifact_parts,
+                ])
+                final_text = await runtime.run_message(
+                    request,
                     user_id=user_id,
                     session_id=session_id,
                     on_event=on_event,

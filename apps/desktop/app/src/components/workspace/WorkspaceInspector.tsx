@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import {
   projectActivityItems,
-  projectArtifactItems,
+  mergeArtifactResources,
   type ArtifactItem,
 } from "../../lib/workspace-inspector";
-import type { ChatMessage } from "../../types";
+import type { ArtifactSummary, ChatMessage } from "../../types";
 import { ShellIcon } from "./ContextSidebar";
 
 function formatBytes(value: number | undefined): string {
@@ -24,6 +24,30 @@ function locateMessage(messageId: string): void {
   document
     .getElementById(`message-${messageId}`)
     ?.scrollIntoView({ behavior: "smooth", block: "center" });
+}
+
+function canPreviewAsText(mimeType: string | undefined): boolean {
+  if (!mimeType) return false;
+  return mimeType.startsWith("text/") || [
+    "application/json",
+    "application/javascript",
+    "application/xml",
+    "application/yaml",
+    "application/x-yaml",
+  ].includes(mimeType);
+}
+
+function decodeArtifactText(dataUrl: string): string | null {
+  const match = /^data:[^;,]+(?:;charset=[^;,]+)?;base64,(.*)$/s.exec(dataUrl);
+  if (!match) return null;
+  try {
+    const decoded = atob(match[1]);
+    const bytes = Uint8Array.from(decoded, (character) => character.charCodeAt(0));
+    const text = new TextDecoder().decode(bytes);
+    return text.length > 100_000 ? `${text.slice(0, 100_000)}\n\n[Preview truncated]` : text;
+  } catch {
+    return null;
+  }
 }
 
 interface InspectorSectionProps {
@@ -65,6 +89,8 @@ interface WorkspaceInspectorProps {
   messages: ChatMessage[];
   running: boolean;
   collapsed: boolean;
+  artifacts?: ArtifactSummary[];
+  onLoadArtifact?: (artifact: ArtifactSummary) => Promise<string>;
 }
 
 /** Right-side task panel derived from the currently selected session. */
@@ -73,11 +99,26 @@ export function WorkspaceInspector({
   messages,
   running,
   collapsed,
+  artifacts: artifactResources = [],
+  onLoadArtifact,
 }: WorkspaceInspectorProps) {
   const [open, setOpen] = useState({ progress: true, artifacts: true });
   const [selectedArtifact, setSelectedArtifact] = useState<ArtifactItem | null>(null);
   const activity = useMemo(() => projectActivityItems(messages), [messages]);
-  const artifacts = useMemo(() => projectArtifactItems(messages), [messages]);
+  const artifacts = useMemo(() => mergeArtifactResources(messages, artifactResources), [messages, artifactResources]);
+
+  async function openArtifact(artifact: ArtifactItem): Promise<void> {
+    if (!artifact.resource) {
+      setSelectedArtifact(artifact);
+      return;
+    }
+    try {
+      const url = onLoadArtifact ? await onLoadArtifact(artifact.resource) : "";
+      setSelectedArtifact({ ...artifact, url });
+    } catch {
+      setSelectedArtifact(artifact);
+    }
+  }
 
   useEffect(() => {
     setSelectedArtifact(null);
@@ -88,6 +129,9 @@ export function WorkspaceInspector({
   }
 
   if (selectedArtifact) {
+    const textPreview = canPreviewAsText(selectedArtifact.mimeType) && selectedArtifact.url
+      ? decodeArtifactText(selectedArtifact.url)
+      : null;
     return (
       <aside className="workspace-inspector" aria-label="Task panel">
         <div className="inspector-body artifact-panel">
@@ -97,6 +141,10 @@ export function WorkspaceInspector({
             </button>
             {selectedArtifact.kind === "image" && selectedArtifact.url ? (
               <img src={selectedArtifact.url} alt={selectedArtifact.title} />
+            ) : selectedArtifact.mimeType?.startsWith("audio/") && selectedArtifact.url ? (
+              <audio controls src={selectedArtifact.url} aria-label={`Preview ${selectedArtifact.title}`} />
+            ) : textPreview !== null ? (
+              <pre className="artifact-text-preview">{textPreview}</pre>
             ) : (
               <div className="file-preview-glyph">
                 {selectedArtifact.title.split(".").pop()?.toUpperCase() || "FILE"}
@@ -107,12 +155,14 @@ export function WorkspaceInspector({
               <h3>{selectedArtifact.title}</h3>
               <p>{selectedArtifact.description}</p>
             </div>
-            <button
-              className="locate-source"
-              onClick={() => locateMessage(selectedArtifact.messageId)}
-            >
-              Locate in conversation
-            </button>
+            {selectedArtifact.url ? (
+              <a className="locate-source" href={selectedArtifact.url} download={selectedArtifact.title}>Download</a>
+            ) : null}
+            {selectedArtifact.messageId ? (
+              <button className="locate-source" onClick={() => locateMessage(selectedArtifact.messageId)}>
+                Locate in conversation
+              </button>
+            ) : null}
           </div>
         </div>
       </aside>
@@ -172,7 +222,7 @@ export function WorkspaceInspector({
                 <button
                   key={artifact.id}
                   className="artifact-row"
-                  onClick={() => setSelectedArtifact(artifact)}
+                  onClick={() => void openArtifact(artifact)}
                 >
                   {artifact.kind === "image" && artifact.url ? (
                     <img src={artifact.url} alt="" />

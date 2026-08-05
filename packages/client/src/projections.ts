@@ -117,5 +117,6 @@ export function normalizeClientApiSession(payload: unknown): SessionSummary | nu
     title: asString(session.title, "Session"),
     updatedAt: asString(session.updated_at ?? session.updatedAt, new Date().toISOString()),
     lastMessagePreview: asString(session.last_message_preview ?? session.lastMessagePreview, ""),
+    archived: Boolean(session.archived),
   };
 }

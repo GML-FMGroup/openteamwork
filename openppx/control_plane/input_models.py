@@ -101,14 +101,46 @@ class AgentCreateInput(AgentReadInput):
     owner_principal_id: PrincipalId
     privilege_level: Literal["low", "medium", "high", "root"] = "medium"
     model_profile_id: ResourceId
+    instruction: Annotated[str, StringConstraints(max_length=16_384)] = ""
 
-    @field_validator("display_name", "workspace")
+    @field_validator("display_name", "workspace", "instruction")
     @classmethod
     def agent_text_must_not_contain_controls(cls, value: str | None) -> str | None:
         """Reject control-bearing product text before entering Config mutation."""
         if value is not None and any(ord(character) < 32 or ord(character) == 127 for character in value):
             raise ValueError("value must not contain control characters")
         return value
+
+
+class AgentUpdateInput(AgentReadInput):
+    """Update the product-owned settings of one existing Agent."""
+
+    display_name: Annotated[str, StringConstraints(min_length=1, max_length=80)]
+    workspace: Annotated[str, StringConstraints(min_length=1, max_length=1024)]
+    privilege_level: Literal["low", "medium", "high", "root"]
+    model_profile_id: ResourceId
+    instruction: Annotated[str, StringConstraints(max_length=16_384)] = ""
+    expected_revision: Annotated[str, StringConstraints(min_length=1, max_length=128)]
+
+    @field_validator("display_name", "workspace", "instruction")
+    @classmethod
+    def update_text_must_not_contain_controls(cls, value: str) -> str:
+        """Reject unsafe control characters in Agent-editable text."""
+        if any((ord(character) < 32 and character not in {"\n", "\t"}) or ord(character) == 127 for character in value):
+            raise ValueError("value must not contain control characters")
+        return value
+
+
+class AgentEnableInput(AgentReadInput):
+    """Enable or disable one existing Agent on its Node."""
+
+    enabled: bool
+
+
+class AgentDeleteInput(AgentReadInput):
+    """Remove one disabled Agent configuration while retaining its workspace."""
+
+    expected_revision: Annotated[str, StringConstraints(min_length=1, max_length=128)]
 
 
 class ModelSelectionInput(AgentReadInput):
@@ -278,6 +310,33 @@ class SessionHistoryInput(AgentReadInput):
     limit: StrictInt = Field(default=20, ge=1, le=100)
 
 
+class SessionIdentityInput(AgentReadInput):
+    """Identify one principal-scoped Session."""
+
+    user_id: PrincipalId
+    session_id: RunId
+
+
+class SessionRenameInput(SessionIdentityInput):
+    """Assign a user-facing title without modifying ADK event history."""
+
+    title: Annotated[str, StringConstraints(min_length=1, max_length=120)]
+
+    @field_validator("title")
+    @classmethod
+    def title_must_be_visible(cls, value: str) -> str:
+        """Reject blank or control-bearing Session titles."""
+        if not value.strip() or any(ord(character) < 32 or ord(character) == 127 for character in value):
+            raise ValueError("title must contain visible text")
+        return value.strip()
+
+
+class SessionArchiveInput(SessionIdentityInput):
+    """Set the recoverable archive state of one Session."""
+
+    archived: bool
+
+
 class SessionRewindInput(AgentReadInput):
     """Rewind one Session before an explicit or latest visible invocation."""
 
@@ -297,6 +356,29 @@ class TaskListInput(ActionInput):
 
     session_id: RunId | None = None
     limit: StrictInt = Field(default=20, ge=1, le=100)
+
+
+class OperationsTaskIdentityInput(ActionInput):
+    """Identify one durable Task owned by the Node."""
+
+    task_id: RunId
+
+
+class OperationsTaskControlInput(OperationsTaskIdentityInput):
+    """Dispatch one runner-supported control operation for a durable Task."""
+
+    action: Literal["interrupt", "cancel", "pause", "resume", "restart", "send_input"]
+    content: Annotated[str, StringConstraints(max_length=8000)] = ""
+    inline_budget_ms: StrictInt | None = Field(default=None, ge=100, le=300_000)
+
+    @model_validator(mode="after")
+    def content_matches_action(self) -> "OperationsTaskControlInput":
+        """Require user input only for the explicit send-input action."""
+        if self.action == "send_input" and not self.content.strip():
+            raise ValueError("content is required for send_input")
+        if self.action != "send_input" and self.content:
+            raise ValueError("content is only valid for send_input")
+        return self
 
 
 class OperationsCronListInput(ActionInput):
@@ -347,6 +429,10 @@ class OperationsCronIdentityInput(ActionInput):
     job_id: Annotated[str, StringConstraints(min_length=1, max_length=64, pattern=r"^[A-Za-z0-9._:-]+$")]
 
 
+class OperationsCronUpdateInput(OperationsCronCreateInput, OperationsCronIdentityInput):
+    """Replace mutable fields for one existing Cron job."""
+
+
 class OperationsCronEnableInput(OperationsCronIdentityInput):
     """Set one Cron job enabled state."""
 
@@ -363,6 +449,30 @@ class OperationsHeartbeatRunInput(ActionInput):
     """Trigger one Node heartbeat for an operator-provided reason."""
 
     reason: Annotated[str, StringConstraints(min_length=1, max_length=120)] = "manual"
+
+
+class OperationsHeartbeatActiveHoursInput(ActionInput):
+    """Optional local-time window for scheduled heartbeat turns."""
+
+    start: Annotated[str, StringConstraints(pattern=r"^(?:[01]\d|2[0-3]):[0-5]\d$")] | None = None
+    end: Annotated[str, StringConstraints(pattern=r"^(?:[01]\d|2[0-3]):[0-5]\d$")] | None = None
+    timezone: Annotated[str, StringConstraints(min_length=1, max_length=128)] = "user"
+
+    @model_validator(mode="after")
+    def complete_window(self) -> "OperationsHeartbeatActiveHoursInput":
+        """Reject half-configured active-hour windows."""
+        if (self.start is None) != (self.end is None):
+            raise ValueError("heartbeat active hours must include both start and end")
+        return self
+
+
+class OperationsHeartbeatConfigureInput(ActionInput):
+    """Persist one complete Node heartbeat policy."""
+
+    enabled: StrictBool
+    every_seconds: StrictInt = Field(ge=30, le=604800)
+    prompt: Annotated[str, StringConstraints(min_length=1, max_length=4000)]
+    active_hours: OperationsHeartbeatActiveHoursInput = Field(default_factory=OperationsHeartbeatActiveHoursInput)
 
 
 class OperationsUsageReadInput(ActionInput):
@@ -394,6 +504,26 @@ class ExtensionListInput(ActionInput):
 
     kind: ExtensionKind | None = None
     agent_id: ResourceId | None = None
+
+
+class ExtensionStarterListInput(ActionInput):
+    """Filter the safe first-party Extension starter catalog."""
+
+    kind: ExtensionKind | None = None
+    query: Annotated[str, StringConstraints(max_length=256)] | None = None
+
+
+class ExtensionStarterIdentityInput(ActionInput):
+    """Identify one Extension starter catalog entry."""
+
+    starter_id: ResourceId
+
+
+class McpOAuthInput(ActionInput):
+    """Identify one OAuth MCP server and optional browser callback origin."""
+
+    server_id: ResourceId
+    callback_base: Annotated[str, StringConstraints(min_length=8, max_length=2048)] | None = None
 
 
 class ExtensionIdentityInput(ActionInput):
@@ -448,6 +578,12 @@ class McpUpdateInput(ActionInput):
     expected_revision: str
 
 
+class McpTestInput(ActionInput):
+    """Identify one direct MCP resource for a live connectivity test."""
+
+    server_id: ResourceId
+
+
 class AppDefinitionMutationInput(ActionInput):
     """Install or update one directly managed App definition."""
 
@@ -467,6 +603,12 @@ class AppConnectionMutationInput(ActionInput):
 
     resource: AppConnection
     expected_revision: str | None
+
+
+class AppConnectionTestInput(ActionInput):
+    """Identify one App connection for a live connectivity test."""
+
+    connection_id: ResourceId
 
 
 class AppConnectionIdentityInput(ActionInput):

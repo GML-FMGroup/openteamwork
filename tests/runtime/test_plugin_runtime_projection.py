@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from pathlib import Path
 
 from openppx.config import InMemorySecretStore
@@ -18,7 +19,6 @@ def test_plugin_fixture_projects_skill_and_real_mcp_without_loading_host_code(tm
     manager = PluginManager(
         tmp_path / "node",
         secrets,
-        allowed_runtime_capabilities=frozenset({"runtime.task-observability"}),
     )
     installed = manager.install(
         manager.stage(
@@ -42,3 +42,27 @@ def test_plugin_fixture_projects_skill_and_real_mcp_without_loading_host_code(tm
 
     assert "# Plugin research" in snapshot.skills.read_skill("plugin-fixture--research")
     assert asyncio.run(_discover()) == ["plugin_fixture_echo_echo_context"]
+
+
+def test_plugin_standard_disabled_tools_is_applied_by_shared_mcp_runtime(tmp_path: Path) -> None:
+    secrets = InMemorySecretStore()
+    source = _write_plugin(tmp_path / "source")
+    config_path = source / ".mcp.json"
+    config = json.loads(config_path.read_text(encoding="utf-8"))
+    config["mcpServers"]["echo"]["disabled_tools"] = ["echo_context"]
+    config_path.write_text(json.dumps(config), encoding="utf-8")
+    manager = PluginManager(tmp_path / "node", secrets)
+    installed = manager.install(
+        manager.stage(ExtensionSourceRef(type="local_directory", locator=str(source))),
+        expected_revision=None,
+    )
+    manager.enable("plugin-fixture", "writer", expected_revision=installed.revision)
+    build = McpRuntimeAdapter(secrets).build(manager.snapshot_for_agent("writer").mcp)
+
+    async def _discover() -> list[str]:
+        try:
+            return [tool.name for tool in await build.toolsets[0].get_tools_with_prefix()]
+        finally:
+            await build.toolsets[0].close()
+
+    assert asyncio.run(_discover()) == []

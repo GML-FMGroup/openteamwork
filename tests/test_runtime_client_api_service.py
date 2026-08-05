@@ -6,6 +6,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from google.adk.artifacts import FileArtifactService
 from google.adk.events.event import Event
 from google.adk.memory.memory_entry import MemoryEntry
 from google.genai import types
@@ -16,6 +17,7 @@ from openppx.runtime.agent_access_store import AgentAccessStore, AgentMembership
 from openppx.runtime.client_api_service import (
     ClientApiCoordinator,
     RunHandle,
+    _ClientApiHandler,
     project_session_event,
 )
 from openppx.runtime.identity_models import ResolvedPrincipal
@@ -199,6 +201,35 @@ def test_list_agents_uses_strict_control_plane_resources(tmp_path: Path) -> None
     assert "Workspace:" in payload["data"]["items"][0]["description"]
 
 
+def test_mcp_oauth_callback_is_public_but_state_gated(tmp_path: Path) -> None:
+    class _OAuthService:
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, str | None, str]] = []
+
+        def deliver_callback(self, code: str, state: str | None, *, error: str = "") -> bool:
+            self.calls.append((code, state, error))
+            return state == "expected-state"
+
+    control_plane = build_control_plane(tmp_path, product_version="test")
+    oauth = _OAuthService()
+    control_plane.mcp_oauth_service = oauth
+    coordinator = ClientApiCoordinator(data_dir=tmp_path, control_plane=control_plane)
+    responses: list[tuple[int, str]] = []
+    handler = _ClientApiHandler.__new__(_ClientApiHandler)
+    handler.server = SimpleNamespace(coordinator=coordinator)
+    handler._send_html = lambda status, body: responses.append((status, body))
+
+    handler.path = "/api/v1/mcp/oauth/callback?code=code-value&state=expected-state"
+    handler.do_GET()
+    assert responses[-1][0] == 200
+    assert "Connected to OpenPPX" in responses[-1][1]
+    assert oauth.calls == [("code-value", "expected-state", "")]
+
+    handler.path = "/api/v1/mcp/oauth/callback?code=other-code&state=wrong-state"
+    handler.do_GET()
+    assert responses[-1][0] == 400
+
+
 def test_action_catalog_and_invoke_use_common_contract_envelope(tmp_path: Path) -> None:
     coordinator = ClientApiCoordinator(data_dir=tmp_path)
 
@@ -269,6 +300,50 @@ def test_project_session_event_skips_thought_text() -> None:
 
     assert message is not None
     assert message["parts"] == [{"type": "markdown", "text": "visible answer"}]
+
+
+def test_project_session_event_projects_inline_image_and_file_parts() -> None:
+    message = project_session_event(
+        {
+            "id": "evt_artifacts",
+            "author": "user",
+            "timestamp": 1_717_171_717,
+            "content": {
+                "parts": [
+                    {
+                        "inline_data": {
+                            "data": "aW1hZ2U=",
+                            "mime_type": "image/png",
+                            "display_name": "diagram.png",
+                        }
+                    },
+                    {
+                        "inline_data": {
+                            "data": "bm90ZXM=",
+                            "mime_type": "text/plain",
+                            "display_name": "notes.txt",
+                        }
+                    },
+                ]
+            },
+        },
+        "session_artifacts",
+    )
+
+    assert message is not None
+    assert message["parts"][0] == {
+        "type": "image",
+        "text": "diagram.png",
+        "url": "data:image/png;base64,aW1hZ2U=",
+        "mime_type": "image/png",
+    }
+    assert message["parts"][1] == {
+        "type": "file",
+        "text": "Attached file",
+        "file_name": "notes.txt",
+        "size_bytes": 5,
+        "mime_type": "text/plain",
+    }
 
 
 def test_project_session_event_skips_unrenderable_events() -> None:
@@ -383,6 +458,101 @@ def test_create_run_rejects_a_session_that_the_node_does_not_own(tmp_path: Path)
 
     assert payload["ok"] is False
     assert payload["error"]["code"] == "SESSION_NOT_FOUND"
+
+
+def test_session_artifact_upload_list_download_and_run_reference(tmp_path: Path) -> None:
+    coordinator, supervisor = _coordinator_with_runtime(tmp_path)
+    artifact_service = FileArtifactService(root_dir=str(tmp_path / "artifacts"))
+    supervisor.runtime_for = lambda _agent_id: SimpleNamespace(  # type: ignore[attr-defined]
+        artifact_service=artifact_service,
+        agent=SimpleNamespace(name="writer"),
+    )
+    created = coordinator.create_session("writer", user_id="owner")
+    session_id = created["data"]["session"]["id"]
+
+    uploaded = coordinator.upload_artifact(
+        "writer",
+        session_id,
+        file_name="notes.txt",
+        mime_type="text/plain",
+        data_base64="aGVsbG8=",
+        user_id="owner",
+    )
+
+    assert uploaded["ok"] is True
+    artifact = uploaded["data"]["artifact"]
+    assert artifact["file_name"] == "notes.txt"
+    assert artifact["size_bytes"] == 5
+    listed = coordinator.list_artifacts("writer", session_id, user_id="owner")
+    assert listed["data"]["items"] == [artifact]
+    metadata, content = coordinator.load_artifact(
+        "writer",
+        session_id,
+        key=artifact["key"],
+        version=artifact["version"],
+        user_id="owner",
+    )
+    assert metadata["data"]["mime_type"] == "text/plain"
+    assert content == b"hello"
+
+    run = coordinator.create_run(
+        "writer",
+        session_id,
+        "Summarize the attachment",
+        artifact_refs=[{"key": artifact["key"], "version": artifact["version"]}],
+        user_id="owner",
+    )
+    callback = supervisor.callbacks[run["data"]["run"]["id"]]
+    assert callback["artifact_parts"][0].inline_data.data == b"hello"
+    assert callback["artifact_parts"][0].inline_data.display_name == "notes.txt"
+
+
+def test_session_artifact_rejects_invalid_names_and_cross_session_access(tmp_path: Path) -> None:
+    coordinator, supervisor = _coordinator_with_runtime(tmp_path)
+    artifact_service = FileArtifactService(root_dir=str(tmp_path / "artifacts"))
+    supervisor.runtime_for = lambda _agent_id: SimpleNamespace(  # type: ignore[attr-defined]
+        artifact_service=artifact_service,
+        agent=SimpleNamespace(name="writer"),
+    )
+    first = coordinator.create_session("writer", user_id="owner")["data"]["session"]["id"]
+    second = coordinator.create_session("writer", user_id="owner")["data"]["session"]["id"]
+
+    invalid_name = coordinator.upload_artifact(
+        "writer",
+        first,
+        file_name="../secret.txt",
+        mime_type="text/plain",
+        data_base64="aGVsbG8=",
+        user_id="owner",
+    )
+    invalid_data = coordinator.upload_artifact(
+        "writer",
+        first,
+        file_name="notes.txt",
+        mime_type="text/plain",
+        data_base64="not-base64",
+        user_id="owner",
+    )
+    uploaded = coordinator.upload_artifact(
+        "writer",
+        first,
+        file_name="notes.txt",
+        mime_type="text/plain",
+        data_base64="aGVsbG8=",
+        user_id="owner",
+    )["data"]["artifact"]
+    wrong_session, content = coordinator.load_artifact(
+        "writer",
+        second,
+        key=uploaded["key"],
+        version=uploaded["version"],
+        user_id="owner",
+    )
+
+    assert invalid_name["error"]["code"] == "INVALID_ARTIFACT"
+    assert invalid_data["error"]["code"] == "INVALID_ARTIFACT"
+    assert wrong_session["error"]["code"] == "ARTIFACT_NOT_FOUND"
+    assert content is None
 
 
 def test_create_run_treats_empty_final_as_failed_message(tmp_path: Path, monkeypatch) -> None:

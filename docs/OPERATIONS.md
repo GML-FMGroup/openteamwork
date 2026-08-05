@@ -47,7 +47,7 @@ ppx operations status --json
 ppx operations health --json
 ```
 
-The Desktop Operations screen consumes these exact Actions.
+The Desktop Operations screen consumes these exact Actions. It provides Task inspection and supported controls, Cron create/edit/enable/disable/run/remove, Heartbeat status and run-now, and the same usage/audit facts without maintaining a separate scheduler.
 
 ## Tasks
 

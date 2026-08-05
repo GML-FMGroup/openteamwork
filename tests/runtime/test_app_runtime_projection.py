@@ -34,11 +34,14 @@ def test_app_fixture_projects_to_real_mcp_toolset_without_app_specific_client(tm
                     "digest": "sha256:" + "b" * 64,
                 },
                 "auth": {"type": "none", "credentials": []},
-                "mcp": {
-                    "type": "stdio",
-                    "command": sys.executable,
-                    "args": [str(Path("tests/eval/mock_mcp_server.py").resolve())],
-                    "environment": {},
+                "implementation": {
+                    "type": "mcp",
+                    "transport": {
+                        "type": "stdio",
+                        "command": sys.executable,
+                        "args": [str(Path("tests/eval/mock_mcp_server.py").resolve())],
+                        "environment": {},
+                    },
                 },
                 "tools": [
                     {

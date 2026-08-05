@@ -387,6 +387,151 @@ describe("OpenPPX Client public contract", () => {
     expect(JSON.parse(String(init.body))).toEqual(actionInvokeExtensionList);
   });
 
+  it("lists and validates typed Extension starters", async () => {
+    const starter = {
+      id: "mcp-context7",
+      kind: "mcp",
+      runtimeKind: "mcp",
+      displayName: "Context7",
+      description: "Current library documentation.",
+      category: "developer-tools",
+      developer: "Upstash",
+      availability: "ready",
+      installMode: "direct_mcp",
+      auth: "none",
+      requirements: [],
+      note: "",
+      featured: true,
+      provenance: { project: "nanobot", license: "MIT" },
+      template: { serverId: "context7" },
+    };
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({
+      protocolVersion: 1,
+      requestId: "req-starters",
+      correlationId: "req-starters",
+      ok: true,
+      result: { items: [starter], counts: { plugin: 0, app: 0, mcp: 1, skill: 0 } },
+    }), { status: 200, headers: { "Content-Type": "application/json" } }));
+    const client = new OpenPpxClient({
+      baseUrl: "http://127.0.0.1:8765",
+      fetch: fetchMock as unknown as typeof fetch,
+      idFactory: () => "req-starters",
+    });
+
+    const response = await client.extensions.listStarters({ kind: "mcp", query: "context" });
+
+    expect(response.result.items[0]).toMatchObject({ id: "mcp-context7", displayName: "Context7" });
+    const body = JSON.parse(String((fetchMock.mock.calls[0] as unknown as [string, RequestInit])[1].body));
+    expect(body).toMatchObject({
+      actionId: "extension.starter.list",
+      input: { kind: "mcp", query: "context" },
+    });
+  });
+
+  it("invokes typed MCP and App Connection lifecycle actions", async () => {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({
+      protocolVersion: 1,
+      requestId: "req-extension-mutation",
+      correlationId: "req-extension-mutation",
+      ok: true,
+      result: { revision: "sha256:next" },
+    }), { status: 200, headers: { "Content-Type": "application/json" } }));
+    const client = new OpenPpxClient({
+      baseUrl: "http://127.0.0.1:8765",
+      fetch: fetchMock as unknown as typeof fetch,
+      idFactory: () => "req-extension-mutation",
+    });
+    const mcpResource = {
+      apiVersion: "openppx.io/v1alpha1" as const,
+      kind: "McpServer" as const,
+      metadata: { name: "github-tools" },
+      spec: {
+        displayName: "GitHub tools",
+        description: "Repository tools",
+        transport: { type: "stdio" as const, command: "npx", args: ["server"], environment: {} },
+        policy: { toolFilter: [], requireConfirmation: true, progressEvents: true, longTaskProxy: true, inlineBudgetMs: 1500 },
+        risk: "medium" as const,
+        enabledAgentIds: [],
+      },
+    };
+    const appConnection = {
+      apiVersion: "openppx.io/v1alpha1" as const,
+      kind: "AppConnection" as const,
+      metadata: { name: "github-work" },
+      spec: {
+        appId: "github",
+        displayName: "Work GitHub",
+        credentialRefs: { token: { store: "system" as const, name: "github-token" } },
+        enabledTools: ["search"],
+        requireConfirmation: true,
+        enabledAgentIds: [],
+      },
+    };
+
+    await client.extensions.createMcp(mcpResource);
+    await client.extensions.updateMcp(mcpResource, "sha256:mcp-current");
+    await client.extensions.beginMcpOAuth("granola", "http://127.0.0.1:18765");
+    await client.extensions.getMcpOAuthStatus("granola");
+    await client.extensions.signOutMcpOAuth("granola");
+    await client.extensions.createAppConnection(appConnection);
+    await client.extensions.reauthorizeAppConnection("github-work", appConnection.spec.credentialRefs, "sha256:connection-current");
+    await client.extensions.setAppConnectionEnabled("github-work", "main", "sha256:connection-next", true);
+    await client.extensions.removeAppConnection("github-work", "sha256:connection-final");
+
+    const bodies = fetchMock.mock.calls.map((call) => JSON.parse(String((call as unknown as [string, RequestInit])[1].body)));
+    expect(bodies.map((body) => body.actionId)).toEqual([
+      "mcp.create",
+      "mcp.update",
+      "mcp.oauth.begin",
+      "mcp.oauth.status",
+      "mcp.oauth.signout",
+      "app.connection.create",
+      "app.connection.reauthorize",
+      "app.connection.enable",
+      "app.connection.remove",
+    ]);
+    expect(bodies[6]).toMatchObject({ input: { connectionId: "github-work", credentialRefs: { token: { store: "system", name: "github-token" } } } });
+  });
+
+  it("tests MCP and App connections through typed live probe results", async () => {
+    const fetchMock = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
+      const input = JSON.parse(String(init?.body ?? "{}"));
+      return new Response(JSON.stringify({
+        protocolVersion: 1,
+        requestId: "req-extension-probe",
+        correlationId: "req-extension-probe",
+        ok: true,
+        result: {
+          kind: input.actionId === "mcp.test" ? "mcp" : "app_connection",
+          id: input.input.serverId ?? input.input.connectionId,
+          revision: "sha256:probe",
+          checkedAt: "2026-08-04T12:00:00Z",
+          ready: true,
+          status: "ok",
+          transport: "stdio",
+          elapsedMs: 12,
+          attempts: 1,
+          toolCount: 1,
+          toolNames: ["echo_context"],
+          issues: [],
+          errorKind: null,
+          message: "",
+        },
+      }), { status: 200, headers: { "Content-Type": "application/json" } });
+    });
+    const client = new OpenPpxClient({
+      baseUrl: "http://127.0.0.1:8765",
+      fetch: fetchMock as unknown as typeof fetch,
+      idFactory: () => "req-extension-probe",
+    });
+
+    const mcp = await client.extensions.testMcp("github-tools");
+    const app = await client.extensions.testAppConnection("github-work");
+
+    expect(mcp.result).toMatchObject({ kind: "mcp", id: "github-tools", ready: true, toolCount: 1 });
+    expect(app.result).toMatchObject({ kind: "app_connection", id: "github-work", ready: true, toolNames: ["echo_context"] });
+  });
+
   it("discovers and invokes Action-backed slash commands", async () => {
     const fetchMock = vi
       .fn()
@@ -478,6 +623,74 @@ describe("OpenPPX Client public contract", () => {
     const secondBody = JSON.parse(String((fetchMock.mock.calls[1] as unknown as [string, RequestInit])[1].body));
     expect(firstBody).toEqual(actionInvokeOperationsOverview);
     expect(secondBody).toEqual(actionInvokeOperationsAudit);
+  });
+
+  it("exposes typed durable Task inspection and confirmed controls", async () => {
+    const responses = [
+      {
+        protocolVersion: CLIENT_API_PROTOCOL_VERSION,
+        requestId: "req-task-list",
+        correlationId: "req-task-list",
+        ok: true,
+        result: { ok: true, items: [{ taskId: "task-1", kind: "manual", status: "running", title: "Work", progressSummary: "Working", terminalSummary: "", lastError: "", checkpointRef: "", resumePolicy: "", updatedAtMs: 1, actions: [] }] },
+      },
+      {
+        protocolVersion: CLIENT_API_PROTOCOL_VERSION,
+        requestId: "req-task-control",
+        correlationId: "req-task-control",
+        ok: true,
+        result: { ok: true, action: "pause" },
+      },
+    ];
+    let responseIndex = 0;
+    const fetchMock = vi.fn(async () => new Response(
+      JSON.stringify(responses[responseIndex++]),
+      { status: 200, headers: { "Content-Type": "application/json" } },
+    ));
+    const requestIds = ["req-task-list", "req-task-control"];
+    let requestIndex = 0;
+    const client = new OpenPpxClient({
+      baseUrl: "http://127.0.0.1:18765",
+      fetch: fetchMock as unknown as typeof fetch,
+      idFactory: () => requestIds[requestIndex++],
+    });
+
+    const listed = await client.operations.tasks(null, 50);
+    await client.operations.controlTask({ taskId: "task-1", action: "pause" }, true);
+
+    expect(listed.result.items[0].taskId).toBe("task-1");
+    const listBody = JSON.parse(String((fetchMock.mock.calls[0] as unknown as [string, RequestInit])[1].body));
+    const controlBody = JSON.parse(String((fetchMock.mock.calls[1] as unknown as [string, RequestInit])[1].body));
+    expect(listBody).toMatchObject({ actionId: "operations.task.list", input: { sessionId: null, limit: 50 }, confirmed: false });
+    expect(controlBody).toMatchObject({ actionId: "operations.task.control", input: { taskId: "task-1", action: "pause", content: "", inlineBudgetMs: null }, confirmed: true });
+  });
+
+  it("uploads and lists Session artifacts through the dedicated contract", async () => {
+    const responses = [
+      { ok: true, data: { artifact: { id: "artifact-1", key: "uploads/artifact-1/notes.txt", file_name: "notes.txt", mime_type: "text/plain", size_bytes: 5, version: 0, source: "user_upload", created_at: "2026-08-04T00:00:00Z" } } },
+      { ok: true, data: { items: [{ id: "artifact-1", key: "uploads/artifact-1/notes.txt", file_name: "notes.txt", mime_type: "text/plain", size_bytes: 5, version: 0, source: "user_upload", created_at: "2026-08-04T00:00:00Z" }] } },
+    ];
+    let index = 0;
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify(responses[index++]), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    }));
+    const client = new OpenPpxClient({ baseUrl: "http://127.0.0.1:18765", fetch: fetchMock as unknown as typeof fetch });
+
+    const uploaded = await client.artifacts.upload({
+      agentId: "writer",
+      sessionId: "session-1",
+      fileName: "notes.txt",
+      mimeType: "text/plain",
+      dataBase64: "aGVsbG8=",
+    });
+    const listed = await client.artifacts.list("writer", "session-1");
+
+    expect(uploaded).toMatchObject({ id: "artifact-1", fileName: "notes.txt", sizeBytes: 5 });
+    expect(listed).toEqual([uploaded]);
+    const [uploadUrl, uploadInit] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect(uploadUrl).toBe("http://127.0.0.1:18765/api/v1/agents/writer/sessions/session-1/artifacts");
+    expect(JSON.parse(String(uploadInit.body))).toEqual({ file_name: "notes.txt", mime_type: "text/plain", data_base64: "aGVsbG8=" });
   });
 
   it("preserves the common Action error metadata", async () => {

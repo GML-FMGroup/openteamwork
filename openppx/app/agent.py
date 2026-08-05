@@ -261,6 +261,7 @@ def build_root_agent(
             skills_summary=resolved_skill_snapshot.build_summary(),
             gui_tools_enabled=include_gui_tools,
             mcp_summaries=mcp_summaries or summarize_mcp_toolsets(list(extension_tools)),
+            agent_instruction=agent_config.spec.instruction,
         ),
         tools=_build_tools(
             privilege_level=agent_config.spec.privilege_level,

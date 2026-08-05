@@ -2,19 +2,23 @@
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 from typing import Any
+from urllib.parse import urlencode
 
 from openppx.config import SecretBackendUnavailable, SecretNotFound, SecretStore
 from openppx.core.mcp_registry import ManagedMcpToolset, build_mcp_toolsets, probe_mcp_toolsets
 from openppx.extensions.mcp import McpSnapshot
 from openppx.extensions.mcp_models import (
+    McpEnvironmentValue,
     McpLiteralValue,
     McpRemoteTransport,
     McpSecretValue,
     McpStdioTransport,
     McpValueBinding,
 )
+from openppx.extensions.mcp_oauth import McpOAuthService
 
 
 @dataclass(frozen=True, slots=True)
@@ -42,11 +46,16 @@ class McpProbeReport:
     diagnostics: tuple[McpRuntimeDiagnostic, ...]
 
 
+class _McpEnvironmentMissing(RuntimeError):
+    """Raised without a value when a declared Runtime environment key is absent."""
+
+
 class McpRuntimeAdapter:
     """Resolve protected bindings and construct real Google ADK MCP toolsets."""
 
-    def __init__(self, secret_store: SecretStore) -> None:
+    def __init__(self, secret_store: SecretStore, oauth_service: McpOAuthService | None = None) -> None:
         self.secret_store = secret_store
+        self.oauth_service = oauth_service or McpOAuthService(secret_store)
 
     def build(self, snapshot: McpSnapshot) -> McpRuntimeBuild:
         """Build toolsets without ever copying Secret values into persisted resources."""
@@ -55,7 +64,7 @@ class McpRuntimeAdapter:
         for entry in snapshot.entries:
             server_id = entry.record.metadata.name
             try:
-                raw = self._runtime_config(entry.record.spec.transport)
+                raw = self._runtime_config(server_id, entry.record.spec.transport)
             except SecretNotFound:
                 diagnostics.append(
                     McpRuntimeDiagnostic(
@@ -74,6 +83,15 @@ class McpRuntimeAdapter:
                     )
                 )
                 continue
+            except _McpEnvironmentMissing:
+                diagnostics.append(
+                    McpRuntimeDiagnostic(
+                        server_id=server_id,
+                        code="environment_missing",
+                        message="A required MCP environment variable is not configured.",
+                    )
+                )
+                continue
 
             policy = entry.record.spec.policy
             raw.update(
@@ -88,6 +106,8 @@ class McpRuntimeAdapter:
             )
             if policy.tool_filter:
                 raw["toolFilter"] = list(policy.tool_filter)
+            if policy.disabled_tools:
+                raw["disabledTools"] = list(policy.disabled_tools)
             if policy.job_protocol is not None:
                 raw["jobProtocol"] = policy.job_protocol.model_dump(mode="json", by_alias=True)
             toolsets.extend(build_mcp_toolsets({server_id: raw}, log_registered=False))
@@ -113,7 +133,11 @@ class McpRuntimeAdapter:
             for toolset in build.toolsets:
                 await toolset.close()
 
-    def _runtime_config(self, transport: McpStdioTransport | McpRemoteTransport) -> dict[str, Any]:
+    def _runtime_config(
+        self,
+        server_id: str,
+        transport: McpStdioTransport | McpRemoteTransport,
+    ) -> dict[str, Any]:
         """Convert one strict transport into the mature ADK builder contract."""
         if isinstance(transport, McpStdioTransport):
             return {
@@ -125,19 +149,34 @@ class McpRuntimeAdapter:
                     for name, binding in transport.environment.items()
                 },
             }
-        return {
-            "url": transport.url,
+        query = {
+            name: self._resolve_binding(binding)
+            for name, binding in transport.query.items()
+        }
+        config = {
+            "url": f"{transport.url}?{urlencode(query)}" if query else transport.url,
             "transport": "sse" if transport.type == "sse" else "http",
             "headers": {
                 name: self._resolve_binding(binding)
                 for name, binding in transport.headers.items()
             },
         }
+        if transport.auth == "oauth":
+            config["httpxClientFactory"] = self.oauth_service.runtime_httpx_factory(
+                server_id,
+                transport.url,
+            )
+        return config
 
     def _resolve_binding(self, binding: McpValueBinding) -> str:
         """Reveal a Secret only at the final in-memory connection boundary."""
         if isinstance(binding, McpLiteralValue):
             return binding.value
+        if isinstance(binding, McpEnvironmentValue):
+            value = os.environ.get(binding.name)
+            if value is None:
+                raise _McpEnvironmentMissing(binding.name)
+            return f"{binding.prefix}{value}{binding.suffix}"
         if isinstance(binding, McpSecretValue):
             value = self.secret_store.resolve(binding.secret_ref).reveal()
             return f"{binding.prefix}{value}{binding.suffix}"

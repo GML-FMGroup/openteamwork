@@ -15,14 +15,22 @@ import type {
   UserProfile,
 } from "../../types";
 
-type ShellIconName = "settings" | "expand" | "search" | "plus" | "sidebar" | "sidebar-right";
+type ShellIconName = "settings" | "extensions" | "expand" | "search" | "plus" | "sidebar" | "sidebar-right" | "more";
 
 export function ShellIcon({ name }: { name: ShellIconName }) {
   const paths: Record<ShellIconName, ReactNode> = {
     settings: (
       <>
         <circle cx="12" cy="12" r="3" />
-        <path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9 7 7M17 17l2.1 2.1M19.1 4.9 17 7M7 17l-2.1 2.1" />
+        <path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06-2.83 2.83-.06-.06A1.7 1.7 0 0 0 15 19.4a1.7 1.7 0 0 0-1 .6 1.7 1.7 0 0 0-.4 1.1V21h-4v-.09A1.7 1.7 0 0 0 8.6 19.4a1.7 1.7 0 0 0-1.88.34l-.06.06-2.83-2.83.06-.06A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-.6-1 1.7 1.7 0 0 0-1.1-.4H3v-4h.09A1.7 1.7 0 0 0 4.6 8.6a1.7 1.7 0 0 0-.34-1.88l-.06-.06 2.83-2.83.06.06A1.7 1.7 0 0 0 9 4.6a1.7 1.7 0 0 0 1-.6 1.7 1.7 0 0 0 .4-1.1V3h4v.09A1.7 1.7 0 0 0 15.4 4.6a1.7 1.7 0 0 0 1.88-.34l.06-.06 2.83 2.83-.06.06A1.7 1.7 0 0 0 19.4 9c.13.38.34.72.6 1 .3.28.68.42 1.1.4h.09v4h-.09c-.42-.02-.8.12-1.1.4-.26.28-.47.62-.6 1Z" />
+      </>
+    ),
+    extensions: (
+      <>
+        <rect x="4" y="4" width="6" height="6" rx="1.5" />
+        <rect x="14" y="4" width="6" height="6" rx="1.5" />
+        <rect x="4" y="14" width="6" height="6" rx="1.5" />
+        <rect x="14" y="14" width="6" height="6" rx="1.5" />
       </>
     ),
     expand: <path d="m10 6 6 6-6 6" />,
@@ -33,6 +41,7 @@ export function ShellIcon({ name }: { name: ShellIconName }) {
       </>
     ),
     plus: <path d="M12 5v14M5 12h14" />,
+    more: <><circle cx="5" cy="12" r="1" fill="currentColor" stroke="none" /><circle cx="12" cy="12" r="1" fill="currentColor" stroke="none" /><circle cx="19" cy="12" r="1" fill="currentColor" stroke="none" /></>,
     sidebar: (
       <>
         <rect x="3.5" y="4.5" width="17" height="15" rx="4" />
@@ -137,6 +146,7 @@ function profileInitials(displayName: string): string {
 interface ContextSidebarProps {
   platform: DesktopPlatform;
   view: "chat" | "settings";
+  controlArea: "settings" | "extensions" | null;
   runtime: RuntimeStatus;
   diagnostics: ClientDiagnostics | null;
   userProfile: UserProfile;
@@ -149,8 +159,15 @@ interface ContextSidebarProps {
   searchFocusRequest: number;
   onToggleCollapse: () => void;
   onChangeView: (view: "chat" | "settings") => void;
+  onOpenSettings: () => void;
+  onOpenExtensions: () => void;
   onSelectAgent: (agentId: string) => void;
   onSelectSession: (session: SessionSummary) => void;
+  onRenameSession: (session: SessionSummary, title: string) => void;
+  onArchiveSession: (session: SessionSummary) => void;
+  onForkSession: (session: SessionSummary) => void;
+  onExportSession: (session: SessionSummary) => void;
+  onDeleteSession: (session: SessionSummary) => void;
   onNewAgent: () => void;
   onNewSession: () => void;
 }
@@ -159,6 +176,7 @@ interface ContextSidebarProps {
 export function ContextSidebar({
   platform,
   view,
+  controlArea,
   runtime,
   diagnostics,
   userProfile,
@@ -171,14 +189,23 @@ export function ContextSidebar({
   searchFocusRequest,
   onToggleCollapse,
   onChangeView,
+  onOpenSettings,
+  onOpenExtensions,
   onSelectAgent,
   onSelectSession,
+  onRenameSession,
+  onArchiveSession,
+  onForkSession,
+  onExportSession,
+  onDeleteSession,
   onNewAgent,
   onNewSession,
 }: ContextSidebarProps) {
   const [query, setQuery] = useState("");
   const [agentMenuOpen, setAgentMenuOpen] = useState(false);
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
+  const [sessionMenuId, setSessionMenuId] = useState<string | null>(null);
+  const [showArchived, setShowArchived] = useState(false);
   const searchRef = useRef<HTMLInputElement | null>(null);
   const agentPickerRef = useRef<HTMLDivElement | null>(null);
   const agentTriggerRef = useRef<HTMLButtonElement | null>(null);
@@ -188,13 +215,13 @@ export function ContextSidebar({
   const filteredSessions = useMemo(() => {
     const normalized = query.trim().toLowerCase();
     if (!normalized) {
-      return sessions;
+      return sessions.filter((session) => showArchived || !session.archived);
     }
-    return sessions.filter((session) => {
+    return sessions.filter((session) => (showArchived || !session.archived) && (() => {
       const preview = visibleSessionPreview(session.lastMessagePreview);
       return `${session.title} ${preview}`.toLowerCase().includes(normalized);
-    });
-  }, [query, sessions]);
+    })());
+  }, [query, sessions, showArchived]);
   const selectedAgent = useMemo(
     () => agents.find((agent) => agent.id === selectedAgentId) ?? null,
     [agents, selectedAgentId],
@@ -401,9 +428,7 @@ export function ContextSidebar({
       <section className="context-section session-section">
         <div className="context-section-heading">
           <span>Sessions</span>
-          <button className="section-add" onClick={onNewSession} disabled={!selectedAgentId} title="New session">
-            <ShellIcon name="plus" />
-          </button>
+          <span className="context-heading-actions"><button className={showArchived ? "section-filter active" : "section-filter"} onClick={() => setShowArchived((value) => !value)} title="Show archived sessions">Archive</button><button className="section-add" onClick={onNewSession} disabled={!selectedAgentId} title="New session"><ShellIcon name="plus" /></button></span>
         </div>
         <label className="session-search">
           <ShellIcon name="search" />
@@ -420,8 +445,8 @@ export function ContextSidebar({
             const running = sendingSessionIds.includes(session.id);
             const preview = visibleSessionPreview(session.lastMessagePreview);
             return (
+              <div key={session.id} className={`session-row-shell ${sessionMenuId === session.id ? "menu-open" : ""}`}>
               <button
-                key={session.id}
                 className={`session-row ${preview ? "with-preview" : "compact"} ${
                   session.id === selectedSessionId ? "active" : ""
                 }`}
@@ -443,6 +468,22 @@ export function ContextSidebar({
                   </span>
                 ) : null}
               </button>
+              <button
+                className="session-more"
+                aria-label="Session actions"
+                title={`Actions for ${session.title}`}
+                onClick={() => setSessionMenuId((value) => value === session.id ? null : session.id)}
+              >
+                <ShellIcon name="more" />
+              </button>
+              {sessionMenuId === session.id ? <div className="session-action-menu" role="menu">
+                <button onClick={() => { const title = window.prompt("Rename session", session.title)?.trim(); setSessionMenuId(null); if (title && title !== session.title) onRenameSession(session, title); }}>Rename</button>
+                <button onClick={() => { setSessionMenuId(null); onArchiveSession(session); }}>{session.archived ? "Restore" : "Archive"}</button>
+                <button onClick={() => { setSessionMenuId(null); onForkSession(session); }}>Duplicate</button>
+                <button onClick={() => { setSessionMenuId(null); onExportSession(session); }}>Export JSON</button>
+                <button className="danger" onClick={() => { setSessionMenuId(null); if (window.confirm(`Delete ${session.title}? Generated artifacts will be retained.`)) onDeleteSession(session); }}>Delete</button>
+              </div> : null}
+              </div>
             );
           })}
           {filteredSessions.length === 0 ? (
@@ -468,16 +509,28 @@ export function ContextSidebar({
               </div>
               <div className="profile-menu-divider" />
               <button
-                className={view === "settings" ? "profile-menu-item active" : "profile-menu-item"}
+                className={view === "settings" && controlArea === "settings" ? "profile-menu-item active" : "profile-menu-item"}
                 type="button"
                 role="menuitem"
                 onClick={() => {
                   setProfileMenuOpen(false);
-                  onChangeView("settings");
+                  onOpenSettings();
                 }}
               >
                 <ShellIcon name="settings" />
                 <span>Settings</span>
+              </button>
+              <button
+                className={view === "settings" && controlArea === "extensions" ? "profile-menu-item active" : "profile-menu-item"}
+                type="button"
+                role="menuitem"
+                onClick={() => {
+                  setProfileMenuOpen(false);
+                  onOpenExtensions();
+                }}
+              >
+                <ShellIcon name="extensions" />
+                <span>Extensions</span>
               </button>
             </div>
           ) : null}

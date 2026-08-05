@@ -182,7 +182,7 @@ Use `--url`, `--token`, and `--json` when managing another Node or automating th
 
 ## Client-local settings
 
-Window layout, panel widths, and a saved connection target belong to the current Desktop device, not Node Config. LAN bearer tokens are encrypted by Electron Main and the ordinary connection file stores only a reference bound to the endpoint.
+Window layout, panel widths, and saved connection targets belong to the current Desktop device, not Node Config. Electron Main stores a versioned target collection with one explicit active target. Every LAN bearer token is encrypted separately and bound to its exact endpoint; the ordinary connection file stores only a credential reference. The Renderer can list non-secret target metadata but cannot read token values.
 
 ## Failure behavior
 

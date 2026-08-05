@@ -11,11 +11,30 @@ from pydantic import ValidationError
 from openppx.config import InMemorySecretStore, SecretRef, SecretValue
 from openppx.extensions import ExtensionError, McpManager, McpServer
 from openppx.extensions.app_models import AppConnection, AppDefinition
+from openppx.extensions.app_adapters import (
+    NativeAppAdapterReadiness,
+    NativeAppAdapterRegistry,
+    NativeAppContext,
+)
 from openppx.extensions.apps import AppManager
 from openppx.extensions.prefixes import ToolPrefixIndex
 
 
 _DIGEST = "sha256:" + "a" * 64
+
+
+class _NativeTool:
+    name = "native_lookup"
+
+
+class _FixtureNativeAdapter:
+    adapter_id = "fixture-native"
+
+    def readiness(self, context: NativeAppContext) -> NativeAppAdapterReadiness:
+        return NativeAppAdapterReadiness(ready=bool(context.tools))
+
+    def build_tools(self, context: NativeAppContext) -> tuple[object, ...]:
+        return (_NativeTool(),) if context.tools else ()
 
 
 def _definition(
@@ -53,11 +72,14 @@ def _definition(
                     "digest": _DIGEST,
                 },
                 "auth": {"type": auth_type, "credentials": credentials},
-                "mcp": {
-                    "type": "stdio",
-                    "command": sys.executable,
-                    "args": [str(Path("tests/eval/mock_mcp_server.py").resolve())],
-                    "environment": environment,
+                "implementation": {
+                    "type": "mcp",
+                    "transport": {
+                        "type": "stdio",
+                        "command": sys.executable,
+                        "args": [str(Path("tests/eval/mock_mcp_server.py").resolve())],
+                        "environment": environment,
+                    },
                 },
                 "tools": tools
                 or [
@@ -107,6 +129,55 @@ def _connection(
     )
 
 
+def _native_definition() -> AppDefinition:
+    payload = _definition(auth_type="none").model_dump(mode="json", by_alias=True)
+    payload["metadata"]["name"] = "native-app"
+    payload["spec"]["displayName"] = "Native App"
+    payload["spec"]["implementation"] = {
+        "type": "native",
+        "adapter": "fixture-native",
+    }
+    payload["spec"]["tools"][0]["name"] = "native_lookup"
+    return AppDefinition.model_validate(payload)
+
+
+def test_native_app_adapter_is_explicit_trusted_runtime_boundary(tmp_path: Path) -> None:
+    missing = AppManager(tmp_path / "missing", InMemorySecretStore())
+    missing.install_definition(_native_definition(), expected_revision=None)
+    missing.create_connection(
+        _connection(name="native-account", app_id="native-app"),
+        expected_revision=None,
+    )
+    assert missing.readiness("native-account").issues == ("adapter_missing",)
+
+    adapters = NativeAppAdapterRegistry()
+    adapters.register(_FixtureNativeAdapter())
+    manager = AppManager(
+        tmp_path / "ready",
+        InMemorySecretStore(),
+        adapter_registry=adapters,
+    )
+    installed = manager.install_definition(_native_definition(), expected_revision=None)
+    connection = manager.create_connection(
+        _connection(name="native-account", app_id="native-app"),
+        expected_revision=None,
+    )
+    enabled = manager.enable_connection(
+        "native-account",
+        "writer",
+        expected_revision=connection.revision,
+    )
+    snapshot = manager.snapshot_for_agent("writer")
+
+    assert installed.record.spec.implementation.type == "native"
+    assert enabled.status == "connected"
+    assert snapshot.mcp.entries == ()
+    assert [tool.name for tool in manager.build_native_tools(snapshot)] == ["native_lookup"]
+    assert [tool.name for tool in manager.native_tools_for_probe("native-account")] == [
+        "native_lookup"
+    ]
+
+
 def test_app_schema_separates_definition_connection_and_rejects_cli_installers() -> None:
     definition = _definition()
     payload = definition.model_dump(mode="json", by_alias=True)
@@ -115,7 +186,7 @@ def test_app_schema_separates_definition_connection_and_rejects_cli_installers()
         AppDefinition.model_validate(payload)
 
     payload = definition.model_dump(mode="json", by_alias=True)
-    payload["spec"]["mcp"]["environment"]["FIXTURE_TOKEN"] = {
+    payload["spec"]["implementation"]["transport"]["environment"]["FIXTURE_TOKEN"] = {
         "kind": "secret",
         "secretRef": {"store": "system", "name": "not-allowed-in-definition"},
     }
@@ -186,6 +257,51 @@ def test_app_definition_connection_auth_enable_snapshot_and_remove(tmp_path: Pat
     manager.remove_definition("fixture-app", expected_revision=installed.revision)
     assert manager.list_definitions() == ()
     assert manager.list_connections() == ()
+
+
+def test_connection_policy_update_cannot_replace_credential_refs(tmp_path: Path) -> None:
+    manager = AppManager(tmp_path, InMemorySecretStore())
+    manager.install_definition(_definition(), expected_revision=None)
+    created = manager.create_connection(
+        _connection(
+            credential_refs={
+                "api-token": {"store": "system", "name": "original-token"}
+            }
+        ),
+        expected_revision=None,
+    )
+    candidate = created.record.model_copy(
+        update={
+            "spec": created.record.spec.model_copy(
+                update={
+                    "display_name": "Renamed account",
+                    "credential_refs": {
+                        "api-token": SecretRef(store="system", name="replacement-token")
+                    },
+                }
+            )
+        }
+    )
+
+    updated = manager.update_connection(candidate, expected_revision=created.revision)
+
+    assert updated.record.spec.display_name == "Renamed account"
+    assert updated.record.spec.credential_refs == {
+        "api-token": SecretRef(store="system", name="original-token")
+    }
+
+
+def test_app_probe_snapshot_does_not_enable_connection(tmp_path: Path) -> None:
+    manager = AppManager(tmp_path, InMemorySecretStore())
+    manager.install_definition(_definition(auth_type="none"), expected_revision=None)
+    created = manager.create_connection(_connection(), expected_revision=None)
+
+    snapshot = manager.mcp_snapshot_for_probe("fixture-account")
+
+    assert snapshot.names == ("app-fixture-app-fixture-account",)
+    assert snapshot.entries[0].record.spec.enabled_agent_ids == ["connection-probe"]
+    assert manager.get_connection("fixture-account").revision == created.revision
+    assert manager.get_connection("fixture-account").record.spec.enabled_agent_ids == []
 
 
 def test_app_tool_policy_only_narrows_definition_and_high_risk_requires_confirmation(

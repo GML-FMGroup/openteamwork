@@ -1,0 +1,71 @@
+"""Tests for the bundled, non-sensitive Extension starter catalog."""
+
+from __future__ import annotations
+
+import pytest
+
+from openppx.extensions import ExtensionStarterCatalog, default_extension_starter_catalog
+
+
+def test_default_catalog_has_expected_domain_coverage() -> None:
+    catalog = default_extension_starter_catalog()
+
+    assert len(catalog.list()) == 143
+    assert len(catalog.list(kind="app")) == 42
+    assert len(catalog.list(kind="mcp")) == 4
+    assert len(catalog.list(kind="skill")) == 97
+    assert len(catalog.list(kind="plugin")) == 0
+    assert catalog.get("app-granola").display_name == "Granola"
+    assert catalog.get("app-granola").runtime_kind == "mcp"
+    assert catalog.get("app-granola").install_mode == "direct_mcp"
+    assert catalog.get("app-granola").template["transport"]["auth"] == "oauth"
+    assert catalog.get("mcp-microsoft-learn").availability == "ready"
+    assert catalog.get("app-jira").runtime_kind == "mcp"
+    assert catalog.get("app-monday").install_mode == "direct_mcp"
+    assert catalog.get("app-parallel-search").template["transport"]["url"] == (
+        "https://search.parallel.ai/mcp"
+    )
+
+
+def test_catalog_search_is_case_insensitive_and_projects_copies() -> None:
+    catalog = default_extension_starter_catalog()
+
+    matches = catalog.list(kind="app", query="MEETING")
+    payload = matches[0].to_payload()
+    payload["template"]["mutated"] = True
+
+    assert any(item.starter_id == "app-granola" for item in matches)
+    assert "mutated" not in catalog.get(matches[0].starter_id).template
+
+
+def test_catalog_payloads_never_contain_credential_values() -> None:
+    payload = [item.to_payload() for item in default_extension_starter_catalog().list()]
+    keys: set[str] = set()
+
+    def collect_keys(value: object) -> None:
+        if isinstance(value, dict):
+            keys.update(str(key) for key in value)
+            for item in value.values():
+                collect_keys(item)
+        elif isinstance(value, list):
+            for item in value:
+                collect_keys(item)
+
+    collect_keys(payload)
+
+    assert {"secretValues", "credentialValues", "accessToken", "refreshToken", "password"}.isdisjoint(keys)
+
+
+def test_every_direct_mcp_starter_has_a_complete_one_click_template() -> None:
+    for starter in default_extension_starter_catalog().list():
+        if starter.install_mode != "direct_mcp":
+            continue
+        assert {"serverId", "displayName", "risk", "transport"}.issubset(starter.template), starter.starter_id
+
+
+def test_catalog_rejects_duplicate_ids() -> None:
+    catalog = default_extension_starter_catalog()
+    item = catalog.get("app-granola")
+
+    with pytest.raises(ValueError, match="duplicate Extension starter id"):
+        ExtensionStarterCatalog((item, item))

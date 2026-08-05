@@ -1,0 +1,4333 @@
+[
+  {
+    "id": "app-telegram",
+    "kind": "app",
+    "runtimeKind": "app",
+    "displayName": "Telegram",
+    "description": "Two-way messaging with a Telegram bot.",
+    "category": "communication",
+    "developer": "Telegram",
+    "availability": "planned",
+    "installMode": "unavailable",
+    "auth": "secret",
+    "requirements": [
+      "OpenPPX product adapter"
+    ],
+    "note": "Catalog metadata is available; Connect remains disabled until OpenPPX ships a verified adapter.",
+    "featured": true,
+    "provenance": {
+      "project": "OpenWorker",
+      "sourceUrl": "https://github.com/andrewyng/openworker",
+      "license": "MIT"
+    },
+    "template": {
+      "referenceId": "telegram"
+    }
+  },
+  {
+    "id": "app-slack",
+    "kind": "app",
+    "runtimeKind": "app",
+    "displayName": "Slack",
+    "description": "Two-way messaging — one-click via OpenWorker Cloud, or a manual Slack app (Socket Mode).",
+    "category": "communication",
+    "developer": "Slack",
+    "availability": "planned",
+    "installMode": "unavailable",
+    "auth": "secret",
+    "requirements": [
+      "OpenPPX product adapter"
+    ],
+    "note": "Catalog metadata is available; Connect remains disabled until OpenPPX ships a verified adapter.",
+    "featured": true,
+    "provenance": {
+      "project": "OpenWorker",
+      "sourceUrl": "https://github.com/andrewyng/openworker",
+      "license": "MIT"
+    },
+    "template": {
+      "referenceId": "slack"
+    }
+  },
+  {
+    "id": "app-email",
+    "kind": "app",
+    "runtimeKind": "app",
+    "displayName": "Email (IMAP)",
+    "description": "Read, search, and send mail from any IMAP account — Gmail, iCloud, Fastmail, or custom.",
+    "category": "communication",
+    "developer": "Email (IMAP)",
+    "availability": "planned",
+    "installMode": "unavailable",
+    "auth": "secret",
+    "requirements": [
+      "OpenPPX product adapter"
+    ],
+    "note": "Catalog metadata is available; Connect remains disabled until OpenPPX ships a verified adapter.",
+    "featured": true,
+    "provenance": {
+      "project": "OpenWorker",
+      "sourceUrl": "https://github.com/andrewyng/openworker",
+      "license": "MIT"
+    },
+    "template": {
+      "referenceId": "email"
+    }
+  },
+  {
+    "id": "app-gmail",
+    "kind": "app",
+    "runtimeKind": "app",
+    "displayName": "Gmail",
+    "description": "Search, summarize, draft, and send email.",
+    "category": "communication",
+    "developer": "Gmail",
+    "availability": "planned",
+    "installMode": "unavailable",
+    "auth": "oauth",
+    "requirements": [
+      "OpenPPX product adapter"
+    ],
+    "note": "Catalog metadata is available; Connect remains disabled until OpenPPX ships a verified adapter.",
+    "featured": true,
+    "provenance": {
+      "project": "OpenWorker",
+      "sourceUrl": "https://github.com/andrewyng/openworker",
+      "license": "MIT"
+    },
+    "template": {
+      "referenceId": "gmail"
+    }
+  },
+  {
+    "id": "app-google-calendar",
+    "kind": "app",
+    "runtimeKind": "app",
+    "displayName": "Google Calendar",
+    "description": "Read availability, summarize schedules, and create events.",
+    "category": "calendar",
+    "developer": "Google Calendar",
+    "availability": "planned",
+    "installMode": "unavailable",
+    "auth": "oauth",
+    "requirements": [
+      "OpenPPX product adapter"
+    ],
+    "note": "Catalog metadata is available; Connect remains disabled until OpenPPX ships a verified adapter.",
+    "featured": true,
+    "provenance": {
+      "project": "OpenWorker",
+      "sourceUrl": "https://github.com/andrewyng/openworker",
+      "license": "MIT"
+    },
+    "template": {
+      "referenceId": "google_calendar"
+    }
+  },
+  {
+    "id": "app-github",
+    "kind": "app",
+    "runtimeKind": "mcp",
+    "displayName": "GitHub",
+    "description": "Work with issues, pull requests, repository files, and CI status.",
+    "category": "developer",
+    "developer": "GitHub",
+    "availability": "needs_auth",
+    "installMode": "direct_mcp",
+    "auth": "secret",
+    "requirements": [
+      "Docker",
+      "GitHub token"
+    ],
+    "note": "MCP-backed product starter. It is governed as a direct MCP resource in this release.",
+    "featured": true,
+    "provenance": {
+      "project": "OpenWorker",
+      "sourceUrl": "https://github.com/andrewyng/openworker",
+      "license": "MIT"
+    },
+    "template": {
+      "serverId": "github",
+      "displayName": "GitHub",
+      "risk": "high",
+      "credentials": [
+        {
+          "name": "github-token",
+          "label": "GitHub token",
+          "required": true
+        }
+      ],
+      "transport": {
+        "type": "stdio",
+        "command": "docker",
+        "args": [
+          "run",
+          "-i",
+          "--rm",
+          "-e",
+          "GITHUB_PERSONAL_ACCESS_TOKEN",
+          "ghcr.io/github/github-mcp-server"
+        ],
+        "environment": {
+          "GITHUB_PERSONAL_ACCESS_TOKEN": {
+            "kind": "secret_input",
+            "field": "github-token"
+          }
+        }
+      }
+    }
+  },
+  {
+    "id": "app-outlook",
+    "kind": "app",
+    "runtimeKind": "app",
+    "displayName": "Outlook",
+    "description": "Microsoft 365 mail and calendar: search, draft, and send email; manage events and respond to invites.",
+    "category": "communication",
+    "developer": "Outlook",
+    "availability": "planned",
+    "installMode": "unavailable",
+    "auth": "oauth",
+    "requirements": [
+      "OpenPPX product adapter"
+    ],
+    "note": "Catalog metadata is available; Connect remains disabled until OpenPPX ships a verified adapter.",
+    "featured": true,
+    "provenance": {
+      "project": "OpenWorker",
+      "sourceUrl": "https://github.com/andrewyng/openworker",
+      "license": "MIT"
+    },
+    "template": {
+      "referenceId": "outlook"
+    }
+  },
+  {
+    "id": "app-jira",
+    "kind": "app",
+    "runtimeKind": "mcp",
+    "displayName": "Jira",
+    "description": "Search, summarize, create, and update issues.",
+    "category": "project-management",
+    "developer": "Jira",
+    "availability": "needs_auth",
+    "installMode": "direct_mcp",
+    "auth": "oauth",
+    "requirements": [
+      "Atlassian account",
+      "MCP OAuth authorization"
+    ],
+    "note": "Branded App backed by Atlassian's official remote MCP server.",
+    "featured": true,
+    "provenance": {
+      "project": "OpenWorker",
+      "sourceUrl": "https://developer.atlassian.com/cloud/rovo-mcp/guides/configuring-oauth-2-1/",
+      "license": "Official service"
+    },
+    "template": {
+      "serverId": "jira",
+      "displayName": "Jira",
+      "risk": "high",
+      "credentials": [],
+      "transport": {
+        "type": "streamable_http",
+        "url": "https://mcp.atlassian.com/v1/mcp",
+        "headers": {},
+        "auth": "oauth"
+      }
+    }
+  },
+  {
+    "id": "app-monday",
+    "kind": "app",
+    "runtimeKind": "mcp",
+    "displayName": "monday.com",
+    "description": "Read boards and items, track work, create items and post updates.",
+    "category": "project-management",
+    "developer": "monday.com",
+    "availability": "needs_auth",
+    "installMode": "direct_mcp",
+    "auth": "oauth",
+    "requirements": [
+      "monday.com account",
+      "MCP OAuth authorization"
+    ],
+    "note": "Branded App backed by monday.com's official hosted MCP server.",
+    "featured": false,
+    "provenance": {
+      "project": "OpenWorker",
+      "sourceUrl": "https://developer.monday.com/api-reference/docs/integrate-with-monday-mcp",
+      "license": "Official service"
+    },
+    "template": {
+      "serverId": "monday",
+      "displayName": "monday.com",
+      "risk": "high",
+      "credentials": [],
+      "transport": {
+        "type": "streamable_http",
+        "url": "https://mcp.monday.com/mcp",
+        "headers": {},
+        "auth": "oauth"
+      }
+    }
+  },
+  {
+    "id": "app-confluence",
+    "kind": "app",
+    "runtimeKind": "app",
+    "displayName": "Confluence",
+    "description": "Search spaces, read pages, and draft documentation.",
+    "category": "knowledge",
+    "developer": "Confluence",
+    "availability": "planned",
+    "installMode": "unavailable",
+    "auth": "secret",
+    "requirements": [
+      "OpenPPX product adapter"
+    ],
+    "note": "Catalog metadata is available; Connect remains disabled until OpenPPX ships a verified adapter.",
+    "featured": false,
+    "provenance": {
+      "project": "OpenWorker",
+      "sourceUrl": "https://github.com/andrewyng/openworker",
+      "license": "MIT"
+    },
+    "template": {
+      "referenceId": "confluence"
+    }
+  },
+  {
+    "id": "app-zendesk",
+    "kind": "app",
+    "runtimeKind": "app",
+    "displayName": "Zendesk",
+    "description": "Search tickets, summarize customer context, and draft replies.",
+    "category": "support",
+    "developer": "Zendesk",
+    "availability": "planned",
+    "installMode": "unavailable",
+    "auth": "secret",
+    "requirements": [
+      "OpenPPX product adapter"
+    ],
+    "note": "Catalog metadata is available; Connect remains disabled until OpenPPX ships a verified adapter.",
+    "featured": false,
+    "provenance": {
+      "project": "OpenWorker",
+      "sourceUrl": "https://github.com/andrewyng/openworker",
+      "license": "MIT"
+    },
+    "template": {
+      "referenceId": "zendesk"
+    }
+  },
+  {
+    "id": "app-linear",
+    "kind": "app",
+    "runtimeKind": "app",
+    "displayName": "Linear",
+    "description": "Search, read, and create Linear issues.",
+    "category": "project-management",
+    "developer": "Linear",
+    "availability": "planned",
+    "installMode": "unavailable",
+    "auth": "secret",
+    "requirements": [
+      "OpenPPX product adapter"
+    ],
+    "note": "Catalog metadata is available; Connect remains disabled until OpenPPX ships a verified adapter.",
+    "featured": false,
+    "provenance": {
+      "project": "OpenWorker",
+      "sourceUrl": "https://github.com/andrewyng/openworker",
+      "license": "MIT"
+    },
+    "template": {
+      "referenceId": "linear"
+    }
+  },
+  {
+    "id": "app-gitlab",
+    "kind": "app",
+    "runtimeKind": "app",
+    "displayName": "GitLab",
+    "description": "Work with issues and merge requests on GitLab.com or self-hosted.",
+    "category": "developer",
+    "developer": "GitLab",
+    "availability": "planned",
+    "installMode": "unavailable",
+    "auth": "secret",
+    "requirements": [
+      "OpenPPX product adapter"
+    ],
+    "note": "Catalog metadata is available; Connect remains disabled until OpenPPX ships a verified adapter.",
+    "featured": false,
+    "provenance": {
+      "project": "OpenWorker",
+      "sourceUrl": "https://github.com/andrewyng/openworker",
+      "license": "MIT"
+    },
+    "template": {
+      "referenceId": "gitlab"
+    }
+  },
+  {
+    "id": "app-discord",
+    "kind": "app",
+    "runtimeKind": "app",
+    "displayName": "Discord",
+    "description": "Read channels and send messages through a Discord bot.",
+    "category": "communication",
+    "developer": "Discord",
+    "availability": "planned",
+    "installMode": "unavailable",
+    "auth": "secret",
+    "requirements": [
+      "OpenPPX product adapter"
+    ],
+    "note": "Catalog metadata is available; Connect remains disabled until OpenPPX ships a verified adapter.",
+    "featured": false,
+    "provenance": {
+      "project": "OpenWorker",
+      "sourceUrl": "https://github.com/andrewyng/openworker",
+      "license": "MIT"
+    },
+    "template": {
+      "referenceId": "discord"
+    }
+  },
+  {
+    "id": "app-stripe",
+    "kind": "app",
+    "runtimeKind": "app",
+    "displayName": "Stripe",
+    "description": "Read-only access to customers, charges, and invoices.",
+    "category": "finance",
+    "developer": "Stripe",
+    "availability": "planned",
+    "installMode": "unavailable",
+    "auth": "secret",
+    "requirements": [
+      "OpenPPX product adapter"
+    ],
+    "note": "Catalog metadata is available; Connect remains disabled until OpenPPX ships a verified adapter.",
+    "featured": false,
+    "provenance": {
+      "project": "OpenWorker",
+      "sourceUrl": "https://github.com/andrewyng/openworker",
+      "license": "MIT"
+    },
+    "template": {
+      "referenceId": "stripe"
+    }
+  },
+  {
+    "id": "app-asana",
+    "kind": "app",
+    "runtimeKind": "app",
+    "displayName": "Asana",
+    "description": "Search and read tasks and projects; create, update, and comment.",
+    "category": "project-management",
+    "developer": "Asana",
+    "availability": "planned",
+    "installMode": "unavailable",
+    "auth": "secret",
+    "requirements": [
+      "OpenPPX product adapter"
+    ],
+    "note": "Catalog metadata is available; Connect remains disabled until OpenPPX ships a verified adapter.",
+    "featured": false,
+    "provenance": {
+      "project": "OpenWorker",
+      "sourceUrl": "https://github.com/andrewyng/openworker",
+      "license": "MIT"
+    },
+    "template": {
+      "referenceId": "asana"
+    }
+  },
+  {
+    "id": "app-hubspot",
+    "kind": "app",
+    "runtimeKind": "app",
+    "displayName": "HubSpot",
+    "description": "Search CRM records; log notes and tasks, update records. No deletes.",
+    "category": "crm",
+    "developer": "HubSpot",
+    "availability": "planned",
+    "installMode": "unavailable",
+    "auth": "secret",
+    "requirements": [
+      "OpenPPX product adapter"
+    ],
+    "note": "Catalog metadata is available; Connect remains disabled until OpenPPX ships a verified adapter.",
+    "featured": false,
+    "provenance": {
+      "project": "OpenWorker",
+      "sourceUrl": "https://github.com/andrewyng/openworker",
+      "license": "MIT"
+    },
+    "template": {
+      "referenceId": "hubspot"
+    }
+  },
+  {
+    "id": "app-dropbox",
+    "kind": "app",
+    "runtimeKind": "app",
+    "displayName": "Dropbox",
+    "description": "Search, browse, and read files in Dropbox.",
+    "category": "storage",
+    "developer": "Dropbox",
+    "availability": "planned",
+    "installMode": "unavailable",
+    "auth": "oauth",
+    "requirements": [
+      "OpenPPX product adapter"
+    ],
+    "note": "Catalog metadata is available; Connect remains disabled until OpenPPX ships a verified adapter.",
+    "featured": false,
+    "provenance": {
+      "project": "OpenWorker",
+      "sourceUrl": "https://github.com/andrewyng/openworker",
+      "license": "MIT"
+    },
+    "template": {
+      "referenceId": "dropbox"
+    }
+  },
+  {
+    "id": "app-box",
+    "kind": "app",
+    "runtimeKind": "app",
+    "displayName": "Box",
+    "description": "Search, browse, and read files in Box.",
+    "category": "storage",
+    "developer": "Box",
+    "availability": "planned",
+    "installMode": "unavailable",
+    "auth": "oauth",
+    "requirements": [
+      "OpenPPX product adapter"
+    ],
+    "note": "Catalog metadata is available; Connect remains disabled until OpenPPX ships a verified adapter.",
+    "featured": false,
+    "provenance": {
+      "project": "OpenWorker",
+      "sourceUrl": "https://github.com/andrewyng/openworker",
+      "license": "MIT"
+    },
+    "template": {
+      "referenceId": "box"
+    }
+  },
+  {
+    "id": "app-whatsapp",
+    "kind": "app",
+    "runtimeKind": "app",
+    "displayName": "WhatsApp",
+    "description": "Send WhatsApp messages through Meta's official Cloud API (outbound only).",
+    "category": "communication",
+    "developer": "WhatsApp",
+    "availability": "planned",
+    "installMode": "unavailable",
+    "auth": "secret",
+    "requirements": [
+      "OpenPPX product adapter"
+    ],
+    "note": "Catalog metadata is available; Connect remains disabled until OpenPPX ships a verified adapter.",
+    "featured": false,
+    "provenance": {
+      "project": "OpenWorker",
+      "sourceUrl": "https://github.com/andrewyng/openworker",
+      "license": "MIT"
+    },
+    "template": {
+      "referenceId": "whatsapp"
+    }
+  },
+  {
+    "id": "app-quickbooks",
+    "kind": "app",
+    "runtimeKind": "app",
+    "displayName": "QuickBooks",
+    "description": "Read-only access to customers, invoices, and financial reports.",
+    "category": "finance",
+    "developer": "QuickBooks",
+    "availability": "planned",
+    "installMode": "unavailable",
+    "auth": "oauth",
+    "requirements": [
+      "OpenPPX product adapter"
+    ],
+    "note": "Catalog metadata is available; Connect remains disabled until OpenPPX ships a verified adapter.",
+    "featured": false,
+    "provenance": {
+      "project": "OpenWorker",
+      "sourceUrl": "https://github.com/andrewyng/openworker",
+      "license": "MIT"
+    },
+    "template": {
+      "referenceId": "quickbooks"
+    }
+  },
+  {
+    "id": "app-docusign",
+    "kind": "app",
+    "runtimeKind": "app",
+    "displayName": "Docusign",
+    "description": "Track agreements, check envelope status, and send documents for signature.",
+    "category": "legal",
+    "developer": "Docusign",
+    "availability": "planned",
+    "installMode": "unavailable",
+    "auth": "oauth",
+    "requirements": [
+      "OpenPPX product adapter"
+    ],
+    "note": "Catalog metadata is available; Connect remains disabled until OpenPPX ships a verified adapter.",
+    "featured": false,
+    "provenance": {
+      "project": "OpenWorker",
+      "sourceUrl": "https://github.com/andrewyng/openworker",
+      "license": "MIT"
+    },
+    "template": {
+      "referenceId": "docusign"
+    }
+  },
+  {
+    "id": "app-clickup",
+    "kind": "app",
+    "runtimeKind": "app",
+    "displayName": "ClickUp",
+    "description": "Search tasks and docs; create and update items.",
+    "category": "project-management",
+    "developer": "ClickUp",
+    "availability": "planned",
+    "installMode": "unavailable",
+    "auth": "secret",
+    "requirements": [
+      "OpenPPX product adapter"
+    ],
+    "note": "Catalog metadata is available; Connect remains disabled until OpenPPX ships a verified adapter.",
+    "featured": false,
+    "provenance": {
+      "project": "OpenWorker",
+      "sourceUrl": "https://github.com/andrewyng/openworker",
+      "license": "MIT"
+    },
+    "template": {
+      "referenceId": "clickup"
+    }
+  },
+  {
+    "id": "app-google-drive",
+    "kind": "app",
+    "runtimeKind": "app",
+    "displayName": "Google Drive",
+    "description": "Search, browse, and read files in Google Drive.",
+    "category": "storage",
+    "developer": "Google Drive",
+    "availability": "planned",
+    "installMode": "unavailable",
+    "auth": "oauth",
+    "requirements": [
+      "OpenPPX product adapter"
+    ],
+    "note": "Catalog metadata is available; Connect remains disabled until OpenPPX ships a verified adapter.",
+    "featured": false,
+    "provenance": {
+      "project": "OpenWorker",
+      "sourceUrl": "https://github.com/andrewyng/openworker",
+      "license": "MIT"
+    },
+    "template": {
+      "referenceId": "google_drive"
+    }
+  },
+  {
+    "id": "app-canva",
+    "kind": "app",
+    "runtimeKind": "app",
+    "displayName": "Canva",
+    "description": "Browse, create, and export designs.",
+    "category": "design",
+    "developer": "Canva",
+    "availability": "planned",
+    "installMode": "unavailable",
+    "auth": "oauth",
+    "requirements": [
+      "OpenPPX product adapter"
+    ],
+    "note": "Catalog metadata is available; Connect remains disabled until OpenPPX ships a verified adapter.",
+    "featured": false,
+    "provenance": {
+      "project": "OpenWorker",
+      "sourceUrl": "https://github.com/andrewyng/openworker",
+      "license": "MIT"
+    },
+    "template": {
+      "referenceId": "canva"
+    }
+  },
+  {
+    "id": "app-figma",
+    "kind": "app",
+    "runtimeKind": "mcp",
+    "displayName": "Figma",
+    "description": "Read design files and comments; export assets.",
+    "category": "design",
+    "developer": "Figma",
+    "availability": "needs_dependency",
+    "installMode": "direct_mcp",
+    "auth": "none",
+    "requirements": [
+      "Figma Desktop with Dev Mode MCP enabled"
+    ],
+    "note": "MCP-backed product starter. It is governed as a direct MCP resource in this release.",
+    "featured": false,
+    "provenance": {
+      "project": "OpenWorker",
+      "sourceUrl": "https://github.com/andrewyng/openworker",
+      "license": "MIT"
+    },
+    "template": {
+      "serverId": "figma",
+      "displayName": "Figma",
+      "risk": "medium",
+      "credentials": [],
+      "transport": {
+        "type": "streamable_http",
+        "url": "http://127.0.0.1:3845/mcp",
+        "headers": {}
+      }
+    }
+  },
+  {
+    "id": "app-close",
+    "kind": "app",
+    "runtimeKind": "app",
+    "displayName": "Close",
+    "description": "Read and update leads, contacts, and opportunities in the CRM.",
+    "category": "crm",
+    "developer": "Close",
+    "availability": "planned",
+    "installMode": "unavailable",
+    "auth": "secret",
+    "requirements": [
+      "OpenPPX product adapter"
+    ],
+    "note": "Catalog metadata is available; Connect remains disabled until OpenPPX ships a verified adapter.",
+    "featured": false,
+    "provenance": {
+      "project": "OpenWorker",
+      "sourceUrl": "https://github.com/andrewyng/openworker",
+      "license": "MIT"
+    },
+    "template": {
+      "referenceId": "close"
+    }
+  },
+  {
+    "id": "app-notion",
+    "kind": "app",
+    "runtimeKind": "app",
+    "displayName": "Notion",
+    "description": "Search pages, read content, query databases, create pages.",
+    "category": "knowledge",
+    "developer": "Notion",
+    "availability": "planned",
+    "installMode": "unavailable",
+    "auth": "oauth",
+    "requirements": [
+      "OpenPPX product adapter"
+    ],
+    "note": "Catalog metadata is available; Connect remains disabled until OpenPPX ships a verified adapter.",
+    "featured": false,
+    "provenance": {
+      "project": "OpenWorker",
+      "sourceUrl": "https://github.com/andrewyng/openworker",
+      "license": "MIT"
+    },
+    "template": {
+      "referenceId": "notion"
+    }
+  },
+  {
+    "id": "app-attio",
+    "kind": "app",
+    "runtimeKind": "app",
+    "displayName": "Attio",
+    "description": "Read your Attio CRM: objects, records, notes.",
+    "category": "crm",
+    "developer": "Attio",
+    "availability": "planned",
+    "installMode": "unavailable",
+    "auth": "oauth",
+    "requirements": [
+      "OpenPPX product adapter"
+    ],
+    "note": "Catalog metadata is available; Connect remains disabled until OpenPPX ships a verified adapter.",
+    "featured": false,
+    "provenance": {
+      "project": "OpenWorker",
+      "sourceUrl": "https://github.com/andrewyng/openworker",
+      "license": "MIT"
+    },
+    "template": {
+      "referenceId": "attio"
+    }
+  },
+  {
+    "id": "app-posthog",
+    "kind": "app",
+    "runtimeKind": "app",
+    "displayName": "PostHog",
+    "description": "Query product analytics: events, funnels, saved insights.",
+    "category": "analytics",
+    "developer": "PostHog",
+    "availability": "planned",
+    "installMode": "unavailable",
+    "auth": "secret",
+    "requirements": [
+      "OpenPPX product adapter"
+    ],
+    "note": "Catalog metadata is available; Connect remains disabled until OpenPPX ships a verified adapter.",
+    "featured": false,
+    "provenance": {
+      "project": "OpenWorker",
+      "sourceUrl": "https://github.com/andrewyng/openworker",
+      "license": "MIT"
+    },
+    "template": {
+      "referenceId": "posthog"
+    }
+  },
+  {
+    "id": "app-mixpanel",
+    "kind": "app",
+    "runtimeKind": "app",
+    "displayName": "Mixpanel",
+    "description": "Query Mixpanel events and segmentation.",
+    "category": "analytics",
+    "developer": "Mixpanel",
+    "availability": "planned",
+    "installMode": "unavailable",
+    "auth": "secret",
+    "requirements": [
+      "OpenPPX product adapter"
+    ],
+    "note": "Catalog metadata is available; Connect remains disabled until OpenPPX ships a verified adapter.",
+    "featured": false,
+    "provenance": {
+      "project": "OpenWorker",
+      "sourceUrl": "https://github.com/andrewyng/openworker",
+      "license": "MIT"
+    },
+    "template": {
+      "referenceId": "mixpanel"
+    }
+  },
+  {
+    "id": "app-amplitude",
+    "kind": "app",
+    "runtimeKind": "app",
+    "displayName": "Amplitude",
+    "description": "Query Amplitude charts data: active users, event totals.",
+    "category": "analytics",
+    "developer": "Amplitude",
+    "availability": "planned",
+    "installMode": "unavailable",
+    "auth": "secret",
+    "requirements": [
+      "OpenPPX product adapter"
+    ],
+    "note": "Catalog metadata is available; Connect remains disabled until OpenPPX ships a verified adapter.",
+    "featured": false,
+    "provenance": {
+      "project": "OpenWorker",
+      "sourceUrl": "https://github.com/andrewyng/openworker",
+      "license": "MIT"
+    },
+    "template": {
+      "referenceId": "amplitude"
+    }
+  },
+  {
+    "id": "app-apollo",
+    "kind": "app",
+    "runtimeKind": "app",
+    "displayName": "Apollo.io",
+    "description": "Enrich people and companies; search the B2B database.",
+    "category": "sales",
+    "developer": "Apollo.io",
+    "availability": "planned",
+    "installMode": "unavailable",
+    "auth": "secret",
+    "requirements": [
+      "OpenPPX product adapter"
+    ],
+    "note": "Catalog metadata is available; Connect remains disabled until OpenPPX ships a verified adapter.",
+    "featured": false,
+    "provenance": {
+      "project": "OpenWorker",
+      "sourceUrl": "https://github.com/andrewyng/openworker",
+      "license": "MIT"
+    },
+    "template": {
+      "referenceId": "apollo"
+    }
+  },
+  {
+    "id": "app-hunter",
+    "kind": "app",
+    "runtimeKind": "app",
+    "displayName": "Hunter",
+    "description": "Find and verify professional email addresses by domain.",
+    "category": "sales",
+    "developer": "Hunter",
+    "availability": "planned",
+    "installMode": "unavailable",
+    "auth": "secret",
+    "requirements": [
+      "OpenPPX product adapter"
+    ],
+    "note": "Catalog metadata is available; Connect remains disabled until OpenPPX ships a verified adapter.",
+    "featured": false,
+    "provenance": {
+      "project": "OpenWorker",
+      "sourceUrl": "https://github.com/andrewyng/openworker",
+      "license": "MIT"
+    },
+    "template": {
+      "referenceId": "hunter"
+    }
+  },
+  {
+    "id": "app-granola",
+    "kind": "app",
+    "runtimeKind": "mcp",
+    "displayName": "Granola",
+    "description": "Meeting notes and transcripts through Granola's OAuth MCP server.",
+    "category": "meetings",
+    "developer": "Granola",
+    "availability": "needs_auth",
+    "installMode": "direct_mcp",
+    "auth": "oauth",
+    "requirements": [
+      "Granola account",
+      "MCP OAuth authorization"
+    ],
+    "note": "OpenPPX opens Granola's OAuth sign-in in your browser and stores the resulting MCP session in the Node credential service.",
+    "featured": true,
+    "provenance": {
+      "project": "OpenWorker",
+      "sourceUrl": "https://github.com/andrewyng/openworker",
+      "license": "MIT"
+    },
+    "template": {
+      "serverId": "granola",
+      "displayName": "Granola",
+      "risk": "medium",
+      "transport": {
+        "type": "streamable_http",
+        "url": "https://mcp.granola.ai/mcp",
+        "headers": {},
+        "auth": "oauth"
+      },
+      "credentials": []
+    }
+  },
+  {
+    "id": "app-browserbase",
+    "kind": "app",
+    "runtimeKind": "mcp",
+    "displayName": "Browserbase",
+    "description": "Cloud browser automation through Browserbase's hosted MCP server.",
+    "category": "browser",
+    "developer": "Browserbase",
+    "availability": "needs_auth",
+    "installMode": "direct_mcp",
+    "auth": "secret",
+    "requirements": [
+      "Browserbase API key"
+    ],
+    "note": "The API key is stored by the Node and resolved into the MCP URL only while connecting.",
+    "featured": true,
+    "provenance": {
+      "project": "nanobot",
+      "sourceUrl": "https://github.com/HKUDS/nanobot",
+      "license": "MIT"
+    },
+    "template": {
+      "serverId": "browserbase",
+      "displayName": "Browserbase",
+      "risk": "medium",
+      "transport": {
+        "type": "streamable_http",
+        "url": "https://mcp.browserbase.com/mcp",
+        "headers": {},
+        "query": {
+          "browserbaseApiKey": {
+            "kind": "secret_input",
+            "field": "browserbase-api-key"
+          }
+        }
+      },
+      "credentials": [
+        {
+          "name": "browserbase-api-key",
+          "label": "Browserbase API key",
+          "required": true
+        }
+      ]
+    }
+  },
+  {
+    "id": "app-firecrawl",
+    "kind": "app",
+    "runtimeKind": "mcp",
+    "displayName": "Firecrawl",
+    "description": "Scrape, crawl, search, and extract web pages through Firecrawl.",
+    "category": "web",
+    "developer": "Firecrawl",
+    "availability": "needs_auth",
+    "installMode": "direct_mcp",
+    "auth": "secret",
+    "requirements": [
+      "Node.js and npx",
+      "Firecrawl API key"
+    ],
+    "note": "MCP-backed product starter.",
+    "featured": true,
+    "provenance": {
+      "project": "nanobot",
+      "sourceUrl": "https://github.com/HKUDS/nanobot",
+      "license": "MIT"
+    },
+    "template": {
+      "serverId": "firecrawl",
+      "displayName": "Firecrawl",
+      "risk": "medium",
+      "credentials": [
+        {
+          "name": "firecrawl-api-key",
+          "label": "Firecrawl API key",
+          "required": true
+        }
+      ],
+      "transport": {
+        "type": "stdio",
+        "command": "npx",
+        "args": [
+          "-y",
+          "firecrawl-mcp"
+        ],
+        "environment": {
+          "FIRECRAWL_API_KEY": {
+            "kind": "secret_input",
+            "field": "firecrawl-api-key"
+          }
+        }
+      }
+    }
+  },
+  {
+    "id": "app-exa",
+    "kind": "app",
+    "runtimeKind": "mcp",
+    "displayName": "Exa",
+    "description": "Search the web and fetch clean page content through Exa's hosted MCP server.",
+    "category": "web",
+    "developer": "Exa",
+    "availability": "ready",
+    "installMode": "direct_mcp",
+    "auth": "none",
+    "requirements": [
+      "Network access"
+    ],
+    "note": "MCP-backed product starter.",
+    "featured": true,
+    "provenance": {
+      "project": "nanobot",
+      "sourceUrl": "https://github.com/HKUDS/nanobot",
+      "license": "MIT"
+    },
+    "template": {
+      "serverId": "exa",
+      "displayName": "Exa",
+      "risk": "low",
+      "credentials": [],
+      "transport": {
+        "type": "streamable_http",
+        "url": "https://mcp.exa.ai/mcp",
+        "headers": {}
+      }
+    }
+  },
+  {
+    "id": "app-brave-search",
+    "kind": "app",
+    "runtimeKind": "mcp",
+    "displayName": "Brave Search",
+    "description": "Run web, news, image, video, and local search through Brave Search.",
+    "category": "web",
+    "developer": "Brave",
+    "availability": "needs_auth",
+    "installMode": "direct_mcp",
+    "auth": "secret",
+    "requirements": [
+      "Node.js and npx",
+      "Brave Search API key"
+    ],
+    "note": "MCP-backed product starter.",
+    "featured": true,
+    "provenance": {
+      "project": "nanobot",
+      "sourceUrl": "https://github.com/HKUDS/nanobot",
+      "license": "MIT"
+    },
+    "template": {
+      "serverId": "brave-search",
+      "displayName": "Brave Search",
+      "risk": "low",
+      "credentials": [
+        {
+          "name": "brave-api-key",
+          "label": "Brave Search API key",
+          "required": true
+        }
+      ],
+      "transport": {
+        "type": "stdio",
+        "command": "npx",
+        "args": [
+          "-y",
+          "@brave/brave-search-mcp-server@latest",
+          "--transport",
+          "stdio"
+        ],
+        "environment": {
+          "BRAVE_API_KEY": {
+            "kind": "secret_input",
+            "field": "brave-api-key"
+          }
+        }
+      }
+    }
+  },
+  {
+    "id": "app-postman",
+    "kind": "app",
+    "runtimeKind": "mcp",
+    "displayName": "Postman",
+    "description": "Inspect and manage Postman APIs, collections, and workspaces.",
+    "category": "api",
+    "developer": "Postman",
+    "availability": "needs_auth",
+    "installMode": "direct_mcp",
+    "auth": "secret",
+    "requirements": [
+      "Node.js and npx",
+      "Postman API key"
+    ],
+    "note": "MCP-backed product starter with high-risk write tools.",
+    "featured": false,
+    "provenance": {
+      "project": "nanobot",
+      "sourceUrl": "https://github.com/HKUDS/nanobot",
+      "license": "MIT"
+    },
+    "template": {
+      "serverId": "postman",
+      "displayName": "Postman",
+      "risk": "high",
+      "credentials": [
+        {
+          "name": "postman-api-key",
+          "label": "Postman API key",
+          "required": true
+        }
+      ],
+      "transport": {
+        "type": "stdio",
+        "command": "npx",
+        "args": [
+          "-y",
+          "@postman/postman-mcp-server@latest",
+          "--full"
+        ],
+        "environment": {
+          "POSTMAN_API_KEY": {
+            "kind": "secret_input",
+            "field": "postman-api-key"
+          }
+        }
+      }
+    }
+  },
+  {
+    "id": "app-supabase",
+    "kind": "app",
+    "runtimeKind": "mcp",
+    "displayName": "Supabase",
+    "description": "Inspect and manage Supabase projects through its MCP server.",
+    "category": "database",
+    "developer": "Supabase",
+    "availability": "needs_auth",
+    "installMode": "direct_mcp",
+    "auth": "secret",
+    "requirements": [
+      "Node.js and npx",
+      "Supabase access token"
+    ],
+    "note": "Starts with the provider's read-only MCP mode.",
+    "featured": true,
+    "provenance": {
+      "project": "nanobot",
+      "sourceUrl": "https://github.com/HKUDS/nanobot",
+      "license": "MIT"
+    },
+    "template": {
+      "serverId": "supabase",
+      "displayName": "Supabase",
+      "risk": "high",
+      "credentials": [
+        {
+          "name": "supabase-access-token",
+          "label": "Supabase access token",
+          "required": true
+        }
+      ],
+      "transport": {
+        "type": "stdio",
+        "command": "npx",
+        "args": [
+          "-y",
+          "@supabase/mcp-server-supabase@latest",
+          "--read-only"
+        ],
+        "environment": {
+          "SUPABASE_ACCESS_TOKEN": {
+            "kind": "secret_input",
+            "field": "supabase-access-token"
+          }
+        }
+      }
+    }
+  },
+  {
+    "id": "app-parallel-search",
+    "kind": "app",
+    "runtimeKind": "mcp",
+    "displayName": "Parallel Search",
+    "description": "Search the web and fetch relevant page content through Parallel.",
+    "category": "web",
+    "developer": "Parallel",
+    "availability": "ready",
+    "installMode": "direct_mcp",
+    "auth": "none",
+    "requirements": [
+      "Network access"
+    ],
+    "note": "Branded App backed by Parallel's official anonymous Search MCP endpoint; an API key can be configured later for higher limits.",
+    "featured": false,
+    "provenance": {
+      "project": "Parallel Search MCP",
+      "sourceUrl": "https://docs.parallel.ai/integrations/mcp/quickstart",
+      "license": "Official service"
+    },
+    "template": {
+      "serverId": "parallel-search",
+      "displayName": "Parallel Search",
+      "risk": "medium",
+      "credentials": [],
+      "transport": {
+        "type": "streamable_http",
+        "url": "https://search.parallel.ai/mcp",
+        "headers": {}
+      }
+    }
+  },
+  {
+    "id": "mcp-playwright",
+    "kind": "mcp",
+    "runtimeKind": "mcp",
+    "displayName": "Playwright",
+    "description": "Local browser inspection and automation with Playwright's MCP server.",
+    "category": "browser",
+    "developer": "Playwright",
+    "availability": "needs_dependency",
+    "installMode": "direct_mcp",
+    "auth": "none",
+    "requirements": [
+      "Node.js and npx"
+    ],
+    "note": "Direct MCP starter adapted from nanobot's preset catalog.",
+    "featured": true,
+    "provenance": {
+      "project": "nanobot",
+      "sourceUrl": "https://github.com/HKUDS/nanobot",
+      "license": "MIT"
+    },
+    "template": {
+      "serverId": "playwright",
+      "displayName": "Playwright",
+      "risk": "high",
+      "credentials": [],
+      "transport": {
+        "type": "stdio",
+        "command": "npx",
+        "args": [
+          "-y",
+          "@playwright/mcp@latest"
+        ],
+        "environment": {}
+      }
+    }
+  },
+  {
+    "id": "mcp-context7",
+    "kind": "mcp",
+    "runtimeKind": "mcp",
+    "displayName": "Context7",
+    "description": "Fetch current library documentation and code examples.",
+    "category": "docs",
+    "developer": "Context7",
+    "availability": "needs_dependency",
+    "installMode": "direct_mcp",
+    "auth": "none",
+    "requirements": [
+      "Node.js and npx"
+    ],
+    "note": "Direct MCP starter adapted from nanobot's preset catalog.",
+    "featured": true,
+    "provenance": {
+      "project": "nanobot",
+      "sourceUrl": "https://github.com/HKUDS/nanobot",
+      "license": "MIT"
+    },
+    "template": {
+      "serverId": "context7",
+      "displayName": "Context7",
+      "risk": "low",
+      "credentials": [],
+      "transport": {
+        "type": "stdio",
+        "command": "npx",
+        "args": [
+          "-y",
+          "@upstash/context7-mcp@latest"
+        ],
+        "environment": {}
+      }
+    }
+  },
+  {
+    "id": "mcp-microsoft-learn",
+    "kind": "mcp",
+    "runtimeKind": "mcp",
+    "displayName": "Microsoft Learn",
+    "description": "Search and fetch public Microsoft Learn documentation.",
+    "category": "docs",
+    "developer": "Microsoft Learn",
+    "availability": "ready",
+    "installMode": "direct_mcp",
+    "auth": "none",
+    "requirements": [
+      "Network access"
+    ],
+    "note": "Direct MCP starter adapted from nanobot's preset catalog.",
+    "featured": true,
+    "provenance": {
+      "project": "nanobot",
+      "sourceUrl": "https://github.com/HKUDS/nanobot",
+      "license": "MIT"
+    },
+    "template": {
+      "serverId": "microsoft-learn",
+      "displayName": "Microsoft Learn",
+      "risk": "low",
+      "credentials": [],
+      "transport": {
+        "type": "streamable_http",
+        "url": "https://learn.microsoft.com/api/mcp",
+        "headers": {}
+      }
+    }
+  },
+  {
+    "id": "mcp-aws-docs",
+    "kind": "mcp",
+    "runtimeKind": "mcp",
+    "displayName": "AWS Documentation",
+    "description": "Search AWS documentation and service guidance.",
+    "category": "docs",
+    "developer": "AWS Documentation",
+    "availability": "needs_dependency",
+    "installMode": "direct_mcp",
+    "auth": "none",
+    "requirements": [
+      "uvx"
+    ],
+    "note": "Direct MCP starter adapted from nanobot's preset catalog.",
+    "featured": true,
+    "provenance": {
+      "project": "nanobot",
+      "sourceUrl": "https://github.com/HKUDS/nanobot",
+      "license": "MIT"
+    },
+    "template": {
+      "serverId": "aws-docs",
+      "displayName": "AWS Documentation",
+      "risk": "low",
+      "credentials": [],
+      "transport": {
+        "type": "stdio",
+        "command": "uvx",
+        "args": [
+          "awslabs.aws-documentation-mcp-server@latest"
+        ],
+        "environment": {
+          "FASTMCP_LOG_LEVEL": {
+            "kind": "literal",
+            "value": "ERROR"
+          },
+          "AWS_DOCUMENTATION_PARTITION": {
+            "kind": "literal",
+            "value": "aws"
+          }
+        }
+      }
+    }
+  },
+  {
+    "id": "cli-anything-jumpserver",
+    "kind": "skill",
+    "runtimeKind": "skill",
+    "displayName": "JumpServer",
+    "description": "Bastion host management — manage assets, users, permissions, sessions, accounts, and audit logs via JumpServer REST API",
+    "category": "devops",
+    "developer": "Ayasaz",
+    "availability": "needs_dependency",
+    "installMode": "source",
+    "auth": "none",
+    "requirements": [
+      "JumpServer v3.0+ instance"
+    ],
+    "note": "Review the pinned source preview before installing this Skill.",
+    "featured": false,
+    "provenance": {
+      "project": "CLI-Anything",
+      "sourceUrl": "https://www.jumpserver.org",
+      "license": "MIT"
+    },
+    "template": {
+      "source": {
+        "type": "git",
+        "locator": "https://github.com/HKUDS/CLI-Anything.git",
+        "version": "0.1.0",
+        "subpath": "skills/cli-anything-jumpserver"
+      },
+      "entryPoint": "cli-anything-jumpserver"
+    }
+  },
+  {
+    "id": "cli-anything-openrefine",
+    "kind": "skill",
+    "runtimeKind": "skill",
+    "displayName": "OpenRefine",
+    "description": "Agent-native CLI for OpenRefine import, operation-history cleaning, row inspection, export, and session undo/redo through the real local HTTP API.",
+    "category": "database",
+    "developer": "CLI-Anything-Team",
+    "availability": "needs_dependency",
+    "installMode": "source",
+    "auth": "none",
+    "requirements": [
+      "OpenRefine 3.10.x or newer running as a local web server"
+    ],
+    "note": "Review the pinned source preview before installing this Skill.",
+    "featured": false,
+    "provenance": {
+      "project": "CLI-Anything",
+      "sourceUrl": "https://openrefine.org/",
+      "license": "MIT"
+    },
+    "template": {
+      "source": {
+        "type": "git",
+        "locator": "https://github.com/HKUDS/CLI-Anything.git",
+        "version": "1.0.1",
+        "subpath": "skills/cli-anything-openrefine"
+      },
+      "entryPoint": "cli-anything-openrefine"
+    }
+  },
+  {
+    "id": "cli-anything-cc-switch",
+    "kind": "skill",
+    "runtimeKind": "skill",
+    "displayName": "CC Switch",
+    "description": "Manage AI coding tool configurations - inspect providers, skills, MCP servers, usage stats, and proxy settings",
+    "category": "devops",
+    "developer": "computersniper",
+    "availability": "needs_dependency",
+    "installMode": "source",
+    "auth": "none",
+    "requirements": [
+      "CC Switch installed with active database"
+    ],
+    "note": "Review the pinned source preview before installing this Skill.",
+    "featured": false,
+    "provenance": {
+      "project": "CLI-Anything",
+      "sourceUrl": "https://github.com/HKUDS/CLI-Anything",
+      "license": "MIT"
+    },
+    "template": {
+      "source": {
+        "type": "git",
+        "locator": "https://github.com/HKUDS/CLI-Anything.git",
+        "version": "1.0.0",
+        "subpath": "skills/cli-anything-ccswitch"
+      },
+      "entryPoint": "cli-anything-ccswitch"
+    }
+  },
+  {
+    "id": "cli-anything-wiremock",
+    "kind": "skill",
+    "runtimeKind": "skill",
+    "displayName": "WireMock",
+    "description": "HTTP mock server management — create stubs, inspect requests, record traffic, and manage scenarios via WireMock REST API",
+    "category": "testing",
+    "developer": "fabiomantel",
+    "availability": "needs_dependency",
+    "installMode": "source",
+    "auth": "none",
+    "requirements": [
+      "WireMock server running (java -jar wiremock-standalone.jar)"
+    ],
+    "note": "Review the pinned source preview before installing this Skill.",
+    "featured": false,
+    "provenance": {
+      "project": "CLI-Anything",
+      "sourceUrl": "https://wiremock.org",
+      "license": "MIT"
+    },
+    "template": {
+      "source": {
+        "type": "git",
+        "locator": "https://github.com/HKUDS/CLI-Anything.git",
+        "version": "0.1.0",
+        "subpath": "skills/cli-anything-wiremock"
+      },
+      "entryPoint": "cli-anything-wiremock"
+    }
+  },
+  {
+    "id": "cli-anything-nslogger",
+    "kind": "skill",
+    "runtimeKind": "skill",
+    "displayName": "NSLogger",
+    "description": "Capture, parse, filter, export, and mirror NSLogger iOS/macOS logs from the CLI",
+    "category": "devops",
+    "developer": "bazinga8023",
+    "availability": "needs_dependency",
+    "installMode": "source",
+    "auth": "none",
+    "requirements": [
+      "macOS for native Bonjour live capture; Python 3.10+"
+    ],
+    "note": "Review the pinned source preview before installing this Skill.",
+    "featured": false,
+    "provenance": {
+      "project": "CLI-Anything",
+      "sourceUrl": "https://github.com/fpillet/NSLogger",
+      "license": "MIT"
+    },
+    "template": {
+      "source": {
+        "type": "git",
+        "locator": "https://github.com/HKUDS/CLI-Anything.git",
+        "version": "0.1.0",
+        "subpath": "skills/cli-anything-nslogger"
+      },
+      "entryPoint": "cli-anything-nslogger"
+    }
+  },
+  {
+    "id": "cli-anything-anygen",
+    "kind": "skill",
+    "runtimeKind": "skill",
+    "displayName": "AnyGen",
+    "description": "Generate docs, slides, websites and more via AnyGen cloud API",
+    "category": "generation",
+    "developer": "koltyu-anygen",
+    "availability": "needs_dependency",
+    "installMode": "source",
+    "auth": "none",
+    "requirements": [
+      "ANYGEN_API_KEY"
+    ],
+    "note": "Review the pinned source preview before installing this Skill.",
+    "featured": false,
+    "provenance": {
+      "project": "CLI-Anything",
+      "sourceUrl": "https://anygen.com",
+      "license": "MIT"
+    },
+    "template": {
+      "source": {
+        "type": "git",
+        "locator": "https://github.com/HKUDS/CLI-Anything.git",
+        "version": "1.0.0",
+        "subpath": "skills/cli-anything-anygen"
+      },
+      "entryPoint": "cli-anything-anygen"
+    }
+  },
+  {
+    "id": "cli-anything-audacity",
+    "kind": "skill",
+    "runtimeKind": "skill",
+    "displayName": "Audacity",
+    "description": "Audio editing and processing via sox",
+    "category": "audio",
+    "developer": "CLI-Anything-Team",
+    "availability": "needs_dependency",
+    "installMode": "source",
+    "auth": "none",
+    "requirements": [
+      "sox (apt install sox)"
+    ],
+    "note": "Review the pinned source preview before installing this Skill.",
+    "featured": true,
+    "provenance": {
+      "project": "CLI-Anything",
+      "sourceUrl": "https://www.audacityteam.org",
+      "license": "MIT"
+    },
+    "template": {
+      "source": {
+        "type": "git",
+        "locator": "https://github.com/HKUDS/CLI-Anything.git",
+        "version": "1.0.0",
+        "subpath": "skills/cli-anything-audacity"
+      },
+      "entryPoint": "cli-anything-audacity"
+    }
+  },
+  {
+    "id": "cli-anything-wavetone",
+    "kind": "skill",
+    "runtimeKind": "skill",
+    "displayName": "WaveTone",
+    "description": "Prepare WaveTone 2.61 audio transcription manifests, probe audio files, and launch the real Windows WaveTone executable",
+    "category": "audio",
+    "developer": "Shuhan Zhang",
+    "availability": "needs_dependency",
+    "installMode": "source",
+    "auth": "none",
+    "requirements": [
+      "WaveTone 2.61 extracted on Windows; set WAVETONE_EXE or WAVETONE_HOME"
+    ],
+    "note": "Review the pinned source preview before installing this Skill.",
+    "featured": false,
+    "provenance": {
+      "project": "CLI-Anything",
+      "sourceUrl": "http://ackiesound.ifdef.jp/",
+      "license": "MIT"
+    },
+    "template": {
+      "source": {
+        "type": "git",
+        "locator": "https://github.com/HKUDS/CLI-Anything.git",
+        "version": "1.0.0",
+        "subpath": "skills/cli-anything-wavetone"
+      },
+      "entryPoint": "cli-anything-wavetone"
+    }
+  },
+  {
+    "id": "cli-anything-blender",
+    "kind": "skill",
+    "runtimeKind": "skill",
+    "displayName": "Blender",
+    "description": "3D modeling, animation, and rendering via blender --background --python",
+    "category": "3d",
+    "developer": "CLI-Anything-Team",
+    "availability": "needs_dependency",
+    "installMode": "source",
+    "auth": "none",
+    "requirements": [
+      "blender >= 4.2"
+    ],
+    "note": "Review the pinned source preview before installing this Skill.",
+    "featured": true,
+    "provenance": {
+      "project": "CLI-Anything",
+      "sourceUrl": "https://www.blender.org",
+      "license": "MIT"
+    },
+    "template": {
+      "source": {
+        "type": "git",
+        "locator": "https://github.com/HKUDS/CLI-Anything.git",
+        "version": "1.0.0",
+        "subpath": "skills/cli-anything-blender"
+      },
+      "entryPoint": "cli-anything-blender"
+    }
+  },
+  {
+    "id": "cli-anything-browser",
+    "kind": "skill",
+    "runtimeKind": "skill",
+    "displayName": "Browser",
+    "description": "Browser automation via DOMShell MCP server. Maps Chrome's Accessibility Tree to a virtual filesystem for agent-native navigation.",
+    "category": "web",
+    "developer": "furkankoykiran",
+    "availability": "needs_dependency",
+    "installMode": "source",
+    "auth": "none",
+    "requirements": [
+      "Node.js, npx, Chrome + DOMShell extension"
+    ],
+    "note": "Review the pinned source preview before installing this Skill.",
+    "featured": true,
+    "provenance": {
+      "project": "CLI-Anything",
+      "sourceUrl": "https://github.com/apireno/DOMShell",
+      "license": "MIT"
+    },
+    "template": {
+      "source": {
+        "type": "git",
+        "locator": "https://github.com/HKUDS/CLI-Anything.git",
+        "version": "1.0.0",
+        "subpath": "skills/cli-anything-browser"
+      },
+      "entryPoint": "cli-anything-browser"
+    }
+  },
+  {
+    "id": "cli-anything-web-yu-pri",
+    "kind": "skill",
+    "runtimeKind": "skill",
+    "displayName": "Web Yu-pri",
+    "description": "Japan Post Web Yu-pri browser workflow automation for login, inspection, screenshots, dry-run planning, and contents-form filling",
+    "category": "web",
+    "developer": "shinpei710",
+    "availability": "needs_dependency",
+    "installMode": "source",
+    "auth": "none",
+    "requirements": [
+      "Japan Post Web Yu-pri account, Playwright, Microsoft Edge/Chrome or Playwright Chromium"
+    ],
+    "note": "Review the pinned source preview before installing this Skill.",
+    "featured": false,
+    "provenance": {
+      "project": "CLI-Anything",
+      "sourceUrl": "https://mgr.post.japanpost.jp/C30P01Action.do",
+      "license": "MIT"
+    },
+    "template": {
+      "source": {
+        "type": "git",
+        "locator": "https://github.com/HKUDS/CLI-Anything.git",
+        "version": "0.1.0",
+        "subpath": "skills/cli-anything-web-yu-pri"
+      },
+      "entryPoint": "cli-anything-web-yu-pri"
+    }
+  },
+  {
+    "id": "cli-anything-drawio",
+    "kind": "skill",
+    "runtimeKind": "skill",
+    "displayName": "Draw.io",
+    "description": "Diagram creation and export via draw.io CLI",
+    "category": "diagrams",
+    "developer": "zhangxilong-43",
+    "availability": "needs_dependency",
+    "installMode": "source",
+    "auth": "none",
+    "requirements": [
+      "draw.io desktop app"
+    ],
+    "note": "Review the pinned source preview before installing this Skill.",
+    "featured": false,
+    "provenance": {
+      "project": "CLI-Anything",
+      "sourceUrl": "https://www.drawio.com",
+      "license": "MIT"
+    },
+    "template": {
+      "source": {
+        "type": "git",
+        "locator": "https://github.com/HKUDS/CLI-Anything.git",
+        "version": "1.0.0",
+        "subpath": "skills/cli-anything-drawio"
+      },
+      "entryPoint": "cli-anything-drawio"
+    }
+  },
+  {
+    "id": "cli-anything-eez-studio",
+    "kind": "skill",
+    "runtimeKind": "skill",
+    "displayName": "EEZ Studio",
+    "description": "EEZ Studio project, LVGL UI, and SCPI command automation via native .eez-project JSON and real EEZ Studio backend hooks",
+    "category": "automation",
+    "developer": "CLI-Anything-Team",
+    "availability": "needs_dependency",
+    "installMode": "source",
+    "auth": "none",
+    "requirements": [
+      "EEZ Studio source checkout built with npm run build; Docker for full LVGL simulator builds"
+    ],
+    "note": "Review the pinned source preview before installing this Skill.",
+    "featured": false,
+    "provenance": {
+      "project": "CLI-Anything",
+      "sourceUrl": "https://www.envox.eu/studio/studio-introduction/",
+      "license": "MIT"
+    },
+    "template": {
+      "source": {
+        "type": "git",
+        "locator": "https://github.com/HKUDS/CLI-Anything.git",
+        "version": "0.1.0",
+        "subpath": "skills/cli-anything-eez-studio"
+      },
+      "entryPoint": "cli-anything-eez-studio"
+    }
+  },
+  {
+    "id": "cli-anything-eth2-quickstart",
+    "kind": "skill",
+    "runtimeKind": "skill",
+    "displayName": "ETH2 QuickStart",
+    "description": "Hardened Ethereum node deployment and operations via the eth2-quickstart automation scripts",
+    "category": "devops",
+    "developer": "chimera-defi",
+    "availability": "needs_dependency",
+    "installMode": "source",
+    "auth": "none",
+    "requirements": [
+      "local eth2-quickstart checkout with scripts/eth2qs.sh; Linux host required for real install workflows"
+    ],
+    "note": "Review the pinned source preview before installing this Skill.",
+    "featured": false,
+    "provenance": {
+      "project": "CLI-Anything",
+      "sourceUrl": "https://github.com/chimera-defi/eth2-quickstart",
+      "license": "MIT"
+    },
+    "template": {
+      "source": {
+        "type": "git",
+        "locator": "https://github.com/HKUDS/CLI-Anything.git",
+        "version": "1.0.0",
+        "subpath": "skills/cli-anything-eth2-quickstart"
+      },
+      "entryPoint": "cli-anything-eth2-quickstart"
+    }
+  },
+  {
+    "id": "cli-anything-firefly-iii",
+    "kind": "skill",
+    "runtimeKind": "skill",
+    "displayName": "Firefly III",
+    "description": "Personal finance management via the Firefly III REST API",
+    "category": "finance",
+    "developer": "joyous-coder",
+    "availability": "needs_dependency",
+    "installMode": "source",
+    "auth": "none",
+    "requirements": [
+      "Firefly III instance and personal access token"
+    ],
+    "note": "Review the pinned source preview before installing this Skill.",
+    "featured": false,
+    "provenance": {
+      "project": "CLI-Anything",
+      "sourceUrl": "https://www.firefly-iii.org",
+      "license": "MIT"
+    },
+    "template": {
+      "source": {
+        "type": "git",
+        "locator": "https://github.com/HKUDS/CLI-Anything.git",
+        "version": "1.0.0",
+        "subpath": "skills/cli-anything-firefly-iii"
+      },
+      "entryPoint": "cli-anything-firefly-iii"
+    }
+  },
+  {
+    "id": "cli-anything-gimp",
+    "kind": "skill",
+    "runtimeKind": "skill",
+    "displayName": "GIMP",
+    "description": "Raster image processing via gimp -i -b (batch mode)",
+    "category": "image",
+    "developer": "CLI-Anything-Team",
+    "availability": "needs_dependency",
+    "installMode": "source",
+    "auth": "none",
+    "requirements": [
+      "gimp (apt install gimp)"
+    ],
+    "note": "Review the pinned source preview before installing this Skill.",
+    "featured": false,
+    "provenance": {
+      "project": "CLI-Anything",
+      "sourceUrl": "https://www.gimp.org",
+      "license": "MIT"
+    },
+    "template": {
+      "source": {
+        "type": "git",
+        "locator": "https://github.com/HKUDS/CLI-Anything.git",
+        "version": "1.0.0",
+        "subpath": "skills/cli-anything-gimp"
+      },
+      "entryPoint": "cli-anything-gimp"
+    }
+  },
+  {
+    "id": "cli-anything-inkscape",
+    "kind": "skill",
+    "runtimeKind": "skill",
+    "displayName": "Inkscape",
+    "description": "SVG vector graphics with export via inkscape --export-filename",
+    "category": "image",
+    "developer": "CLI-Anything-Team",
+    "availability": "needs_dependency",
+    "installMode": "source",
+    "auth": "none",
+    "requirements": [
+      "inkscape (apt install inkscape)"
+    ],
+    "note": "Review the pinned source preview before installing this Skill.",
+    "featured": false,
+    "provenance": {
+      "project": "CLI-Anything",
+      "sourceUrl": "https://inkscape.org",
+      "license": "MIT"
+    },
+    "template": {
+      "source": {
+        "type": "git",
+        "locator": "https://github.com/HKUDS/CLI-Anything.git",
+        "version": "1.0.0",
+        "subpath": "skills/cli-anything-inkscape"
+      },
+      "entryPoint": "cli-anything-inkscape"
+    }
+  },
+  {
+    "id": "cli-anything-kdenlive",
+    "kind": "skill",
+    "runtimeKind": "skill",
+    "displayName": "Kdenlive",
+    "description": "Video editing and rendering via melt",
+    "category": "video",
+    "developer": "CLI-Anything-Team",
+    "availability": "needs_dependency",
+    "installMode": "source",
+    "auth": "none",
+    "requirements": [
+      "melt (apt install melt)"
+    ],
+    "note": "Review the pinned source preview before installing this Skill.",
+    "featured": false,
+    "provenance": {
+      "project": "CLI-Anything",
+      "sourceUrl": "https://kdenlive.org",
+      "license": "MIT"
+    },
+    "template": {
+      "source": {
+        "type": "git",
+        "locator": "https://github.com/HKUDS/CLI-Anything.git",
+        "version": "1.0.0",
+        "subpath": "skills/cli-anything-kdenlive"
+      },
+      "entryPoint": "cli-anything-kdenlive"
+    }
+  },
+  {
+    "id": "cli-anything-krita",
+    "kind": "skill",
+    "runtimeKind": "skill",
+    "displayName": "Krita",
+    "description": "Digital painting and raster image editing via Krita CLI export pipeline",
+    "category": "image",
+    "developer": "AlexGabbia",
+    "availability": "needs_dependency",
+    "installMode": "source",
+    "auth": "none",
+    "requirements": [
+      "krita (krita.org)"
+    ],
+    "note": "Review the pinned source preview before installing this Skill.",
+    "featured": false,
+    "provenance": {
+      "project": "CLI-Anything",
+      "sourceUrl": "https://krita.org",
+      "license": "MIT"
+    },
+    "template": {
+      "source": {
+        "type": "git",
+        "locator": "https://github.com/HKUDS/CLI-Anything.git",
+        "version": "1.0.0",
+        "subpath": "skills/cli-anything-krita"
+      },
+      "entryPoint": "cli-anything-krita"
+    }
+  },
+  {
+    "id": "cli-anything-calibre",
+    "kind": "skill",
+    "runtimeKind": "skill",
+    "displayName": "Calibre",
+    "description": "E-book library management — list, search, metadata editing, format conversion via calibredb, ebook-convert, ebook-meta",
+    "category": "office",
+    "developer": "OGRLEAF",
+    "availability": "needs_dependency",
+    "installMode": "reference",
+    "auth": "none",
+    "requirements": [
+      "Calibre (apt install calibre, brew install --cask calibre)"
+    ],
+    "note": "Catalog reference only: install the local CLI, then add or import a verified Skill source.",
+    "featured": true,
+    "provenance": {
+      "project": "CLI-Anything",
+      "sourceUrl": "https://calibre-ebook.com",
+      "license": "MIT"
+    },
+    "template": {
+      "reference": {
+        "homepage": "https://calibre-ebook.com",
+        "entryPoint": "cli-anything-calibre",
+        "installCommand": "pip install git+https://github.com/HKUDS/CLI-Anything.git#subdirectory=calibre/agent-harness"
+      }
+    }
+  },
+  {
+    "id": "cli-anything-libreoffice",
+    "kind": "skill",
+    "runtimeKind": "skill",
+    "displayName": "LibreOffice",
+    "description": "Create and manipulate ODF documents, export to PDF/DOCX/XLSX/PPTX via headless mode",
+    "category": "office",
+    "developer": "CLI-Anything-Team",
+    "availability": "needs_dependency",
+    "installMode": "source",
+    "auth": "none",
+    "requirements": [
+      "libreoffice"
+    ],
+    "note": "Review the pinned source preview before installing this Skill.",
+    "featured": false,
+    "provenance": {
+      "project": "CLI-Anything",
+      "sourceUrl": "https://www.libreoffice.org",
+      "license": "MIT"
+    },
+    "template": {
+      "source": {
+        "type": "git",
+        "locator": "https://github.com/HKUDS/CLI-Anything.git",
+        "version": "1.0.1",
+        "subpath": "skills/cli-anything-libreoffice"
+      },
+      "entryPoint": "cli-anything-libreoffice"
+    }
+  },
+  {
+    "id": "cli-anything-lldb",
+    "kind": "skill",
+    "runtimeKind": "skill",
+    "displayName": "LLDB",
+    "description": "Stateful native debugging via LLDB with JSON CLI workflows and a stdio Debug Adapter Protocol server",
+    "category": "debugging",
+    "developer": "AiMiDi",
+    "availability": "needs_dependency",
+    "installMode": "reference",
+    "auth": "none",
+    "requirements": [
+      "LLDB installation with Python bindings available (for example LLVM.LLVM on Windows)"
+    ],
+    "note": "Catalog reference only: install the local CLI, then add or import a verified Skill source.",
+    "featured": false,
+    "provenance": {
+      "project": "CLI-Anything",
+      "sourceUrl": "https://lldb.llvm.org",
+      "license": "MIT"
+    },
+    "template": {
+      "reference": {
+        "homepage": "https://lldb.llvm.org",
+        "entryPoint": "cli-anything-lldb",
+        "installCommand": "pip install git+https://github.com/HKUDS/CLI-Anything.git#subdirectory=lldb/agent-harness"
+      }
+    }
+  },
+  {
+    "id": "cli-anything-zotero",
+    "kind": "skill",
+    "runtimeKind": "skill",
+    "displayName": "Zotero",
+    "description": "CLI & MCP server for Zotero 7/8 — 52 MCP tools + 70+ CLI commands for search, import, PDF, BibTeX, notes, and more",
+    "category": "office",
+    "developer": "zhiwuyazhe_fjr",
+    "availability": "needs_dependency",
+    "installMode": "reference",
+    "auth": "none",
+    "requirements": [
+      "Zotero 7/8 desktop app (running), Python 3.10+"
+    ],
+    "note": "Catalog reference only: install the local CLI, then add or import a verified Skill source.",
+    "featured": false,
+    "provenance": {
+      "project": "CLI-Anything",
+      "sourceUrl": "https://github.com/PiaoyangGuohai1/cli-anything-zotero",
+      "license": "MIT"
+    },
+    "template": {
+      "reference": {
+        "homepage": "https://www.zotero.org",
+        "entryPoint": "cli-anything-zotero",
+        "installCommand": "pip install cli-anything-zotero"
+      }
+    }
+  },
+  {
+    "id": "cli-anything-mubu",
+    "kind": "skill",
+    "runtimeKind": "skill",
+    "displayName": "Mubu",
+    "description": "Knowledge management and outlining via local Mubu desktop data",
+    "category": "office",
+    "developer": "cnfjlhj",
+    "availability": "needs_dependency",
+    "installMode": "source",
+    "auth": "none",
+    "requirements": [
+      "Mubu desktop app"
+    ],
+    "note": "Review the pinned source preview before installing this Skill.",
+    "featured": false,
+    "provenance": {
+      "project": "CLI-Anything",
+      "sourceUrl": "https://mubu.com",
+      "license": "MIT"
+    },
+    "template": {
+      "source": {
+        "type": "git",
+        "locator": "https://github.com/HKUDS/CLI-Anything.git",
+        "version": "0.1.1",
+        "subpath": "skills/cli-anything-mubu"
+      },
+      "entryPoint": "cli-anything-mubu"
+    }
+  },
+  {
+    "id": "cli-anything-notebooklm",
+    "kind": "skill",
+    "runtimeKind": "skill",
+    "displayName": "NotebookLM",
+    "description": "Experimental NotebookLM harness scaffold wrapping the installed notebooklm CLI for notebook, source, chat, artifact, download, and sharing workflows",
+    "category": "ai",
+    "developer": "Haimbeau1o",
+    "availability": "needs_dependency",
+    "installMode": "source",
+    "auth": "none",
+    "requirements": [
+      "notebooklm CLI from notebooklm-py + valid local NotebookLM login session"
+    ],
+    "note": "Review the pinned source preview before installing this Skill.",
+    "featured": false,
+    "provenance": {
+      "project": "CLI-Anything",
+      "sourceUrl": "https://notebooklm.google.com",
+      "license": "MIT"
+    },
+    "template": {
+      "source": {
+        "type": "git",
+        "locator": "https://github.com/HKUDS/CLI-Anything.git",
+        "version": "0.1.0",
+        "subpath": "skills/cli-anything-notebooklm"
+      },
+      "entryPoint": "cli-anything-notebooklm"
+    }
+  },
+  {
+    "id": "cli-anything-ollama",
+    "kind": "skill",
+    "runtimeKind": "skill",
+    "displayName": "Ollama",
+    "description": "Local LLM inference and model management via Ollama REST API",
+    "category": "ai",
+    "developer": "CLI-Anything-Team",
+    "availability": "needs_dependency",
+    "installMode": "source",
+    "auth": "none",
+    "requirements": [
+      "Ollama running at http://localhost:11434"
+    ],
+    "note": "Review the pinned source preview before installing this Skill.",
+    "featured": false,
+    "provenance": {
+      "project": "CLI-Anything",
+      "sourceUrl": "https://ollama.com",
+      "license": "MIT"
+    },
+    "template": {
+      "source": {
+        "type": "git",
+        "locator": "https://github.com/HKUDS/CLI-Anything.git",
+        "version": "1.0.1",
+        "subpath": "skills/cli-anything-ollama"
+      },
+      "entryPoint": "cli-anything-ollama"
+    }
+  },
+  {
+    "id": "cli-anything-openwebui",
+    "kind": "skill",
+    "runtimeKind": "skill",
+    "displayName": "OpenWebUI",
+    "description": "Operate a running OpenWebUI backend through an agent-friendly CLI",
+    "category": "ai",
+    "developer": "ashaiful",
+    "availability": "needs_dependency",
+    "installMode": "reference",
+    "auth": "none",
+    "requirements": [
+      "OpenWebUI instance running"
+    ],
+    "note": "Catalog reference only: install the local CLI, then add or import a verified Skill source.",
+    "featured": false,
+    "provenance": {
+      "project": "CLI-Anything",
+      "sourceUrl": "https://github.com/ashaiful/cli-anything-openwebui",
+      "license": "MIT"
+    },
+    "template": {
+      "reference": {
+        "homepage": "https://openwebui.com",
+        "entryPoint": "cli-anything-openwebui",
+        "installCommand": "pip install git+https://github.com/ashaiful/cli-anything-openwebui.git"
+      }
+    }
+  },
+  {
+    "id": "cli-anything-obs-studio",
+    "kind": "skill",
+    "runtimeKind": "skill",
+    "displayName": "OBS Studio",
+    "description": "Create and manage streaming/recording scenes via command line",
+    "category": "streaming",
+    "developer": "CLI-Anything-Team",
+    "availability": "needs_dependency",
+    "installMode": "source",
+    "auth": "none",
+    "requirements": [
+      "obs-studio"
+    ],
+    "note": "Review the pinned source preview before installing this Skill.",
+    "featured": false,
+    "provenance": {
+      "project": "CLI-Anything",
+      "sourceUrl": "https://obsproject.com",
+      "license": "MIT"
+    },
+    "template": {
+      "source": {
+        "type": "git",
+        "locator": "https://github.com/HKUDS/CLI-Anything.git",
+        "version": "1.0.0",
+        "subpath": "skills/cli-anything-obs-studio"
+      },
+      "entryPoint": "cli-anything-obs-studio"
+    }
+  },
+  {
+    "id": "cli-anything-shotcut",
+    "kind": "skill",
+    "runtimeKind": "skill",
+    "displayName": "Shotcut",
+    "description": "Video editing and rendering via melt/ffmpeg",
+    "category": "video",
+    "developer": "CLI-Anything-Team",
+    "availability": "needs_dependency",
+    "installMode": "source",
+    "auth": "none",
+    "requirements": [
+      "melt (apt install melt), ffmpeg (apt install ffmpeg)"
+    ],
+    "note": "Review the pinned source preview before installing this Skill.",
+    "featured": false,
+    "provenance": {
+      "project": "CLI-Anything",
+      "sourceUrl": "https://shotcut.org",
+      "license": "MIT"
+    },
+    "template": {
+      "source": {
+        "type": "git",
+        "locator": "https://github.com/HKUDS/CLI-Anything.git",
+        "version": "1.0.0",
+        "subpath": "skills/cli-anything-shotcut"
+      },
+      "entryPoint": "cli-anything-shotcut"
+    }
+  },
+  {
+    "id": "cli-anything-openscreen",
+    "kind": "skill",
+    "runtimeKind": "skill",
+    "displayName": "Openscreen",
+    "description": "Screen recording editor — zoom, speed ramps, trim, crop, annotations, backgrounds, and polished exports via ffmpeg",
+    "category": "video",
+    "developer": "ndpvt-web",
+    "availability": "needs_dependency",
+    "installMode": "source",
+    "auth": "none",
+    "requirements": [
+      "ffmpeg (apt install ffmpeg)"
+    ],
+    "note": "Review the pinned source preview before installing this Skill.",
+    "featured": false,
+    "provenance": {
+      "project": "CLI-Anything",
+      "sourceUrl": "https://github.com/siddharthvaddem/openscreen",
+      "license": "MIT"
+    },
+    "template": {
+      "source": {
+        "type": "git",
+        "locator": "https://github.com/HKUDS/CLI-Anything.git",
+        "version": "1.0.0",
+        "subpath": "skills/cli-anything-openscreen"
+      },
+      "entryPoint": "cli-anything-openscreen"
+    }
+  },
+  {
+    "id": "cli-anything-zoom",
+    "kind": "skill",
+    "runtimeKind": "skill",
+    "displayName": "Zoom",
+    "description": "Meeting management via Zoom REST API (OAuth2)",
+    "category": "communication",
+    "developer": "zhangxilong-43",
+    "availability": "needs_dependency",
+    "installMode": "source",
+    "auth": "none",
+    "requirements": [
+      "Zoom account + OAuth app credentials"
+    ],
+    "note": "Review the pinned source preview before installing this Skill.",
+    "featured": false,
+    "provenance": {
+      "project": "CLI-Anything",
+      "sourceUrl": "https://zoom.us",
+      "license": "MIT"
+    },
+    "template": {
+      "source": {
+        "type": "git",
+        "locator": "https://github.com/HKUDS/CLI-Anything.git",
+        "version": "1.0.1",
+        "subpath": "skills/cli-anything-zoom"
+      },
+      "entryPoint": "cli-anything-zoom"
+    }
+  },
+  {
+    "id": "cli-anything-novita",
+    "kind": "skill",
+    "runtimeKind": "skill",
+    "displayName": "Novita",
+    "description": "Access AI models via Novita's OpenAI-compatible API (DeepSeek, GLM, MiniMax)",
+    "category": "ai",
+    "developer": "Alex-wuhu",
+    "availability": "needs_dependency",
+    "installMode": "source",
+    "auth": "none",
+    "requirements": [
+      "NOVITA_API_KEY"
+    ],
+    "note": "Review the pinned source preview before installing this Skill.",
+    "featured": false,
+    "provenance": {
+      "project": "CLI-Anything",
+      "sourceUrl": "https://novita.ai",
+      "license": "MIT"
+    },
+    "template": {
+      "source": {
+        "type": "git",
+        "locator": "https://github.com/HKUDS/CLI-Anything.git",
+        "version": "1.0.0",
+        "subpath": "skills/cli-anything-novita"
+      },
+      "entryPoint": "cli-anything-novita"
+    }
+  },
+  {
+    "id": "cli-anything-seaclip",
+    "kind": "skill",
+    "runtimeKind": "skill",
+    "displayName": "SeaClip",
+    "description": "Kanban board, 6-agent AI pipeline, and issue management via SeaClip-Lite FastAPI + SQLite",
+    "category": "project-management",
+    "developer": "t4tarzan",
+    "availability": "needs_dependency",
+    "installMode": "source",
+    "auth": "none",
+    "requirements": [
+      "SeaClip-Lite running at localhost:5200"
+    ],
+    "note": "Review the pinned source preview before installing this Skill.",
+    "featured": false,
+    "provenance": {
+      "project": "CLI-Anything",
+      "sourceUrl": "https://github.com/t4tarzan/cli-anything-seaclip",
+      "license": "MIT"
+    },
+    "template": {
+      "source": {
+        "type": "git",
+        "locator": "https://github.com/HKUDS/CLI-Anything.git",
+        "version": "1.0.0",
+        "subpath": "skills/cli-anything-seaclip"
+      },
+      "entryPoint": "cli-anything-seaclip"
+    }
+  },
+  {
+    "id": "cli-anything-pm2",
+    "kind": "skill",
+    "runtimeKind": "skill",
+    "displayName": "PM2",
+    "description": "Node.js process management — list, start, stop, restart, logs, and metrics via PM2 CLI",
+    "category": "devops",
+    "developer": "t4tarzan",
+    "availability": "needs_dependency",
+    "installMode": "source",
+    "auth": "none",
+    "requirements": [
+      "PM2 (npm install -g pm2)"
+    ],
+    "note": "Review the pinned source preview before installing this Skill.",
+    "featured": false,
+    "provenance": {
+      "project": "CLI-Anything",
+      "sourceUrl": "https://pm2.keymetrics.io",
+      "license": "MIT"
+    },
+    "template": {
+      "source": {
+        "type": "git",
+        "locator": "https://github.com/HKUDS/CLI-Anything.git",
+        "version": "1.0.0",
+        "subpath": "skills/cli-anything-pm2"
+      },
+      "entryPoint": "cli-anything-pm2"
+    }
+  },
+  {
+    "id": "cli-anything-qgis",
+    "kind": "skill",
+    "runtimeKind": "skill",
+    "displayName": "QGIS",
+    "description": "Geospatial project authoring, layout export, and processing via PyQGIS and qgis_process",
+    "category": "scientific",
+    "developer": "CLI-Anything",
+    "availability": "needs_dependency",
+    "installMode": "reference",
+    "auth": "none",
+    "requirements": [
+      "QGIS with qgis_process on PATH, PyQGIS importable"
+    ],
+    "note": "Catalog reference only: install the local CLI, then add or import a verified Skill source.",
+    "featured": false,
+    "provenance": {
+      "project": "CLI-Anything",
+      "sourceUrl": "https://qgis.org",
+      "license": "MIT"
+    },
+    "template": {
+      "reference": {
+        "homepage": "https://qgis.org",
+        "entryPoint": "cli-anything-qgis",
+        "installCommand": "pip install git+https://github.com/HKUDS/CLI-Anything.git#subdirectory=QGIS/agent-harness"
+      }
+    }
+  },
+  {
+    "id": "cli-anything-chromadb",
+    "kind": "skill",
+    "runtimeKind": "skill",
+    "displayName": "ChromaDB",
+    "description": "Vector database operations — collections, documents, semantic search via ChromaDB HTTP API",
+    "category": "database",
+    "developer": "t4tarzan",
+    "availability": "needs_dependency",
+    "installMode": "source",
+    "auth": "none",
+    "requirements": [
+      "ChromaDB server running at localhost:8000"
+    ],
+    "note": "Review the pinned source preview before installing this Skill.",
+    "featured": true,
+    "provenance": {
+      "project": "CLI-Anything",
+      "sourceUrl": "https://www.trychroma.com",
+      "license": "MIT"
+    },
+    "template": {
+      "source": {
+        "type": "git",
+        "locator": "https://github.com/HKUDS/CLI-Anything.git",
+        "version": "1.0.0",
+        "subpath": "skills/cli-anything-chromadb"
+      },
+      "entryPoint": "cli-anything-chromadb"
+    }
+  },
+  {
+    "id": "cli-anything-musescore",
+    "kind": "skill",
+    "runtimeKind": "skill",
+    "displayName": "MuseScore",
+    "description": "CLI for music notation — transpose, export PDF/audio/MIDI, extract parts, manage instruments",
+    "category": "music",
+    "developer": "tamvicky",
+    "availability": "needs_dependency",
+    "installMode": "source",
+    "auth": "none",
+    "requirements": [
+      "MuseScore 4 (musescore.org)"
+    ],
+    "note": "Review the pinned source preview before installing this Skill.",
+    "featured": false,
+    "provenance": {
+      "project": "CLI-Anything",
+      "sourceUrl": "https://musescore.org",
+      "license": "MIT"
+    },
+    "template": {
+      "source": {
+        "type": "git",
+        "locator": "https://github.com/HKUDS/CLI-Anything.git",
+        "version": "1.0.0",
+        "subpath": "skills/cli-anything-musescore"
+      },
+      "entryPoint": "cli-anything-musescore"
+    }
+  },
+  {
+    "id": "cli-anything-freecad",
+    "kind": "skill",
+    "runtimeKind": "skill",
+    "displayName": "FreeCAD",
+    "description": "Parametric 3D CAD modeling via FreeCAD CLI (258 commands: Part, Sketcher, PartDesign, Assembly, Mesh, TechDraw, Draft, FEM, CAM, and more)",
+    "category": "3d",
+    "developer": "AlexGabbia",
+    "availability": "needs_dependency",
+    "installMode": "source",
+    "auth": "none",
+    "requirements": [
+      "FreeCAD >= 1.1 (freecad.org)"
+    ],
+    "note": "Review the pinned source preview before installing this Skill.",
+    "featured": false,
+    "provenance": {
+      "project": "CLI-Anything",
+      "sourceUrl": "https://www.freecad.org",
+      "license": "MIT"
+    },
+    "template": {
+      "source": {
+        "type": "git",
+        "locator": "https://github.com/HKUDS/CLI-Anything.git",
+        "version": "1.1.0",
+        "subpath": "skills/cli-anything-freecad"
+      },
+      "entryPoint": "cli-anything-freecad"
+    }
+  },
+  {
+    "id": "cli-anything-iterm2",
+    "kind": "skill",
+    "runtimeKind": "skill",
+    "displayName": "iTerm2",
+    "description": "Control a running iTerm2 instance — manage windows, tabs, split panes, send text, read output, run tmux -CC, broadcast keystrokes, and configure preferences.",
+    "category": "devops",
+    "developer": "voidfreud",
+    "availability": "needs_dependency",
+    "installMode": "source",
+    "auth": "none",
+    "requirements": [
+      "iTerm2.app (macOS only)"
+    ],
+    "note": "Review the pinned source preview before installing this Skill.",
+    "featured": false,
+    "provenance": {
+      "project": "CLI-Anything",
+      "sourceUrl": "https://iterm2.com",
+      "license": "MIT"
+    },
+    "template": {
+      "source": {
+        "type": "git",
+        "locator": "https://github.com/HKUDS/CLI-Anything.git",
+        "version": "1.0.0",
+        "subpath": "skills/cli-anything-iterm2"
+      },
+      "entryPoint": "cli-anything-iterm2"
+    }
+  },
+  {
+    "id": "cli-anything-slay-the-spire-ii",
+    "kind": "skill",
+    "runtimeKind": "skill",
+    "displayName": "Slay the Spire 2",
+    "description": "Control the real Slay the Spire 2 game via local STS2_Bridge HTTP API",
+    "category": "game",
+    "developer": "TianyuFan0504",
+    "availability": "needs_dependency",
+    "installMode": "source",
+    "auth": "none",
+    "requirements": [
+      "Slay the Spire 2 (Steam) with STS2_Bridge mod enabled"
+    ],
+    "note": "Review the pinned source preview before installing this Skill.",
+    "featured": false,
+    "provenance": {
+      "project": "CLI-Anything",
+      "sourceUrl": "https://github.com/HKUDS/CLI-Anything/tree/main/slay_the_spire_ii",
+      "license": "MIT"
+    },
+    "template": {
+      "source": {
+        "type": "git",
+        "locator": "https://github.com/HKUDS/CLI-Anything.git",
+        "version": "1.0.0",
+        "subpath": "skills/cli-anything-slay-the-spire-ii"
+      },
+      "entryPoint": "cli-anything-sts2"
+    }
+  },
+  {
+    "id": "cli-anything-rms",
+    "kind": "skill",
+    "runtimeKind": "skill",
+    "displayName": "Teltonika RMS",
+    "description": "Device management and monitoring via Teltonika RMS REST API",
+    "category": "network",
+    "developer": "galke",
+    "availability": "needs_dependency",
+    "installMode": "source",
+    "auth": "none",
+    "requirements": [
+      "RMS_API_TOKEN"
+    ],
+    "note": "Review the pinned source preview before installing this Skill.",
+    "featured": false,
+    "provenance": {
+      "project": "CLI-Anything",
+      "sourceUrl": "https://rms.teltonika-networks.com",
+      "license": "MIT"
+    },
+    "template": {
+      "source": {
+        "type": "git",
+        "locator": "https://github.com/HKUDS/CLI-Anything.git",
+        "version": "1.0.0",
+        "subpath": "skills/cli-anything-rms"
+      },
+      "entryPoint": "cli-anything-rms"
+    }
+  },
+  {
+    "id": "cli-anything-renderdoc",
+    "kind": "skill",
+    "runtimeKind": "skill",
+    "displayName": "RenderDoc",
+    "description": "GPU frame capture analysis: pipeline state, shader export, texture inspection, draw call browsing",
+    "category": "graphics",
+    "developer": "levishilf",
+    "availability": "needs_dependency",
+    "installMode": "source",
+    "auth": "none",
+    "requirements": [
+      "renderdoc (Python bindings from RenderDoc installation)"
+    ],
+    "note": "Review the pinned source preview before installing this Skill.",
+    "featured": false,
+    "provenance": {
+      "project": "CLI-Anything",
+      "sourceUrl": "https://renderdoc.org",
+      "license": "MIT"
+    },
+    "template": {
+      "source": {
+        "type": "git",
+        "locator": "https://github.com/HKUDS/CLI-Anything.git",
+        "version": "0.1.0",
+        "subpath": "skills/cli-anything-renderdoc"
+      },
+      "entryPoint": "cli-anything-renderdoc"
+    }
+  },
+  {
+    "id": "cli-anything-unrealinsights",
+    "kind": "skill",
+    "runtimeKind": "skill",
+    "displayName": "Unreal Insights",
+    "description": "Windows-first Unreal trace capture, background session control, engine-matched UnrealInsights builds, and headless Timing Insights export workflows",
+    "category": "debugging",
+    "developer": "AiMiDi",
+    "availability": "needs_dependency",
+    "installMode": "reference",
+    "auth": "none",
+    "requirements": [
+      "Windows + Unreal Engine source or installed build with UnrealEditor and Unreal trace support"
+    ],
+    "note": "Catalog reference only: install the local CLI, then add or import a verified Skill source.",
+    "featured": false,
+    "provenance": {
+      "project": "CLI-Anything",
+      "sourceUrl": "https://dev.epicgames.com/documentation/en-us/unreal-engine/unreal-insights-in-unreal-engine",
+      "license": "MIT"
+    },
+    "template": {
+      "reference": {
+        "homepage": "https://dev.epicgames.com/documentation/en-us/unreal-engine/unreal-insights-in-unreal-engine",
+        "entryPoint": "cli-anything-unrealinsights",
+        "installCommand": "pip install git+https://github.com/HKUDS/CLI-Anything.git#subdirectory=unrealinsights/agent-harness"
+      }
+    }
+  },
+  {
+    "id": "cli-anything-ueatelier",
+    "kind": "skill",
+    "runtimeKind": "skill",
+    "displayName": "UEAtelier",
+    "description": "Unreal Editor 5.6/5.7 MCP self-extension workbench - editor automation, build diagnostics, Task Atlas workflows, PIE smoke verification, scaffold pipeline",
+    "category": "gamedev",
+    "developer": "edwinmeng163-oss",
+    "availability": "needs_dependency",
+    "installMode": "reference",
+    "auth": "none",
+    "requirements": [
+      "Unreal Engine 5.6 or 5.7 with the UEAtelier plugin extracted into <YourProject>/"
+    ],
+    "note": "Catalog reference only: install the local CLI, then add or import a verified Skill source.",
+    "featured": false,
+    "provenance": {
+      "project": "CLI-Anything",
+      "sourceUrl": "https://github.com/edwinmeng163-oss/UEAtelier",
+      "license": "MIT"
+    },
+    "template": {
+      "reference": {
+        "homepage": "https://github.com/edwinmeng163-oss/UEAtelier",
+        "entryPoint": "cli-anything-ueatelier",
+        "installCommand": "pip install git+https://github.com/edwinmeng163-oss/UEAtelier.git#subdirectory=Tools/UEAtelierCli"
+      }
+    }
+  },
+  {
+    "id": "cli-anything-nsight-graphics",
+    "kind": "skill",
+    "runtimeKind": "skill",
+    "displayName": "Nsight Graphics CLI",
+    "description": "Windows-first Nsight Graphics CLI for Graphics/OpenGL capture, GPU Trace summary, Generate C++ Capture, and ngfx-replay analysis",
+    "category": "graphics",
+    "developer": "AiMiDi",
+    "availability": "needs_dependency",
+    "installMode": "source",
+    "auth": "none",
+    "requirements": [
+      "NVIDIA Nsight Graphics installation with ngfx.exe plus optional split capture/replay tools"
+    ],
+    "note": "Review the pinned source preview before installing this Skill.",
+    "featured": false,
+    "provenance": {
+      "project": "CLI-Anything",
+      "sourceUrl": "https://developer.nvidia.com/nsight-graphics",
+      "license": "MIT"
+    },
+    "template": {
+      "source": {
+        "type": "git",
+        "locator": "https://github.com/HKUDS/CLI-Anything.git",
+        "version": "0.2.0",
+        "subpath": "skills/cli-anything-nsight-graphics"
+      },
+      "entryPoint": "cli-anything-nsight-graphics"
+    }
+  },
+  {
+    "id": "cli-anything-videocaptioner",
+    "kind": "skill",
+    "runtimeKind": "skill",
+    "displayName": "VideoCaptioner",
+    "description": "AI-powered video captioning — transcribe speech, optimize/translate subtitles, burn styled subtitles into video",
+    "category": "video",
+    "developer": "WEIFENG2333",
+    "availability": "needs_dependency",
+    "installMode": "source",
+    "auth": "none",
+    "requirements": [
+      "videocaptioner (pip install videocaptioner), ffmpeg"
+    ],
+    "note": "Review the pinned source preview before installing this Skill.",
+    "featured": false,
+    "provenance": {
+      "project": "CLI-Anything",
+      "sourceUrl": "https://github.com/WEIFENG2333/VideoCaptioner",
+      "license": "MIT"
+    },
+    "template": {
+      "source": {
+        "type": "git",
+        "locator": "https://github.com/HKUDS/CLI-Anything.git",
+        "version": "1.0.0",
+        "subpath": "skills/cli-anything-videocaptioner"
+      },
+      "entryPoint": "cli-anything-videocaptioner"
+    }
+  },
+  {
+    "id": "cli-anything-intelwatch",
+    "kind": "skill",
+    "runtimeKind": "skill",
+    "displayName": "Intelwatch",
+    "description": "Competitive intelligence, M&A due diligence, and OSINT directly from your terminal.",
+    "category": "osint",
+    "developer": "ashroth",
+    "availability": "needs_dependency",
+    "installMode": "source",
+    "auth": "none",
+    "requirements": [
+      "Node.js >=18"
+    ],
+    "note": "Review the pinned source preview before installing this Skill.",
+    "featured": false,
+    "provenance": {
+      "project": "CLI-Anything",
+      "sourceUrl": "https://github.com/ashroth/intelwatch",
+      "license": "MIT"
+    },
+    "template": {
+      "source": {
+        "type": "git",
+        "locator": "https://github.com/HKUDS/CLI-Anything.git",
+        "version": "1.0.0",
+        "subpath": "skills/cli-anything-intelwatch"
+      },
+      "entryPoint": "cli-anything-intelwatch"
+    }
+  },
+  {
+    "id": "cli-anything-cloudcompare",
+    "kind": "skill",
+    "runtimeKind": "skill",
+    "displayName": "CloudCompare",
+    "description": "3D point cloud and mesh processing: load/save, color ops, normal estimation, Delaunay meshing, noise filtering, ICP registration, connected component segmentation",
+    "category": "graphics",
+    "developer": "Taeyoung96",
+    "availability": "needs_dependency",
+    "installMode": "source",
+    "auth": "none",
+    "requirements": [
+      "cloudcompare (CloudCompare application installed, e.g. via Flatpak or package manager)"
+    ],
+    "note": "Review the pinned source preview before installing this Skill.",
+    "featured": false,
+    "provenance": {
+      "project": "CLI-Anything",
+      "sourceUrl": "https://cloudcompare.org",
+      "license": "MIT"
+    },
+    "template": {
+      "source": {
+        "type": "git",
+        "locator": "https://github.com/HKUDS/CLI-Anything.git",
+        "version": "1.0.0",
+        "subpath": "skills/cli-anything-cloudcompare"
+      },
+      "entryPoint": "cli-anything-cloudcompare"
+    }
+  },
+  {
+    "id": "cli-anything-exa",
+    "kind": "skill",
+    "runtimeKind": "skill",
+    "displayName": "Exa",
+    "description": "AI-powered web search and content extraction via the Exa API",
+    "category": "search",
+    "developer": "tgonzalezc5",
+    "availability": "needs_dependency",
+    "installMode": "source",
+    "auth": "none",
+    "requirements": [
+      "EXA_API_KEY (free tier at exa.ai)"
+    ],
+    "note": "Review the pinned source preview before installing this Skill.",
+    "featured": false,
+    "provenance": {
+      "project": "CLI-Anything",
+      "sourceUrl": "https://exa.ai",
+      "license": "MIT"
+    },
+    "template": {
+      "source": {
+        "type": "git",
+        "locator": "https://github.com/HKUDS/CLI-Anything.git",
+        "version": "1.0.0",
+        "subpath": "skills/cli-anything-exa"
+      },
+      "entryPoint": "cli-anything-exa"
+    }
+  },
+  {
+    "id": "cli-anything-godot",
+    "kind": "skill",
+    "runtimeKind": "skill",
+    "displayName": "Godot Engine",
+    "description": "Game engine project management, scene editing, export and GDScript execution via Godot 4 headless mode",
+    "category": "gamedev",
+    "developer": "omerarslan0",
+    "availability": "needs_dependency",
+    "installMode": "source",
+    "auth": "none",
+    "requirements": [
+      "Godot 4.x (godotengine.org)"
+    ],
+    "note": "Review the pinned source preview before installing this Skill.",
+    "featured": false,
+    "provenance": {
+      "project": "CLI-Anything",
+      "sourceUrl": "https://godotengine.org",
+      "license": "MIT"
+    },
+    "template": {
+      "source": {
+        "type": "git",
+        "locator": "https://github.com/HKUDS/CLI-Anything.git",
+        "version": "1.0.0",
+        "subpath": "skills/cli-anything-godot"
+      },
+      "entryPoint": "cli-anything-godot"
+    }
+  },
+  {
+    "id": "cli-anything-sbox",
+    "kind": "skill",
+    "runtimeKind": "skill",
+    "displayName": "s&box",
+    "description": "Game engine project management for s&box (Source 2): scenes, prefabs, materials, sounds, codegen, asset graph, project validation",
+    "category": "gamedev",
+    "developer": "KarandeepSWranch",
+    "availability": "needs_dependency",
+    "installMode": "source",
+    "auth": "none",
+    "requirements": [
+      "s&box installed via Steam (sbox.game)"
+    ],
+    "note": "Review the pinned source preview before installing this Skill.",
+    "featured": false,
+    "provenance": {
+      "project": "CLI-Anything",
+      "sourceUrl": "https://sbox.game",
+      "license": "MIT"
+    },
+    "template": {
+      "source": {
+        "type": "git",
+        "locator": "https://github.com/HKUDS/CLI-Anything.git",
+        "version": "1.0.0",
+        "subpath": "skills/cli-anything-sbox"
+      },
+      "entryPoint": "cli-anything-sbox"
+    }
+  },
+  {
+    "id": "cli-anything-dify-workflow",
+    "kind": "skill",
+    "runtimeKind": "skill",
+    "displayName": "Dify Workflow",
+    "description": "CLI-Anything wrapper for the Dify workflow DSL editor covering create, inspect, validate, edit, export, and layout operations",
+    "category": "ai",
+    "developer": "Akabane71",
+    "availability": "needs_dependency",
+    "installMode": "source",
+    "auth": "none",
+    "requirements": [
+      "Upstream dify-workflow CLI installed from https://github.com/Akabane71/dify-workflow-cli"
+    ],
+    "note": "Review the pinned source preview before installing this Skill.",
+    "featured": false,
+    "provenance": {
+      "project": "CLI-Anything",
+      "sourceUrl": "https://github.com/Akabane71/dify-workflow-cli",
+      "license": "MIT"
+    },
+    "template": {
+      "source": {
+        "type": "git",
+        "locator": "https://github.com/HKUDS/CLI-Anything.git",
+        "version": "0.1.0",
+        "subpath": "skills/cli-anything-dify-workflow"
+      },
+      "entryPoint": "cli-anything-dify-workflow"
+    }
+  },
+  {
+    "id": "cli-anything-n8n",
+    "kind": "skill",
+    "runtimeKind": "skill",
+    "displayName": "n8n",
+    "description": "Workflow automation via n8n REST API — 55+ commands",
+    "category": "automation",
+    "developer": "webcomunicasolutions",
+    "availability": "needs_dependency",
+    "installMode": "source",
+    "auth": "none",
+    "requirements": [
+      "n8n >= 1.0.0"
+    ],
+    "note": "Review the pinned source preview before installing this Skill.",
+    "featured": false,
+    "provenance": {
+      "project": "CLI-Anything",
+      "sourceUrl": "https://n8n.io",
+      "license": "MIT"
+    },
+    "template": {
+      "source": {
+        "type": "git",
+        "locator": "https://github.com/HKUDS/CLI-Anything.git",
+        "version": "2.4.7",
+        "subpath": "skills/cli-anything-n8n"
+      },
+      "entryPoint": "cli-anything-n8n"
+    }
+  },
+  {
+    "id": "cli-anything-cloudanalyzer",
+    "kind": "skill",
+    "runtimeKind": "skill",
+    "displayName": "CloudAnalyzer",
+    "description": "Point cloud and trajectory QA: Chamfer/AUC/F1, ATE/RPE/drift, ground segmentation metrics, config-driven quality gates, baseline evolution — harness wraps the CloudAnalyzer Python API",
+    "category": "graphics",
+    "developer": "rsasaki0109",
+    "availability": "needs_dependency",
+    "installMode": "source",
+    "auth": "none",
+    "requirements": [
+      "Python 3.10+; cloudanalyzer (`pip install cloudanalyzer`), Open3D for full IO/viewer paths"
+    ],
+    "note": "Review the pinned source preview before installing this Skill.",
+    "featured": false,
+    "provenance": {
+      "project": "CLI-Anything",
+      "sourceUrl": "https://github.com/rsasaki0109/CloudAnalyzer",
+      "license": "MIT"
+    },
+    "template": {
+      "source": {
+        "type": "git",
+        "locator": "https://github.com/HKUDS/CLI-Anything.git",
+        "version": "1.0.0",
+        "subpath": "skills/cli-anything-cloudanalyzer"
+      },
+      "entryPoint": "cli-anything-cloudanalyzer"
+    }
+  },
+  {
+    "id": "cli-anything-obsidian",
+    "kind": "skill",
+    "runtimeKind": "skill",
+    "displayName": "Obsidian",
+    "description": "Knowledge management and note-taking — manage notes, search vault, execute commands via Obsidian Local REST API",
+    "category": "knowledge",
+    "developer": "dorukozgen",
+    "availability": "needs_dependency",
+    "installMode": "source",
+    "auth": "none",
+    "requirements": [
+      "Obsidian desktop app with Local REST API plugin enabled"
+    ],
+    "note": "Review the pinned source preview before installing this Skill.",
+    "featured": false,
+    "provenance": {
+      "project": "CLI-Anything",
+      "sourceUrl": "https://obsidian.md",
+      "license": "MIT"
+    },
+    "template": {
+      "source": {
+        "type": "git",
+        "locator": "https://github.com/HKUDS/CLI-Anything.git",
+        "version": "1.1.0",
+        "subpath": "skills/cli-anything-obsidian"
+      },
+      "entryPoint": "cli-anything-obsidian"
+    }
+  },
+  {
+    "id": "cli-anything-joplin",
+    "kind": "skill",
+    "runtimeKind": "skill",
+    "displayName": "Joplin",
+    "description": "Note-taking and to-do automation — manage notebooks, notes, to-dos, tags, attachments, search, sync, and import/export via the Joplin terminal CLI",
+    "category": "knowledge",
+    "developer": "27494539a-hub",
+    "availability": "needs_dependency",
+    "installMode": "source",
+    "auth": "none",
+    "requirements": [
+      "Joplin terminal CLI installed and available in PATH as `joplin` (npm install -g joplin)"
+    ],
+    "note": "Review the pinned source preview before installing this Skill.",
+    "featured": false,
+    "provenance": {
+      "project": "CLI-Anything",
+      "sourceUrl": "https://joplinapp.org",
+      "license": "MIT"
+    },
+    "template": {
+      "source": {
+        "type": "git",
+        "locator": "https://github.com/HKUDS/CLI-Anything.git",
+        "version": "1.0.0",
+        "subpath": "skills/cli-anything-joplin"
+      },
+      "entryPoint": "cli-anything-joplin"
+    }
+  },
+  {
+    "id": "cli-anything-unimol-tools",
+    "kind": "skill",
+    "runtimeKind": "skill",
+    "displayName": "Uni-Mol Tools",
+    "description": "Molecular property prediction — train and predict with 5 task types (classification, regression, multiclass, multilabel) for drug discovery",
+    "category": "science",
+    "developer": "545487677",
+    "availability": "needs_dependency",
+    "installMode": "source",
+    "auth": "none",
+    "requirements": [
+      "PyTorch 1.12+, Uni-Mol Tools backend"
+    ],
+    "note": "Review the pinned source preview before installing this Skill.",
+    "featured": false,
+    "provenance": {
+      "project": "CLI-Anything",
+      "sourceUrl": "https://github.com/dptech-corp/Uni-Mol/tree/main/unimol_tools",
+      "license": "MIT"
+    },
+    "template": {
+      "source": {
+        "type": "git",
+        "locator": "https://github.com/HKUDS/CLI-Anything.git",
+        "version": "1.0.0",
+        "subpath": "skills/cli-anything-unimol-tools"
+      },
+      "entryPoint": "cli-anything-unimol-tools"
+    }
+  },
+  {
+    "id": "cli-anything-safari",
+    "kind": "skill",
+    "runtimeKind": "skill",
+    "displayName": "Safari",
+    "description": "Native macOS Safari browser automation via safari-mcp — 84 tools for navigation, DOM, forms, network capture, and screenshots",
+    "category": "web",
+    "developer": "achiya-automation",
+    "availability": "needs_dependency",
+    "installMode": "source",
+    "auth": "none",
+    "requirements": [
+      "macOS, Safari, safari-mcp (npm install -g safari-mcp)"
+    ],
+    "note": "Review the pinned source preview before installing this Skill.",
+    "featured": false,
+    "provenance": {
+      "project": "CLI-Anything",
+      "sourceUrl": "https://github.com/achiya-automation/safari-mcp",
+      "license": "MIT"
+    },
+    "template": {
+      "source": {
+        "type": "git",
+        "locator": "https://github.com/HKUDS/CLI-Anything.git",
+        "version": "1.0.0",
+        "subpath": "skills/cli-anything-safari"
+      },
+      "entryPoint": "cli-anything-safari"
+    }
+  },
+  {
+    "id": "cli-anything-macrocli",
+    "kind": "skill",
+    "runtimeKind": "skill",
+    "displayName": "MacroCLI",
+    "description": "Layered macro runtime that converts GUI workflows into parameterized, agent-callable macros — record once, run anywhere via CLI with backend routing across native APIs, file transforms, accessibility controls, and visual template matching",
+    "category": "automation",
+    "developer": "haorui-harry",
+    "availability": "needs_dependency",
+    "installMode": "reference",
+    "auth": "none",
+    "requirements": [
+      "Install the required local command-line tool"
+    ],
+    "note": "Catalog reference only: install the local CLI, then add or import a verified Skill source.",
+    "featured": false,
+    "provenance": {
+      "project": "CLI-Anything",
+      "sourceUrl": "https://github.com/HKUDS/CLI-Anything/tree/main/macrocli",
+      "license": "MIT"
+    },
+    "template": {
+      "reference": {
+        "homepage": "https://github.com/HKUDS/CLI-Anything/tree/main/macrocli",
+        "entryPoint": "cli-anything-macrocli",
+        "installCommand": "pip install git+https://github.com/HKUDS/CLI-Anything.git#subdirectory=macrocli/agent-harness"
+      }
+    }
+  },
+  {
+    "id": "cli-anything-ve-twini",
+    "kind": "skill",
+    "runtimeKind": "skill",
+    "displayName": "VE Twini",
+    "description": "Unified Twitter/X CLI bridging bird (GraphQL API) and opencli (browser automation)",
+    "category": "communication",
+    "developer": "collectivewinca",
+    "availability": "needs_dependency",
+    "installMode": "reference",
+    "auth": "none",
+    "requirements": [
+      "Python 3.10+, bird (Twitter API), opencli"
+    ],
+    "note": "Catalog reference only: install the local CLI, then add or import a verified Skill source.",
+    "featured": false,
+    "provenance": {
+      "project": "CLI-Anything",
+      "sourceUrl": "https://github.com/collectivewinca/ve-twini",
+      "license": "MIT"
+    },
+    "template": {
+      "reference": {
+        "homepage": "https://x.com",
+        "entryPoint": "cli-anything-ve-twini",
+        "installCommand": "pip install git+https://github.com/collectivewinca/ve-twini.git#subdirectory=agent-harness"
+      }
+    }
+  },
+  {
+    "id": "cli-anything-quietshrink",
+    "kind": "skill",
+    "runtimeKind": "skill",
+    "displayName": "QuietShrink",
+    "description": "Compress macOS screen recordings on Apple Silicon — 70-90% smaller files at visually lossless quality, hardware-encoded, computer stays silent",
+    "category": "video",
+    "developer": "achiya-automation",
+    "availability": "needs_dependency",
+    "installMode": "source",
+    "auth": "none",
+    "requirements": [
+      "ffmpeg with hevc_videotoolbox + the quietshrink bash CLI (curl -fsSL https://raw.githubusercontent.com/achiya-automation/quietshrink/main/install.sh | bash)"
+    ],
+    "note": "Review the pinned source preview before installing this Skill.",
+    "featured": false,
+    "provenance": {
+      "project": "CLI-Anything",
+      "sourceUrl": "https://github.com/achiya-automation/quietshrink",
+      "license": "MIT"
+    },
+    "template": {
+      "source": {
+        "type": "git",
+        "locator": "https://github.com/HKUDS/CLI-Anything.git",
+        "version": "1.0.0",
+        "subpath": "skills/cli-anything-quietshrink"
+      },
+      "entryPoint": "cli-anything-quietshrink"
+    }
+  },
+  {
+    "id": "cli-anything-stata",
+    "kind": "skill",
+    "runtimeKind": "skill",
+    "displayName": "Stata",
+    "description": "Run Stata do-files, batch jobs, and reproducible econometric projects from the terminal with JSON output, log parsing, project scaffolding, and security guard",
+    "category": "science",
+    "developer": "LI-Meng420",
+    "availability": "needs_dependency",
+    "installMode": "reference",
+    "auth": "none",
+    "requirements": [
+      "Licensed Stata installation (StataMP/SE/BE 15+), Python 3.10+"
+    ],
+    "note": "Catalog reference only: install the local CLI, then add or import a verified Skill source.",
+    "featured": false,
+    "provenance": {
+      "project": "CLI-Anything",
+      "sourceUrl": "https://github.com/LI-Meng420/stata-cli",
+      "license": "MIT"
+    },
+    "template": {
+      "reference": {
+        "homepage": "https://www.stata.com",
+        "entryPoint": "cli-anything-stata",
+        "installCommand": "pip install git+https://github.com/LI-Meng420/stata-cli.git"
+      }
+    }
+  },
+  {
+    "id": "cli-anything-inkstitch",
+    "kind": "skill",
+    "runtimeKind": "skill",
+    "displayName": "Ink/Stitch",
+    "description": "Machine-embroidery digitization — set stitch params, validate, preview, and export to DST/PES/JEF/VP3 via Ink/Stitch",
+    "category": "design",
+    "developer": "bobbymarko",
+    "availability": "needs_dependency",
+    "installMode": "reference",
+    "auth": "none",
+    "requirements": [
+      "Ink/Stitch extension installed (https://inkstitch.org/docs/install/)"
+    ],
+    "note": "Catalog reference only: install the local CLI, then add or import a verified Skill source.",
+    "featured": false,
+    "provenance": {
+      "project": "CLI-Anything",
+      "sourceUrl": "https://github.com/bobbymarko/cli-anything-inkstitch",
+      "license": "MIT"
+    },
+    "template": {
+      "reference": {
+        "homepage": "https://inkstitch.org",
+        "entryPoint": "cli-anything-inkstitch",
+        "installCommand": "pip install cli-anything-inkstitch"
+      }
+    }
+  },
+  {
+    "id": "cli-anything-hacker-feeds-cli",
+    "kind": "skill",
+    "runtimeKind": "skill",
+    "displayName": "Hacker Feeds CLI",
+    "description": "CLI for GitHub Trending, Hacker News, Reddit, Product Hunt, DEV.to, Lobsters, EchoJS, and V2EX feeds",
+    "category": "search",
+    "developer": "collectivewinca",
+    "availability": "needs_dependency",
+    "installMode": "reference",
+    "auth": "none",
+    "requirements": [
+      "Python 3.10+, Node.js (hf CLI)"
+    ],
+    "note": "Catalog reference only: install the local CLI, then add or import a verified Skill source.",
+    "featured": false,
+    "provenance": {
+      "project": "CLI-Anything",
+      "sourceUrl": "https://github.com/collectivewinca/hacker-feeds-cli",
+      "license": "MIT"
+    },
+    "template": {
+      "reference": {
+        "homepage": "https://github.com/collectivewinca/hacker-feeds-cli",
+        "entryPoint": "cli-anything-hacker-feeds-cli",
+        "installCommand": "pip install git+https://github.com/collectivewinca/hacker-feeds-cli.git"
+      }
+    }
+  },
+  {
+    "id": "cli-anything-mailchimp",
+    "kind": "skill",
+    "runtimeKind": "skill",
+    "displayName": "Mailchimp",
+    "description": "Mailchimp Marketing API v3.0 — manage audiences, campaigns, reports, automations, ecommerce, templates, and more from an agent-native CLI",
+    "category": "web",
+    "developer": "iGodly",
+    "availability": "needs_dependency",
+    "installMode": "source",
+    "auth": "none",
+    "requirements": [
+      "MAILCHIMP_API_KEY"
+    ],
+    "note": "Review the pinned source preview before installing this Skill.",
+    "featured": false,
+    "provenance": {
+      "project": "CLI-Anything",
+      "sourceUrl": "https://mailchimp.com/developer/marketing/",
+      "license": "MIT"
+    },
+    "template": {
+      "source": {
+        "type": "git",
+        "locator": "https://github.com/HKUDS/CLI-Anything.git",
+        "version": "0.1.0",
+        "subpath": "skills/cli-anything-mailchimp"
+      },
+      "entryPoint": "cli-anything-mailchimp"
+    }
+  },
+  {
+    "id": "cli-anything-3mf",
+    "kind": "skill",
+    "runtimeKind": "skill",
+    "displayName": "3MF",
+    "description": "Mesh geometry editor for 3D printing files — detect and resize cylindrical holes, repair meshes, compare 3MF files",
+    "category": "graphics",
+    "developer": "Gituheart",
+    "availability": "needs_dependency",
+    "installMode": "reference",
+    "auth": "none",
+    "requirements": [
+      "Python 3.10+; numpy, scipy, trimesh"
+    ],
+    "note": "Catalog reference only: install the local CLI, then add or import a verified Skill source.",
+    "featured": false,
+    "provenance": {
+      "project": "CLI-Anything",
+      "sourceUrl": "https://3mf.io",
+      "license": "MIT"
+    },
+    "template": {
+      "reference": {
+        "homepage": "https://3mf.io",
+        "entryPoint": "cli-anything-3mf",
+        "installCommand": "pip install git+https://github.com/HKUDS/CLI-Anything.git#subdirectory=3MF/agent-harness"
+      }
+    }
+  },
+  {
+    "id": "cli-anything-minimax",
+    "kind": "skill",
+    "runtimeKind": "skill",
+    "displayName": "MiniMax",
+    "description": "Chat and TTS via MiniMax AI API — MiniMax-M3 and MiniMax-M2.7 chat models and speech-2.x TTS",
+    "category": "ai",
+    "developer": "octo-patch",
+    "availability": "needs_dependency",
+    "installMode": "reference",
+    "auth": "none",
+    "requirements": [
+      "MINIMAX_API_KEY"
+    ],
+    "note": "Catalog reference only: install the local CLI, then add or import a verified Skill source.",
+    "featured": false,
+    "provenance": {
+      "project": "CLI-Anything",
+      "sourceUrl": "https://platform.minimax.io",
+      "license": "MIT"
+    },
+    "template": {
+      "reference": {
+        "homepage": "https://platform.minimax.io",
+        "entryPoint": "cli-anything-minimax",
+        "installCommand": "pip install git+https://github.com/HKUDS/CLI-Anything.git#subdirectory=minimax/agent-harness"
+      }
+    }
+  },
+  {
+    "id": "cli-anything-siyuan",
+    "kind": "skill",
+    "runtimeKind": "skill",
+    "displayName": "SiYuan CLI",
+    "description": "Knowledge management and note-taking via SiYuan HTTP API — manage notebooks, documents, blocks, and search content from the command line",
+    "category": "knowledge-management",
+    "developer": "hito0512",
+    "availability": "needs_dependency",
+    "installMode": "source",
+    "auth": "none",
+    "requirements": [
+      "SiYuan running with HTTP API enabled (default http://127.0.0.1:6806)"
+    ],
+    "note": "Review the pinned source preview before installing this Skill.",
+    "featured": false,
+    "provenance": {
+      "project": "CLI-Anything",
+      "sourceUrl": "https://github.com/siyuan-note/siyuan",
+      "license": "MIT"
+    },
+    "template": {
+      "source": {
+        "type": "git",
+        "locator": "https://github.com/HKUDS/CLI-Anything.git",
+        "version": "1.0.0",
+        "subpath": "skills/cli-anything-siyuan"
+      },
+      "entryPoint": "cli-anything-siyuan"
+    }
+  },
+  {
+    "id": "cli-anything-live2d",
+    "kind": "skill",
+    "runtimeKind": "skill",
+    "displayName": "Live2D Cubism",
+    "description": "Inspect, validate, edit, lint, diff, batch-manage, and deploy Live2D Cubism models (.model3.json, .moc3, .motion3.json, .exp3.json) from the command line — 42 commands covering the full model lifecycle",
+    "category": "graphics",
+    "developer": "zyzly0705",
+    "availability": "needs_dependency",
+    "installMode": "source",
+    "auth": "none",
+    "requirements": [
+      "Python 3.10+"
+    ],
+    "note": "Review the pinned source preview before installing this Skill.",
+    "featured": false,
+    "provenance": {
+      "project": "CLI-Anything",
+      "sourceUrl": "https://www.live2d.com",
+      "license": "MIT"
+    },
+    "template": {
+      "source": {
+        "type": "git",
+        "locator": "https://github.com/HKUDS/CLI-Anything.git",
+        "version": "0.3.0",
+        "subpath": "skills/cli-anything-live2d"
+      },
+      "entryPoint": "cli-anything-live2d"
+    }
+  },
+  {
+    "id": "cli-anything-tigris",
+    "kind": "skill",
+    "runtimeKind": "skill",
+    "displayName": "Tigris",
+    "description": "Object storage management — buckets, objects, presigned URLs, snapshots, IAM, scoped access keys. Wraps the official `tigris` CLI (S3-compatible, globally distributed, no egress fees)",
+    "category": "storage",
+    "developer": "davidmyriel",
+    "availability": "needs_dependency",
+    "installMode": "source",
+    "auth": "none",
+    "requirements": [
+      "Tigris CLI on PATH (`npm install -g @tigrisdata/cli` or `brew install tigrisdata/tap/tigris`) + `tigris login`"
+    ],
+    "note": "Review the pinned source preview before installing this Skill.",
+    "featured": false,
+    "provenance": {
+      "project": "CLI-Anything",
+      "sourceUrl": "https://www.tigrisdata.com",
+      "license": "MIT"
+    },
+    "template": {
+      "source": {
+        "type": "git",
+        "locator": "https://github.com/HKUDS/CLI-Anything.git",
+        "version": "1.0.0",
+        "subpath": "skills/cli-anything-tigris"
+      },
+      "entryPoint": "cli-anything-tigris"
+    }
+  },
+  {
+    "id": "cli-anything-tinyfish",
+    "kind": "skill",
+    "runtimeKind": "skill",
+    "displayName": "TinyFish Web Agent",
+    "description": "All four TinyFish products from the terminal: web search, clean page extraction, natural-language browser automation, and remote CDP browser sessions — via the REST APIs.",
+    "category": "web",
+    "developer": "webdevtodayjason",
+    "availability": "needs_dependency",
+    "installMode": "reference",
+    "auth": "none",
+    "requirements": [
+      "TinyFish API key (free at https://agent.tinyfish.ai/api-keys)"
+    ],
+    "note": "Catalog reference only: install the local CLI, then add or import a verified Skill source.",
+    "featured": false,
+    "provenance": {
+      "project": "CLI-Anything",
+      "sourceUrl": "https://github.com/webdevtodayjason/cli-anything-tinyfish",
+      "license": "MIT"
+    },
+    "template": {
+      "reference": {
+        "homepage": "https://tinyfish.ai",
+        "entryPoint": "cli-anything-tinyfish",
+        "installCommand": "pip install cli-anything-tinyfish"
+      }
+    }
+  },
+  {
+    "id": "cli-anything-meerk40t",
+    "kind": "skill",
+    "runtimeKind": "skill",
+    "displayName": "MeerK40t",
+    "description": "Laser cutting/engraving via the real MeerK40t kernel — elements, operations, SVG/G-code export with placement guard, and real GRBL hardware control (detect, preflight check, jog, frame) with machine profiles and --json output",
+    "category": "3d",
+    "developer": "George-RD",
+    "availability": "needs_dependency",
+    "installMode": "reference",
+    "auth": "none",
+    "requirements": [
+      "MeerK40t (installed automatically)"
+    ],
+    "note": "Catalog reference only: install the local CLI, then add or import a verified Skill source.",
+    "featured": false,
+    "provenance": {
+      "project": "CLI-Anything",
+      "sourceUrl": "https://github.com/George-RD/cli-anything-meerk40t",
+      "license": "MIT"
+    },
+    "template": {
+      "reference": {
+        "homepage": "https://github.com/meerk40t/meerk40t",
+        "entryPoint": "cli-anything-meerk40t",
+        "installCommand": "pip install cli-anything-meerk40t"
+      }
+    }
+  },
+  {
+    "id": "cli-anything-palmier",
+    "kind": "skill",
+    "runtimeKind": "skill",
+    "displayName": "Palmier Pro",
+    "description": "Agent-native CLI harness for the Palmier Pro local MCP video editor — drive timeline editing, media, captions, and AI generation from the command line",
+    "category": "video",
+    "developer": "workcr",
+    "availability": "needs_dependency",
+    "installMode": "reference",
+    "auth": "none",
+    "requirements": [
+      "Palmier Pro desktop app running its local MCP server at 127.0.0.1:19789, Python 3.10+"
+    ],
+    "note": "Catalog reference only: install the local CLI, then add or import a verified Skill source.",
+    "featured": false,
+    "provenance": {
+      "project": "CLI-Anything",
+      "sourceUrl": "https://github.com/workcr/palmier-cli-anything",
+      "license": "MIT"
+    },
+    "template": {
+      "reference": {
+        "homepage": "https://palmier.com",
+        "entryPoint": "cli-anything-palmier",
+        "installCommand": "pip install git+https://github.com/workcr/palmier-cli-anything.git"
+      }
+    }
+  },
+  {
+    "id": "cli-anything-magnific",
+    "kind": "skill",
+    "runtimeKind": "skill",
+    "displayName": "Magnific",
+    "description": "Agent-native CLI harness for Magnific's remote MCP media-generation server — generate and upscale images and video via mcpc OAuth without loading the full MCP schema each turn",
+    "category": "ai",
+    "developer": "workcr",
+    "availability": "needs_dependency",
+    "installMode": "reference",
+    "auth": "none",
+    "requirements": [
+      "Node.js + npm (for the mcpc transport), Python 3.10+, Magnific account (OAuth)"
+    ],
+    "note": "Catalog reference only: install the local CLI, then add or import a verified Skill source.",
+    "featured": false,
+    "provenance": {
+      "project": "CLI-Anything",
+      "sourceUrl": "https://github.com/workcr/magnific-cli-anything",
+      "license": "MIT"
+    },
+    "template": {
+      "reference": {
+        "homepage": "https://magnific.com",
+        "entryPoint": "cli-anything-magnific",
+        "installCommand": "pip install git+https://github.com/workcr/magnific-cli-anything.git"
+      }
+    }
+  },
+  {
+    "id": "cli-public-feishu",
+    "kind": "skill",
+    "runtimeKind": "skill",
+    "displayName": "Feishu/Lark CLI",
+    "description": "Official Lark (Feishu) CLI for managing Lark apps, bots, and cloud resources from the terminal",
+    "category": "communication",
+    "developer": "larksuite",
+    "availability": "needs_dependency",
+    "installMode": "reference",
+    "auth": "none",
+    "requirements": [
+      "Node.js >= 16"
+    ],
+    "note": "Catalog reference only: install the local CLI, then add or import a verified Skill source.",
+    "featured": false,
+    "provenance": {
+      "project": "CLI-Anything public registry",
+      "sourceUrl": "https://github.com/larksuite/cli",
+      "license": "MIT"
+    },
+    "template": {
+      "reference": {
+        "homepage": "https://github.com/larksuite/cli",
+        "entryPoint": "lark-cli",
+        "installCommand": "npm install -g @larksuite/cli"
+      }
+    }
+  },
+  {
+    "id": "cli-public-minimax-cli",
+    "kind": "skill",
+    "runtimeKind": "skill",
+    "displayName": "MiniMax CLI",
+    "description": "MiniMax AI platform CLI for managing tokens, models, and API interactions from the command line",
+    "category": "ai",
+    "developer": "MiniMax",
+    "availability": "needs_dependency",
+    "installMode": "reference",
+    "auth": "none",
+    "requirements": [
+      "Node.js >= 16, MINIMAX_API_KEY"
+    ],
+    "note": "Catalog reference only: install the local CLI, then add or import a verified Skill source.",
+    "featured": false,
+    "provenance": {
+      "project": "CLI-Anything public registry",
+      "sourceUrl": "https://platform.minimax.io",
+      "license": "MIT"
+    },
+    "template": {
+      "reference": {
+        "homepage": "https://platform.minimax.io",
+        "entryPoint": "minimax-cli",
+        "installCommand": "npm install -g minimax-cli"
+      }
+    }
+  },
+  {
+    "id": "cli-public-wecom",
+    "kind": "skill",
+    "runtimeKind": "skill",
+    "displayName": "WeCom CLI",
+    "description": "Official WeCom open-platform CLI for contacts, todos, meetings, messages, calendars, docs, and smart sheets",
+    "category": "communication",
+    "developer": "WecomTeam",
+    "availability": "needs_dependency",
+    "installMode": "reference",
+    "auth": "none",
+    "requirements": [
+      "Node.js >= 18, WeCom account (currently limited rollout), optional Bot ID + Secret for bot flows"
+    ],
+    "note": "Catalog reference only: install the local CLI, then add or import a verified Skill source.",
+    "featured": false,
+    "provenance": {
+      "project": "CLI-Anything public registry",
+      "sourceUrl": "https://github.com/WecomTeam/wecom-cli",
+      "license": "MIT"
+    },
+    "template": {
+      "reference": {
+        "homepage": "https://open.work.weixin.qq.com/",
+        "entryPoint": "wecom-cli",
+        "installCommand": "npm install -g @wecom/cli"
+      }
+    }
+  },
+  {
+    "id": "cli-public-contentful",
+    "kind": "skill",
+    "runtimeKind": "skill",
+    "displayName": "Contentful CLI",
+    "description": "Official Contentful CLI for spaces, migrations, imports, exports, seeding, and environment management",
+    "category": "web",
+    "developer": "Contentful",
+    "availability": "needs_dependency",
+    "installMode": "reference",
+    "auth": "none",
+    "requirements": [
+      "Node.js LTS, Contentful account and space access"
+    ],
+    "note": "Catalog reference only: install the local CLI, then add or import a verified Skill source.",
+    "featured": true,
+    "provenance": {
+      "project": "CLI-Anything public registry",
+      "sourceUrl": "https://github.com/contentful/contentful-cli",
+      "license": "MIT"
+    },
+    "template": {
+      "reference": {
+        "homepage": "https://www.contentful.com/",
+        "entryPoint": "contentful",
+        "installCommand": "npm install -g contentful-cli"
+      }
+    }
+  },
+  {
+    "id": "cli-public-sanity",
+    "kind": "skill",
+    "runtimeKind": "skill",
+    "displayName": "Sanity CLI",
+    "description": "Official Sanity CLI for studios, datasets, schemas, imports, exports, and structured content workflows",
+    "category": "web",
+    "developer": "Sanity",
+    "availability": "needs_dependency",
+    "installMode": "reference",
+    "auth": "none",
+    "requirements": [
+      "Node.js and npm, Sanity account/project access"
+    ],
+    "note": "Catalog reference only: install the local CLI, then add or import a verified Skill source.",
+    "featured": false,
+    "provenance": {
+      "project": "CLI-Anything public registry",
+      "sourceUrl": "https://github.com/sanity-io/sanity",
+      "license": "MIT"
+    },
+    "template": {
+      "reference": {
+        "homepage": "https://www.sanity.io/",
+        "entryPoint": "sanity",
+        "installCommand": "npm install -g sanity"
+      }
+    }
+  },
+  {
+    "id": "cli-public-shopify",
+    "kind": "skill",
+    "runtimeKind": "skill",
+    "displayName": "Shopify CLI",
+    "description": "Official Shopify CLI for apps, themes, functions, extensions, and Hydrogen storefront workflows",
+    "category": "web",
+    "developer": "Shopify",
+    "availability": "needs_dependency",
+    "installMode": "reference",
+    "auth": "none",
+    "requirements": [
+      "Node.js and npm, Shopify Partner/store access"
+    ],
+    "note": "Catalog reference only: install the local CLI, then add or import a verified Skill source.",
+    "featured": false,
+    "provenance": {
+      "project": "CLI-Anything public registry",
+      "sourceUrl": "https://github.com/Shopify/cli",
+      "license": "MIT"
+    },
+    "template": {
+      "reference": {
+        "homepage": "https://shopify.dev/docs/api/shopify-cli",
+        "entryPoint": "shopify",
+        "installCommand": "npm install -g @shopify/cli"
+      }
+    }
+  },
+  {
+    "id": "cli-public-sentry",
+    "kind": "skill",
+    "runtimeKind": "skill",
+    "displayName": "Sentry CLI",
+    "description": "Official Sentry CLI for releases, sourcemaps, debug files, monitors, and org/project automation",
+    "category": "devops",
+    "developer": "Sentry",
+    "availability": "needs_dependency",
+    "installMode": "reference",
+    "auth": "none",
+    "requirements": [
+      "Sentry account plus auth token/org/project access for most operations"
+    ],
+    "note": "Catalog reference only: install the local CLI, then add or import a verified Skill source.",
+    "featured": false,
+    "provenance": {
+      "project": "CLI-Anything public registry",
+      "sourceUrl": "https://github.com/getsentry/sentry-cli",
+      "license": "MIT"
+    },
+    "template": {
+      "reference": {
+        "homepage": "https://docs.sentry.io/cli/",
+        "entryPoint": "sentry-cli",
+        "installCommand": "npm install -g @sentry/cli"
+      }
+    }
+  },
+  {
+    "id": "cli-public-1password-cli",
+    "kind": "skill",
+    "runtimeKind": "skill",
+    "displayName": "1Password CLI",
+    "description": "Official 1Password CLI for vault access, secrets retrieval, item automation, and desktop-app-backed authentication",
+    "category": "devops",
+    "developer": "1Password",
+    "availability": "needs_dependency",
+    "installMode": "reference",
+    "auth": "none",
+    "requirements": [
+      "1Password account; desktop app integration recommended for biometric/system-auth sign-in"
+    ],
+    "note": "Catalog reference only: install the local CLI, then add or import a verified Skill source.",
+    "featured": true,
+    "provenance": {
+      "project": "CLI-Anything public registry",
+      "sourceUrl": "https://developer.1password.com/docs/cli/get-started/",
+      "license": "MIT"
+    },
+    "template": {
+      "reference": {
+        "homepage": "https://developer.1password.com/docs/cli/get-started/",
+        "entryPoint": "op",
+        "installCommand": "brew install --cask 1password-cli"
+      }
+    }
+  },
+  {
+    "id": "cli-public-android-cli",
+    "kind": "skill",
+    "runtimeKind": "skill",
+    "displayName": "Android CLI",
+    "description": "Official Android terminal interface for SDK setup, project creation, emulator/device management, app run/deploy workflows, docs access, and skill management for any agent",
+    "category": "mobile",
+    "developer": "Android Developers",
+    "availability": "needs_dependency",
+    "installMode": "reference",
+    "auth": "none",
+    "requirements": [
+      "Preview release; Linux x86_64, macOS arm64, or Windows x86_64. Android SDK / JDK requirements depend on the workflow you run."
+    ],
+    "note": "Catalog reference only: install the local CLI, then add or import a verified Skill source.",
+    "featured": true,
+    "provenance": {
+      "project": "CLI-Anything public registry",
+      "sourceUrl": "https://developer.android.com/tools/agents/android-cli",
+      "license": "MIT"
+    },
+    "template": {
+      "reference": {
+        "homepage": "https://developer.android.com/tools/agents/android-cli",
+        "entryPoint": "android",
+        "installCommand": ""
+      }
+    }
+  },
+  {
+    "id": "cli-public-generate-veo-video",
+    "kind": "skill",
+    "runtimeKind": "skill",
+    "displayName": "Generate Veo Video",
+    "description": "CLI for generating videos with Google Veo 3.1 via Vertex AI/Gemini — text-to-video, image-to-video, reference images, frame morphing, and video extension",
+    "category": "ai",
+    "developer": "charles-forsyth",
+    "availability": "needs_dependency",
+    "installMode": "reference",
+    "auth": "none",
+    "requirements": [
+      "Python >= 3.10, uv, GOOGLE_CLOUD_PROJECT env var (GEMINI_API_KEY optional)"
+    ],
+    "note": "Catalog reference only: install the local CLI, then add or import a verified Skill source.",
+    "featured": false,
+    "provenance": {
+      "project": "CLI-Anything public registry",
+      "sourceUrl": "https://github.com/charles-forsyth/generate-veo-video",
+      "license": "MIT"
+    },
+    "template": {
+      "reference": {
+        "homepage": "https://github.com/charles-forsyth/generate-veo-video",
+        "entryPoint": "generate-veo",
+        "installCommand": "uv tool install git+https://github.com/charles-forsyth/generate-veo-video.git"
+      }
+    }
+  },
+  {
+    "id": "cli-public-suno",
+    "kind": "skill",
+    "runtimeKind": "skill",
+    "displayName": "Suno CLI",
+    "description": "CLI for generating music with Suno AI from lyrics and style prompts, with batch generation, status polling, downloads, and automatic MP3 tagging",
+    "category": "music",
+    "developer": "slauger",
+    "availability": "needs_dependency",
+    "installMode": "reference",
+    "auth": "none",
+    "requirements": [
+      "Python 3 and a Suno API key from sunoapi.org"
+    ],
+    "note": "Catalog reference only: install the local CLI, then add or import a verified Skill source.",
+    "featured": false,
+    "provenance": {
+      "project": "CLI-Anything public registry",
+      "sourceUrl": "https://github.com/slauger/suno-cli",
+      "license": "MIT"
+    },
+    "template": {
+      "reference": {
+        "homepage": "https://github.com/slauger/suno-cli",
+        "entryPoint": "suno",
+        "installCommand": "python3 -m pip install git+https://github.com/slauger/suno-cli.git"
+      }
+    }
+  },
+  {
+    "id": "cli-public-elevenlabs",
+    "kind": "skill",
+    "runtimeKind": "skill",
+    "displayName": "ElevenLabs CLI",
+    "description": "Official ElevenLabs CLI for managing voice agents as code with local configs, templates, auth, push/pull sync, tests, widgets, and branch-aware workflows",
+    "category": "audio",
+    "developer": "ElevenLabs",
+    "availability": "needs_dependency",
+    "installMode": "reference",
+    "auth": "none",
+    "requirements": [
+      "Node.js and npm, ELEVENLABS_API_KEY or interactive login"
+    ],
+    "note": "Catalog reference only: install the local CLI, then add or import a verified Skill source.",
+    "featured": false,
+    "provenance": {
+      "project": "CLI-Anything public registry",
+      "sourceUrl": "https://github.com/elevenlabs/cli",
+      "license": "MIT"
+    },
+    "template": {
+      "reference": {
+        "homepage": "https://github.com/elevenlabs/cli",
+        "entryPoint": "elevenlabs",
+        "installCommand": "npm install -g @elevenlabs/cli"
+      }
+    }
+  },
+  {
+    "id": "cli-public-jimeng",
+    "kind": "skill",
+    "runtimeKind": "skill",
+    "displayName": "Jimeng / Dreamina CLI",
+    "description": "Official ByteDance AI image and video generation CLI — text-to-image, text-to-video, image-to-video, digital human, and intelligent canvas; domestic brand is Jimeng (即梦), international brand is Dreamina",
+    "category": "ai",
+    "developer": "ByteDance",
+    "availability": "needs_dependency",
+    "installMode": "reference",
+    "auth": "none",
+    "requirements": [
+      "Jimeng / Dreamina account and API key"
+    ],
+    "note": "Catalog reference only: install the local CLI, then add or import a verified Skill source.",
+    "featured": false,
+    "provenance": {
+      "project": "CLI-Anything public registry",
+      "sourceUrl": "https://jimeng.jianying.com/",
+      "license": "MIT"
+    },
+    "template": {
+      "reference": {
+        "homepage": "https://jimeng.jianying.com/",
+        "entryPoint": "dreamina",
+        "installCommand": "curl -s https://jimeng.jianying.com/cli | bash"
+      }
+    }
+  },
+  {
+    "id": "cli-public-obsidian-cli",
+    "kind": "skill",
+    "runtimeKind": "skill",
+    "displayName": "Obsidian CLI",
+    "description": "Official Obsidian command line interface for vault automation, developer tools, screenshots, search, history, and plugin workflows",
+    "category": "knowledge",
+    "developer": "Obsidian",
+    "availability": "needs_dependency",
+    "installMode": "reference",
+    "auth": "none",
+    "requirements": [
+      "Obsidian 1.12.7+ installer, Obsidian desktop app running, and Command line interface enabled in Settings → General"
+    ],
+    "note": "Catalog reference only: install the local CLI, then add or import a verified Skill source.",
+    "featured": false,
+    "provenance": {
+      "project": "CLI-Anything public registry",
+      "sourceUrl": "https://obsidian.md/help/cli",
+      "license": "MIT"
+    },
+    "template": {
+      "reference": {
+        "homepage": "https://obsidian.md/help/cli",
+        "entryPoint": "obsidian",
+        "installCommand": ""
+      }
+    }
+  },
+  {
+    "id": "cli-public-py4csr",
+    "kind": "skill",
+    "runtimeKind": "skill",
+    "displayName": "TraceCSR / Py4CSR CLI",
+    "description": "GxP-compliant agent harness for CDISC Clinical Study Report (CSR) and Tables/Figures/Listings (TFL) generation",
+    "category": "data-science",
+    "developer": "yanmingyu92",
+    "availability": "needs_dependency",
+    "installMode": "reference",
+    "auth": "none",
+    "requirements": [
+      "Python >= 3.10"
+    ],
+    "note": "Catalog reference only: install the local CLI, then add or import a verified Skill source.",
+    "featured": false,
+    "provenance": {
+      "project": "CLI-Anything public registry",
+      "sourceUrl": "https://github.com/yanmingyu92/py4csr",
+      "license": "MIT"
+    },
+    "template": {
+      "reference": {
+        "homepage": "https://github.com/yanmingyu92/py4csr",
+        "entryPoint": "tracecsr",
+        "installCommand": "pip install py4csr"
+      }
+    }
+  },
+  {
+    "id": "cli-public-deployhq",
+    "kind": "skill",
+    "runtimeKind": "skill",
+    "displayName": "DeployHQ CLI",
+    "description": "Deploy code, manage projects/servers, run and monitor deployments via the DeployHQ platform — for humans and AI agents",
+    "category": "devops",
+    "developer": "MartaKar",
+    "availability": "needs_dependency",
+    "installMode": "reference",
+    "auth": "none",
+    "requirements": [
+      "DeployHQ account (free tier available); Homebrew for the default install path"
+    ],
+    "note": "Catalog reference only: install the local CLI, then add or import a verified Skill source.",
+    "featured": true,
+    "provenance": {
+      "project": "CLI-Anything public registry",
+      "sourceUrl": "https://github.com/deployhq/deployhq-cli",
+      "license": "MIT"
+    },
+    "template": {
+      "reference": {
+        "homepage": "https://www.deployhq.com",
+        "entryPoint": "dhq",
+        "installCommand": "brew install deployhq/tap/dhq"
+      }
+    }
+  },
+  {
+    "id": "cli-public-obsidian-agent-cli",
+    "kind": "skill",
+    "runtimeKind": "skill",
+    "displayName": "Obsidian CLI",
+    "description": "Full-featured CLI for Obsidian — manage notes, canvases, Excalidraw diagrams, Kanban boards, periodic notes, git, tasks, and more. Includes an AI agent skill for persistent knowledge capture and project memory.",
+    "category": "productivity",
+    "developer": "ProxyLandLLC",
+    "availability": "needs_dependency",
+    "installMode": "reference",
+    "auth": "none",
+    "requirements": [
+      "Obsidian desktop app, Local REST API community plugin"
+    ],
+    "note": "Catalog reference only: install the local CLI, then add or import a verified Skill source.",
+    "featured": false,
+    "provenance": {
+      "project": "CLI-Anything public registry",
+      "sourceUrl": "https://github.com/ProxyLandLLC/obsidian-agent-cli",
+      "license": "MIT"
+    },
+    "template": {
+      "reference": {
+        "homepage": "https://obsidian.md",
+        "entryPoint": "obsidian-agent",
+        "installCommand": "pip install obsidian-agent-cli"
+      }
+    }
+  },
+  {
+    "id": "cli-public-arcgis-pro",
+    "kind": "skill",
+    "runtimeKind": "skill",
+    "displayName": "ArcGIS Pro",
+    "description": "Agent-native CLI for ArcGIS Pro (ArcPy): professional cartography (layouts + map series), geoprocessing, and feature query/edit — plus a live-Pro MCP bridge that drives the open session.",
+    "category": "scientific",
+    "developer": "Jasper0122",
+    "availability": "needs_dependency",
+    "installMode": "reference",
+    "auth": "none",
+    "requirements": [
+      "Windows only — ArcGIS Pro is Windows-only. Needs a licensed ArcGIS Pro install with ArcPy (its bundled arcgispro-py3 Python); the optional live-Pro MCP bridge additionally needs the .NET 8 SDK."
+    ],
+    "note": "Catalog reference only: install the local CLI, then add or import a verified Skill source.",
+    "featured": true,
+    "provenance": {
+      "project": "CLI-Anything public registry",
+      "sourceUrl": "https://github.com/Jasper0122/CLI-Anything-Arcgis-Pro",
+      "license": "MIT"
+    },
+    "template": {
+      "reference": {
+        "homepage": "https://www.esri.com/en-us/arcgis/products/arcgis-pro/overview",
+        "entryPoint": "cli-anything-arcgis-pro",
+        "installCommand": "pip install git+https://github.com/Jasper0122/CLI-Anything-Arcgis-Pro.git@v0.1.0"
+      }
+    }
+  },
+  {
+    "id": "cli-public-cloakbrowser",
+    "kind": "skill",
+    "runtimeKind": "skill",
+    "displayName": "CloakBrowser CLI",
+    "description": "Agent-friendly CLI for CloakBrowser — stealth Chromium that passes every bot detection test. Covers fingerprint flags, humanize behaviors, page operations, content extraction, cookies, storage, network, multi-page sessions, and CDP gateway.",
+    "category": "web",
+    "developer": "dreamor",
+    "availability": "needs_dependency",
+    "installMode": "reference",
+    "auth": "none",
+    "requirements": [
+      "Node.js >= 20, cloakbrowser >= 0.3.0, playwright-core >= 1.40.0"
+    ],
+    "note": "Catalog reference only: install the local CLI, then add or import a verified Skill source.",
+    "featured": false,
+    "provenance": {
+      "project": "CLI-Anything public registry",
+      "sourceUrl": "https://github.com/dreamor/cloakbrowser-cli",
+      "license": "MIT"
+    },
+    "template": {
+      "reference": {
+        "homepage": "https://github.com/dreamor/cloakbrowser-cli",
+        "entryPoint": "cloak",
+        "installCommand": "npm install -g @dreamor/cloakbrowser-cli cloakbrowser playwright-core"
+      }
+    }
+  },
+  {
+    "id": "cli-public-smithue-cli",
+    "kind": "skill",
+    "runtimeKind": "skill",
+    "displayName": "SmithUE CLI",
+    "description": "CLI tool for controlling Unreal Engine editor via SmithUE plugin. Enables AI agents to execute editor commands, list tools, search capabilities, and monitor editor status.",
+    "category": "devtools",
+    "developer": "123dx-svg",
+    "availability": "needs_dependency",
+    "installMode": "reference",
+    "auth": "none",
+    "requirements": [
+      "Node.js >=18; Unreal Engine with SmithUE plugin running (Windows only)"
+    ],
+    "note": "Catalog reference only: install the local CLI, then add or import a verified Skill source.",
+    "featured": false,
+    "provenance": {
+      "project": "CLI-Anything public registry",
+      "sourceUrl": "https://github.com/123dx-svg/smithue-cli",
+      "license": "MIT"
+    },
+    "template": {
+      "reference": {
+        "homepage": "https://github.com/123dx-svg/smithue-cli",
+        "entryPoint": "smithue-cli",
+        "installCommand": "npm install -g smithue-cli"
+      }
+    }
+  },
+  {
+    "id": "cli-public-browser-cdp",
+    "kind": "skill",
+    "runtimeKind": "skill",
+    "displayName": "Browser CDP",
+    "description": "Browser automation via raw Chrome DevTools Protocol — connects to YOUR existing Chrome, no extensions, no new browser, inherits all cookies and sessions",
+    "category": "web",
+    "developer": "Uname58",
+    "availability": "needs_dependency",
+    "installMode": "reference",
+    "auth": "none",
+    "requirements": [
+      "Chrome/Chromium with --remote-debugging-port=9222, Python >= 3.10"
+    ],
+    "note": "Catalog reference only: install the local CLI, then add or import a verified Skill source.",
+    "featured": false,
+    "provenance": {
+      "project": "CLI-Anything public registry",
+      "sourceUrl": "https://github.com/Uname58/cdp-agent-kit",
+      "license": "MIT"
+    },
+    "template": {
+      "reference": {
+        "homepage": "https://github.com/Uname58/cdp-agent-kit",
+        "entryPoint": "cli-anything-browser-cdp",
+        "installCommand": "pip install git+https://github.com/Uname58/cdp-agent-kit.git#subdirectory=contrib/cli-anything-harness/agent-harness"
+      }
+    }
+  },
+  {
+    "id": "cli-public-pieces",
+    "kind": "skill",
+    "runtimeKind": "skill",
+    "displayName": "Pieces OS CLI",
+    "description": "Agent-native CLI for Pieces OS — persistent long-term memory for developers. Search, create, and manage memory assets, snippets, and models via Pieces OS REST API.",
+    "category": "productivity",
+    "developer": "goddardoven110907",
+    "availability": "needs_dependency",
+    "installMode": "reference",
+    "auth": "none",
+    "requirements": [
+      "Pieces OS running locally (http://localhost:39300)"
+    ],
+    "note": "Catalog reference only: install the local CLI, then add or import a verified Skill source.",
+    "featured": false,
+    "provenance": {
+      "project": "CLI-Anything public registry",
+      "sourceUrl": "https://github.com/goddardoven110907/cli-anything-pieces",
+      "license": "MIT"
+    },
+    "template": {
+      "reference": {
+        "homepage": "https://pieces.app",
+        "entryPoint": "cli-anything-pieces",
+        "installCommand": "pip install git+https://github.com/goddardoven110907/cli-anything-pieces.git"
+      }
+    }
+  },
+  {
+    "id": "nanobot-extension-hyperframes",
+    "kind": "skill",
+    "runtimeKind": "skill",
+    "displayName": "HyperFrames",
+    "description": "HTML-to-MP4 motion graphics CLI for creating, previewing, and rendering browser-based video compositions.",
+    "category": "video",
+    "developer": "heygen-com",
+    "availability": "needs_dependency",
+    "installMode": "source",
+    "auth": "none",
+    "requirements": [
+      "Node.js, Chrome or Chromium, and FFmpeg for final renders."
+    ],
+    "note": "Review the pinned source preview before installing this Skill.",
+    "featured": false,
+    "provenance": {
+      "project": "nanobot extension registry",
+      "sourceUrl": "https://github.com/heygen-com/hyperframes",
+      "license": "MIT"
+    },
+    "template": {
+      "source": {
+        "type": "git",
+        "locator": "https://github.com/heygen-com/hyperframes",
+        "version": "latest",
+        "subpath": "skills/hyperframes"
+      },
+      "entryPoint": "hyperframes"
+    }
+  }
+]

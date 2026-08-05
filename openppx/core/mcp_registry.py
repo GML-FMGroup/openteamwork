@@ -89,7 +89,7 @@ class McpToolsetMeta:
 class McpToolsetOptions:
     """Resolved configurable options for one MCP toolset."""
 
-    tool_filter: list[str] | None
+    tool_filter: Any
     prefix: str
     require_confirmation: bool
     runtime_headers: dict[str, str]
@@ -107,7 +107,7 @@ class ManagedMcpToolset(SafeMcpToolset):
         *,
         meta: McpToolsetMeta,
         connection_params: Any,
-        tool_filter: list[str] | None,
+        tool_filter: Any,
         require_confirmation: bool,
         header_provider: Callable[[ReadonlyContext], dict[str, str]] | None = None,
         progress_callback: Callable[..., ProgressFnT | None] | ProgressFnT | None = None,
@@ -536,6 +536,7 @@ def _build_connection_params(server_name: str, raw_cfg: dict[str, Any]) -> tuple
     cwd = str(raw_cfg.get("cwd", "") or "").strip() or None
     headers = _string_dict(raw_cfg.get("headers", {})) or None
     transport = str(raw_cfg.get("transport", "") or "").strip().lower()
+    httpx_client_factory = raw_cfg.get("httpxClientFactory")
 
     if command:
         return (
@@ -552,7 +553,10 @@ def _build_connection_params(server_name: str, raw_cfg: dict[str, Any]) -> tuple
     if url:
         if transport == "sse" or url.lower().rstrip("/").endswith("/sse"):
             return SseConnectionParams(url=url, headers=headers), "sse"
-        return StreamableHTTPConnectionParams(url=url, headers=headers), "http"
+        kwargs = {"url": url, "headers": headers}
+        if callable(httpx_client_factory):
+            kwargs["httpx_client_factory"] = httpx_client_factory
+        return StreamableHTTPConnectionParams(**kwargs), "http"
 
     logger.warning("MCP server '{}' has neither command nor url; skipping", server_name)
     return None
@@ -562,6 +566,13 @@ def _resolve_toolset_options(server_name: str, raw_cfg: dict[str, Any]) -> McpTo
     """Resolve tool filter, name prefix and confirmation options."""
     tool_filter = _pick(raw_cfg, "tool_filter", "toolFilter")
     tool_filter_list = _string_list(tool_filter) if isinstance(tool_filter, list) else None
+    disabled_tools = _pick(raw_cfg, "disabled_tools", "disabledTools")
+    disabled_tool_names = frozenset(_string_list(disabled_tools)) if isinstance(disabled_tools, list) else frozenset()
+    if tool_filter_list and disabled_tool_names:
+        raise ValueError("MCP tool allowlist and denylist cannot both be configured")
+    resolved_filter: Any = tool_filter_list
+    if disabled_tool_names:
+        resolved_filter = lambda tool, _context=None: tool.name not in disabled_tool_names
 
     prefix = _normalize_tool_name_prefix(server_name, _pick(raw_cfg, "tool_name_prefix", "toolNamePrefix", ""))
     require_confirmation = _pick_bool(raw_cfg, "require_confirmation", "requireConfirmation", False)
@@ -573,7 +584,7 @@ def _resolve_toolset_options(server_name: str, raw_cfg: dict[str, Any]) -> McpTo
     )
     job_protocol = normalize_mcp_job_protocol(_pick(raw_cfg, "job_protocol", "jobProtocol", {}))
     return McpToolsetOptions(
-        tool_filter=tool_filter_list,
+        tool_filter=resolved_filter,
         prefix=prefix,
         require_confirmation=require_confirmation,
         runtime_headers=runtime_headers,

@@ -10,7 +10,7 @@ import shutil
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, Iterator, Literal
+from typing import Any, Callable, Iterator, Literal
 
 from filelock import FileLock, Timeout
 from pydantic import ValidationError
@@ -30,13 +30,15 @@ from .app_models import (
     AppCredentialValue,
     AppDefinition,
     AppLiteralValue,
+    AppMcpImplementation,
+    AppNativeImplementation,
     AppRemoteMcpTemplate,
     AppStdioMcpTemplate,
     AppToolSpec,
 )
+from .app_adapters import NativeAppAdapterRegistry, NativeAppContext
 from .errors import ExtensionError
 from .indexes import (
-    ExtensionReferenceIndex,
     ResourceIdentityIndex,
     ResourceIdentityReservation,
 )
@@ -56,8 +58,6 @@ from .prefixes import ToolPrefixIndex, ToolPrefixReservation
 
 _RESOURCE_NAME_PATTERN = re.compile(r"^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$")
 _RISK_ORDER = {"low": 0, "medium": 1, "high": 2}
-DefinitionProvider = Callable[[], tuple["VersionedAppDefinition", ...]]
-OwnerEnabled = Callable[[str, str], bool]
 
 
 @dataclass(frozen=True, slots=True)
@@ -93,6 +93,7 @@ class AppReadiness:
     ready: bool
     auth_state: Literal["not_required", "ready", "missing", "backend_unavailable"]
     executable_state: Literal["ready", "missing", "not_required"]
+    adapter_state: Literal["ready", "missing", "not_required"]
     tool_state: Literal["ready", "empty"]
     issues: tuple[str, ...]
 
@@ -142,8 +143,7 @@ class AppManager:
         executable_resolver: Callable[[str], str | None] = shutil.which,
         prefix_index: ToolPrefixIndex | None = None,
         identity_index: ResourceIdentityIndex | None = None,
-        reference_index: ExtensionReferenceIndex | None = None,
-        owner_enabled: OwnerEnabled | None = None,
+        adapter_registry: NativeAppAdapterRegistry | None = None,
         lock_timeout: float = 5.0,
     ) -> None:
         self.node_root = node_root.expanduser().resolve(strict=False)
@@ -154,62 +154,12 @@ class AppManager:
         self.executable_resolver = executable_resolver
         self.prefix_index = prefix_index
         self.identity_index = identity_index
-        self.reference_index = reference_index
-        self.owner_enabled = owner_enabled
-        self._definition_providers: dict[str, DefinitionProvider] = {}
+        self.adapter_registry = adapter_registry or NativeAppAdapterRegistry()
         self.lock_timeout = lock_timeout
         if prefix_index is not None:
             prefix_index.register("apps", self._prefix_reservations)
         if identity_index is not None:
             identity_index.register("direct-app-definitions", self._identity_reservations)
-        if reference_index is not None:
-            reference_index.register("app-connections", self._owner_references)
-
-    def register_definition_provider(self, provider_id: str, provider: DefinitionProvider) -> None:
-        """Register one declarative owner-backed App definition provider."""
-        if provider_id in self._definition_providers:
-            raise ValueError(f"App definition provider '{provider_id}' is already registered.")
-        self._definition_providers[provider_id] = provider
-
-    def validate_managed_definitions(
-        self,
-        plugin_id: str,
-        definitions: tuple[AppDefinition, ...],
-    ) -> None:
-        """Reject Plugin App updates that would invalidate existing connections."""
-        candidates = {definition.metadata.name: definition for definition in definitions}
-        for connection in self.list_connections():
-            try:
-                current = self.get_definition(connection.record.spec.app_id).record
-            except ExtensionError as exc:
-                if exc.code == "extension_not_found":
-                    continue
-                raise
-            owner = current.spec.managed_by
-            if owner is None or owner.kind != "plugin" or owner.name != plugin_id:
-                continue
-            candidate = candidates.get(current.metadata.name)
-            if candidate is None:
-                raise ExtensionError(
-                    "extension_in_use",
-                    "Plugin update removes an App definition with existing connections.",
-                )
-            try:
-                self._validate_connection(connection.record, candidate)
-            except ExtensionError as exc:
-                raise ExtensionError(
-                    "extension_in_use",
-                    "Plugin App update is incompatible with an existing connection.",
-                    details={"connectionId": connection.record.metadata.name},
-                ) from exc
-            if connection.record.spec.enabled_agent_ids:
-                readiness = self._readiness_for(connection.record, candidate)
-                if not readiness.ready:
-                    raise ExtensionError(
-                        "dependency_missing",
-                        "Plugin App update is not ready for active connections.",
-                        details={"connectionId": connection.record.metadata.name},
-                    )
 
     def install_definition(
         self,
@@ -221,8 +171,6 @@ class AppManager:
         if expected_revision is not None:
             raise ExtensionError("revision_conflict", "New App definitions require an empty revision precondition.")
         self._require_identity(record.metadata.name)
-        if record.spec.managed_by is not None:
-            raise ExtensionError("invalid_operation", "Managed App definitions must be installed by their owner.")
         if self.identity_index is not None:
             self.identity_index.require_available(
                 "app",
@@ -244,8 +192,6 @@ class AppManager:
         with self._mutation_lock():
             current = self.get_definition(candidate.metadata.name)
             self._require_revision(current.revision, expected_revision, resource="App definition")
-            if current.record.spec.managed_by is not None:
-                raise ExtensionError("invalid_operation", "Managed App definitions must be updated by their owner.")
             for connection in self.list_connections(app_id=candidate.metadata.name):
                 try:
                     self._validate_connection(connection.record, candidate)
@@ -269,21 +215,10 @@ class AppManager:
     def get_definition(self, app_id: str) -> VersionedAppDefinition:
         """Read one App definition by stable product identity."""
         self._require_identity(app_id)
-        matches: list[VersionedAppDefinition] = []
         local = self._read_local_definition(app_id)
-        if local is not None:
-            matches.append(local)
-        for provider_id in sorted(self._definition_providers):
-            matches.extend(
-                item
-                for item in self._definition_providers[provider_id]()
-                if item.record.metadata.name == app_id
-            )
-        if not matches:
+        if local is None:
             raise ExtensionError("extension_not_found", f"App definition '{app_id}' was not found.")
-        if len(matches) != 1:
-            raise ExtensionError("extension_conflict", "App definition identity is provided more than once.")
-        return matches[0]
+        return local
 
     def _read_local_definition(self, app_id: str) -> VersionedAppDefinition | None:
         path = self._definition_path(app_id)
@@ -306,11 +241,6 @@ class AppManager:
                 for path in sorted(self.definitions_dir.glob("*.json"), key=lambda item: item.name)
                 if (item := self._read_local_definition(path.stem)) is not None
             )
-        for provider_id in sorted(self._definition_providers):
-            values.extend(self._definition_providers[provider_id]())
-        names = [item.record.metadata.name for item in values]
-        if len(names) != len(set(names)):
-            raise ExtensionError("extension_conflict", "App definition identity is provided more than once.")
         return tuple(sorted(values, key=lambda item: item.record.metadata.name))
 
     def remove_definition(self, app_id: str, *, expected_revision: str) -> None:
@@ -318,8 +248,6 @@ class AppManager:
         with self._mutation_lock():
             current = self.get_definition(app_id)
             self._require_revision(current.revision, expected_revision, resource="App definition")
-            if current.record.spec.managed_by is not None:
-                raise ExtensionError("invalid_operation", "Plugin-managed Apps must be removed by their owner.")
             references = self.list_connections(app_id=app_id)
             if references:
                 raise ExtensionError(
@@ -369,7 +297,10 @@ class AppManager:
             record = candidate.model_copy(
                 update={
                     "spec": candidate.spec.model_copy(
-                        update={"enabled_agent_ids": list(current.record.spec.enabled_agent_ids)}
+                        update={
+                            "credential_refs": dict(current.record.spec.credential_refs),
+                            "enabled_agent_ids": list(current.record.spec.enabled_agent_ids),
+                        }
                     )
                 }
             )
@@ -440,6 +371,48 @@ class AppManager:
         definition = self.get_definition(connection.spec.app_id).record
         return self._readiness_for(connection, definition)
 
+    def mcp_snapshot_for_probe(self, connection_id: str) -> McpSnapshot:
+        """Project one connection for a live probe without enabling it for an Agent."""
+        connection = self.get_connection(connection_id)
+        definition = self.get_definition(connection.record.spec.app_id)
+        if not isinstance(definition.record.spec.implementation, AppMcpImplementation):
+            raise ExtensionError("invalid_operation", "Native App connections do not use an MCP probe.")
+        projected = self._project_mcp(
+            connection.record.model_copy(deep=True),
+            definition.record.model_copy(deep=True),
+            "connection-probe",
+        )
+        return _mcp_snapshot(
+            (
+                McpSnapshotEntry(
+                    record=projected,
+                    revision=_combined_revision(definition.revision, connection.revision),
+                ),
+            )
+        )
+
+    def execution_kind(self, connection_id: str) -> Literal["mcp", "native"]:
+        """Return the declared execution boundary for one App connection."""
+        connection = self.get_connection(connection_id).record
+        implementation = self.get_definition(connection.spec.app_id).record.spec.implementation
+        return implementation.type
+
+    def native_tools_for_probe(self, connection_id: str) -> tuple[Any, ...]:
+        """Build native tools for diagnostics without changing Agent enablement."""
+        connection = self.get_connection(connection_id).record.model_copy(deep=True)
+        definition = self.get_definition(connection.spec.app_id).record.model_copy(deep=True)
+        if not isinstance(definition.spec.implementation, AppNativeImplementation):
+            raise ExtensionError("invalid_operation", "MCP-backed App connections require an MCP probe.")
+        return self._build_native_tools(connection, definition)
+
+    def build_native_tools(self, snapshot: AppSnapshot) -> tuple[Any, ...]:
+        """Build tools for native App entries captured in one immutable snapshot."""
+        tools: list[Any] = []
+        for entry in snapshot.entries:
+            if isinstance(entry.definition.spec.implementation, AppNativeImplementation):
+                tools.extend(self._build_native_tools(entry.connection, entry.definition))
+        return tuple(tools)
+
     def enable_connection(
         self,
         connection_id: str,
@@ -456,11 +429,6 @@ class AppManager:
             if agent_id in current.record.spec.enabled_agent_ids:
                 return current
             definition = self.get_definition(current.record.spec.app_id).record
-            if not self._definition_owner_is_enabled(definition, agent_id):
-                raise ExtensionError(
-                    "dependency_missing",
-                    "The Plugin that owns this App is disabled for the Agent.",
-                )
             readiness = self._readiness_for(current.record, definition)
             if not readiness.ready:
                 raise ExtensionError(
@@ -525,8 +493,6 @@ class AppManager:
             if agent_id not in connection.record.spec.enabled_agent_ids:
                 continue
             definition = self.get_definition(connection.record.spec.app_id)
-            if not self._definition_owner_is_enabled(definition.record, agent_id):
-                continue
             frozen_definition = definition.record.model_copy(deep=True)
             frozen_connection = connection.record.model_copy(deep=True)
             entries.append(
@@ -537,9 +503,10 @@ class AppManager:
                     connection_revision=connection.revision,
                 )
             )
-            projected = self._project_mcp(frozen_connection, frozen_definition, agent_id)
-            projection_revision = _combined_revision(definition.revision, connection.revision)
-            mcp_entries.append(McpSnapshotEntry(record=projected, revision=projection_revision))
+            if isinstance(frozen_definition.spec.implementation, AppMcpImplementation):
+                projected = self._project_mcp(frozen_connection, frozen_definition, agent_id)
+                projection_revision = _combined_revision(definition.revision, connection.revision)
+                mcp_entries.append(McpSnapshotEntry(record=projected, revision=projection_revision))
         frozen_entries = tuple(entries)
         mcp = merge_mcp_snapshots(
             McpSnapshot.empty(),
@@ -583,9 +550,14 @@ class AppManager:
                 auth_state = "missing"
                 issues.append("secret_missing")
         executable_state: Literal["ready", "missing", "not_required"] = "not_required"
-        if isinstance(definition.spec.mcp, AppStdioMcpTemplate):
+        adapter_state: Literal["ready", "missing", "not_required"] = "not_required"
+        implementation = definition.spec.implementation
+        if isinstance(implementation, AppMcpImplementation) and isinstance(
+            implementation.transport,
+            AppStdioMcpTemplate,
+        ):
             executable_state = (
-                "ready" if self.executable_resolver(definition.spec.mcp.command) is not None else "missing"
+                "ready" if self.executable_resolver(implementation.transport.command) is not None else "missing"
             )
             if executable_state == "missing":
                 issues.append("executable_missing")
@@ -594,12 +566,25 @@ class AppManager:
         )
         if tool_state == "empty":
             issues.append("tool_selection_empty")
+        if isinstance(implementation, AppNativeImplementation):
+            adapter = self.adapter_registry.get(implementation.adapter)
+            if adapter is None:
+                adapter_state = "missing"
+                issues.append("adapter_missing")
+            else:
+                adapter_readiness = adapter.readiness(
+                    self._native_context(connection, definition)
+                )
+                adapter_state = "ready" if adapter_readiness.ready else "missing"
+                issues.extend(adapter_readiness.issues)
         return AppReadiness(
             ready=auth_state in {"not_required", "ready"}
             and executable_state != "missing"
+            and adapter_state != "missing"
             and tool_state == "ready",
             auth_state=auth_state,
             executable_state=executable_state,
+            adapter_state=adapter_state,
             tool_state=tool_state,
             issues=tuple(sorted(set(issues))),
         )
@@ -648,7 +633,10 @@ class AppManager:
                 suffix=value.suffix,
             )
 
-        template = definition.spec.mcp
+        implementation = definition.spec.implementation
+        if not isinstance(implementation, AppMcpImplementation):
+            raise ExtensionError("invalid_operation", "Native App definitions cannot be projected as MCP.")
+        template = implementation.transport
         if isinstance(template, AppStdioMcpTemplate):
             transport = McpStdioTransport(
                 type="stdio",
@@ -693,6 +681,29 @@ class AppManager:
             ),
         )
 
+    def _build_native_tools(
+        self,
+        connection: AppConnection,
+        definition: AppDefinition,
+    ) -> tuple[Any, ...]:
+        implementation = definition.spec.implementation
+        if not isinstance(implementation, AppNativeImplementation):
+            return ()
+        adapter = self.adapter_registry.require(implementation.adapter)
+        return tuple(adapter.build_tools(self._native_context(connection, definition)))
+
+    def _native_context(
+        self,
+        connection: AppConnection,
+        definition: AppDefinition,
+    ) -> NativeAppContext:
+        return NativeAppContext(
+            definition=definition,
+            connection=connection,
+            tools=self._selected_tools(connection, definition),
+            secret_store=self.secret_store,
+        )
+
     def _require_prefix_available(self, connection: AppConnection, agent_id: str) -> None:
         if self.prefix_index is None:
             for item in self.list_connections():
@@ -733,32 +744,6 @@ class AppManager:
             )
             for path in sorted(self.definitions_dir.glob("*.json"), key=lambda item: item.name)
         )
-
-    def _owner_references(self, owner_key: str) -> tuple[str, ...]:
-        """Return connections that reference one managed definition owner."""
-        if not owner_key.startswith("plugin:"):
-            return ()
-        plugin_id = owner_key.removeprefix("plugin:")
-        references: list[str] = []
-        for connection in self.list_connections():
-            try:
-                definition = self.get_definition(connection.record.spec.app_id).record
-            except ExtensionError as exc:
-                if exc.code == "extension_not_found":
-                    continue
-                raise
-            owner = definition.spec.managed_by
-            if owner is not None and owner.kind == "plugin" and owner.name == plugin_id:
-                references.append(f"app-connection:{connection.record.metadata.name}")
-        return tuple(references)
-
-    def _definition_owner_is_enabled(self, definition: AppDefinition, agent_id: str) -> bool:
-        owner = definition.spec.managed_by
-        if owner is None:
-            return True
-        if owner.kind != "plugin" or self.owner_enabled is None:
-            return False
-        return self.owner_enabled(owner.name, agent_id)
 
     @staticmethod
     def _tool_prefix(connection: AppConnection) -> str:

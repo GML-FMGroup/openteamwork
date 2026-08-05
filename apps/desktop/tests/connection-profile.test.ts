@@ -4,8 +4,10 @@ import {
   normalizeConnectionSettings,
   parseBoundConnectionCredential,
   parseStoredConnectionSettings,
+  parseStoredConnectionProfiles,
   serializeBoundConnectionCredential,
   toStoredConnectionSettings,
+  upsertStoredConnectionProfile,
 } from "../app/src/lib/connection-profile";
 
 describe("connection profile persistence", () => {
@@ -133,5 +135,53 @@ describe("connection profile persistence", () => {
     expect(parseBoundConnectionCredential(payload, "http://other.local:8765")).toBe("");
     expect(parseBoundConnectionCredential("not-json", "http://studio.local:8765")).toBe("");
     expect(payload).toContain("http://studio.local:8765");
+  });
+
+  it("migrates a single saved target and upserts multiple target profiles", () => {
+    const migrated = parseStoredConnectionProfiles({
+      targetType: "remote",
+      targetId: "remote-studio",
+      targetName: "Studio",
+      clientApiBaseUrl: "http://studio.local:8765",
+      secretRef: "client-api-token-v1",
+    });
+    expect(migrated).toMatchObject({ schemaVersion: 2, activeTargetId: "remote-studio" });
+
+    const local = toStoredConnectionSettings({
+      targetType: "local",
+      targetId: "local-this-mac",
+      targetName: "This Mac",
+      clientApiBaseUrl: "http://127.0.0.1:18765",
+    });
+    const updated = upsertStoredConnectionProfile(migrated, local);
+
+    expect(updated.activeTargetId).toBe("local-this-mac");
+    expect(updated.items.map((item) => item.targetName)).toEqual(["This Mac", "Studio"]);
+    expect(JSON.stringify(updated)).not.toContain("accessToken");
+  });
+
+  it("deduplicates corrupt profile collections and preserves the requested active target", () => {
+    const parsed = parseStoredConnectionProfiles({
+      schemaVersion: 2,
+      activeTargetId: "lan-studio",
+      items: [
+        {
+          targetType: "lan",
+          targetId: "lan-studio",
+          targetName: "Studio",
+          clientApiBaseUrl: "http://studio.local:8765",
+        },
+        {
+          targetType: "lan",
+          targetId: "lan-studio",
+          targetName: "Stale duplicate",
+          clientApiBaseUrl: "http://stale.local:8765",
+        },
+      ],
+    });
+
+    expect(parsed?.activeTargetId).toBe("lan-studio");
+    expect(parsed?.items).toHaveLength(1);
+    expect(parsed?.items[0].targetName).toBe("Studio");
   });
 });

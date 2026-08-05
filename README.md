@@ -6,6 +6,7 @@ The current source tree is a developer preview. It is not yet a stable or produc
 
 ## News
 
+- **2026-08-04 — Product closure on the development branch:** Desktop now manages Plugin/App/MCP/Skill lifecycles, Cron/Heartbeat/Task operations, Agent and Session resources, multiple saved Node targets, and session-scoped file/image/audio Artifacts through the shared Node contract. These changes are newer than the v0.5.2 prerelease artifacts.
 - **2026-08-04 — v0.5.2 Developer Preview:** published the unified Node architecture as a prerelease, including governed Config and Actions, Plugin/App/MCP/Skill extensions, Operations, OpenAI Codex authentication, Agent and Model Profile management, and a more polished Desktop workspace. The release remains intended for developer evaluation rather than production use.
 - **2026-08-04 — Node architecture baseline:** the development branch now uses one Node, Action, Config, Extension, Operations, and Client Contract architecture. First setup, model profiles, Plugin/App/MCP/Skill management, slash commands, audit, usage, Cron, Heartbeat, Desktop onboarding, and LAN access share the same backend facts. The previous parallel runtime and configuration paths have been removed rather than retained as compatibility layers.
 - **2026-08-02 — Desktop v0.5.1 Developer Preview:** published a prerelease with the three-column workspace, local/LAN Node connection, resizable panels, improved Run streaming, and the reusable TypeScript client.
@@ -39,7 +40,8 @@ The Node is the source of truth. Clients may keep device-local preferences such 
 - A typed Action Registry shared by CLI, Desktop, slash commands, and future clients.
 - Persistent sessions, artifacts, memory, TaskRuns, checkpoints, supervised long tasks, and workflow facts.
 - Node-owned Task scheduling, Cron, Heartbeat, usage, health, and redacted Action audit facts.
-- A thin TypeScript client and an Electron/React Desktop workspace that can connect to a Node on the same computer or a trusted LAN machine.
+- A thin TypeScript client and an Electron/React Desktop workspace that can save and switch between a local Node and multiple trusted-LAN Nodes without exposing their bearer tokens to the Renderer.
+- Desktop lifecycle management for Extensions, Operations, Agents, and Sessions, plus session-scoped file, image, and audio upload/download with durable Artifact references.
 - Google ADK-native Agent, Runner, Session, Artifact, Memory, MCP, confirmation, rewind, compaction, and evaluation integration.
 
 ## Requirements
@@ -232,6 +234,7 @@ npm run build
 - [Project architecture](./docs/PROJECT_OVERVIEW.md)
 - [Configuration and models](./docs/CONFIGURATION.md)
 - [Operations](./docs/OPERATIONS.md)
+- [Sessions, attachments, and artifacts](./docs/ARTIFACTS.md)
 - [Client API contract](./contracts/client-api/README.md)
 - [Desktop](./apps/desktop/README.md)
 - [MCP and extension security](./docs/MCP_SECURITY.md)
@@ -241,6 +244,6 @@ npm run build
 ## Current boundaries
 
 - CLI and Desktop are first-class clients; a mobile client is a future consumer of the same contract, not part of the current build.
-- Trusted-LAN connectivity is implemented. Automatic TLS, discovery, pairing, SSH/Tailnet setup, and a public relay are future work.
+- Multiple trusted-LAN targets and encrypted endpoint-bound tokens are implemented. Automatic TLS, discovery, identity pairing, token rotation/revocation, SSH/Tailnet setup, and a public relay are future work.
 - Public extension catalogs, cloud hosting, improved memory, self-evolution, and deeper long-task intelligence remain later product layers over the current Node foundation.
 - The current macOS Desktop artifact is a developer preview and is not signed or notarized.

@@ -9,6 +9,12 @@ import {
   validateModelProfileId,
   validateModelProfileCreateInput,
   validateModelProfileUpdateInput,
+  validateExtensionPreviewRequest,
+  validateExtensionInstallRequest,
+  validateMcpMutationRequest,
+  validateAppConnectionSaveRequest,
+  validateArtifactSummaryInput,
+  validateArtifactUploadInput,
   validateSendMessageInput,
   validateSetupApplyRequest,
   validateSetupHelloText,
@@ -69,6 +75,49 @@ describe("Electron IPC validation", () => {
       sessionId: "session-1",
       text: "hello",
     });
+    expect(validateSendMessageInput({
+      agentId: "writer",
+      sessionId: "session-1",
+      text: "",
+      artifactRefs: [{ key: "uploads/artifact-1/notes.txt", version: 0 }],
+    })).toEqual({
+      agentId: "writer",
+      sessionId: "session-1",
+      text: "",
+      artifactRefs: [{ key: "uploads/artifact-1/notes.txt", version: 0 }],
+    });
+    expect(validateArtifactUploadInput({
+      agentId: "writer",
+      sessionId: "session-1",
+      fileName: "notes.txt",
+      mimeType: "text/plain",
+      dataBase64: "aGVsbG8=",
+    })).toEqual({
+      agentId: "writer",
+      sessionId: "session-1",
+      fileName: "notes.txt",
+      mimeType: "text/plain",
+      dataBase64: "aGVsbG8=",
+    });
+    expect(validateArtifactSummaryInput({
+      id: "artifact-1",
+      key: "uploads/artifact-1/notes.txt",
+      fileName: "notes.txt",
+      mimeType: "text/plain",
+      sizeBytes: 5,
+      version: 0,
+      source: "user_upload",
+      createdAt: "2026-08-04T00:00:00Z",
+    })).toEqual({
+      id: "artifact-1",
+      key: "uploads/artifact-1/notes.txt",
+      fileName: "notes.txt",
+      mimeType: "text/plain",
+      sizeBytes: 5,
+      version: 0,
+      source: "user_upload",
+      createdAt: "2026-08-04T00:00:00Z",
+    });
     expect(
       validateSlashCommandRequest({
         rawCommand: "/history 5",
@@ -110,6 +159,7 @@ describe("Electron IPC validation", () => {
       agentId: "research",
       displayName: "Research",
       workspace: null,
+      instruction: "",
       privilegeLevel: "medium",
       modelProfileId: "primary",
     });
@@ -160,6 +210,95 @@ describe("Electron IPC validation", () => {
       profileId: "coding-primary",
       expectedRevision: "revision-1",
     })).toMatchObject({ profileId: "coding-primary", expectedRevision: "revision-1" });
+    expect(validateExtensionPreviewRequest({
+      kind: "skill",
+      source: { type: "git", locator: "https://github.com/openppx/example", revision: "main" },
+    })).toEqual({
+      kind: "skill",
+      source: { type: "git", locator: "https://github.com/openppx/example", revision: "main" },
+    });
+    expect(validateExtensionInstallRequest({
+      kind: "plugin",
+      source: { type: "catalog", locator: "openppx/github" },
+      expectedDigest: `sha256:${"a".repeat(64)}`,
+      expectedRevision: null,
+    })).toMatchObject({ kind: "plugin", expectedDigest: `sha256:${"a".repeat(64)}`, expectedRevision: null });
+    expect(validateMcpMutationRequest({
+      resource: {
+        apiVersion: "openppx.io/v1alpha1",
+        kind: "McpServer",
+        metadata: { name: "github-tools" },
+        spec: {
+          displayName: "GitHub tools",
+          description: "Repository access",
+          transport: {
+            type: "stdio",
+            command: "npx",
+            args: ["-y", "server"],
+            environment: { TOKEN: { kind: "secret", secretRef: { store: "system", name: "github-token" } } },
+          },
+          policy: {
+            toolFilter: ["search"],
+            toolNamePrefix: "github",
+            requireConfirmation: true,
+            progressEvents: true,
+            longTaskProxy: true,
+            inlineBudgetMs: 1500,
+          },
+          risk: "medium",
+          enabledAgentIds: ["main"],
+          managedBy: { kind: "plugin", name: "renderer-owned" },
+        },
+      },
+      secretValues: { "github-token": "write-only-value" },
+      expectedRevision: null,
+    })).toMatchObject({
+      resource: { spec: { managedBy: null } },
+      secretValues: { "github-token": "write-only-value" },
+      expectedRevision: null,
+    });
+    expect(validateMcpMutationRequest({
+      resource: {
+        apiVersion: "openppx.io/v1alpha1",
+        kind: "McpServer",
+        metadata: { name: "browserbase" },
+        spec: {
+          displayName: "Browserbase",
+          description: "Remote browser automation",
+          transport: {
+            type: "streamable_http",
+            url: "https://mcp.browserbase.com/mcp",
+            headers: {},
+            query: { browserbaseApiKey: { kind: "secret", secretRef: { store: "system", name: "browserbase-api-key" } } },
+            auth: "oauth",
+          },
+          policy: { toolFilter: [], requireConfirmation: true, progressEvents: true, longTaskProxy: true, inlineBudgetMs: 1500 },
+          risk: "medium",
+          enabledAgentIds: [],
+        },
+      },
+      secretValues: { "browserbase-api-key": "write-only-value" },
+      expectedRevision: null,
+    })).toMatchObject({
+      resource: { spec: { transport: { auth: "oauth", query: { browserbaseApiKey: { kind: "secret" } } } } },
+    });
+    expect(validateAppConnectionSaveRequest({
+      appId: "github",
+      connectionId: "github-work",
+      displayName: "Work GitHub",
+      enabledTools: ["search", "issues.create"],
+      requireConfirmation: true,
+      credentialValues: { token: "write-only-value" },
+      expectedRevision: null,
+    })).toEqual({
+      appId: "github",
+      connectionId: "github-work",
+      displayName: "Work GitHub",
+      enabledTools: ["search", "issues.create"],
+      requireConfirmation: true,
+      credentialValues: { token: "write-only-value" },
+      expectedRevision: null,
+    });
   });
 
   it("rejects malformed renderer requests before they reach services", () => {
@@ -171,6 +310,19 @@ describe("Electron IPC validation", () => {
     expect(() => validateSendMessageInput({ agentId: "writer", sessionId: [], text: "hello" })).toThrow(
       "Session id must be a string",
     );
+    expect(() => validateSendMessageInput({
+      agentId: "writer",
+      sessionId: "session-1",
+      text: "hello",
+      artifactRefs: [{ key: "artifact", version: -1 }],
+    })).toThrow("Artifact version");
+    expect(() => validateArtifactUploadInput({
+      agentId: "writer",
+      sessionId: "session-1",
+      fileName: "notes.txt",
+      mimeType: "text/plain",
+      dataBase64: "x".repeat(28_000_001),
+    })).toThrow("Artifact content");
     expect(() => validateConnectionSettings({ targetType: "internet" })).toThrow("targetType");
     expect(() => validateSlashCommandRequest({ rawCommand: "status" })).toThrow("start with '/'");
     expect(() => validateSetupHelloText("")).toThrow("Setup Hello is required");
@@ -190,5 +342,23 @@ describe("Electron IPC validation", () => {
       enabled: true,
       apiKey: null,
     })).toThrow("capability is not supported");
+    expect(() => validateExtensionPreviewRequest({ kind: "app", source: { type: "git", locator: "https://example.com/app" } })).toThrow("kind");
+    expect(() => validateMcpMutationRequest({
+      resource: {
+        apiVersion: "openppx.io/v1alpha1",
+        kind: "McpServer",
+        metadata: { name: "unsafe" },
+        spec: {
+          displayName: "Unsafe",
+          description: "Unsafe MCP",
+          transport: { type: "stdio", command: "node", args: [], environment: { TOKEN: { kind: "secret", secretRef: { store: "renderer", name: "token" } } } },
+          policy: { toolFilter: [], requireConfirmation: true, progressEvents: true, longTaskProxy: true, inlineBudgetMs: 1500 },
+          risk: "high",
+          enabledAgentIds: [],
+        },
+      },
+      secretValues: {},
+      expectedRevision: null,
+    })).toThrow("SecretRef store must be system");
   });
 });

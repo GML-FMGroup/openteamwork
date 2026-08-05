@@ -22,11 +22,15 @@ from openppx.runtime.node_runtime import (
 )
 from openppx.runtime.session_rewind import SessionRewindError
 from openppx.runtime.task_execution import TaskController
+from openppx.runtime.session_metadata_store import SessionMetadataStore
 
 from .input_models import (
     RunStopInput,
     SessionHistoryInput,
+    SessionArchiveInput,
+    SessionIdentityInput,
     SessionNewInput,
+    SessionRenameInput,
     SessionRewindInput,
     TaskListInput,
 )
@@ -37,9 +41,11 @@ def register_runtime_actions(
     supervisor: NodeRuntimeSupervisor,
     *,
     task_controller: TaskController | None = None,
+    session_metadata: SessionMetadataStore,
 ) -> None:
     """Register shared Session, Run, and durable Task control Actions."""
     tasks = task_controller or _task_controller_from_supervisor(supervisor)
+    metadata = session_metadata
     registry.register(
         ActionSpec(
             action_id="session.new",
@@ -186,6 +192,89 @@ def register_runtime_actions(
         ),
         availability=lambda _context: None if tasks is not None else "runtime_unavailable",
         slash_input=_task_list_slash_input,
+    )
+    registry.register(
+        ActionSpec(
+            action_id="session.rename",
+            namespace="session",
+            title="Rename session",
+            description="Assign a user-facing title without changing conversation history.",
+            input_model=SessionRenameInput,
+            scope="session",
+            required_capabilities=frozenset({"session.write"}),
+            permission="session.write",
+            projections=("cli", "desktop", "mobile"),
+        ),
+        lambda _context, input_data: _rename_session(
+            supervisor, metadata, cast(SessionRenameInput, input_data)
+        ),
+    )
+    registry.register(
+        ActionSpec(
+            action_id="session.archive",
+            namespace="session",
+            title="Archive or restore session",
+            description="Hide or restore a Session without deleting its conversation data.",
+            input_model=SessionArchiveInput,
+            scope="session",
+            required_capabilities=frozenset({"session.write"}),
+            permission="session.write",
+            projections=("cli", "desktop", "mobile"),
+        ),
+        lambda _context, input_data: _archive_session(
+            supervisor, metadata, cast(SessionArchiveInput, input_data)
+        ),
+    )
+    registry.register(
+        ActionSpec(
+            action_id="session.fork",
+            namespace="session",
+            title="Fork session",
+            description="Create a new Session from the durable history of an existing Session.",
+            input_model=SessionIdentityInput,
+            scope="session",
+            required_capabilities=frozenset({"session.write"}),
+            permission="session.write",
+            risk="medium",
+            projections=("cli", "desktop", "mobile"),
+        ),
+        lambda _context, input_data: _fork_session(
+            supervisor, metadata, cast(SessionIdentityInput, input_data)
+        ),
+    )
+    registry.register(
+        ActionSpec(
+            action_id="session.export",
+            namespace="session",
+            title="Export session",
+            description="Export bounded visible conversation history as structured JSON.",
+            input_model=SessionIdentityInput,
+            scope="session",
+            required_capabilities=frozenset({"session.read"}),
+            permission="session.read",
+            projections=("cli", "desktop", "mobile"),
+        ),
+        lambda _context, input_data: _export_session(
+            supervisor, metadata, cast(SessionIdentityInput, input_data)
+        ),
+    )
+    registry.register(
+        ActionSpec(
+            action_id="session.delete",
+            namespace="session",
+            title="Delete session",
+            description="Permanently remove one ADK Session after explicit confirmation.",
+            input_model=SessionIdentityInput,
+            scope="session",
+            required_capabilities=frozenset({"session.write"}),
+            permission="session.write",
+            risk="high",
+            confirmation="required",
+            projections=("cli", "desktop", "mobile"),
+        ),
+        lambda _context, input_data: _delete_session(
+            supervisor, metadata, cast(SessionIdentityInput, input_data)
+        ),
     )
 
 
@@ -358,6 +447,112 @@ def _rewind_session(
         "explicit": target.explicit,
         "visibleEventCount": target.visible_event_count,
     }
+
+
+def _require_session(supervisor: NodeRuntimeSupervisor, input_data: SessionIdentityInput) -> object:
+    session = supervisor.get_session_sync(
+        input_data.agent_id,
+        user_id=input_data.user_id,
+        session_id=input_data.session_id,
+    )
+    if session is None:
+        raise ActionFailure(ActionError("session_not_found", "The requested Session was not found."))
+    return session
+
+
+def _rename_session(
+    supervisor: NodeRuntimeSupervisor,
+    metadata: SessionMetadataStore,
+    input_data: SessionRenameInput,
+) -> dict[str, object]:
+    _require_session(supervisor, input_data)
+    stored = metadata.update(
+        session_id=input_data.session_id,
+        agent_id=input_data.agent_id,
+        principal_id=input_data.user_id,
+        title=input_data.title,
+    )
+    return {"sessionId": stored.session_id, "title": stored.title, "archived": stored.archived}
+
+
+def _archive_session(
+    supervisor: NodeRuntimeSupervisor,
+    metadata: SessionMetadataStore,
+    input_data: SessionArchiveInput,
+) -> dict[str, object]:
+    _require_session(supervisor, input_data)
+    stored = metadata.update(
+        session_id=input_data.session_id,
+        agent_id=input_data.agent_id,
+        principal_id=input_data.user_id,
+        archived=input_data.archived,
+    )
+    return {"sessionId": stored.session_id, "title": stored.title, "archived": stored.archived}
+
+
+def _fork_session(
+    supervisor: NodeRuntimeSupervisor,
+    metadata: SessionMetadataStore,
+    input_data: SessionIdentityInput,
+) -> dict[str, object]:
+    try:
+        forked = supervisor.fork_session_sync(
+            input_data.agent_id,
+            user_id=input_data.user_id,
+            session_id=input_data.session_id,
+        )
+    except RuntimeSupervisorError as exc:
+        raise ActionFailure(ActionError("session_not_found", "The requested Session was not found.")) from exc
+    session_id = str(getattr(forked, "id", ""))
+    source_metadata = metadata.get(input_data.session_id)
+    title = f"{source_metadata.title} (fork)" if source_metadata and source_metadata.title else "Forked chat"
+    metadata.update(
+        session_id=session_id,
+        agent_id=input_data.agent_id,
+        principal_id=input_data.user_id,
+        title=title[:120],
+    )
+    return {"session": {"id": session_id, "agentId": input_data.agent_id, "title": title[:120], "archived": False}}
+
+
+def _export_session(
+    supervisor: NodeRuntimeSupervisor,
+    metadata: SessionMetadataStore,
+    input_data: SessionIdentityInput,
+) -> dict[str, object]:
+    _require_session(supervisor, input_data)
+    items = supervisor.session_history_sync(
+        input_data.agent_id,
+        user_id=input_data.user_id,
+        session_id=input_data.session_id,
+        limit=100,
+    )
+    stored = metadata.get(input_data.session_id)
+    return {
+        "sessionId": input_data.session_id,
+        "agentId": input_data.agent_id,
+        "title": stored.title if stored else None,
+        "archived": stored.archived if stored else False,
+        "items": items,
+        "exportedAt": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+def _delete_session(
+    supervisor: NodeRuntimeSupervisor,
+    metadata: SessionMetadataStore,
+    input_data: SessionIdentityInput,
+) -> dict[str, object]:
+    try:
+        supervisor.delete_session_sync(
+            input_data.agent_id,
+            user_id=input_data.user_id,
+            session_id=input_data.session_id,
+        )
+    except RuntimeSupervisorError as exc:
+        raise ActionFailure(ActionError("session_not_found", "The requested Session was not found.")) from exc
+    metadata.delete(input_data.session_id)
+    return {"sessionId": input_data.session_id, "deleted": True, "artifactsRetained": True}
 
 
 def _task_controller_from_supervisor(supervisor: NodeRuntimeSupervisor) -> TaskController | None:

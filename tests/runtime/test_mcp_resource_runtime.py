@@ -52,6 +52,7 @@ def test_runtime_adapter_resolves_secrets_only_into_connection_objects(tmp_path:
     secrets = InMemorySecretStore()
     secrets.put(SecretRef(store="system", name="stdio-token"), SecretValue("stdio-secret"))
     secrets.put(SecretRef(store="system", name="http-token"), SecretValue("http-secret"))
+    secrets.put(SecretRef(store="system", name="query-token"), SecretValue("query secret/+"))
     manager = McpManager(tmp_path, secrets)
     _enabled(
         manager,
@@ -84,6 +85,12 @@ def test_runtime_adapter_resolves_secrets_only_into_connection_objects(tmp_path:
                         "prefix": "Bearer ",
                     }
                 },
+                "query": {
+                    "apiKey": {
+                        "kind": "secret",
+                        "secretRef": {"store": "system", "name": "query-token"},
+                    }
+                },
             },
         ),
     )
@@ -98,9 +105,11 @@ def test_runtime_adapter_resolves_secrets_only_into_connection_objects(tmp_path:
     by_name = {toolset.meta.name: toolset for toolset in build.toolsets}
     assert by_name["stdio"]._connection_params.server_params.env == {"TOKEN": "stdio-secret"}
     assert by_name["remote"]._connection_params.headers == {"Authorization": "Bearer http-secret"}
+    assert by_name["remote"]._connection_params.url == "https://example.com/mcp?apiKey=query+secret%2F%2B"
     persisted = manager.get("stdio").record.model_dump_json()
     assert "stdio-secret" not in persisted
     assert "http-secret" not in persisted
+    assert "query secret/+" not in manager.get("remote").record.model_dump_json()
 
 
 def test_missing_secret_is_diagnostic_and_does_not_block_other_mcp(tmp_path: Path) -> None:

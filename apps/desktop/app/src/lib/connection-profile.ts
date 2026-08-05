@@ -9,6 +9,12 @@ export interface StoredConnectionSettings {
   secretRef?: string;
 }
 
+export interface StoredConnectionProfileCollection {
+  schemaVersion: 2;
+  activeTargetId: string;
+  items: StoredConnectionSettings[];
+}
+
 interface BoundConnectionCredential {
   schemaVersion: 1;
   clientApiBaseUrl: string;
@@ -161,6 +167,43 @@ export function parseStoredConnectionSettings(payload: unknown): StoredConnectio
     targetName: String(record.targetName ?? (targetType === "lan" ? "LAN OpenPPX Node" : "This Mac")),
     clientApiBaseUrl: String(record.clientApiBaseUrl ?? "http://127.0.0.1:18765"),
     secretRef: typeof record.secretRef === "string" && record.secretRef.trim() ? record.secretRef.trim() : undefined,
+  };
+}
+
+/** Parse the multi-target store while migrating the former single-profile file shape. */
+export function parseStoredConnectionProfiles(payload: unknown): StoredConnectionProfileCollection | null {
+  const record = asRecord(payload);
+  if (!record) return null;
+  if (record.schemaVersion === 2 && Array.isArray(record.items)) {
+    const parsedItems = record.items
+      .map((item) => parseStoredConnectionSettings(item))
+      .filter((item): item is StoredConnectionSettings => item !== null);
+    const items = parsedItems.filter(
+      (item, index) => parsedItems.findIndex((candidate) => candidate.targetId === item.targetId) === index,
+    );
+    if (!items.length) return null;
+    const requestedActiveId = String(record.activeTargetId ?? "");
+    const activeTargetId = items.some((item) => item.targetId === requestedActiveId)
+      ? requestedActiveId
+      : items[0].targetId;
+    return { schemaVersion: 2, activeTargetId, items };
+  }
+  const legacy = parseStoredConnectionSettings(record);
+  return legacy
+    ? { schemaVersion: 2, activeTargetId: legacy.targetId, items: [legacy] }
+    : null;
+}
+
+/** Upsert one normalized profile and make it the active Desktop target. */
+export function upsertStoredConnectionProfile(
+  collection: StoredConnectionProfileCollection | null,
+  profile: StoredConnectionSettings,
+): StoredConnectionProfileCollection {
+  const items = collection?.items ?? [];
+  return {
+    schemaVersion: 2,
+    activeTargetId: profile.targetId,
+    items: [profile, ...items.filter((item) => item.targetId !== profile.targetId)],
   };
 }
 

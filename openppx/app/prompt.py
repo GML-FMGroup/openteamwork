@@ -109,11 +109,19 @@ def build_startup_runtime_context(
     skills_summary: str | None = None,
     gui_tools_enabled: bool | None = None,
     mcp_summaries: list[dict[str, str]] | None = None,
+    agent_instruction: str | None = None,
 ) -> str:
     """Build startup context, preferring immutable runtime inputs when supplied."""
     runtime = f"{platform.system()} {platform.machine()} / Python"
     resolved_workspace = workspace if workspace is not None else os.getcwd()
     resolved_skills_summary = skills_summary if skills_summary is not None else get_registry().build_summary()
+    instruction_block = ""
+    if agent_instruction and agent_instruction.strip():
+        instruction_block = f"""
+# Agent Instruction
+
+{agent_instruction.strip()}
+"""
 
     return f"""# Runtime Context
 
@@ -131,6 +139,7 @@ Workspace: {resolved_workspace}
 Available skills:
 
 {resolved_skills_summary}
+{instruction_block}
 """
 
 

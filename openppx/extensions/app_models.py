@@ -134,6 +134,26 @@ AppMcpTemplate: TypeAlias = Annotated[
 ]
 
 
+class AppMcpImplementation(StrictConfigModel):
+    """Standards-based MCP execution for one branded App."""
+
+    type: Literal["mcp"]
+    transport: AppMcpTemplate
+
+
+class AppNativeImplementation(StrictConfigModel):
+    """Trusted in-process adapter selected from the Node-owned adapter registry."""
+
+    type: Literal["native"]
+    adapter: ResourceName
+
+
+AppImplementation: TypeAlias = Annotated[
+    AppMcpImplementation | AppNativeImplementation,
+    Field(discriminator="type"),
+]
+
+
 class AppCredentialSpec(StrictConfigModel):
     """One protected credential required by an App definition."""
 
@@ -182,15 +202,8 @@ class AppDefaultPolicy(StrictConfigModel):
     job_protocol: McpJobProtocolSpec | None = None
 
 
-class AppOwnerRef(StrictConfigModel):
-    """Optional Product Plugin owner for a declared App mapping."""
-
-    kind: Literal["plugin"]
-    name: ResourceName
-
-
 class AppDefinitionSpec(StrictConfigModel):
-    """Stable App identity, auth contract, tool catalog, and MCP template."""
+    """Stable App identity, auth contract, tool catalog, and execution adapter."""
 
     display_name: DisplayName
     description: Annotated[str, StringConstraints(min_length=1, max_length=2048)]
@@ -200,10 +213,9 @@ class AppDefinitionSpec(StrictConfigModel):
     icon_url: Annotated[str, StringConstraints(max_length=2048)] | None = None
     source: ExtensionSourceIdentity
     auth: AppAuthSpec
-    mcp: AppMcpTemplate
+    implementation: AppImplementation
     tools: list[AppToolSpec] = Field(min_length=1, max_length=256)
     policy: AppDefaultPolicy = Field(default_factory=AppDefaultPolicy)
-    managed_by: AppOwnerRef | None = None
 
     @field_validator("icon_url")
     @classmethod
@@ -230,10 +242,13 @@ class AppDefinitionSpec(StrictConfigModel):
         if len(tool_names) != len(set(tool_names)):
             raise ValueError("App tool names must be unique")
         declared = {credential.name for credential in self.auth.credentials}
+        if isinstance(self.implementation, AppNativeImplementation):
+            return self
+        template = self.implementation.transport
         bindings = (
-            self.mcp.environment.values()
-            if isinstance(self.mcp, AppStdioMcpTemplate)
-            else self.mcp.headers.values()
+            template.environment.values()
+            if isinstance(template, AppStdioMcpTemplate)
+            else template.headers.values()
         )
         referenced = {
             binding.credential_slot
@@ -292,8 +307,10 @@ __all__ = [
     "AppDefinition",
     "AppDefinitionSpec",
     "AppLiteralValue",
+    "AppImplementation",
+    "AppMcpImplementation",
     "AppMcpTemplate",
-    "AppOwnerRef",
+    "AppNativeImplementation",
     "AppRemoteMcpTemplate",
     "AppStdioMcpTemplate",
     "AppTemplateValue",

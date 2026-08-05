@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+from datetime import UTC, datetime
 from typing import cast
 
 from openppx.actions import (
@@ -16,6 +18,7 @@ from openppx.extensions import (
     AppManager,
     ExtensionError,
     ExtensionRegistry,
+    ExtensionStarterCatalog,
     McpManager,
     PluginManager,
     SkillManager,
@@ -27,6 +30,7 @@ from .input_models import (
     AppConnectionIdentityInput,
     AppConnectionMutationInput,
     AppConnectionReauthorizeInput,
+    AppConnectionTestInput,
     AppDefinitionMutationInput,
     AppDefinitionRemoveInput,
     ExtensionEnablementInput,
@@ -35,7 +39,11 @@ from .input_models import (
     ExtensionListInput,
     ExtensionPreviewInput,
     ExtensionRemoveInput,
+    ExtensionStarterIdentityInput,
+    ExtensionStarterListInput,
     McpCreateInput,
+    McpOAuthInput,
+    McpTestInput,
     McpUpdateInput,
 )
 
@@ -48,6 +56,9 @@ def register_extension_actions(
     mcp: McpManager,
     apps: AppManager,
     plugins: PluginManager,
+    mcp_probe,
+    starters: ExtensionStarterCatalog,
+    mcp_oauth,
 ) -> None:
     """Register common inventory plus domain-owned lifecycle operations."""
     actions.register(
@@ -56,12 +67,32 @@ def register_extension_actions(
         slash_input=_extension_list_slash_input,
     )
     actions.register(
+        _domain_spec("mcp.oauth.begin", "Connect MCP OAuth", "Start an explicit browser authorization flow.", McpOAuthInput, "extension.auth", risk="medium"),
+        lambda _context, value: _call(lambda: _begin_mcp_oauth(mcp, mcp_oauth, cast(McpOAuthInput, value))),
+    )
+    actions.register(
+        _domain_spec("mcp.oauth.status", "Get MCP OAuth status", "Read non-sensitive MCP authorization status.", McpOAuthInput, "extension.read"),
+        lambda _context, value: _call(lambda: mcp_oauth.status(cast(McpOAuthInput, value).server_id)),
+    )
+    actions.register(
+        _domain_spec("mcp.oauth.signout", "Disconnect MCP OAuth", "Remove protected MCP OAuth credentials.", McpOAuthInput, "extension.auth", risk="high", confirmation="required"),
+        lambda _context, value: _call(lambda: mcp_oauth.sign_out(cast(McpOAuthInput, value).server_id)),
+    )
+    actions.register(
         _spec("extension.get", "Get Extension", "Read one installed Extension resource.", ExtensionIdentityInput, "extension.read"),
         lambda _context, value: _call(lambda: inventory.get(cast(ExtensionIdentityInput, value).kind, cast(ExtensionIdentityInput, value).extension_id).to_payload()),
     )
     actions.register(
         _spec("extension.readiness", "Check Extension readiness", "Check one Extension without exposing credentials.", ExtensionIdentityInput, "extension.read"),
         lambda _context, value: _call(lambda: inventory.readiness(cast(ExtensionIdentityInput, value).kind, cast(ExtensionIdentityInput, value).extension_id)),
+    )
+    actions.register(
+        _domain_spec("extension.starter.list", "List Extension starters", "Discover safe first-party Extension starters.", ExtensionStarterListInput, "extension.read"),
+        lambda _context, value: _call(lambda: _list_starters(starters, cast(ExtensionStarterListInput, value))),
+    )
+    actions.register(
+        _domain_spec("extension.starter.get", "Get Extension starter", "Read one safe first-party Extension starter.", ExtensionStarterIdentityInput, "extension.read"),
+        lambda _context, value: _call(lambda: starters.get(cast(ExtensionStarterIdentityInput, value).starter_id).to_payload()),
     )
     actions.register(
         _spec("extension.preview", "Preview Extension install", "Stage and validate a Skill or Plugin source.", ExtensionPreviewInput, "extension.write"),
@@ -93,6 +124,19 @@ def register_extension_actions(
         lambda _context, value: _call(lambda: _versioned(mcp.update(cast(McpUpdateInput, value).resource, expected_revision=cast(McpUpdateInput, value).expected_revision))),
     )
     actions.register(
+        _domain_spec(
+            "mcp.test",
+            "Test MCP Server",
+            "Connect to one MCP resource and discover its current tools.",
+            McpTestInput,
+            "extension.auth",
+            risk="medium",
+        ),
+        lambda _context, value: _call(
+            lambda: _test_mcp(mcp, mcp_probe, cast(McpTestInput, value))
+        ),
+    )
+    actions.register(
         _domain_spec("app.definition.install", "Install App definition", "Install one directly managed App definition.", AppDefinitionMutationInput, "extension.write"),
         lambda _context, value: _call(lambda: _versioned(apps.install_definition(cast(AppDefinitionMutationInput, value).resource, expected_revision=cast(AppDefinitionMutationInput, value).expected_revision))),
     )
@@ -111,6 +155,19 @@ def register_extension_actions(
     actions.register(
         _domain_spec("app.connection.update", "Update App connection", "Update one App connection policy.", AppConnectionMutationInput, "extension.write"),
         lambda _context, value: _call(lambda: _versioned(apps.update_connection(cast(AppConnectionMutationInput, value).resource, expected_revision=_required_revision(cast(AppConnectionMutationInput, value).expected_revision)))),
+    )
+    actions.register(
+        _domain_spec(
+            "app.connection.test",
+            "Test App connection",
+            "Connect through one App authorization instance and discover its current tools.",
+            AppConnectionTestInput,
+            "extension.auth",
+            risk="medium",
+        ),
+        lambda _context, value: _call(
+            lambda: _test_app_connection(apps, mcp_probe, cast(AppConnectionTestInput, value))
+        ),
     )
     actions.register(
         _domain_spec("app.connection.reauthorize", "Reauthorize App connection", "Replace protected credential references.", AppConnectionReauthorizeInput, "extension.auth", risk="high", confirmation="required"),
@@ -150,6 +207,27 @@ def _spec(action_id, title, description, input_model, permission, *, risk="low",
                 icon="blocks",
                 order=90,
             ),
+            SlashCommandSpec(
+                command="/plugins",
+                title="Show plugins",
+                description="List installed Plugin packages.",
+                icon="package",
+                order=91,
+            ),
+            SlashCommandSpec(
+                command="/apps",
+                title="Show apps",
+                description="List installed App definitions and connections.",
+                icon="app-window",
+                order=92,
+            ),
+            SlashCommandSpec(
+                command="/mcp",
+                title="Show MCP servers",
+                description="List directly managed MCP servers.",
+                icon="plug",
+                order=93,
+            ),
         )
     return ActionSpec(
         action_id=action_id,
@@ -174,6 +252,12 @@ def _extension_list_slash_input(
 ) -> dict[str, object]:
     if command.command == "/skills":
         return {"kind": "skill", "agentId": context.agent_id}
+    if command.command == "/plugins":
+        return {"kind": "plugin", "agentId": context.agent_id}
+    if command.command == "/apps":
+        return {"kind": "app", "agentId": context.agent_id}
+    if command.command == "/mcp":
+        return {"kind": "mcp", "agentId": context.agent_id}
     return {"kind": None, "agentId": None}
 
 
@@ -202,6 +286,34 @@ def _call(operation):
 
 def _list(inventory: ExtensionRegistry, value: ExtensionListInput) -> dict[str, object]:
     return {"items": [item.to_payload() for item in inventory.list(kind=value.kind, agent_id=value.agent_id)]}
+
+
+def _list_starters(
+    starters: ExtensionStarterCatalog,
+    value: ExtensionStarterListInput,
+) -> dict[str, object]:
+    """Return safe catalog entries plus deterministic aggregate counts."""
+    items = starters.list(kind=value.kind, query=value.query)
+    return {
+        "items": [item.to_payload() for item in items],
+        "counts": {
+            kind: len(starters.list(kind=kind, query=value.query))
+            for kind in ("plugin", "app", "mcp", "skill")
+        },
+    }
+
+
+def _begin_mcp_oauth(mcp: McpManager, oauth, value: McpOAuthInput) -> dict[str, object]:
+    """Validate the persisted resource before starting its explicit OAuth flow."""
+    from openppx.extensions.mcp_models import McpRemoteTransport
+
+    record = mcp.get(value.server_id).record
+    transport = record.spec.transport
+    if not isinstance(transport, McpRemoteTransport) or transport.auth != "oauth":
+        raise ExtensionError("invalid_operation", "This MCP server does not use OAuth.")
+    if not value.callback_base:
+        raise ExtensionError("invalid_oauth_callback", "An OAuth callback origin is required.")
+    return oauth.begin(value.server_id, transport.url, value.callback_base)
 
 
 def _preview(skills: SkillManager, plugins: PluginManager, value: ExtensionPreviewInput) -> dict[str, object]:
@@ -276,6 +388,144 @@ def _remove_connection(apps: AppManager, value: AppConnectionIdentityInput) -> d
     return {"id": value.connection_id, "kind": "AppConnection", "removed": True}
 
 
+def _test_mcp(mcp: McpManager, probe, value: McpTestInput) -> dict[str, object]:
+    """Run one live MCP probe after the inexpensive dependency check passes."""
+    current = mcp.get(value.server_id)
+    readiness = mcp.readiness(value.server_id)
+    if not readiness.ready:
+        return _blocked_probe(
+            kind="mcp",
+            resource_id=value.server_id,
+            revision=current.revision,
+            issues=readiness.issues,
+        )
+    return _live_probe(
+        probe,
+        mcp.snapshot_for_probe(value.server_id),
+        kind="mcp",
+        resource_id=value.server_id,
+        revision=current.revision,
+    )
+
+
+def _test_app_connection(
+    apps: AppManager,
+    probe,
+    value: AppConnectionTestInput,
+) -> dict[str, object]:
+    """Probe one App execution adapter without changing Agent access."""
+    current = apps.get_connection(value.connection_id)
+    readiness = apps.readiness(value.connection_id)
+    if not readiness.ready:
+        return _blocked_probe(
+            kind="app_connection",
+            resource_id=value.connection_id,
+            revision=current.revision,
+            issues=readiness.issues,
+        )
+    if apps.execution_kind(value.connection_id) == "native":
+        tools = apps.native_tools_for_probe(value.connection_id)
+        names = sorted(
+            {
+                str(getattr(tool, "name", None) or getattr(tool, "__name__", type(tool).__name__))
+                for tool in tools
+            }
+        )
+        return {
+            "kind": "app_connection",
+            "id": value.connection_id,
+            "revision": current.revision,
+            "checkedAt": _checked_at(),
+            "ready": bool(names),
+            "status": "ok" if names else "error",
+            "transport": "native",
+            "elapsedMs": 0,
+            "attempts": 1,
+            "toolCount": len(names),
+            "toolNames": names,
+            "issues": [] if names else ["tool_projection_empty"],
+            "errorKind": None if names else "configuration",
+            "message": "",
+        }
+    return _live_probe(
+        probe,
+        apps.mcp_snapshot_for_probe(value.connection_id),
+        kind="app_connection",
+        resource_id=value.connection_id,
+        revision=current.revision,
+    )
+
+
+def _live_probe(
+    probe,
+    snapshot,
+    *,
+    kind: str,
+    resource_id: str,
+    revision: str,
+) -> dict[str, object]:
+    """Normalize the shared ADK MCP probe into a client-safe Action result."""
+    report = asyncio.run(probe.probe(snapshot))
+    diagnostics = [item.code for item in report.diagnostics]
+    result = report.results[0] if report.results else {}
+    status = str(result.get("status", "blocked" if diagnostics else "error"))
+    error_kind = str(result.get("error_kind", ""))
+    issues = sorted(
+        set(
+            [*diagnostics]
+            + ([f"connection_{error_kind}"] if error_kind else [])
+            + (["connection_failed"] if status not in {"ok", "blocked"} and not error_kind else [])
+        )
+    )
+    return {
+        "kind": kind,
+        "id": resource_id,
+        "revision": revision,
+        "checkedAt": _checked_at(),
+        "ready": status == "ok" and not diagnostics,
+        "status": status,
+        "transport": str(result.get("transport", "unknown")),
+        "elapsedMs": int(result.get("elapsed_ms", 0)),
+        "attempts": int(result.get("attempts", 0)),
+        "toolCount": int(result.get("tool_count", 0)),
+        "toolNames": [str(item) for item in result.get("tool_names", [])],
+        "issues": issues,
+        "errorKind": error_kind or None,
+        "message": str(result.get("error", "")),
+    }
+
+
+def _blocked_probe(
+    *,
+    kind: str,
+    resource_id: str,
+    revision: str,
+    issues,
+) -> dict[str, object]:
+    """Return a stable non-exception result when local dependencies block a probe."""
+    return {
+        "kind": kind,
+        "id": resource_id,
+        "revision": revision,
+        "checkedAt": _checked_at(),
+        "ready": False,
+        "status": "blocked",
+        "transport": "unknown",
+        "elapsedMs": 0,
+        "attempts": 0,
+        "toolCount": 0,
+        "toolNames": [],
+        "issues": list(issues),
+        "errorKind": None,
+        "message": "",
+    }
+
+
+def _checked_at() -> str:
+    """Return an RFC 3339 UTC timestamp for a live probe observation."""
+    return datetime.now(UTC).isoformat().replace("+00:00", "Z")
+
+
 def _required_revision(value: str | None) -> str:
     if value is None:
         raise ActionFailure(ActionError("invalid_action_input", "An existing resource requires expectedRevision."))
@@ -292,7 +542,6 @@ def _json_value(value) -> dict[str, object]:
                 "skill_id": "skillId",
                 "display_name": "displayName",
                 "source_type": "sourceType",
-                "runtime_capabilities": "runtimeCapabilities",
                 "resource_counts": "resourceCounts",
             }.get(name, name)
             if hasattr(item, "model_dump"):

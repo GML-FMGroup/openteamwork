@@ -19,11 +19,13 @@ from .assembly import RuntimeAssembler
 from .client_api_auth import resolve_client_api_access_token, validate_client_api_bind
 from .client_api_service import ClientApiCoordinator, ClientApiHttpServer
 from .node_runtime import NodeRuntimeSupervisor
+from .mcp_adapter import McpRuntimeAdapter
 from .cron_service import CronService
 from .heartbeat_runner import HeartbeatRunner
 from .paths import configure_node_root
 from .task_store import TaskEventStore
 from .task_scheduler import TaskWakeScheduler
+from .session_metadata_store import SessionMetadataStore
 
 
 ServerFactory = Callable[..., Any]
@@ -38,6 +40,7 @@ class NodeComposition:
     assembler: RuntimeAssembler
     operations_service: OperationsService
     operations_runtime: NodeOperationsRuntime
+    session_metadata: SessionMetadataStore
 
 
 def build_node_composition(
@@ -58,7 +61,6 @@ def build_node_composition(
     plugin_manager = PluginManager(
         root,
         secrets,
-        allowed_runtime_capabilities=frozenset({"runtime.task-observability"}),
         identity_index=identity_index,
         reference_index=reference_index,
         prefix_index=prefix_index,
@@ -74,13 +76,6 @@ def build_node_composition(
         secrets,
         prefix_index=prefix_index,
         identity_index=identity_index,
-        reference_index=reference_index,
-        owner_enabled=plugin_manager.is_enabled,
-    )
-    app_manager.register_definition_provider("plugins", plugin_manager.app_definitions)
-    plugin_manager.register_app_definition_validator(
-        "app-connections",
-        app_manager.validate_managed_definitions,
     )
     skill_manager = SkillManager(
         root,
@@ -93,12 +88,14 @@ def build_node_composition(
         apps=app_manager,
         plugins=plugin_manager,
     )
+    mcp_adapter = McpRuntimeAdapter(secrets)
     control_plane.attach_extensions(
         extension_registry,
         skills=skill_manager,
         mcp=mcp_manager,
         apps=app_manager,
         plugins=plugin_manager,
+        mcp_probe=mcp_adapter,
     )
     assembler = RuntimeAssembler(
         node_root=root,
@@ -107,11 +104,13 @@ def build_node_composition(
         mcp_manager=mcp_manager,
         app_manager=app_manager,
         plugin_manager=plugin_manager,
+        mcp_adapter=mcp_adapter,
     )
     runtime_supervisor = NodeRuntimeSupervisor(
         config_service=control_plane.config_service,
         assembler=assembler,
     )
+    session_metadata = control_plane.session_metadata
     control_plane.attach_runtime(runtime_supervisor)
     try:
         operations_config = control_plane.config_repository.read_node().document.spec.operations
@@ -168,6 +167,7 @@ def build_node_composition(
         assembler=assembler,
         operations_service=operations_service,
         operations_runtime=operations_runtime,
+        session_metadata=session_metadata,
     )
 
 
@@ -291,6 +291,7 @@ class OpenPpxNodeHost:
             data_dir=root,
             control_plane=control_plane,
             runtime_supervisor=runtime_supervisor,
+            session_metadata=composition.session_metadata,
         )
         server = server_factory(
             (resolved_host, resolved_port),

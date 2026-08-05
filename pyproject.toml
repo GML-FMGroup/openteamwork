@@ -37,5 +37,6 @@ packages = ["openppx"]
 include = [
     "docker/**",
     "openppx/**/*.py",
+    "openppx/extensions/data/**",
     "openppx/skills/**",
 ]

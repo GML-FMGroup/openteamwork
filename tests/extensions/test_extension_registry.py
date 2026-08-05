@@ -28,9 +28,7 @@ def _registry(tmp_path: Path) -> tuple[ExtensionRegistry, SkillManager, McpManag
     plugins = PluginManager(
         node,
         secrets,
-        allowed_runtime_capabilities=frozenset({"runtime.task-observability"}),
     )
-    apps.register_definition_provider("plugins", plugins.app_definitions)
     return ExtensionRegistry(skills=skills, mcp=mcp, apps=apps, plugins=plugins), skills, mcp, apps, plugins
 
 
@@ -52,7 +50,7 @@ def test_registry_lists_four_domains_without_leaking_source_paths_or_secret_refs
 
     payload = [item.to_payload() for item in registry.list()]
 
-    assert [item["kind"] for item in payload] == ["plugin", "app", "app", "mcp", "skill"]
+    assert [item["kind"] for item in payload] == ["plugin", "app", "mcp", "skill"]
     assert str(tmp_path) not in str(payload)
     assert "secretRef" not in str(payload)
     assert registry.get("app", "fixture-app").details["connections"][0]["id"] == "fixture-account"
@@ -84,3 +82,31 @@ def test_registry_filters_agent_enablement_and_projects_readiness(tmp_path: Path
     ]
     assert registry.readiness("skill", "demo")["ready"] is True
     assert registry.readiness("mcp", "docs")["status"] == "enabled"
+
+
+def test_registry_projects_safe_editor_details_for_mcp_and_app_connections(tmp_path: Path) -> None:
+    registry, _skills, mcp, apps, _plugins = _registry(tmp_path)
+    mcp.create(_server(), expected_revision=None)
+    apps.install_definition(_definition(), expected_revision=None)
+    apps.create_connection(
+        _connection(
+            credential_refs={
+                "api-token": {"store": "system", "name": "fixture-token"}
+            }
+        ),
+        expected_revision=None,
+    )
+
+    mcp_detail = registry.get("mcp", "docs").details
+    app_detail = registry.get("app", "fixture-app").details
+
+    assert mcp_detail["resource"]["metadata"]["name"] == "docs"
+    assert mcp_detail["resource"]["spec"]["transport"]["type"] == "stdio"
+    assert app_detail["credentials"] == [
+        {"name": "api-token", "label": "API token", "required": True}
+    ]
+    assert app_detail["tools"][0]["name"] == "echo_context"
+    assert app_detail["connections"][0]["credentialRefs"] == {
+        "api-token": {"store": "system", "name": "fixture-token"}
+    }
+    assert "SecretValue" not in str(app_detail)

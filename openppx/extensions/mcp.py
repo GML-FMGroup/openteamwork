@@ -27,6 +27,7 @@ from openppx.config.atomic import atomic_write_resource
 from .errors import ExtensionError
 from .indexes import ResourceIdentityIndex, ResourceIdentityReservation
 from .mcp_models import McpRemoteTransport, McpSecretValue, McpServer, McpStdioTransport
+from .mcp_oauth import oauth_secret_ref, oauth_tokens_available
 from .prefixes import ToolPrefixIndex, ToolPrefixReservation
 
 
@@ -259,11 +260,22 @@ class McpManager:
         )
         return _snapshot_from_entries(entries)
 
+    def snapshot_for_probe(self, server_id: str) -> McpSnapshot:
+        """Capture one configured MCP resource without changing Agent enablement."""
+        item = self.get(server_id)
+        return _snapshot_from_entries(
+            (McpSnapshotEntry(item.record.model_copy(deep=True), item.revision),)
+        )
+
     def _readiness_for(self, record: McpServer) -> McpReadiness:
         auth_state: Literal["ready", "missing", "backend_unavailable"] = "ready"
         issues: list[str] = []
         transport = record.spec.transport
-        bindings = transport.environment.values() if isinstance(transport, McpStdioTransport) else transport.headers.values()
+        bindings = (
+            transport.environment.values()
+            if isinstance(transport, McpStdioTransport)
+            else (*transport.headers.values(), *transport.query.values())
+        )
         for binding in bindings:
             if not isinstance(binding, McpSecretValue):
                 continue
@@ -274,6 +286,17 @@ class McpManager:
             elif state == "missing" and auth_state != "backend_unavailable":
                 auth_state = "missing"
                 issues.append("secret_missing")
+        if isinstance(transport, McpRemoteTransport) and transport.auth == "oauth":
+            oauth_state = self.secret_store.status(oauth_secret_ref(record.metadata.name)).state
+            if oauth_state == "backend_unavailable":
+                auth_state = "backend_unavailable"
+                issues.append("oauth_backend_unavailable")
+            elif (
+                oauth_state == "missing"
+                or (oauth_state == "available" and not oauth_tokens_available(record.metadata.name, self.secret_store))
+            ) and auth_state != "backend_unavailable":
+                auth_state = "missing"
+                issues.append("oauth_authorization_missing")
         executable_state: Literal["ready", "missing", "not_required"] = "not_required"
         if isinstance(transport, McpStdioTransport):
             executable_state = "ready" if self.executable_resolver(transport.command) is not None else "missing"

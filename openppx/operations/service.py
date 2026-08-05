@@ -6,7 +6,7 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Literal
 
-from openppx.config import ConfigError, FilesystemConfigRepository
+from openppx.config import ConfigError, FilesystemConfigRepository, NodeHeartbeatSpec
 from openppx.extensions import ExtensionRegistry
 from openppx.governance import ActionAuditStore, AuditQuery
 from openppx.runtime.cron_service import CronSchedule, CronService
@@ -105,7 +105,44 @@ class OperationsService:
 
     def list_tasks(self, *, session_id: str | None, limit: int) -> dict[str, object]:
         """Return durable Task projections from the mature TaskController."""
-        return {"items": self.task_controller.list_tasks(session_id=session_id, limit=limit)["items"]}
+        return _camelize(self.task_controller.task_control_snapshot(session_id=session_id, limit=limit))
+
+    def task_detail(self, task_id: str) -> dict[str, object]:
+        """Return one Task with controls, events, checkpoints, and deliveries."""
+        result = self.task_controller.task_control_snapshot(task_id=task_id)
+        if not result.get("ok"):
+            raise LookupError("task_not_found")
+        return _camelize(result)
+
+    def task_output(self, task_id: str) -> dict[str, object]:
+        """Return retained output through the runner-supported read-only action."""
+        result = self.task_controller.dispatch_task_action(task_id, "inspect_output")
+        if not result.get("ok"):
+            if "not found" in str(result.get("error", "")):
+                raise LookupError("task_not_found")
+            raise ValueError("task_action_unavailable")
+        return _camelize(result)
+
+    def control_task(
+        self,
+        task_id: str,
+        *,
+        action: str,
+        content: str,
+        inline_budget_ms: int | None,
+    ) -> dict[str, object]:
+        """Dispatch a validated write operation through the Task runner contract."""
+        result = self.task_controller.dispatch_task_action(
+            task_id,
+            action,
+            content=content,
+            inline_budget_ms=inline_budget_ms,
+        )
+        if not result.get("ok"):
+            if "not found" in str(result.get("error", "")):
+                raise LookupError("task_not_found")
+            raise ValueError("task_action_unavailable")
+        return _camelize(result)
 
     def list_cron(self, *, include_disabled: bool, history_limit: int) -> dict[str, object]:
         """Return Cron jobs, recent history, and Node-owned runtime status."""
@@ -144,6 +181,32 @@ class OperationsService:
             raise LookupError("cron_job_not_found")
         return {"job": _cron_job_payload(job)}
 
+    def update_cron(
+        self,
+        job_id: str,
+        *,
+        name: str,
+        agent_id: str,
+        user_id: str,
+        message: str,
+        schedule: CronSchedule,
+        delete_after_run: bool,
+    ) -> dict[str, object]:
+        """Replace mutable fields for one Agent-scoped Cron job."""
+        self._require_enabled_agent(agent_id)
+        job = self.cron.update_job(
+            job_id,
+            name=name,
+            schedule=schedule,
+            message=message,
+            agent_id=agent_id,
+            user_id=user_id,
+            delete_after_run=delete_after_run,
+        )
+        if job is None:
+            raise LookupError("cron_job_not_found")
+        return {"job": _cron_job_payload(job)}
+
     def remove_cron(self, job_id: str) -> dict[str, object]:
         """Remove one existing Cron job."""
         if not self.cron.remove_job(job_id):
@@ -164,7 +227,38 @@ class OperationsService:
 
     def heartbeat_status(self) -> dict[str, object]:
         """Return current Node-owned heartbeat state."""
-        return _camelize(self.heartbeat.status())
+        result = _camelize(self.heartbeat.status())
+        configured = self.repository.read_node().document.spec.operations.heartbeat
+        result["configuration"] = configured.model_dump(by_alias=True, mode="json")
+        return result
+
+    def configure_heartbeat(
+        self,
+        *,
+        enabled: bool,
+        every_seconds: int,
+        prompt: str,
+        active_hours: dict[str, str | None],
+    ) -> dict[str, object]:
+        """Persist one complete heartbeat policy for the next Node restart."""
+        current = self.repository.read_node()
+        heartbeat = NodeHeartbeatSpec.model_validate(
+            {
+                "enabled": enabled,
+                "everySeconds": every_seconds,
+                "prompt": prompt,
+                "activeHours": active_hours,
+            }
+        )
+        operations = current.document.spec.operations.model_copy(update={"heartbeat": heartbeat})
+        spec = current.document.spec.model_copy(update={"operations": operations})
+        candidate = current.document.model_copy(update={"spec": spec})
+        resource = self.repository.write_node(candidate, expected_revision=current.revision)
+        return {
+            "revision": resource.revision,
+            "configuration": heartbeat.model_dump(by_alias=True, mode="json"),
+            "effect": "restart_required",
+        }
 
     def run_heartbeat(self, *, reason: str) -> dict[str, object]:
         """Execute one immediate heartbeat on the Node operations event loop."""

@@ -33,6 +33,26 @@ class AgentCreateResult:
     workspace: Path
 
 
+@dataclass(frozen=True, slots=True)
+class AgentMutationResult:
+    """Updated Agent resource and the Node revision controlling enablement."""
+
+    agent: VersionedResource[AgentConfig]
+    enabled: bool
+    node_revision: str
+    effect: str = "next_run"
+
+
+@dataclass(frozen=True, slots=True)
+class AgentDeleteResult:
+    """Recoverable Agent removal result that never deletes its workspace."""
+
+    agent_id: str
+    workspace: Path
+    archive_path: Path
+    node_revision: str
+
+
 class AgentLifecycleService:
     """Create Agents through inactive-resource staging and Node publication."""
 
@@ -55,6 +75,7 @@ class AgentLifecycleService:
         privilege_level: str,
         model_profile_id: str,
         workspace: str | None = None,
+        instruction: str = "",
     ) -> AgentCreateResult:
         """Create and publish one Agent without exposing partial state as runnable."""
         node = self._read_node()
@@ -70,6 +91,7 @@ class AgentLifecycleService:
                 "spec": {
                     "displayName": display_name,
                     "workspace": str(resolved_workspace),
+                    "instruction": instruction,
                     "ownerPrincipalId": owner_principal_id,
                     "privilegeLevel": privilege_level,
                     "permissionOverrides": {},
@@ -99,6 +121,105 @@ class AgentLifecycleService:
             agent=agent,
             node_revision=published.resource.revision,
             workspace=resolved_workspace,
+        )
+
+    def list(self) -> tuple[AgentMutationResult, ...]:
+        """List every configured Agent, including resources disabled on this Node."""
+        node = self._read_node()
+        enabled = frozenset(node.document.spec.enabled_agents)
+        return tuple(
+            AgentMutationResult(
+                agent=resource,
+                enabled=agent_id in enabled,
+                node_revision=node.revision,
+                effect="none",
+            )
+            for agent_id in self.repository.list_agent_ids()
+            for resource in (self.repository.read_agent(agent_id),)
+        )
+
+    def update(
+        self,
+        *,
+        agent_id: str,
+        display_name: str,
+        workspace: str,
+        privilege_level: str,
+        model_profile_id: str,
+        instruction: str,
+        expected_revision: str,
+    ) -> AgentMutationResult:
+        """Update editable Agent policy while preserving identity and ownership."""
+        current = self.repository.read_agent(agent_id)
+        self._require_profile(model_profile_id)
+        resolved_workspace = self._resolve_workspace(agent_id, workspace)
+        self._ensure_workspace(resolved_workspace)
+        candidate = current.document.model_copy(
+            update={
+                "spec": current.document.spec.model_copy(
+                    update={
+                        "display_name": display_name,
+                        "workspace": str(resolved_workspace),
+                        "instruction": instruction,
+                        "privilege_level": privilege_level,
+                        "model_policy": current.document.spec.model_policy.model_copy(
+                            update={"default_profile": model_profile_id}
+                        ),
+                    }
+                )
+            }
+        )
+        updated = self.config_service.apply_agent(
+            agent_id,
+            candidate,
+            expected_revision=expected_revision,
+        ).resource
+        node = self._read_node()
+        return AgentMutationResult(
+            agent=updated,
+            enabled=agent_id in node.document.spec.enabled_agents,
+            node_revision=node.revision,
+        )
+
+    def set_enabled(self, *, agent_id: str, enabled: bool) -> AgentMutationResult:
+        """Publish or withdraw one configured Agent without deleting its data."""
+        agent = self.repository.read_agent(agent_id)
+        node = self._read_node()
+        current = list(node.document.spec.enabled_agents)
+        is_enabled = agent_id in current
+        if enabled == is_enabled:
+            return AgentMutationResult(
+                agent=agent,
+                enabled=enabled,
+                node_revision=node.revision,
+                effect="none",
+            )
+        next_enabled = [*current, agent_id] if enabled else [item for item in current if item != agent_id]
+        candidate = node.document.model_copy(
+            update={"spec": node.document.spec.model_copy(update={"enabled_agents": next_enabled})}
+        )
+        applied = self.config_service.apply_node(candidate, expected_revision=node.revision)
+        return AgentMutationResult(
+            agent=agent,
+            enabled=enabled,
+            node_revision=applied.resource.revision,
+        )
+
+    def delete(self, *, agent_id: str, expected_revision: str) -> AgentDeleteResult:
+        """Archive one disabled Agent config while retaining workspace and runtime data."""
+        agent = self.repository.read_agent(agent_id)
+        node = self._read_node()
+        if agent_id in node.document.spec.enabled_agents:
+            raise AgentLifecycleError(
+                "agent_must_be_disabled",
+                "Disable the Agent before removing its configuration.",
+            )
+        archive_path = self.repository.archive_agent(agent_id, expected_revision=expected_revision)
+        return AgentDeleteResult(
+            agent_id=agent_id,
+            workspace=Path(agent.document.spec.workspace),
+            archive_path=archive_path,
+            node_revision=node.revision,
         )
 
     def _read_node(self):

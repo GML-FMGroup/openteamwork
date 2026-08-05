@@ -135,6 +135,7 @@ class ExtensionRegistry:
                     "authState": readiness.auth_state,
                     "executableState": readiness.executable_state,
                     "endpointKind": "local" if isinstance(transport, McpStdioTransport) else "remote",
+                    "resource": item.record.model_dump(mode="json", by_alias=True),
                 },
             )
         if selected == "plugin":
@@ -146,14 +147,11 @@ class ExtensionRegistry:
                 {
                     "developer": item.record.spec.developer,
                     "digest": item.record.spec.digest,
-                    "runtimeCapabilities": list(item.record.spec.runtime_capabilities),
                     "resourceCounts": {
                         "skills": len(resources.skills),
-                        "apps": len(resources.app_definitions),
+                        "apps": len(resources.apps),
                         "mcpServers": len(resources.mcp_servers),
-                        "agentTemplates": len(resources.agent_templates),
-                        "configSchemas": len(resources.config_schemas),
-                        "documentation": len(resources.documentation),
+                        "hooks": len(resources.hook_paths) + resources.inline_hook_count,
                     },
                     "readinessIssues": list(readiness.issues),
                 },
@@ -168,6 +166,14 @@ class ExtensionRegistry:
                 "developer": definition.record.spec.developer,
                 "authType": definition.record.spec.auth.type,
                 "toolCount": len(definition.record.spec.tools),
+                "credentials": [
+                    credential.model_dump(mode="json", by_alias=True)
+                    for credential in definition.record.spec.auth.credentials
+                ],
+                "tools": [
+                    tool.model_dump(mode="json", by_alias=True)
+                    for tool in definition.record.spec.tools
+                ],
                 "connections": [self._connection_payload(item) for item in connections],
             },
         )
@@ -276,7 +282,6 @@ class ExtensionRegistry:
         issues = tuple(sorted({issue for item in readiness for issue in item.issues}))
         if not connections and definition.spec.auth.type != "none":
             issues = ("connection_required",)
-        owner = definition.spec.managed_by
         status = "enabled" if enabled else "connected" if connections else "installed"
         revision = _combined_revision(
             definition_revision,
@@ -296,19 +301,24 @@ class ExtensionRegistry:
             enabled_agent_ids=enabled,
             ready=ready,
             issues=issues,
-            managed_by=None if owner is None else f"plugin:{owner.name}",
+            managed_by=None,
         )
 
     def _connection_payload(self, connection: VersionedAppConnection) -> dict[str, Any]:
         readiness = self.apps.readiness(connection.record.metadata.name)
         return {
             "id": connection.record.metadata.name,
+            "appId": connection.record.spec.app_id,
             "displayName": connection.record.spec.display_name,
             "status": connection.status,
             "revision": connection.revision,
             "authState": readiness.auth_state,
             "ready": readiness.ready,
             "issues": list(readiness.issues),
+            "credentialRefs": {
+                name: reference.model_dump(mode="json", by_alias=True)
+                for name, reference in connection.record.spec.credential_refs.items()
+            },
             "enabledAgentIds": list(connection.record.spec.enabled_agent_ids),
             "enabledTools": connection.record.spec.enabled_tools,
             "requiresConfirmation": connection.record.spec.require_confirmation,

@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import datetime as dt
 import asyncio
+import base64
+import binascii
 import json
 import os
 import queue
@@ -14,6 +16,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 
+from google.genai import types
 from pydantic import ValidationError
 
 from ..actions import ActionContext, ActionError, ActionOutcome
@@ -21,6 +24,7 @@ from ..client_api.contracts import ActionInvokeRequest, ContractMapper
 from ..config import ConfigError
 from ..control_plane import CONTROL_PLANE_CAPABILITIES, ControlPlaneApplication, build_control_plane
 from ..core.logging_utils import debug_logging_enabled, emit_debug
+from ..extensions.mcp_oauth import CALLBACK_PATH
 from .access_policy import AccessPolicy
 from .agent_access_runtime import ensure_access_principal
 from .agent_access_store import AgentAccessStore, AgentMembership, AgentRecord
@@ -39,6 +43,31 @@ from .memory_query_service import MemoryQueryService
 from .memory_shared import memory_entry_text
 from .paths import default_node_root
 from .sqlite_memory_service import SQLiteMemoryService
+from .session_metadata_store import SessionMetadataStore
+
+
+_MAX_ARTIFACT_BYTES = 20 * 1024 * 1024
+_MAX_JSON_BODY_BYTES = 30 * 1024 * 1024
+
+
+def _safe_artifact_name(value: object) -> str:
+    """Validate one user-visible artifact filename without accepting a path."""
+    name = str(value or "").strip()
+    if not name or len(name) > 255 or name in {".", ".."}:
+        raise ValueError("Artifact filename must contain between 1 and 255 characters.")
+    if "/" in name or "\\" in name or any(ord(character) < 32 for character in name):
+        raise ValueError("Artifact filename must not contain a path or control characters.")
+    return name
+
+
+def _safe_artifact_mime_type(value: object) -> str:
+    """Validate a bounded media type used by an uploaded artifact."""
+    mime_type = str(value or "application/octet-stream").strip().lower()
+    if not mime_type or len(mime_type) > 127 or "/" not in mime_type:
+        raise ValueError("Artifact mime type is invalid.")
+    if any(character.isspace() or ord(character) < 32 for character in mime_type):
+        raise ValueError("Artifact mime type is invalid.")
+    return mime_type
 
 
 def _iso_now() -> str:
@@ -312,6 +341,31 @@ def project_session_event(event: dict[str, Any], session_id: str) -> dict[str, A
             normalized_text = _strip_request_time_prefix(text)
             if normalized_text.strip():
                 parts.append({"type": "markdown", "text": normalized_text})
+        inline_data = raw_part.get("inline_data")
+        if isinstance(inline_data, dict):
+            encoded_data = str(inline_data.get("data") or "")
+            mime_type = str(inline_data.get("mime_type") or "application/octet-stream")
+            display_name = str(inline_data.get("display_name") or "Attachment")
+            size_bytes = (len(encoded_data.rstrip("=")) * 3) // 4 if encoded_data else 0
+            if mime_type.startswith("image/") and encoded_data:
+                parts.append(
+                    {
+                        "type": "image",
+                        "text": display_name,
+                        "url": f"data:{mime_type};base64,{encoded_data}",
+                        "mime_type": mime_type,
+                    }
+                )
+            else:
+                parts.append(
+                    {
+                        "type": "file",
+                        "text": "Attached file",
+                        "file_name": display_name,
+                        "size_bytes": size_bytes,
+                        "mime_type": mime_type,
+                    }
+                )
         function_call = raw_part.get("function_call")
         if isinstance(function_call, dict):
             parts.append(
@@ -458,6 +512,7 @@ class ClientApiCoordinator:
         memory_query_service: MemoryQueryService | None = None,
         control_plane: ControlPlaneApplication | None = None,
         runtime_supervisor: Any | None = None,
+        session_metadata: SessionMetadataStore | None = None,
     ) -> None:
         self.data_dir = data_dir or default_node_root()
         default_identity_db_path = self.data_dir / "database" / "identity.db"
@@ -485,10 +540,16 @@ class ClientApiCoordinator:
         self._messages_cache: dict[tuple[str, str], _TimedCacheEntry] = {}
         self._control_plane = control_plane or build_control_plane(self.data_dir)
         self._runtime_supervisor = runtime_supervisor
+        self._session_metadata = session_metadata or SessionMetadataStore(
+            self.data_dir / "database" / "sessions.db"
+        )
         if runtime_supervisor is not None:
             attached = self._control_plane.runtime_supervisor
             if attached is None:
-                self._control_plane.attach_runtime(runtime_supervisor)
+                self._control_plane.attach_runtime(
+                    runtime_supervisor,
+                    session_metadata=self._session_metadata,
+                )
             elif attached is not runtime_supervisor:
                 raise ValueError("Control Plane and Client API must share one Runtime Supervisor.")
 
@@ -545,6 +606,19 @@ class ClientApiCoordinator:
             self._control_context(request_id=request_id),
         )
 
+    def deliver_mcp_oauth_callback(
+        self,
+        *,
+        code: str,
+        state: str | None,
+        error: str = "",
+    ) -> bool:
+        """Deliver one public, state-gated OAuth callback to the Node-owned MCP flow."""
+        service = self._control_plane.mcp_oauth_service
+        if service is None:
+            return False
+        return service.deliver_callback(code, state, error=error)
+
     def action_catalog(
         self,
         *,
@@ -589,6 +663,19 @@ class ClientApiCoordinator:
             confirmed=confirmed,
         )
         outcome = self._control_plane.invoke(action_id, raw_input, context)
+        if outcome.ok and action_id in {
+            "session.rename",
+            "session.archive",
+            "session.fork",
+            "session.delete",
+        }:
+            agent_id = str(raw_input.get("agentId") or "")
+            user_id = str(raw_input.get("userId") or "")
+            if agent_id:
+                self._invalidate_agent_cache(agent_id, user_id=user_id or "ppx-client-user")
+            session_id = str(raw_input.get("sessionId") or "")
+            if session_id:
+                self._invalidate_session_cache(session_id, user_id=user_id or "ppx-client-user")
         envelope = ContractMapper().from_outcome(
             outcome,
             request_id=request_id,
@@ -799,6 +886,7 @@ class ClientApiCoordinator:
                     "last_update_time": detail.last_update_time if detail else session.last_update_time,
                     "title": _session_title_from_events(events),
                     "last_preview": _event_preview_text(events[-1]) if events else "",
+                    "metadata": self._session_metadata.get(str(session.id)),
                 }
             )
         return items
@@ -980,11 +1068,7 @@ class ClientApiCoordinator:
         if cached is not None:
             _debug(
                 "client_api.list_sessions.cache_hit",
-                {
-                    "agent_id": agent_id,
-                    "user_id": requester.principal_id,
-                    "count": len(cached),
-                },
+                {"agent_id": agent_id, "user_id": requester.principal_id, "count": len(cached)},
             )
             return _ok({"items": cached})
         visible = self._collect_visible_sessions(
@@ -1011,10 +1095,14 @@ class ClientApiCoordinator:
                     "id": session_id,
                     "agent_id": agent_id,
                     "subject_principal_id": subject_principal_id,
-                    "title": str(session.get("title") or "").strip() or f"Session {session_id[:8]}",
+                    "title": (
+                        session["metadata"].title
+                        if session.get("metadata") is not None and session["metadata"].title
+                        else str(session.get("title") or "").strip() or f"Session {session_id[:8]}"
+                    ),
                     "updated_at": updated_at,
                     "last_message_preview": str(session.get("last_preview") or ""),
-                    "archived": False,
+                    "archived": bool(session["metadata"].archived) if session.get("metadata") is not None else False,
                 }
             )
         items.sort(key=lambda item: item["updated_at"], reverse=True)
@@ -1604,10 +1692,253 @@ class ClientApiCoordinator:
             }
         )
 
-    def create_run(self, agent_id: str, session_id: str, text: str, *, user_id: str = "ppx-client-user") -> dict[str, Any]:
+    def _artifact_scope(
+        self,
+        agent_id: str,
+        session_id: str,
+        *,
+        user_id: str,
+    ) -> tuple[Any, ResolvedPrincipal] | dict[str, Any]:
+        """Resolve an authorized ADK artifact service for one Session."""
+        requester = self._ensure_requester_principal(user_id)
+        if self._ensure_agent_access_state(agent_id) is None:
+            return _error("AGENT_NOT_FOUND", f"Agent '{agent_id}' was not found.")
+        if self._runtime_supervisor is None:
+            return _error("RUNTIME_UNAVAILABLE", "The Node Runtime Supervisor is not attached.")
+        location = self._find_session_owner(
+            session_id=session_id,
+            requester_principal_id=requester.principal_id,
+        )
+        if isinstance(location, dict):
+            return location
+        located_agent_id, subject_principal_id = location
+        if located_agent_id != agent_id or subject_principal_id != requester.principal_id:
+            return _error("ACCESS_DENIED", "Artifact access requires the owning Session principal.")
+        runtime = self._runtime_supervisor.runtime_for(agent_id)
+        if runtime.artifact_service is None:
+            return _error("ARTIFACTS_UNAVAILABLE", "Artifact storage is not enabled for this Node.")
+        return runtime, requester
+
+    def upload_artifact(
+        self,
+        agent_id: str,
+        session_id: str,
+        *,
+        file_name: object,
+        mime_type: object,
+        data_base64: object,
+        user_id: str = "ppx-client-user",
+    ) -> dict[str, Any]:
+        """Validate and persist one bounded upload in the Session artifact scope."""
+        scope = self._artifact_scope(agent_id, session_id, user_id=user_id)
+        if isinstance(scope, dict):
+            return scope
+        runtime, requester = scope
+        try:
+            resolved_name = _safe_artifact_name(file_name)
+            resolved_mime_type = _safe_artifact_mime_type(mime_type)
+            encoded = str(data_base64 or "")
+            if len(encoded) > ((_MAX_ARTIFACT_BYTES + 2) // 3) * 4 + 16:
+                raise ValueError(f"Artifact exceeds the {_MAX_ARTIFACT_BYTES // 1024 // 1024} MB limit.")
+            data = base64.b64decode(encoded, validate=True)
+        except (ValueError, binascii.Error) as exc:
+            return _error("INVALID_ARTIFACT", str(exc))
+        if not data:
+            return _error("INVALID_ARTIFACT", "Artifact content must not be empty.")
+        if len(data) > _MAX_ARTIFACT_BYTES:
+            return _error("INVALID_ARTIFACT", f"Artifact exceeds the {_MAX_ARTIFACT_BYTES // 1024 // 1024} MB limit.")
+        artifact_id = f"artifact_{os.urandom(8).hex()}"
+        storage_key = f"uploads/{artifact_id}/{resolved_name}"
+        created_at = _iso_now()
+        try:
+            version = asyncio.run(
+                runtime.artifact_service.save_artifact(
+                    app_name=runtime.agent.name,
+                    user_id=requester.principal_id,
+                    session_id=session_id,
+                    filename=storage_key,
+                    artifact=types.Part(
+                        inline_data=types.Blob(
+                            data=data,
+                            mime_type=resolved_mime_type,
+                            display_name=resolved_name,
+                        )
+                    ),
+                    custom_metadata={
+                        "artifact_id": artifact_id,
+                        "source": "user_upload",
+                        "file_name": resolved_name,
+                        "size_bytes": len(data),
+                        "created_at": created_at,
+                    },
+                )
+            )
+        except Exception as exc:
+            return _error("ARTIFACT_SAVE_FAILED", str(exc))
+        return _ok(
+            {
+                "artifact": {
+                    "id": artifact_id,
+                    "key": storage_key,
+                    "file_name": resolved_name,
+                    "mime_type": resolved_mime_type,
+                    "size_bytes": len(data),
+                    "version": int(version),
+                    "source": "user_upload",
+                    "created_at": created_at,
+                }
+            }
+        )
+
+    def list_artifacts(
+        self,
+        agent_id: str,
+        session_id: str,
+        *,
+        user_id: str = "ppx-client-user",
+    ) -> dict[str, Any]:
+        """List Session-scoped ADK artifacts without exposing filesystem paths."""
+        scope = self._artifact_scope(agent_id, session_id, user_id=user_id)
+        if isinstance(scope, dict):
+            return scope
+        runtime, requester = scope
+        try:
+            keys = asyncio.run(
+                runtime.artifact_service.list_artifact_keys(
+                    app_name=runtime.agent.name,
+                    user_id=requester.principal_id,
+                    session_id=session_id,
+                )
+            )
+            items: list[dict[str, Any]] = []
+            for key in keys:
+                versions = asyncio.run(
+                    runtime.artifact_service.list_artifact_versions(
+                        app_name=runtime.agent.name,
+                        user_id=requester.principal_id,
+                        session_id=session_id,
+                        filename=key,
+                    )
+                )
+                if not versions:
+                    continue
+                latest = versions[-1]
+                metadata = dict(latest.custom_metadata or {})
+                items.append(
+                    {
+                        "id": str(metadata.get("artifact_id") or key),
+                        "key": key,
+                        "file_name": str(metadata.get("file_name") or key.rsplit("/", 1)[-1]),
+                        "mime_type": str(latest.mime_type or "application/octet-stream"),
+                        "size_bytes": int(metadata.get("size_bytes") or 0),
+                        "version": int(latest.version),
+                        "source": str(metadata.get("source") or "agent_output"),
+                        "created_at": str(metadata.get("created_at") or dt.datetime.fromtimestamp(latest.create_time).astimezone().isoformat()),
+                    }
+                )
+        except Exception as exc:
+            return _error("ARTIFACT_LIST_FAILED", str(exc))
+        items.sort(key=lambda item: item["created_at"], reverse=True)
+        return _ok({"items": items})
+
+    def load_artifact(
+        self,
+        agent_id: str,
+        session_id: str,
+        *,
+        key: str,
+        version: int | None = None,
+        user_id: str = "ppx-client-user",
+    ) -> tuple[dict[str, Any], bytes | None]:
+        """Load one authorized Session artifact for download or model input."""
+        scope = self._artifact_scope(agent_id, session_id, user_id=user_id)
+        if isinstance(scope, dict):
+            return scope, None
+        runtime, requester = scope
+        try:
+            keys = asyncio.run(
+                runtime.artifact_service.list_artifact_keys(
+                    app_name=runtime.agent.name,
+                    user_id=requester.principal_id,
+                    session_id=session_id,
+                )
+            )
+            if key not in keys:
+                return _error("ARTIFACT_NOT_FOUND", "Artifact was not found in this Session."), None
+            part = asyncio.run(
+                runtime.artifact_service.load_artifact(
+                    app_name=runtime.agent.name,
+                    user_id=requester.principal_id,
+                    session_id=session_id,
+                    filename=key,
+                    version=version,
+                )
+            )
+        except Exception as exc:
+            return _error("ARTIFACT_LOAD_FAILED", str(exc)), None
+        blob = getattr(part, "inline_data", None) if part is not None else None
+        data = getattr(blob, "data", None) if blob is not None else None
+        if not isinstance(data, bytes):
+            return _error("ARTIFACT_NOT_FOUND", "Artifact content is unavailable."), None
+        return _ok({"mime_type": str(getattr(blob, "mime_type", None) or "application/octet-stream")}), data
+
+    def _resolve_artifact_parts(
+        self,
+        agent_id: str,
+        session_id: str,
+        artifact_refs: list[dict[str, Any]],
+        *,
+        user_id: str,
+    ) -> tuple[tuple[types.Part, ...], dict[str, Any] | None]:
+        """Resolve opaque ArtifactRefs into ADK Parts after Session authorization."""
+        parts: list[types.Part] = []
+        if len(artifact_refs) > 10:
+            return (), _error("INVALID_ARTIFACT", "A message can reference at most 10 artifacts.")
+        for reference in artifact_refs:
+            key = str(reference.get("key") or "")
+            raw_version = reference.get("version")
+            version = int(raw_version) if isinstance(raw_version, int) and raw_version >= 0 else None
+            payload, data = self.load_artifact(
+                agent_id,
+                session_id,
+                key=key,
+                version=version,
+                user_id=user_id,
+            )
+            if data is None:
+                return (), payload
+            mime_type = str(payload.get("data", {}).get("mime_type") or "application/octet-stream")
+            parts.append(
+                types.Part(
+                    inline_data=types.Blob(
+                        data=data,
+                        mime_type=mime_type,
+                        display_name=key.rsplit("/", 1)[-1],
+                    )
+                )
+            )
+        return tuple(parts), None
+
+    def create_run(
+        self,
+        agent_id: str,
+        session_id: str,
+        text: str,
+        *,
+        artifact_refs: list[dict[str, Any]] | None = None,
+        user_id: str = "ppx-client-user",
+    ) -> dict[str, Any]:
         """Create one streaming Run inside the shared Node Runtime Supervisor."""
 
         requester = self._ensure_requester_principal(user_id)
+        resolved_artifact_parts, artifact_error = self._resolve_artifact_parts(
+            agent_id,
+            session_id,
+            list(artifact_refs or []),
+            user_id=requester.principal_id,
+        )
+        if artifact_error is not None:
+            return artifact_error
         if self._ensure_agent_access_state(agent_id) is None:
             return _error("AGENT_NOT_FOUND", f"Agent '{agent_id}' was not found.")
         if self._runtime_supervisor is None:
@@ -1678,6 +2009,7 @@ class ClientApiCoordinator:
                 session_id=session_id,
                 user_id=requester.principal_id,
                 text=text,
+                artifact_parts=resolved_artifact_parts,
                 on_event=lambda event: self._publish_adk_run_event(handle, event),
                 on_text_update=lambda merged, _delta: self._publish_run_text(handle, merged),
                 on_complete=lambda final_text: self._complete_node_run(handle, final_text),
@@ -2081,6 +2413,26 @@ class _ClientApiHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def _send_bytes(self, status: int, data: bytes, *, mime_type: str) -> None:
+        """Send one authorized binary artifact without exposing its storage path."""
+        self.send_response(status)
+        self.send_header("Content-Type", mime_type)
+        self.send_header("Content-Length", str(len(data)))
+        self.send_header("Cache-Control", "private, no-store")
+        self.end_headers()
+        self.wfile.write(data)
+
+    def _send_html(self, status: int, body: str) -> None:
+        """Send one small no-store OAuth completion page."""
+        data = body.encode("utf-8")
+        self.send_response(status)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Content-Length", str(len(data)))
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.end_headers()
+        self.wfile.write(data)
+
     def _require_authorization(self) -> bool:
         """Authorize one protected request or emit a standard 401 response."""
 
@@ -2105,6 +2457,8 @@ class _ClientApiHandler(BaseHTTPRequestHandler):
         length = int(self.headers.get("Content-Length", "0") or 0)
         if length <= 0:
             return {}
+        if length > _MAX_JSON_BODY_BYTES:
+            raise ValueError("Request body exceeds the 30 MB limit.")
         raw = self.rfile.read(length)
         if not raw:
             return {}
@@ -2120,6 +2474,28 @@ class _ClientApiHandler(BaseHTTPRequestHandler):
 
     def do_GET(self) -> None:  # noqa: N802
         path, segments, query = self._parse()
+        if path == CALLBACK_PATH:
+            code = str(query.get("code") or "")
+            state = str(query.get("state") or "") or None
+            error = str(query.get("error") or "")
+            accepted = bool((code or error) and self.coordinator.deliver_mcp_oauth_callback(
+                code=code,
+                state=state,
+                error=error,
+            ))
+            if accepted:
+                self._send_html(
+                    200,
+                    "<!doctype html><meta charset='utf-8'><title>OpenPPX connected</title>"
+                    "<main><h1>Connected to OpenPPX</h1><p>You can close this window and return to the Desktop app.</p></main>",
+                )
+            else:
+                self._send_html(
+                    400,
+                    "<!doctype html><meta charset='utf-8'><title>OpenPPX sign-in expired</title>"
+                    "<main><h1>Sign-in could not be completed</h1><p>Return to OpenPPX and start Connect again.</p></main>",
+                )
+            return
         if path == "/api/v1/health":
             authenticated = self.auth_policy.authorizes(self.headers.get("Authorization"))
             self._send_json(200, self.coordinator.health(public=self.auth_policy.required and not authenticated))
@@ -2145,6 +2521,31 @@ class _ClientApiHandler(BaseHTTPRequestHandler):
                     correlation_id=self.headers.get("X-Correlation-ID"),
                 ),
             )
+            return
+        if len(segments) == 7 and segments[:3] == ["api", "v1", "agents"] and segments[4] == "sessions" and segments[6] == "artifacts":
+            user_id = str(query.get("user_id") or "ppx-client-user")
+            payload = self.coordinator.list_artifacts(segments[3], segments[5], user_id=user_id)
+            self._send_json(200 if payload.get("ok") else 404, payload)
+            return
+        if len(segments) == 7 and segments[:3] == ["api", "v1", "agents"] and segments[4] == "sessions" and segments[6] == "artifact-content":
+            user_id = str(query.get("user_id") or "ppx-client-user")
+            key = str(query.get("key") or "")
+            try:
+                version = int(query["version"]) if "version" in query else None
+            except ValueError:
+                self._send_json(400, _error("INVALID_REQUEST", "Artifact version must be an integer."))
+                return
+            payload, data = self.coordinator.load_artifact(
+                segments[3],
+                segments[5],
+                key=key,
+                version=version,
+                user_id=user_id,
+            )
+            if data is None:
+                self._send_json(404, payload)
+                return
+            self._send_bytes(200, data, mime_type=str(payload["data"]["mime_type"]))
             return
         if len(segments) == 5 and segments[:3] == ["api", "v1", "agents"] and segments[4] == "sessions":
             user_id = str(query.get("user_id") or "ppx-client-user")
@@ -2229,7 +2630,11 @@ class _ClientApiHandler(BaseHTTPRequestHandler):
         path, segments, _query = self._parse()
         if not self._require_authorization():
             return
-        body = self._read_json_body()
+        try:
+            body = self._read_json_body()
+        except (ValueError, json.JSONDecodeError, UnicodeDecodeError) as exc:
+            self._send_json(413 if "exceeds" in str(exc) else 400, _error("INVALID_REQUEST", str(exc)))
+            return
         if path == "/api/v1/actions/invoke":
             try:
                 request = ActionInvokeRequest.model_validate(body, strict=True)
@@ -2344,13 +2749,37 @@ class _ClientApiHandler(BaseHTTPRequestHandler):
             payload = self.coordinator.create_session(segments[3], user_id=user_id)
             self._send_json(200 if payload.get("ok") else 404, payload)
             return
+        if len(segments) == 7 and segments[:3] == ["api", "v1", "agents"] and segments[4] == "sessions" and segments[6] == "artifacts":
+            user_id = str(body.get("user_id") or "ppx-client-user")
+            payload = self.coordinator.upload_artifact(
+                segments[3],
+                segments[5],
+                file_name=body.get("file_name"),
+                mime_type=body.get("mime_type"),
+                data_base64=body.get("data_base64"),
+                user_id=user_id,
+            )
+            error_code = str(payload.get("error", {}).get("code") or "")
+            status = 200 if payload.get("ok") else (400 if error_code == "INVALID_ARTIFACT" else 404)
+            self._send_json(status, payload)
+            return
         if len(segments) == 7 and segments[:3] == ["api", "v1", "agents"] and segments[4] == "sessions" and segments[6] == "runs":
             text = str(body.get("text") or "").strip()
             user_id = str(body.get("user_id") or "ppx-client-user")
-            if not text:
-                self._send_json(400, _error("INVALID_REQUEST", "Field 'text' is required."))
+            raw_artifact_refs = body.get("artifact_refs") or []
+            if not isinstance(raw_artifact_refs, list) or not all(isinstance(item, dict) for item in raw_artifact_refs):
+                self._send_json(400, _error("INVALID_REQUEST", "Field 'artifact_refs' must be a JSON object array."))
                 return
-            payload = self.coordinator.create_run(segments[3], segments[5], text, user_id=user_id)
+            if not text and not raw_artifact_refs:
+                self._send_json(400, _error("INVALID_REQUEST", "A message requires text or an artifact reference."))
+                return
+            payload = self.coordinator.create_run(
+                segments[3],
+                segments[5],
+                text or "Use the attached files to complete the task.",
+                artifact_refs=raw_artifact_refs,
+                user_id=user_id,
+            )
             self._send_json(200 if payload.get("ok") else 404, payload)
             return
         if len(segments) == 5 and segments[:3] == ["api", "v1", "runs"] and segments[4] == "cancel":

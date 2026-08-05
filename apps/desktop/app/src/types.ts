@@ -6,7 +6,18 @@ import type {
   SessionSummary,
   ExtensionDetail,
   ExtensionSummary,
+  ExtensionStarter,
   AgentEnablementKind,
+  InstallableExtensionKind,
+  ExtensionSourceRef,
+  ExtensionPreview,
+  ExtensionReadinessResult,
+  ExtensionProbeResult,
+  McpServerResource,
+  McpValueBinding,
+  AppConnectionDetail,
+  AppCredentialSpec,
+  AppToolSpec,
   ProjectedSlashCommand,
   SlashCommandResult,
   SetupApplyRequest,
@@ -14,9 +25,22 @@ import type {
   SetupHelloResult,
   SetupStatusResult,
   OperationsOverviewResult,
+  OperationsTaskListResult,
+  OperationsTaskDetailResult,
+  OperationsTaskControlInput,
+  OperationsCronResult,
+  OperationsHeartbeatResult,
+  OperationsUsageResult,
+  CronCreateInput,
+  CronUpdateInput,
+  HeartbeatConfiguration,
   ModelCatalogResult,
   ProviderAuthStatus,
   AgentCreateResult,
+  AgentResourceSummary,
+  AgentUpdateInput,
+  ArtifactSummary,
+  ArtifactUploadInput,
   ModelProfileResourceResult,
   ModelProfileCreateInput,
   ModelProfileUpdateInput,
@@ -33,7 +57,18 @@ export type {
   SessionSummary,
   ExtensionDetail,
   ExtensionSummary,
+  ExtensionStarter,
   AgentEnablementKind,
+  InstallableExtensionKind,
+  ExtensionSourceRef,
+  ExtensionPreview,
+  ExtensionReadinessResult,
+  ExtensionProbeResult,
+  McpServerResource,
+  McpValueBinding,
+  AppConnectionDetail,
+  AppCredentialSpec,
+  AppToolSpec,
   ProjectedSlashCommand,
   SlashCommandResult,
   SetupApplyRequest,
@@ -44,10 +79,27 @@ export type {
   HealthState,
   OperationsHealthResult,
   OperationsOverviewResult,
+  OperationsTaskItem,
+  OperationsTaskListResult,
+  OperationsTaskDetailResult,
+  OperationsTaskControlAction,
+  OperationsTaskControlInput,
+  OperationsCronJob,
+  OperationsCronResult,
+  OperationsHeartbeatResult,
+  OperationsUsageResult,
+  CronScheduleInput,
+  CronCreateInput,
+  CronUpdateInput,
+  HeartbeatConfiguration,
   ModelCatalogResult,
   ProviderAuthStatus,
   ProviderModel,
   AgentCreateResult,
+  AgentResourceSummary,
+  AgentUpdateInput,
+  ArtifactSummary,
+  ArtifactUploadInput,
   ModelCapability,
   ModelProfileDocument,
   ModelProfileResourceResult,
@@ -116,6 +168,15 @@ export interface ConnectionSettings {
   accessToken?: string;
 }
 
+export interface ConnectionProfileSummary {
+  targetType: "local" | "lan";
+  targetId: string;
+  targetName: string;
+  clientApiBaseUrl: string;
+  active: boolean;
+  credentialConfigured: boolean;
+}
+
 export interface BootstrapPayload {
   runtime: RuntimeStatus;
   agents: AgentProfile[];
@@ -135,12 +196,75 @@ export interface ExtensionEnablementRequest {
   enabled: boolean;
 }
 
+export interface ExtensionPreviewRequest {
+  kind: InstallableExtensionKind;
+  source: ExtensionSourceRef;
+}
+
+export interface ExtensionInstallRequest extends ExtensionPreviewRequest {
+  expectedDigest: string;
+  expectedRevision: string | null;
+}
+
+export interface ExtensionRemoveRequest {
+  kind: AgentEnablementKind;
+  extensionId: string;
+  expectedRevision: string;
+}
+
+export interface McpMutationRequest {
+  resource: McpServerResource;
+  secretValues: Record<string, string>;
+  expectedRevision: string | null;
+}
+
+export interface McpOAuthStatus {
+  serverId: string;
+  status: "needs_auth" | "starting" | "authorizing" | "connected" | "error";
+  authorizeUrl: string;
+  error: string;
+}
+
+export interface AppConnectionSaveRequest {
+  appId: string;
+  connectionId: string;
+  displayName: string;
+  enabledTools: string[] | null;
+  requireConfirmation: boolean;
+  credentialValues: Record<string, string>;
+  expectedRevision: string | null;
+}
+
+export interface AppConnectionEnablementRequest {
+  connectionId: string;
+  agentId: string;
+  expectedRevision: string;
+  enabled: boolean;
+}
+
+export interface AppConnectionRemoveRequest {
+  connectionId: string;
+  expectedRevision: string;
+}
+
+export interface ExtensionMutationResult extends Record<string, unknown> {
+  revision?: string;
+  status?: string;
+  removed?: boolean;
+}
+
 export interface AgentCreateRequest {
   agentId: string;
   displayName: string;
   workspace: string | null;
   privilegeLevel: "low" | "medium" | "high" | "root";
   modelProfileId: string;
+  instruction?: string;
+}
+
+export interface SessionMutationRequest {
+  agentId: string;
+  sessionId: string;
 }
 
 export interface SlashCommandRequest {
@@ -189,6 +313,15 @@ export interface OperationsAuditItem {
   ok: boolean | null;
 }
 
+export interface OperationsDashboard {
+  overview: OperationsOverviewResult;
+  tasks: OperationsTaskListResult;
+  cron: OperationsCronResult;
+  heartbeat: OperationsHeartbeatResult;
+  usage: OperationsUsageResult;
+  audit: OperationsAuditItem[];
+}
+
 export interface PpxClientApi {
   readonly platform: DesktopPlatform;
   bootstrap(): Promise<BootstrapPayload>;
@@ -196,11 +329,26 @@ export interface PpxClientApi {
   getDiagnostics(): Promise<ClientDiagnostics>;
   testConnectionSettings(settings: ConnectionSettings): Promise<ClientDiagnostics>;
   saveConnectionSettings(settings: ConnectionSettings): Promise<ClientDiagnostics>;
+  listConnectionProfiles(): Promise<{ profiles: ConnectionProfileSummary[] }>;
+  activateConnectionProfile(targetId: string): Promise<ClientDiagnostics>;
+  removeConnectionProfile(targetId: string): Promise<{ removed: boolean }>;
   runRuntimeCommand(command: RuntimeCommand): Promise<RuntimeStatus>;
   createAgent(input: AgentCreateRequest): Promise<AgentCreateResult>;
+  listManagedAgents(): Promise<{ agents: AgentResourceSummary[] }>;
+  updateAgent(input: AgentUpdateInput): Promise<AgentResourceSummary>;
+  setAgentEnabled(agentId: string, enabled: boolean): Promise<AgentResourceSummary>;
+  removeAgent(agentId: string, expectedRevision: string): Promise<Record<string, unknown>>;
   listSessions(agentId: string): Promise<{ sessions: SessionSummary[] }>;
   createSession(agentId: string): Promise<{ session: SessionSummary }>;
+  renameSession(input: SessionMutationRequest & { title: string }): Promise<Record<string, unknown>>;
+  archiveSession(input: SessionMutationRequest & { archived: boolean }): Promise<Record<string, unknown>>;
+  forkSession(input: SessionMutationRequest): Promise<{ session: SessionSummary }>;
+  exportSession(input: SessionMutationRequest): Promise<Record<string, unknown>>;
+  deleteSession(input: SessionMutationRequest): Promise<Record<string, unknown>>;
   loadSession(sessionId: string): Promise<{ messages: ChatMessage[] }>;
+  uploadArtifact(input: ArtifactUploadInput): Promise<ArtifactSummary>;
+  listArtifacts(agentId: string, sessionId: string): Promise<{ artifacts: ArtifactSummary[] }>;
+  downloadArtifact(agentId: string, sessionId: string, artifact: ArtifactSummary): Promise<{ dataBase64: string; mimeType: string }>;
   sendMessage(input: SendMessageInput): Promise<{ runId: string }>;
   cancelRun(runId: string): Promise<{ runId: string; status: "cancelled" }>;
   listSlashCommands(): Promise<{ commands: ProjectedSlashCommand[] }>;
@@ -219,8 +367,34 @@ export interface PpxClientApi {
   updateModelProfile(input: ModelProfileUpdateInput): Promise<ModelProfileResourceResult>;
   getOperationsOverview(): Promise<OperationsOverviewResult>;
   listOperationsAudit(limit?: number): Promise<{ items: OperationsAuditItem[] }>;
+  getOperationsDashboard(): Promise<OperationsDashboard>;
+  getOperationsTask(taskId: string): Promise<OperationsTaskDetailResult>;
+  getOperationsTaskOutput(taskId: string): Promise<Record<string, unknown>>;
+  controlOperationsTask(input: OperationsTaskControlInput): Promise<Record<string, unknown>>;
+  createOperationsCron(input: CronCreateInput): Promise<Record<string, unknown>>;
+  updateOperationsCron(input: CronUpdateInput): Promise<Record<string, unknown>>;
+  setOperationsCronEnabled(jobId: string, enabled: boolean): Promise<Record<string, unknown>>;
+  runOperationsCron(jobId: string): Promise<Record<string, unknown>>;
+  removeOperationsCron(jobId: string): Promise<Record<string, unknown>>;
+  runOperationsHeartbeat(): Promise<Record<string, unknown>>;
+  configureOperationsHeartbeat(input: HeartbeatConfiguration): Promise<Record<string, unknown>>;
   listExtensions(): Promise<{ extensions: ExtensionSummary[] }>;
+  listExtensionStarters(kind?: ExtensionSummary["kind"], query?: string): Promise<{ starters: ExtensionStarter[]; counts: Record<ExtensionSummary["kind"], number> }>;
   getExtension(kind: ExtensionSummary["kind"], extensionId: string): Promise<{ extension: ExtensionDetail }>;
+  getExtensionReadiness(kind: ExtensionSummary["kind"], extensionId: string): Promise<ExtensionReadinessResult>;
+  previewExtension(input: ExtensionPreviewRequest): Promise<ExtensionPreview>;
+  installExtension(input: ExtensionInstallRequest): Promise<ExtensionMutationResult>;
   setExtensionAgentEnabled(input: ExtensionEnablementRequest): Promise<{ revision: string; status: string }>;
+  removeExtension(input: ExtensionRemoveRequest): Promise<ExtensionMutationResult>;
+  createMcpServer(input: McpMutationRequest): Promise<ExtensionMutationResult>;
+  updateMcpServer(input: McpMutationRequest): Promise<ExtensionMutationResult>;
+  beginMcpOAuth(serverId: string): Promise<McpOAuthStatus>;
+  getMcpOAuthStatus(serverId: string): Promise<McpOAuthStatus>;
+  signOutMcpOAuth(serverId: string): Promise<McpOAuthStatus>;
+  testMcpServer(serverId: string): Promise<ExtensionProbeResult>;
+  saveAppConnection(input: AppConnectionSaveRequest): Promise<ExtensionMutationResult>;
+  testAppConnection(connectionId: string): Promise<ExtensionProbeResult>;
+  setAppConnectionAgentEnabled(input: AppConnectionEnablementRequest): Promise<ExtensionMutationResult>;
+  removeAppConnection(input: AppConnectionRemoveRequest): Promise<ExtensionMutationResult>;
   onRunEvent(listener: (event: RunEvent) => void): () => void;
 }

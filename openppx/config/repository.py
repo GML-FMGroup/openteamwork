@@ -4,15 +4,19 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timezone
+import os
 from pathlib import Path
 from typing import Callable, Generic, Literal, Protocol, TypeVar
 
 from pydantic import BaseModel, ValidationError
+from filelock import FileLock, Timeout
 
 from .diagnostics import (
     ConfigDiagnostics,
     ConfigIssue,
     ConfigLoadError,
+    ConfigRevisionConflict,
+    ConfigWriteError,
     read_json_object,
     validation_issues,
 )
@@ -73,6 +77,8 @@ class ConfigRepository(Protocol):
         expected_revision: str | None,
     ) -> VersionedResource[AgentConfig]: ...
 
+    def archive_agent(self, agent_id: str, *, expected_revision: str) -> Path: ...
+
 
 class FilesystemConfigRepository:
     """Load strict Node and Agent resources from one explicit Node root."""
@@ -108,7 +114,10 @@ class FilesystemConfigRepository:
         if not agents_dir.exists():
             return ()
         try:
-            entries = sorted((entry for entry in agents_dir.iterdir() if entry.is_dir()), key=lambda item: item.name)
+            entries = sorted(
+                (entry for entry in agents_dir.iterdir() if entry.is_dir() and (entry / "agent.json").is_file()),
+                key=lambda item: item.name,
+            )
         except OSError as exc:
             issue = ConfigIssue("io_error", (), "Agent configuration directory could not be read.", "agents")
             raise ConfigLoadError(
@@ -175,6 +184,46 @@ class FilesystemConfigRepository:
             lock_timeout=self.lock_timeout,
         )
         return self.read_agent(agent_id)
+
+    def archive_agent(self, agent_id: str, *, expected_revision: str) -> Path:
+        """Move one Agent resource into a revision-addressed recoverable archive."""
+        path = self.paths.agent_file(agent_id)
+        archive_path = self.paths.deleted_agent_file(agent_id, expected_revision)
+        lock = FileLock(path.with_name(f"{path.name}.lock"), timeout=self.lock_timeout, mode=0o600)
+        try:
+            with lock:
+                current = self.read_agent(agent_id)
+                if current.revision != expected_revision:
+                    raise ConfigRevisionConflict(
+                        path,
+                        source=f"agent:{agent_id}",
+                        expected_revision=expected_revision,
+                        actual_revision=current.revision,
+                    )
+                archive_path.parent.mkdir(parents=True, exist_ok=True)
+                os.replace(path, archive_path)
+        except Timeout as exc:
+            issue = ConfigIssue(
+                "lock_timeout",
+                (),
+                "Agent configuration is busy; retry with a fresh revision.",
+                f"agent:{agent_id}",
+            )
+            raise ConfigWriteError(
+                path,
+                "lock_timeout",
+                "Timed out waiting for the Agent configuration lock",
+                (issue,),
+            ) from exc
+        except OSError as exc:
+            issue = ConfigIssue(
+                "archive_failed",
+                (),
+                "Agent configuration could not be moved into the recoverable archive.",
+                f"agent:{agent_id}",
+            )
+            raise ConfigWriteError(path, "archive_failed", "Agent archive failed", (issue,)) from exc
+        return archive_path
 
     @staticmethod
     def _read_model(

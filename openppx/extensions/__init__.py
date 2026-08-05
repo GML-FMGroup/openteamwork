@@ -1,6 +1,12 @@
 """OpenPPX Extension Platform domain boundary."""
 
 from .errors import ExtensionError
+from .app_adapters import (
+    NativeAppAdapter,
+    NativeAppAdapterReadiness,
+    NativeAppAdapterRegistry,
+    NativeAppContext,
+)
 from .apps import (
     AppManager,
     AppReadiness,
@@ -30,6 +36,11 @@ from .plugins import (
     parse_plugin_manifest,
 )
 from .registry import ExtensionDetail, ExtensionKind, ExtensionRegistry, ExtensionSummary
+from .starter_catalog import (
+    ExtensionStarter,
+    ExtensionStarterCatalog,
+    default_extension_starter_catalog,
+)
 from .models import (
     ExtensionSourceIdentity,
     ExtensionSourceRef,
@@ -57,10 +68,17 @@ __all__ = [
     "ExtensionKind",
     "ExtensionRegistry",
     "ExtensionSummary",
+    "ExtensionStarter",
+    "ExtensionStarterCatalog",
+    "default_extension_starter_catalog",
     "AppManager",
     "AppReadiness",
     "AppSnapshot",
     "AppSnapshotEntry",
+    "NativeAppAdapter",
+    "NativeAppAdapterReadiness",
+    "NativeAppAdapterRegistry",
+    "NativeAppContext",
     "McpManager",
     "McpReadiness",
     "McpServer",

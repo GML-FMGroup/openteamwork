@@ -29,6 +29,11 @@ class ConfigPaths:
         return self._contained(self.node_root / "agents", source="agents")
 
     @property
+    def deleted_agents_dir(self) -> Path:
+        """Return the recoverable archive for removed Agent resources."""
+        return self._contained(self.node_root / "deleted-agents", source="deleted-agents")
+
+    @property
     def model_profiles_dir(self) -> Path:
         """Return the controlled Model Profile resource directory."""
         return self._contained(self.node_root / "model-profiles", source="model-profiles")
@@ -39,6 +44,19 @@ class ConfigPaths:
         if not _RESOURCE_NAME_PATTERN.fullmatch(agent_id):
             self._outside_error(source)
         return self._contained(self.node_root / "agents" / agent_id / "agent.json", source=source)
+
+    def deleted_agent_file(self, agent_id: str, revision: str) -> Path:
+        """Return a revision-addressed tombstone path for a removed Agent resource."""
+        source = f"deleted-agent:{agent_id}" if _RESOURCE_NAME_PATTERN.fullmatch(agent_id) else "deleted-agent"
+        if not _RESOURCE_NAME_PATTERN.fullmatch(agent_id):
+            self._outside_error(source)
+        digest = revision.removeprefix("sha256:")
+        if not re.fullmatch(r"[a-f0-9]{64}", digest):
+            self._outside_error(source)
+        return self._contained(
+            self.deleted_agents_dir / agent_id / f"{digest}.json",
+            source=source,
+        )
 
     def model_profile_file(self, profile_id: str) -> Path:
         """Return a contained Model Profile file for a validated resource name."""

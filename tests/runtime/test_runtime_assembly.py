@@ -314,11 +314,14 @@ def test_supervisor_attaches_app_mcp_and_rebuilds_for_definition_change(tmp_path
                     "digest": "sha256:" + "c" * 64,
                 },
                 "auth": {"type": "none", "credentials": []},
-                "mcp": {
-                    "type": "stdio",
-                    "command": sys.executable,
-                    "args": [str(Path("tests/eval/mock_mcp_server.py").resolve())],
-                    "environment": {},
+                "implementation": {
+                    "type": "mcp",
+                    "transport": {
+                        "type": "stdio",
+                        "command": sys.executable,
+                        "args": [str(Path("tests/eval/mock_mcp_server.py").resolve())],
+                        "environment": {},
+                    },
                 },
                 "tools": [
                     {
@@ -389,7 +392,6 @@ def test_supervisor_merges_plugin_resources_and_rebuilds_for_plugin_update(tmp_p
     manager = PluginManager(
         tmp_path,
         secrets,
-        allowed_runtime_capabilities=frozenset({"runtime.task-observability"}),
     )
     installed = manager.install(
         manager.stage(ExtensionSourceRef(type="local_directory", locator=str(source))),

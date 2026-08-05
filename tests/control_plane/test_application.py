@@ -328,6 +328,11 @@ def test_slash_command_catalog_and_invocation_share_action_authorization(tmp_pat
         {"rawCommand": "/help", "userId": "local:test"},
         authorized,
     )
+    agents = application.invoke(
+        "system.command.invoke",
+        {"rawCommand": "/agent", "userId": "local:test"},
+        authorized,
+    )
 
     assert commands.ok is True
     assert all(item["slashCommands"] for item in commands.data["items"])
@@ -335,6 +340,9 @@ def test_slash_command_catalog_and_invocation_share_action_authorization(tmp_pat
     assert status.data["targetActionId"] == "system.status"
     assert status.data["result"]["state"] == "ready"
     assert help_result.ok is True
+    assert agents.ok is True
+    assert agents.data["targetActionId"] == "agent.list"
+    assert agents.data["result"]["items"][0]["id"] == "low-main"
     assert {item["actionId"] for item in help_result.data["result"]["items"]} >= {
         "system.help",
         "system.status",

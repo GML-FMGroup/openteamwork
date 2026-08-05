@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useState } from "react";
-import type { KeyboardEvent, RefObject } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import type { ClipboardEvent, DragEvent, KeyboardEvent, RefObject } from "react";
 import type { ProjectedSlashCommand } from "../../types";
+import type { PendingAttachment } from "../../hooks/use-desktop-workspace";
 
 interface ComposerProps {
   value: string;
@@ -12,10 +13,13 @@ interface ComposerProps {
   helperText: string;
   agentName: string;
   commands: ProjectedSlashCommand[];
+  attachments: PendingAttachment[];
   onChange: (value: string) => void;
   onKeyDown: (event: KeyboardEvent<HTMLTextAreaElement>) => void;
   onSend: () => void;
   onStop: () => void;
+  onAddAttachments: (files: File[]) => void;
+  onRemoveAttachment: (attachmentId: string) => void;
 }
 
 /** Focused composer that only exposes controls backed by real behavior. */
@@ -29,13 +33,18 @@ export function Composer({
   helperText,
   agentName,
   commands,
+  attachments,
   onChange,
   onKeyDown,
   onSend,
   onStop,
+  onAddAttachments,
+  onRemoveAttachment,
 }: ComposerProps) {
   const [selectedCommandIndex, setSelectedCommandIndex] = useState(0);
   const [dismissedValue, setDismissedValue] = useState<string | null>(null);
+  const [draggingFiles, setDraggingFiles] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
   const commandToken = value.trimStart().split(/\s/, 1)[0]?.toLowerCase() ?? "";
   const matchingCommands = useMemo(
     () =>
@@ -94,8 +103,34 @@ export function Composer({
 
   const actionLabel = busy ? (stopping ? "Stopping" : canStop ? "Stop" : "Running") : "Send";
   const actionEnabled = busy ? canStop && !stopping : canSend;
+  function addFiles(files: FileList | null): void {
+    if (files?.length) onAddAttachments(Array.from(files));
+  }
+  function handleDrop(event: DragEvent<HTMLElement>): void {
+    event.preventDefault();
+    setDraggingFiles(false);
+    addFiles(event.dataTransfer.files);
+  }
+  function handlePaste(event: ClipboardEvent<HTMLTextAreaElement>): void {
+    const files = Array.from(event.clipboardData.items)
+      .filter((item) => item.kind === "file")
+      .map((item) => item.getAsFile())
+      .filter((file): file is File => file !== null);
+    if (files.length) {
+      event.preventDefault();
+      onAddAttachments(files);
+    }
+  }
   return (
-    <footer className="composer-shell">
+    <footer
+      className={draggingFiles ? "composer-shell dragging-files" : "composer-shell"}
+      onDragEnter={(event) => { event.preventDefault(); setDraggingFiles(true); }}
+      onDragOver={(event) => event.preventDefault()}
+      onDragLeave={(event) => {
+        if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDraggingFiles(false);
+      }}
+      onDrop={handleDrop}
+    >
       {commandMenuOpen ? (
         <div className="command-palette" role="listbox" aria-label="Slash commands">
           <div className="command-palette-heading">
@@ -127,17 +162,44 @@ export function Composer({
       <div className="composer-context">
         <span>{agentName}</span>
       </div>
+      {attachments.length ? (
+        <div className="composer-attachments" aria-label="Attachments">
+          {attachments.map((attachment) => (
+            <div className={`composer-attachment ${attachment.status}`} key={attachment.id}>
+              <span className="composer-attachment-kind">
+                {attachment.mimeType.startsWith("image/") ? "IMG" : attachment.fileName.split(".").pop()?.slice(0, 3).toUpperCase() || "FILE"}
+              </span>
+              <span>
+                <strong>{attachment.fileName}</strong>
+                <small>{attachment.status === "uploading" ? "Uploading…" : `${Math.max(1, Math.round(attachment.sizeBytes / 1024))} KB`}</small>
+              </span>
+              <button type="button" aria-label={`Remove ${attachment.fileName}`} disabled={attachment.status === "uploading"} onClick={() => onRemoveAttachment(attachment.id)}>×</button>
+            </div>
+          ))}
+        </div>
+      ) : null}
       <textarea
         ref={textareaRef}
         value={value}
         onChange={(event) => onChange(event.target.value)}
         onKeyDown={handleKeyDown}
+        onPaste={handlePaste}
         placeholder="Describe the outcome you want..."
         rows={2}
       />
       <div className="composer-actions">
-        <span className={helperText ? "composer-helper" : undefined}>
-          {helperText || "Enter to send · Shift+Enter for a new line"}
+        <span className="composer-left-actions">
+          <input
+            ref={fileInputRef}
+            className="composer-file-input"
+            type="file"
+            multiple
+            onChange={(event) => { addFiles(event.target.files); event.currentTarget.value = ""; }}
+          />
+          <button type="button" className="composer-attach-button" aria-label="Attach files" title="Attach files" disabled={busy} onClick={() => fileInputRef.current?.click()}>+</button>
+          <span className={helperText ? "composer-helper" : undefined}>
+            {helperText || "Enter to send · Shift+Enter for a new line"}
+          </span>
         </span>
         <button
           className={`${actionEnabled ? "send-button ready" : "send-button"}${busy && canStop ? " stop" : ""}`}

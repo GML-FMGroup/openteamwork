@@ -2,6 +2,7 @@ import { CLIENT_API_PROTOCOL_VERSION } from "./contract";
 import { ClientApiProtocolError } from "./contract";
 import { ClientApiHttpTransport, type ClientApiHttpTransportOptions } from "./http-transport";
 import { ExtensionClient } from "./extensions";
+import { ArtifactClient } from "./artifacts";
 
 export type ActionScope = "node" | "agent" | "session" | "run" | "task" | "extension";
 export type ActionRisk = "low" | "medium" | "high";
@@ -220,6 +221,34 @@ export interface AgentCreateInput extends Record<string, unknown> {
   ownerPrincipalId: string;
   privilegeLevel: "low" | "medium" | "high" | "root";
   modelProfileId: string;
+  instruction?: string;
+}
+
+export interface AgentResourceSummary extends Record<string, unknown> {
+  id: string;
+  name: string;
+  description: string;
+  enabled: boolean;
+  status: "healthy" | "disabled";
+  workspace: string;
+  instruction: string;
+  privilegeLevel: "low" | "medium" | "high" | "root";
+  modelProfileId: string;
+  avatar: string | null;
+  tags: string[];
+  revision: string;
+  nodeRevision: string;
+  effect: "none" | "next_run";
+}
+
+export interface AgentUpdateInput extends Record<string, unknown> {
+  agentId: string;
+  displayName: string;
+  workspace: string;
+  instruction: string;
+  privilegeLevel: "low" | "medium" | "high" | "root";
+  modelProfileId: string;
+  expectedRevision: string;
 }
 
 export interface AgentCreateResult extends Record<string, unknown> {
@@ -351,6 +380,113 @@ export interface CronCreateInput extends Record<string, unknown> {
   deleteAfterRun?: boolean;
 }
 
+export interface CronUpdateInput extends CronCreateInput {
+  jobId: string;
+}
+
+export interface HeartbeatConfiguration extends Record<string, unknown> {
+  enabled: boolean;
+  everySeconds: number;
+  prompt: string;
+  activeHours: { start: string | null; end: string | null; timezone: string };
+}
+
+export type OperationsTaskControlAction = "interrupt" | "cancel" | "pause" | "resume" | "restart" | "send_input";
+
+export interface OperationsTaskAction {
+  action: OperationsTaskControlAction | "inspect_output";
+  label: string;
+  enabled: boolean;
+  readOnly: boolean;
+  reason: string;
+}
+
+export interface OperationsTaskItem extends Record<string, unknown> {
+  taskId: string;
+  kind: string;
+  status: string;
+  title: string;
+  progressSummary: string;
+  terminalSummary: string;
+  lastError: string;
+  checkpointRef: string;
+  resumePolicy: string;
+  updatedAtMs: number;
+  actions: OperationsTaskAction[];
+}
+
+export interface OperationsTaskListResult extends Record<string, unknown> {
+  ok: boolean;
+  items: OperationsTaskItem[];
+}
+
+export interface OperationsTaskDetailResult extends OperationsTaskListResult {
+  task: Record<string, unknown>;
+  events: Array<Record<string, unknown>>;
+  checkpoints: Array<Record<string, unknown>>;
+  deliveries: Array<Record<string, unknown>>;
+}
+
+export interface OperationsCronJob extends Record<string, unknown> {
+  id: string;
+  name: string;
+  enabled: boolean;
+  agentId: string | null;
+  userId: string | null;
+  message: string;
+  schedule: {
+    kind: "every" | "cron" | "at";
+    everySeconds: number | null;
+    cronExpr: string | null;
+    atMs: number | null;
+    tz: string | null;
+  };
+  state: {
+    nextRunAtMs: number | null;
+    lastRunAtMs: number | null;
+    lastStatus: string | null;
+    lastError: string | null;
+  };
+  deleteAfterRun: boolean;
+}
+
+export interface OperationsCronResult extends Record<string, unknown> {
+  status: Record<string, unknown>;
+  items: OperationsCronJob[];
+  history: Array<Record<string, unknown>>;
+}
+
+export interface OperationsHeartbeatResult extends Record<string, unknown> {
+  running: boolean;
+  enabled: boolean;
+  intervalMs: number | null;
+  wakePending: boolean;
+  lastRunAtMs: number | null;
+  lastStatus: string | null;
+  lastReason: string | null;
+  lastDurationMs: number | null;
+  configuration: HeartbeatConfiguration;
+}
+
+export interface OperationsUsageResult extends Record<string, unknown> {
+  requests: number;
+  requestTokens: number;
+  responseTokens: number;
+  totalTokens: number;
+  recent: Array<Record<string, unknown>>;
+}
+
+export interface OperationsAuditResult extends Record<string, unknown> {
+  items: Array<Record<string, unknown>>;
+}
+
+export interface OperationsTaskControlInput extends Record<string, unknown> {
+  taskId: string;
+  action: OperationsTaskControlAction;
+  content?: string;
+  inlineBudgetMs?: number;
+}
+
 export interface ActionClientOptions {
   idFactory?: () => string;
 }
@@ -463,6 +599,22 @@ export class AgentClient {
   public create(input: AgentCreateInput): Promise<ActionEnvelope<AgentCreateResult>> {
     return this.actions.invoke("agent.create", input);
   }
+
+  public list(): Promise<ActionEnvelope<{ items: AgentResourceSummary[] }>> {
+    return this.actions.invoke("agent.list", {});
+  }
+
+  public update(input: AgentUpdateInput): Promise<ActionEnvelope<AgentResourceSummary>> {
+    return this.actions.invoke("agent.update", input);
+  }
+
+  public setEnabled(agentId: string, enabled: boolean): Promise<ActionEnvelope<AgentResourceSummary>> {
+    return this.actions.invoke("agent.enable", { agentId, enabled });
+  }
+
+  public remove(agentId: string, expectedRevision: string): Promise<ActionEnvelope<Record<string, unknown>>> {
+    return this.actions.invoke("agent.delete", { agentId, expectedRevision }, { confirmed: true });
+  }
 }
 
 export class ModelClient {
@@ -561,16 +713,37 @@ export class OperationsClient {
     return this.actions.invoke("operations.health", {});
   }
 
-  public tasks(sessionId: string | null = null, limit = 20): Promise<ActionEnvelope<{ items: Array<Record<string, unknown>> }>> {
+  public tasks(sessionId: string | null = null, limit = 20): Promise<ActionEnvelope<OperationsTaskListResult>> {
     return this.actions.invoke("operations.task.list", { sessionId, limit });
   }
 
-  public cron(includeDisabled = true, historyLimit = 20): Promise<ActionEnvelope<Record<string, unknown>>> {
+  public task(taskId: string): Promise<ActionEnvelope<OperationsTaskDetailResult>> {
+    return this.actions.invoke("operations.task.get", { taskId });
+  }
+
+  public taskOutput(taskId: string): Promise<ActionEnvelope<Record<string, unknown>>> {
+    return this.actions.invoke("operations.task.output", { taskId });
+  }
+
+  public controlTask(input: OperationsTaskControlInput, confirmed = false): Promise<ActionEnvelope<Record<string, unknown>>> {
+    return this.actions.invoke("operations.task.control", {
+      taskId: input.taskId,
+      action: input.action,
+      content: input.content ?? "",
+      inlineBudgetMs: input.inlineBudgetMs ?? null,
+    }, { confirmed });
+  }
+
+  public cron(includeDisabled = true, historyLimit = 20): Promise<ActionEnvelope<OperationsCronResult>> {
     return this.actions.invoke("operations.cron.list", { includeDisabled, historyLimit });
   }
 
   public createCron(input: CronCreateInput, confirmed = false): Promise<ActionEnvelope<Record<string, unknown>>> {
     return this.actions.invoke("operations.cron.create", input, { confirmed });
+  }
+
+  public updateCron(input: CronUpdateInput, confirmed = false): Promise<ActionEnvelope<Record<string, unknown>>> {
+    return this.actions.invoke("operations.cron.update", input, { confirmed });
   }
 
   public setCronEnabled(jobId: string, enabled: boolean, confirmed = false): Promise<ActionEnvelope<Record<string, unknown>>> {
@@ -585,7 +758,7 @@ export class OperationsClient {
     return this.actions.invoke("operations.cron.run", { jobId, force }, { confirmed });
   }
 
-  public heartbeat(): Promise<ActionEnvelope<Record<string, unknown>>> {
+  public heartbeat(): Promise<ActionEnvelope<OperationsHeartbeatResult>> {
     return this.actions.invoke("operations.heartbeat.status", {});
   }
 
@@ -593,11 +766,15 @@ export class OperationsClient {
     return this.actions.invoke("operations.heartbeat.run", { reason }, { confirmed });
   }
 
-  public usage(limit = 20, provider: string | null = null): Promise<ActionEnvelope<Record<string, unknown>>> {
+  public configureHeartbeat(input: HeartbeatConfiguration, confirmed = false): Promise<ActionEnvelope<Record<string, unknown>>> {
+    return this.actions.invoke("operations.heartbeat.configure", input, { confirmed });
+  }
+
+  public usage(limit = 20, provider: string | null = null): Promise<ActionEnvelope<OperationsUsageResult>> {
     return this.actions.invoke("operations.usage.read", { limit, provider });
   }
 
-  public audit(input: Record<string, unknown> = {}): Promise<ActionEnvelope<{ items: Array<Record<string, unknown>> }>> {
+  public audit(input: Record<string, unknown> = {}): Promise<ActionEnvelope<OperationsAuditResult>> {
     return this.actions.invoke("operations.audit.list", { limit: 50, ...input });
   }
 }
@@ -607,6 +784,26 @@ export class SessionClient {
 
   public create(agentId: string, userId: string): Promise<ActionEnvelope<SessionNewResult>> {
     return this.actions.invoke("session.new", { agentId, userId });
+  }
+
+  public rename(agentId: string, userId: string, sessionId: string, title: string): Promise<ActionEnvelope<Record<string, unknown>>> {
+    return this.actions.invoke("session.rename", { agentId, userId, sessionId, title });
+  }
+
+  public archive(agentId: string, userId: string, sessionId: string, archived: boolean): Promise<ActionEnvelope<Record<string, unknown>>> {
+    return this.actions.invoke("session.archive", { agentId, userId, sessionId, archived });
+  }
+
+  public fork(agentId: string, userId: string, sessionId: string): Promise<ActionEnvelope<SessionNewResult>> {
+    return this.actions.invoke("session.fork", { agentId, userId, sessionId });
+  }
+
+  public export(agentId: string, userId: string, sessionId: string): Promise<ActionEnvelope<Record<string, unknown>>> {
+    return this.actions.invoke("session.export", { agentId, userId, sessionId });
+  }
+
+  public remove(agentId: string, userId: string, sessionId: string): Promise<ActionEnvelope<Record<string, unknown>>> {
+    return this.actions.invoke("session.delete", { agentId, userId, sessionId }, { confirmed: true });
   }
 }
 
@@ -681,6 +878,8 @@ export class OpenPpxClient {
 
   public readonly operations: OperationsClient;
 
+  public readonly artifacts: ArtifactClient;
+
   public constructor(options: ClientApiHttpTransportOptions & ActionClientOptions) {
     this.transport = new ClientApiHttpTransport(options);
     this.actions = new ActionClient(this.transport, options);
@@ -694,5 +893,6 @@ export class OpenPpxClient {
     this.setup = new SetupClient(this.actions);
     this.secrets = new SecretClient(this.actions);
     this.operations = new OperationsClient(this.actions);
+    this.artifacts = new ArtifactClient(this.transport);
   }
 }

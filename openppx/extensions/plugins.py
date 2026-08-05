@@ -1,4 +1,4 @@
-"""Declarative Product Plugin staging, lifecycle, and immutable projection."""
+"""Portable Plugin staging, lifecycle, and standard component projection."""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ import shutil
 import uuid
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
-from typing import Callable, Mapping
+from typing import Any, Callable, Mapping
 
 from filelock import FileLock, Timeout
 from pydantic import ValidationError
@@ -25,24 +25,27 @@ from openppx.config import (
 from openppx.config.atomic import atomic_write_resource
 from openppx.config.models import ResourceMetadata
 
-from .app_models import AppDefinition, AppOwnerRef
-from .apps import VersionedAppDefinition
 from .errors import ExtensionError
-from .indexes import (
-    ExtensionReferenceIndex,
-    ResourceIdentityIndex,
-    ResourceIdentityReservation,
-)
+from .indexes import ResourceIdentityIndex, ResourceIdentityReservation
 from .mcp import McpSnapshot, McpSnapshotEntry, merge_mcp_snapshots
-from .mcp_models import McpOwnerRef, McpSecretValue, McpServer, McpStdioTransport
+from .mcp_models import (
+    McpEnvironmentValue,
+    McpLiteralValue,
+    McpOwnerRef,
+    McpRemoteTransport,
+    McpServer,
+    McpServerSpec,
+    McpStdioTransport,
+    McpToolPolicy,
+)
 from .models import ExtensionSourceRef, SkillManifest
 from .plugin_models import (
-    PluginAgentTemplate,
-    PluginConfigSchema,
     PluginManifest,
     PluginRecord,
     PluginRecordSpec,
+    PluginRegisteredApp,
     PluginResourceRef,
+    PluginResources,
 )
 from .prefixes import ToolPrefixIndex, ToolPrefixReservation
 from .skills import SkillSnapshot, SkillSnapshotEntry, parse_skill_manifest
@@ -59,48 +62,73 @@ from .sources import (
 )
 
 
-_MANIFEST_PATH = ".openppx-plugin/plugin.json"
+_MANIFEST_PATH = ".agent-plugin/plugin.json"
 _RESOURCE_NAME_PATTERN = re.compile(r"^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$")
+_ENVIRONMENT_NAME_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,127}$")
 _RISK_ORDER = {"low": 0, "medium": 1, "high": 2}
+_MCP_CONFIG_KEYS = {
+    "args",
+    "bearer_token_env_var",
+    "command",
+    "cwd",
+    "disabled_tools",
+    "enabled",
+    "enabled_tools",
+    "env",
+    "env_http_headers",
+    "env_vars",
+    "http_headers",
+    "required",
+    "startup_timeout_sec",
+    "tool_timeout_sec",
+    "transport",
+    "url",
+}
 
 
 @dataclass(frozen=True, slots=True)
 class ParsedPluginSkill:
-    """Validated Skill declaration inside staged or installed Plugin content."""
+    """One standard Skill projected into an internal Plugin namespace."""
 
     ref: PluginResourceRef
     manifest: SkillManifest
 
 
 @dataclass(frozen=True, slots=True)
-class ParsedPluginApp:
-    """Validated App definition declaration inside Plugin content."""
-
-    ref: PluginResourceRef
-    definition: AppDefinition
-
-
-@dataclass(frozen=True, slots=True)
 class ParsedPluginMcp:
-    """Validated direct MCP declaration inside Plugin content."""
+    """One standard bundled MCP server projected into an internal namespace."""
 
     ref: PluginResourceRef
     server: McpServer
+    environment_keys: tuple[str, ...]
 
 
 @dataclass(frozen=True, slots=True)
 class PluginBundle:
-    """Fully parsed, non-executable Plugin resource bundle."""
+    """Fully parsed standard Plugin components without executable host code."""
 
     skills: tuple[ParsedPluginSkill, ...]
-    apps: tuple[ParsedPluginApp, ...]
     mcp_servers: tuple[ParsedPluginMcp, ...]
+    registered_apps: tuple[PluginRegisteredApp, ...]
+    hook_paths: tuple[str, ...]
+    inline_hook_count: int
     effective_risk: str
+
+    @property
+    def resources(self) -> PluginResources:
+        """Return the stable installed inventory derived from package files."""
+        return PluginResources(
+            skills=[item.ref for item in self.skills],
+            mcp_servers=[item.ref for item in self.mcp_servers],
+            apps=list(self.registered_apps),
+            hook_paths=list(self.hook_paths),
+            inline_hook_count=self.inline_hook_count,
+        )
 
 
 @dataclass(frozen=True, slots=True)
 class StagedPlugin:
-    """Pinned source content plus its validated Plugin manifest and bundle."""
+    """Pinned source content plus its validated manifest and components."""
 
     extension: StagedExtension
     manifest: PluginManifest
@@ -109,7 +137,7 @@ class StagedPlugin:
 
 @dataclass(frozen=True, slots=True)
 class PluginPreview:
-    """Client-safe Plugin preview produced before any installed state changes."""
+    """Client-safe Plugin preview produced before installation."""
 
     plugin_id: str
     display_name: str
@@ -119,13 +147,12 @@ class PluginPreview:
     source_type: str
     trust: str
     risk: str
-    runtime_capabilities: tuple[str, ...]
     resource_counts: dict[str, int]
 
 
 @dataclass(frozen=True, slots=True)
 class PluginReadiness:
-    """Non-sensitive enablement readiness for one Product Plugin."""
+    """Non-sensitive enablement readiness for one Plugin."""
 
     ready: bool
     issues: tuple[str, ...]
@@ -156,13 +183,12 @@ class PluginSnapshotEntry:
 
 @dataclass(frozen=True, slots=True)
 class PluginSnapshot:
-    """Agent-specific Product Plugin, Skill, MCP, and App projections."""
+    """Agent-specific Plugin, Skill, and MCP projections."""
 
     revision: str
     entries: tuple[PluginSnapshotEntry, ...]
     skills: SkillSnapshot
     mcp: McpSnapshot
-    app_definitions: tuple[VersionedAppDefinition, ...]
 
     @property
     def plugin_ids(self) -> tuple[str, ...]:
@@ -171,22 +197,21 @@ class PluginSnapshot:
 
     @classmethod
     def empty(cls) -> "PluginSnapshot":
-        """Return a stable empty Product Plugin snapshot."""
+        """Return a stable empty Plugin snapshot."""
         digest = hashlib.sha256(b"[]").hexdigest()
         return cls(
             revision=f"sha256:{digest}",
             entries=(),
             skills=SkillSnapshot.empty(),
             mcp=McpSnapshot.empty(),
-            app_definitions=(),
         )
 
 
-AppDefinitionValidator = Callable[[str, tuple[AppDefinition, ...]], None]
+RegisteredAppResolver = Callable[[PluginRegisteredApp], bool]
 
 
 class PluginManager:
-    """Own Product Plugin staging, persistence, enablement, and projections."""
+    """Own portable Plugin staging, persistence, enablement, and projection."""
 
     def __init__(
         self,
@@ -198,9 +223,8 @@ class PluginManager:
         source_limits: SourceLimits | None = None,
         executable_resolver: Callable[[str], str | None] = shutil.which,
         available_environment_keys: frozenset[str] = frozenset(),
-        allowed_runtime_capabilities: frozenset[str] = frozenset(),
         identity_index: ResourceIdentityIndex | None = None,
-        reference_index: ExtensionReferenceIndex | None = None,
+        reference_index: object | None = None,
         prefix_index: ToolPrefixIndex | None = None,
         lock_timeout: float = 5.0,
     ) -> None:
@@ -216,11 +240,11 @@ class PluginManager:
         self.secret_store = secret_store
         self.executable_resolver = executable_resolver
         self.available_environment_keys = available_environment_keys
-        self.allowed_runtime_capabilities = allowed_runtime_capabilities
         self.identity_index = identity_index
         self.reference_index = reference_index
         self.prefix_index = prefix_index
         self.lock_timeout = lock_timeout
+        self._registered_app_resolvers: dict[str, RegisteredAppResolver] = {}
         builtin_roots = {
             identifier: path.expanduser().resolve(strict=False)
             for identifier, path in (builtin_plugins or {}).items()
@@ -232,28 +256,24 @@ class PluginManager:
             "git": GitSourceAdapter(),
         }
         self._catalog_adapters = dict(catalog_adapters or {})
-        self._app_definition_validators: dict[str, AppDefinitionValidator] = {}
         if identity_index is not None:
             identity_index.register("plugins", self._identity_reservations)
         if prefix_index is not None:
             prefix_index.register("plugins", self._prefix_reservations)
 
-    def register_app_definition_validator(
-        self,
-        provider_id: str,
-        validator: AppDefinitionValidator,
-    ) -> None:
-        """Register cross-domain connection compatibility validation."""
-        if provider_id in self._app_definition_validators:
-            raise ValueError(f"Plugin App validator '{provider_id}' is already registered.")
-        self._app_definition_validators[provider_id] = validator
+    def register_app_resolver(self, provider_id: str, resolver: RegisteredAppResolver) -> None:
+        """Register one host resolver for standard `.app.json` technical IDs."""
+        if provider_id in self._registered_app_resolvers:
+            raise ValueError(f"Plugin App resolver '{provider_id}' is already registered.")
+        self._registered_app_resolvers[provider_id] = resolver
 
     def stage(self, reference: ExtensionSourceRef) -> StagedPlugin:
-        """Stage and fully validate one declarative Plugin without installing it."""
-        if reference.type == "catalog":
-            adapter = self._catalog_adapters.get(reference.provider or "")
-        else:
-            adapter = self._adapters.get(reference.type)
+        """Stage and fully validate one portable Plugin without installing it."""
+        adapter = (
+            self._catalog_adapters.get(reference.provider or "")
+            if reference.type == "catalog"
+            else self._adapters.get(reference.type)
+        )
         if adapter is None:
             raise ExtensionError("invalid_source", "No Source Adapter is registered for this reference.")
         staged = adapter.stage(reference, self.staging)
@@ -268,24 +288,21 @@ class PluginManager:
     @staticmethod
     def preview(staged: StagedPlugin) -> PluginPreview:
         """Return a bounded preview suitable for CLI/Desktop confirmation."""
-        resources = staged.manifest.spec.resources
+        bundle = staged.bundle
         return PluginPreview(
-            plugin_id=staged.manifest.metadata.name,
-            display_name=staged.manifest.spec.display_name,
-            description=staged.manifest.spec.description,
-            version=staged.manifest.spec.version,
+            plugin_id=staged.manifest.name,
+            display_name=_display_name(staged.manifest),
+            description=staged.manifest.description,
+            version=staged.manifest.version,
             digest=staged.extension.digest,
             source_type=staged.extension.source.type,
             trust=_trust_for_source(staged.extension.source.type),
-            risk=staged.bundle.effective_risk,
-            runtime_capabilities=tuple(staged.manifest.spec.runtime_capabilities),
+            risk=bundle.effective_risk,
             resource_counts={
-                "appDefinitions": len(resources.app_definitions),
-                "agentTemplates": len(resources.agent_templates),
-                "configSchemas": len(resources.config_schemas),
-                "documentation": len(resources.documentation),
-                "mcpServers": len(resources.mcp_servers),
-                "skills": len(resources.skills),
+                "apps": len(bundle.registered_apps),
+                "hooks": len(bundle.hook_paths) + bundle.inline_hook_count,
+                "mcpServers": len(bundle.mcp_servers),
+                "skills": len(bundle.skills),
             },
         )
 
@@ -297,7 +314,7 @@ class PluginManager:
         confirmed: bool = False,
     ) -> VersionedPlugin:
         """Publish one validated Plugin record over immutable staged content."""
-        plugin_id = staged.manifest.metadata.name
+        plugin_id = staged.manifest.name
         _validate_resource_name(plugin_id)
         previous = self._read_optional(plugin_id)
         try:
@@ -306,38 +323,11 @@ class PluginManager:
                     raise ExtensionError("revision_conflict", "New Plugins require an empty revision precondition.")
                 enabled_agents: list[str] = []
             else:
-                if expected_revision != previous.revision:
-                    raise ExtensionError(
-                        "revision_conflict",
-                        "Plugin revision does not match current state.",
-                        details={
-                            "expectedRevision": expected_revision,
-                            "actualRevision": previous.revision,
-                        },
-                    )
+                self._require_revision(previous, expected_revision)
                 enabled_agents = list(previous.record.spec.enabled_agent_ids)
-            self._require_identities_available(plugin_id, staged.manifest)
-            definitions = tuple(
-                self._project_app_definition_from_source(
-                    staged.extension.source,
-                    staged.manifest.spec.version,
-                    plugin_id,
-                    item.definition,
-                )
-                for item in staged.bundle.apps
-            )
-            for provider_id in sorted(self._app_definition_validators):
-                self._app_definition_validators[provider_id](plugin_id, definitions)
-            if previous is not None and self.reference_index is not None:
-                old_apps = {item.name for item in previous.record.spec.resources.app_definitions}
-                new_apps = {item.name for item in staged.manifest.spec.resources.app_definitions}
-                if old_apps != new_apps and self.reference_index.references(f"plugin:{plugin_id}"):
-                    raise ExtensionError(
-                        "extension_in_use",
-                        "Plugin App identities cannot change while connections reference the Plugin.",
-                    )
+            self._require_identities_available(plugin_id, staged.bundle)
             if enabled_agents:
-                readiness = self._readiness_for(staged.manifest, staged.bundle)
+                readiness = self._readiness_for(staged.bundle)
                 if not readiness.ready:
                     raise ExtensionError(
                         "dependency_missing",
@@ -362,13 +352,12 @@ class PluginManager:
                     display_name=preview.display_name,
                     description=preview.description,
                     version=preview.version,
-                    developer=staged.manifest.spec.developer,
+                    developer=_developer_name(staged.manifest),
                     digest=preview.digest,
                     source=staged.extension.source,
                     trust=preview.trust,
                     risk=preview.risk,
-                    runtime_capabilities=list(preview.runtime_capabilities),
-                    resources=staged.manifest.spec.resources,
+                    resources=staged.bundle.resources,
                     enabled_agent_ids=enabled_agents,
                 ),
             )
@@ -385,21 +374,17 @@ class PluginManager:
         confirmed: bool = False,
     ) -> VersionedPlugin:
         """Update one Plugin while preserving Agent enablement."""
-        return self.install(
-            staged,
-            expected_revision=expected_revision,
-            confirmed=confirmed,
-        )
+        return self.install(staged, expected_revision=expected_revision, confirmed=confirmed)
 
     def get(self, plugin_id: str) -> VersionedPlugin:
-        """Read one installed Product Plugin by stable identity."""
+        """Read one installed Plugin by stable identity."""
         result = self._read_optional(plugin_id)
         if result is None:
             raise ExtensionError("extension_not_found", f"Plugin '{plugin_id}' was not found.")
         return result
 
     def list(self) -> tuple[VersionedPlugin, ...]:
-        """Return every installed Product Plugin in deterministic order."""
+        """Return every installed Plugin in deterministic order."""
         if not self.records_dir.exists():
             return ()
         return tuple(
@@ -408,10 +393,9 @@ class PluginManager:
         )
 
     def readiness(self, plugin_id: str) -> PluginReadiness:
-        """Return current dependency/capability readiness without executing content."""
-        current = self.get(plugin_id)
-        manifest, bundle = self._load_installed_bundle(current)
-        return self._readiness_for(manifest, bundle)
+        """Return current component readiness without executing content."""
+        _manifest, bundle = self._load_installed_bundle(self.get(plugin_id))
+        return self._readiness_for(bundle)
 
     def enable(
         self,
@@ -421,14 +405,14 @@ class PluginManager:
         expected_revision: str,
         confirmed: bool = False,
     ) -> VersionedPlugin:
-        """Enable one ready declarative Plugin for an Agent."""
+        """Enable one ready Plugin for an Agent."""
         _validate_resource_name(agent_id)
         current = self.get(plugin_id)
         self._require_revision(current, expected_revision)
         if agent_id in current.record.spec.enabled_agent_ids:
             return current
-        manifest, bundle = self._load_installed_bundle(current)
-        readiness = self._readiness_for(manifest, bundle)
+        _manifest, bundle = self._load_installed_bundle(current)
+        readiness = self._readiness_for(bundle)
         if not readiness.ready:
             raise ExtensionError(
                 "dependency_missing",
@@ -441,13 +425,7 @@ class PluginManager:
         enabled = sorted((*current.record.spec.enabled_agent_ids, agent_id))
         return self._replace_enablement(current, enabled, expected_revision=expected_revision)
 
-    def disable(
-        self,
-        plugin_id: str,
-        agent_id: str,
-        *,
-        expected_revision: str,
-    ) -> VersionedPlugin:
+    def disable(self, plugin_id: str, agent_id: str, *, expected_revision: str) -> VersionedPlugin:
         """Disable one Plugin projection for an Agent."""
         _validate_resource_name(agent_id)
         current = self.get(plugin_id)
@@ -455,7 +433,7 @@ class PluginManager:
         return self._replace_enablement(current, enabled, expected_revision=expected_revision)
 
     def remove(self, plugin_id: str, *, expected_revision: str) -> None:
-        """Remove one disabled, unreferenced Plugin while retaining snapshot content."""
+        """Remove one disabled Plugin while retaining immutable snapshot content."""
         current = self.get(plugin_id)
         self._require_revision(current, expected_revision)
         if current.record.spec.enabled_agent_ids:
@@ -464,8 +442,6 @@ class PluginManager:
                 "Plugin must be disabled for every Agent before removal.",
                 details={"agentIds": list(current.record.spec.enabled_agent_ids)},
             )
-        if self.reference_index is not None:
-            self.reference_index.require_unreferenced(f"plugin:{plugin_id}")
         path = self._record_path(plugin_id)
         lock = FileLock(path.with_name(f"{path.name}.lock"), timeout=self.lock_timeout, mode=0o600)
         try:
@@ -488,29 +464,16 @@ class PluginManager:
                 return False
             raise
 
-    def app_definitions(self) -> tuple[VersionedAppDefinition, ...]:
-        """Project all installed Plugin-owned App definitions for connection management."""
-        definitions: list[VersionedAppDefinition] = []
-        for plugin in self.list():
-            _manifest, bundle = self._load_installed_bundle(plugin)
-            for item in bundle.apps:
-                record = self._project_app_definition(plugin, item.definition)
-                definitions.append(
-                    VersionedAppDefinition(record=record, revision=config_revision(record))
-                )
-        return tuple(sorted(definitions, key=lambda item: item.record.metadata.name))
-
     def snapshot_for_agent(self, agent_id: str) -> PluginSnapshot:
-        """Capture enabled Plugin resources for one newly assembled Runtime."""
+        """Capture enabled standard Plugin resources for a newly assembled Runtime."""
         _validate_resource_name(agent_id)
         entries: list[PluginSnapshotEntry] = []
         skills: list[SkillSnapshotEntry] = []
         mcp_entries: list[McpSnapshotEntry] = []
-        definitions: list[VersionedAppDefinition] = []
         for plugin in self.list():
             if agent_id not in plugin.record.spec.enabled_agent_ids:
                 continue
-            manifest, bundle = self._load_installed_bundle(plugin)
+            _manifest, bundle = self._load_installed_bundle(plugin)
             entries.append(
                 PluginSnapshotEntry(
                     record=plugin.record.model_copy(deep=True),
@@ -536,20 +499,12 @@ class PluginManager:
                             deep=True,
                             update={
                                 "enabled_agent_ids": [agent_id],
-                                "managed_by": McpOwnerRef(
-                                    kind="plugin",
-                                    name=plugin.record.metadata.name,
-                                ),
+                                "managed_by": McpOwnerRef(kind="plugin", name=plugin.record.metadata.name),
                             },
                         )
                     },
                 )
                 mcp_entries.append(McpSnapshotEntry(server, config_revision(server)))
-            for item in bundle.apps:
-                definition = self._project_app_definition(plugin, item.definition)
-                definitions.append(
-                    VersionedAppDefinition(definition, config_revision(definition))
-                )
         frozen_entries = tuple(entries)
         canonical = json.dumps(
             [(entry.record.metadata.name, entry.revision) for entry in frozen_entries],
@@ -560,163 +515,310 @@ class PluginManager:
             entries=frozen_entries,
             skills=_skill_snapshot(tuple(skills)),
             mcp=_mcp_snapshot(tuple(mcp_entries)),
-            app_definitions=tuple(definitions),
         )
 
-    def _load_installed_bundle(
-        self,
-        plugin: VersionedPlugin,
-    ) -> tuple[PluginManifest, PluginBundle]:
+    def _load_installed_bundle(self, plugin: VersionedPlugin) -> tuple[PluginManifest, PluginBundle]:
         manifest = parse_plugin_manifest(plugin.content_root / _MANIFEST_PATH)
-        if manifest.metadata.name != plugin.record.metadata.name:
+        if manifest.name != plugin.record.metadata.name:
             raise ExtensionError("invalid_registry", "Installed Plugin manifest identity is inconsistent.")
         record_spec = plugin.record.spec
-        manifest_spec = manifest.spec
         if (
-            manifest_spec.display_name != record_spec.display_name
-            or manifest_spec.description != record_spec.description
-            or manifest_spec.version != record_spec.version
-            or manifest_spec.developer != record_spec.developer
-            or manifest_spec.runtime_capabilities != record_spec.runtime_capabilities
+            _display_name(manifest) != record_spec.display_name
+            or manifest.description != record_spec.description
+            or manifest.version != record_spec.version
+            or _developer_name(manifest) != record_spec.developer
         ):
             raise ExtensionError("invalid_registry", "Installed Plugin metadata is inconsistent.")
-        if manifest_spec.resources != record_spec.resources:
-            raise ExtensionError("invalid_registry", "Installed Plugin resource inventory is inconsistent.")
         bundle = self._load_bundle(plugin.content_root, manifest)
+        if bundle.resources != record_spec.resources:
+            raise ExtensionError("invalid_registry", "Installed Plugin component inventory is inconsistent.")
         if bundle.effective_risk != record_spec.risk:
             raise ExtensionError("invalid_registry", "Installed Plugin risk projection is inconsistent.")
         return manifest, bundle
 
     def _load_bundle(self, content_root: Path, manifest: PluginManifest) -> PluginBundle:
-        plugin_id = manifest.metadata.name
-        resources = manifest.spec.resources
-        skills: list[ParsedPluginSkill] = []
-        apps: list[ParsedPluginApp] = []
-        servers: list[ParsedPluginMcp] = []
-        risks = [manifest.spec.risk]
-        for ref in resources.skills:
-            self._require_namespaced(plugin_id, ref.name)
-            root = self._resource_path(content_root, ref.path)
-            skill = parse_skill_manifest(root / "SKILL.md")
-            if skill.name != ref.name:
-                raise ExtensionError("invalid_manifest", "Plugin Skill identity does not match its declaration.")
-            skills.append(ParsedPluginSkill(ref, skill))
-            risks.append(skill.risk)
-        for ref in resources.app_definitions:
-            self._require_namespaced(plugin_id, ref.name)
-            definition = self._read_model(
-                self._resource_path(content_root, ref.path),
-                AppDefinition,
-                label="App definition",
-            )
-            if definition.metadata.name != ref.name:
-                raise ExtensionError("invalid_manifest", "Plugin App identity does not match its declaration.")
-            owner = definition.spec.managed_by
-            if owner is not None and (owner.kind != "plugin" or owner.name != plugin_id):
-                raise ExtensionError("invalid_manifest", "Plugin App declares a different owner.")
-            apps.append(ParsedPluginApp(ref, definition))
-            risks.extend(tool.risk for tool in definition.spec.tools)
-        prefixes: set[str] = set()
-        for ref in resources.mcp_servers:
-            self._require_namespaced(plugin_id, ref.name)
-            server = self._read_model(
-                self._resource_path(content_root, ref.path),
-                McpServer,
-                label="MCP Server",
-            )
-            if server.metadata.name != ref.name:
-                raise ExtensionError("invalid_manifest", "Plugin MCP identity does not match its declaration.")
-            owner = server.spec.managed_by
-            if owner is not None and (owner.kind != "plugin" or owner.name != plugin_id):
-                raise ExtensionError("invalid_manifest", "Plugin MCP declares a different owner.")
-            if server.spec.enabled_agent_ids:
-                raise ExtensionError("invalid_manifest", "Plugin MCP templates cannot contain Agent enablement.")
-            bindings = (
-                server.spec.transport.environment.values()
-                if isinstance(server.spec.transport, McpStdioTransport)
-                else server.spec.transport.headers.values()
-            )
-            if any(isinstance(value, McpSecretValue) for value in bindings):
-                raise ExtensionError("invalid_manifest", "Plugin MCP templates cannot contain SecretRef bindings.")
-            prefix = server.spec.policy.resolved_prefix(server.metadata.name)
-            if prefix in prefixes:
-                raise ExtensionError("invalid_manifest", "Plugin MCP tool-name prefixes must be unique.")
-            prefixes.add(prefix)
-            servers.append(ParsedPluginMcp(ref, server))
-            risks.append(server.spec.risk)
-        for ref in resources.agent_templates:
-            self._require_namespaced(plugin_id, ref.name)
-            template = self._read_model(
-                self._resource_path(content_root, ref.path),
-                PluginAgentTemplate,
-                label="Agent template",
-            )
-            declared = {
-                *(item.name for item in resources.skills),
-                *(item.name for item in resources.app_definitions),
-                *(item.name for item in resources.mcp_servers),
-            }
-            referenced = {
-                *template.spec.skills,
-                *template.spec.app_definitions,
-                *template.spec.mcp_servers,
-            }
-            if not referenced.issubset(declared):
-                raise ExtensionError("invalid_manifest", "Agent template references an undeclared resource.")
-        for ref in resources.config_schemas:
-            self._require_namespaced(plugin_id, ref.name)
-            self._read_model(
-                self._resource_path(content_root, ref.path),
-                PluginConfigSchema,
-                label="config schema",
-            )
-        for ref in resources.documentation:
-            self._require_namespaced(plugin_id, ref.name)
-            path = self._resource_path(content_root, ref.path)
-            if path.suffix.lower() != ".md" or not path.is_file():
-                raise ExtensionError("invalid_manifest", "Plugin documentation must be a Markdown file.")
-            try:
-                path.read_text(encoding="utf-8")
-            except (OSError, UnicodeError) as exc:
-                raise ExtensionError("invalid_manifest", "Plugin documentation is not valid UTF-8.") from exc
-        effective_risk = max(risks, key=lambda item: _RISK_ORDER[item])
-        return PluginBundle(tuple(skills), tuple(apps), tuple(servers), effective_risk)
+        skills = self._load_skills(content_root, manifest)
+        servers = self._load_mcp_servers(content_root, manifest)
+        registered_apps = self._load_registered_apps(content_root, manifest)
+        hook_paths, inline_hook_count = self._load_hooks(content_root, manifest)
+        self._validate_assets(content_root, manifest)
+        risks = [
+            "low",
+            *(item.manifest.risk for item in skills),
+            *(item.server.spec.risk for item in servers),
+        ]
+        if registered_apps:
+            risks.append("medium")
+        if hook_paths or inline_hook_count:
+            risks.append("high")
+        return PluginBundle(
+            tuple(skills),
+            tuple(servers),
+            tuple(registered_apps),
+            tuple(hook_paths),
+            inline_hook_count,
+            max(risks, key=lambda item: _RISK_ORDER[item]),
+        )
 
-    def _readiness_for(self, manifest: PluginManifest, bundle: PluginBundle) -> PluginReadiness:
+    def _load_skills(self, content_root: Path, manifest: PluginManifest) -> list[ParsedPluginSkill]:
+        if manifest.skills is None:
+            return []
+        skills_root = self._resource_path(content_root, manifest.skills)
+        if not skills_root.is_dir():
+            raise ExtensionError("invalid_manifest", "Plugin skills must point to a directory.")
+        roots = [skills_root] if (skills_root / "SKILL.md").is_file() else [
+            path for path in sorted(skills_root.iterdir(), key=lambda item: item.name) if path.is_dir()
+        ]
+        values: list[ParsedPluginSkill] = []
+        source_names: set[str] = set()
+        for root in roots:
+            if not (root / "SKILL.md").is_file():
+                raise ExtensionError("invalid_manifest", "Every Plugin skill directory must contain SKILL.md.")
+            skill = parse_skill_manifest(root / "SKILL.md")
+            if skill.name in source_names:
+                raise ExtensionError("invalid_manifest", "Plugin Skill names must be unique.")
+            source_names.add(skill.name)
+            internal_name = _component_id(manifest.name, skill.name)
+            values.append(
+                ParsedPluginSkill(
+                    PluginResourceRef(name=internal_name, path=self._relative_path(content_root, root)),
+                    skill,
+                )
+            )
+        return values
+
+    def _load_mcp_servers(self, content_root: Path, manifest: PluginManifest) -> list[ParsedPluginMcp]:
+        if manifest.mcp_servers is None:
+            return []
+        path = self._resource_path(content_root, manifest.mcp_servers)
+        raw = self._read_json(path, label="MCP configuration")
+        if not isinstance(raw, dict):
+            raise ExtensionError("invalid_manifest", "Plugin MCP configuration must be an object.")
+        wrapped = raw.get("mcp_servers", raw.get("mcpServers"))
+        server_map = wrapped if wrapped is not None else raw
+        if not isinstance(server_map, dict):
+            raise ExtensionError("invalid_manifest", "Plugin MCP server map must be an object.")
+        values: list[ParsedPluginMcp] = []
+        for source_name in sorted(server_map):
+            config = server_map[source_name]
+            if _RESOURCE_NAME_PATTERN.fullmatch(source_name) is None or not isinstance(config, dict):
+                raise ExtensionError("invalid_manifest", "Plugin MCP server entry is invalid.")
+            unsupported = set(config) - _MCP_CONFIG_KEYS
+            if unsupported:
+                raise ExtensionError(
+                    "invalid_manifest",
+                    "Plugin MCP server contains unsupported standard fields.",
+                    details={"fields": sorted(unsupported)},
+                )
+            internal_name = _component_id(manifest.name, source_name)
+            server, environment_keys = self._project_mcp_server(
+                content_root,
+                manifest,
+                source_name,
+                internal_name,
+                config,
+            )
+            values.append(
+                ParsedPluginMcp(
+                    PluginResourceRef(name=internal_name, path=manifest.mcp_servers),
+                    server,
+                    environment_keys,
+                )
+            )
+        return values
+
+    def _project_mcp_server(
+        self,
+        content_root: Path,
+        manifest: PluginManifest,
+        source_name: str,
+        internal_name: str,
+        config: dict[str, Any],
+    ) -> tuple[McpServer, tuple[str, ...]]:
+        command = config.get("command")
+        url = config.get("url")
+        if isinstance(command, str) == isinstance(url, str):
+            raise ExtensionError("invalid_manifest", "Plugin MCP server must define exactly one of command or url.")
+        environment_keys: set[str] = set()
+        if isinstance(command, str):
+            resolved_command = self._resolve_plugin_command(content_root, command)
+            args = self._string_list(config.get("args", []), label="MCP args")
+            cwd = self._resolve_plugin_cwd(content_root, config.get("cwd"))
+            environment = {
+                name: McpLiteralValue(kind="literal", value=value)
+                for name, value in self._string_map(config.get("env", {}), label="MCP env").items()
+            }
+            env_vars = self._string_list(config.get("env_vars", []), label="MCP env_vars")
+            for name in env_vars:
+                self._require_environment_name(name)
+                environment_keys.add(name)
+                environment[name] = McpEnvironmentValue(kind="environment", name=name)
+            transport = McpStdioTransport(
+                type="stdio",
+                command=resolved_command,
+                args=args,
+                cwd=cwd,
+                environment=environment,
+            )
+        else:
+            if not isinstance(url, str):
+                raise ExtensionError("invalid_manifest", "Plugin MCP URL must be text.")
+            headers = {
+                name: McpLiteralValue(kind="literal", value=value)
+                for name, value in self._string_map(
+                    config.get("http_headers", {}),
+                    label="MCP http_headers",
+                ).items()
+            }
+            for header, environment_name in self._string_map(
+                config.get("env_http_headers", {}),
+                label="MCP env_http_headers",
+            ).items():
+                self._require_environment_name(environment_name)
+                environment_keys.add(environment_name)
+                headers[header] = McpEnvironmentValue(kind="environment", name=environment_name)
+            bearer = config.get("bearer_token_env_var")
+            if bearer is not None:
+                if not isinstance(bearer, str):
+                    raise ExtensionError("invalid_manifest", "MCP bearer_token_env_var must be text.")
+                self._require_environment_name(bearer)
+                environment_keys.add(bearer)
+                headers["Authorization"] = McpEnvironmentValue(
+                    kind="environment",
+                    name=bearer,
+                    prefix="Bearer ",
+                )
+            transport_name = config.get("transport", "streamable_http")
+            if transport_name in {"http", "streamable-http"}:
+                transport_name = "streamable_http"
+            if transport_name not in {"streamable_http", "sse"}:
+                raise ExtensionError("invalid_manifest", "Plugin MCP remote transport is unsupported.")
+            transport = McpRemoteTransport(
+                type=transport_name,
+                url=url,
+                headers=headers,
+                query={},
+                auth="none",
+            )
+        enabled_tools = self._string_list(config.get("enabled_tools", []), label="MCP enabled_tools")
+        disabled_tools = self._string_list(config.get("disabled_tools", []), label="MCP disabled_tools")
+        if enabled_tools and disabled_tools:
+            raise ExtensionError(
+                "invalid_manifest",
+                "Plugin MCP enabled_tools and disabled_tools cannot both be configured.",
+            )
+        server = McpServer(
+            api_version="openppx.io/v1alpha1",
+            kind="McpServer",
+            metadata=ResourceMetadata(name=internal_name),
+            spec=McpServerSpec(
+                display_name=_title(source_name),
+                description=f"Bundled MCP server from {_display_name(manifest)}.",
+                transport=transport,
+                policy=McpToolPolicy(
+                    tool_filter=enabled_tools,
+                    disabled_tools=disabled_tools,
+                    tool_name_prefix=_tool_prefix(manifest.name, source_name),
+                ),
+                risk="medium",
+                enabled_agent_ids=[],
+                managed_by=McpOwnerRef(kind="plugin", name=manifest.name),
+            ),
+        )
+        return server, tuple(sorted(environment_keys))
+
+    def _load_registered_apps(
+        self,
+        content_root: Path,
+        manifest: PluginManifest,
+    ) -> list[PluginRegisteredApp]:
+        if manifest.apps is None:
+            return []
+        raw = self._read_json(self._resource_path(content_root, manifest.apps), label="App mapping")
+        app_map = raw.get("apps") if isinstance(raw, dict) else None
+        if not isinstance(app_map, dict):
+            raise ExtensionError("invalid_manifest", "Plugin .app.json must contain an apps object.")
+        values: list[PluginRegisteredApp] = []
+        for name in sorted(app_map):
+            item = app_map[name]
+            if _RESOURCE_NAME_PATTERN.fullmatch(name) is None or not isinstance(item, dict):
+                raise ExtensionError("invalid_manifest", "Plugin registered App entry is invalid.")
+            try:
+                values.append(PluginRegisteredApp.model_validate({"name": name, **item}))
+            except (ValidationError, ValueError) as exc:
+                raise ExtensionError("invalid_manifest", "Plugin registered App entry is invalid.") from exc
+        return values
+
+    def _load_hooks(self, content_root: Path, manifest: PluginManifest) -> tuple[list[str], int]:
+        declared = manifest.hooks
+        default = "./hooks/hooks.json"
+        if declared is None and self._resource_path(content_root, default).is_file():
+            declared = default
+        if declared is None:
+            return [], 0
+        values = declared if isinstance(declared, list) else [declared]
+        paths: list[str] = []
+        inline_count = 0
+        for value in values:
+            if isinstance(value, str):
+                path = self._resource_path(content_root, value)
+                raw = self._read_json(path, label="hook definition")
+                if not isinstance(raw, dict):
+                    raise ExtensionError("invalid_manifest", "Plugin hook definition must be an object.")
+                paths.append(value)
+            elif isinstance(value, dict):
+                inline_count += 1
+            else:
+                raise ExtensionError("invalid_manifest", "Plugin hooks contain an unsupported value.")
+        return paths, inline_count
+
+    def _validate_assets(self, content_root: Path, manifest: PluginManifest) -> None:
+        interface = manifest.interface
+        if interface is None:
+            return
+        paths = [
+            item
+            for item in (interface.composer_icon, interface.logo, interface.logo_dark, *interface.screenshots)
+            if item is not None
+        ]
+        for relative in paths:
+            if not self._resource_path(content_root, relative).is_file():
+                raise ExtensionError("invalid_manifest", "Plugin interface asset is unavailable.")
+
+    def _readiness_for(self, bundle: PluginBundle) -> PluginReadiness:
         issues: list[str] = []
-        if not set(manifest.spec.runtime_capabilities).issubset(self.allowed_runtime_capabilities):
-            issues.append("runtime_capability_unavailable")
         for item in bundle.skills:
             for executable in item.manifest.dependencies.executables:
                 if self.executable_resolver(executable) is None:
                     issues.append("skill_executable_missing")
             for key in item.manifest.dependencies.environment:
-                if key not in self.available_environment_keys:
+                if key not in self.available_environment_keys and key not in os.environ:
                     issues.append("skill_environment_missing")
         for item in bundle.mcp_servers:
             transport = item.server.spec.transport
             if isinstance(transport, McpStdioTransport) and self.executable_resolver(transport.command) is None:
                 issues.append("mcp_executable_missing")
+            for key in item.environment_keys:
+                if key not in self.available_environment_keys and key not in os.environ:
+                    issues.append("mcp_environment_missing")
+        for app in bundle.registered_apps:
+            if app.required and not any(
+                resolver(app) for resolver in self._registered_app_resolvers.values()
+            ):
+                issues.append("registered_app_unavailable")
+        if bundle.hook_paths or bundle.inline_hook_count:
+            issues.append("plugin_hooks_unsupported")
         return PluginReadiness(ready=not issues, issues=tuple(sorted(set(issues))))
 
-    def _require_identities_available(self, plugin_id: str, manifest: PluginManifest) -> None:
+    def _require_identities_available(self, plugin_id: str, bundle: PluginBundle) -> None:
         if self.identity_index is None:
             return
         owner_key = f"plugin:{plugin_id}"
-        for kind, values in (
-            ("skill", manifest.spec.resources.skills),
-            ("app", manifest.spec.resources.app_definitions),
-            ("mcp", manifest.spec.resources.mcp_servers),
-        ):
+        for kind, values in (("skill", bundle.skills), ("mcp", bundle.mcp_servers)):
             for item in values:
-                self.identity_index.require_available(kind, item.name, owner_key=owner_key)
+                self.identity_index.require_available(kind, item.ref.name, owner_key=owner_key)
 
-    def _require_prefixes_available(
-        self,
-        plugin_id: str,
-        bundle: PluginBundle,
-        agent_id: str,
-    ) -> None:
+    def _require_prefixes_available(self, plugin_id: str, bundle: PluginBundle, agent_id: str) -> None:
         if self.prefix_index is None:
             return
         for item in bundle.mcp_servers:
@@ -733,12 +835,9 @@ class PluginManager:
             owner = f"plugin:{plugin.record.metadata.name}"
             for kind, values in (
                 ("skill", plugin.record.spec.resources.skills),
-                ("app", plugin.record.spec.resources.app_definitions),
                 ("mcp", plugin.record.spec.resources.mcp_servers),
             ):
-                reservations.extend(
-                    ResourceIdentityReservation(kind, item.name, owner) for item in values
-                )
+                reservations.extend(ResourceIdentityReservation(kind, item.name, owner) for item in values)
         return tuple(reservations)
 
     def _prefix_reservations(self, agent_id: str) -> tuple[ToolPrefixReservation, ...]:
@@ -756,39 +855,6 @@ class PluginManager:
                 for item in bundle.mcp_servers
             )
         return tuple(reservations)
-
-    def _project_app_definition(
-        self,
-        plugin: VersionedPlugin,
-        definition: AppDefinition,
-    ) -> AppDefinition:
-        return self._project_app_definition_from_source(
-            plugin.record.spec.source,
-            plugin.record.spec.version,
-            plugin.record.metadata.name,
-            definition,
-        )
-
-    @staticmethod
-    def _project_app_definition_from_source(
-        source,
-        version: str,
-        plugin_id: str,
-        definition: AppDefinition,
-    ) -> AppDefinition:
-        projected_source = source.model_copy(update={"version": version})
-        return definition.model_copy(
-            deep=True,
-            update={
-                "spec": definition.spec.model_copy(
-                    deep=True,
-                    update={
-                        "source": projected_source,
-                        "managed_by": AppOwnerRef(kind="plugin", name=plugin_id),
-                    },
-                )
-            },
-        )
 
     def _replace_enablement(
         self,
@@ -873,31 +939,77 @@ class PluginManager:
 
     @staticmethod
     def _resource_path(content_root: Path, relative: str) -> Path:
-        path = content_root.joinpath(*PurePosixPath(relative).parts).resolve(strict=False)
+        normalized = relative.removeprefix("./")
+        path = content_root.joinpath(*PurePosixPath(normalized).parts).resolve(strict=False)
         if not path.is_relative_to(content_root.resolve(strict=True)):
             raise ExtensionError("unsafe_path", "Plugin resource path is outside installed content.")
         return path
 
     @staticmethod
-    def _read_model(path: Path, model_type, *, label: str):
+    def _relative_path(content_root: Path, path: Path) -> str:
+        relative = path.resolve(strict=True).relative_to(content_root.resolve(strict=True))
+        return f"./{relative.as_posix()}"
+
+    @staticmethod
+    def _read_json(path: Path, *, label: str) -> Any:
         if not path.is_file():
             raise ExtensionError("invalid_manifest", f"Plugin {label} path is not a file.")
         try:
-            raw = json.loads(path.read_text(encoding="utf-8"))
-            return model_type.model_validate(raw)
-        except (OSError, UnicodeError, json.JSONDecodeError, ValidationError, ValueError) as exc:
+            return json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeError, json.JSONDecodeError) as exc:
             raise ExtensionError("invalid_manifest", f"Plugin {label} is invalid.") from exc
 
     @staticmethod
-    def _require_namespaced(plugin_id: str, resource_id: str) -> None:
-        if not resource_id.startswith(f"{plugin_id}--"):
-            raise ExtensionError(
-                "invalid_manifest",
-                "Plugin resources must use the Plugin identity namespace.",
-            )
+    def _string_list(value: object, *, label: str) -> list[str]:
+        if not isinstance(value, list) or len(value) > 256 or any(not isinstance(item, str) for item in value):
+            raise ExtensionError("invalid_manifest", f"Plugin {label} must be a bounded string array.")
+        return list(value)
 
     @staticmethod
-    def _require_revision(current: VersionedPlugin, expected_revision: str) -> None:
+    def _string_map(value: object, *, label: str) -> dict[str, str]:
+        if (
+            not isinstance(value, dict)
+            or len(value) > 128
+            or any(not isinstance(key, str) or not isinstance(item, str) for key, item in value.items())
+        ):
+            raise ExtensionError("invalid_manifest", f"Plugin {label} must be a bounded string map.")
+        return dict(value)
+
+    @staticmethod
+    def _require_environment_name(value: str) -> None:
+        if _ENVIRONMENT_NAME_PATTERN.fullmatch(value) is None:
+            raise ExtensionError("invalid_manifest", "Plugin MCP environment name is invalid.")
+
+    def _resolve_plugin_command(self, content_root: Path, command: str) -> str:
+        if command.startswith("./"):
+            path = self._resource_path(content_root, command)
+            if not path.is_file():
+                raise ExtensionError("invalid_manifest", "Plugin MCP executable is unavailable.")
+            return str(path)
+        absolute = Path(command)
+        if absolute.is_absolute():
+            if not absolute.is_file():
+                raise ExtensionError("invalid_manifest", "Plugin MCP executable is unavailable.")
+            return str(absolute)
+        if "/" in command or "\\" in command:
+            raise ExtensionError("invalid_manifest", "Plugin MCP command must be an executable name or './' path.")
+        return command
+
+    def _resolve_plugin_cwd(self, content_root: Path, value: object) -> str | None:
+        if value is None:
+            return str(content_root)
+        if not isinstance(value, str):
+            raise ExtensionError("invalid_manifest", "Plugin MCP cwd must be text.")
+        if value == ".":
+            return str(content_root)
+        relative = value if value.startswith("./") else f"./{value}"
+        path = self._resource_path(content_root, relative)
+        if not path.is_dir():
+            raise ExtensionError("invalid_manifest", "Plugin MCP cwd is not a directory.")
+        return str(path)
+
+    @staticmethod
+    def _require_revision(current: VersionedPlugin, expected_revision: str | None) -> None:
         if current.revision != expected_revision:
             raise ExtensionError(
                 "revision_conflict",
@@ -925,12 +1037,50 @@ class PluginManager:
 
 
 def parse_plugin_manifest(path: Path) -> PluginManifest:
-    """Parse one strict Plugin root manifest without accepting compatibility fields."""
+    """Parse one strict `.agent-plugin` manifest using Codex field names."""
     try:
         raw = json.loads(path.read_text(encoding="utf-8"))
         return PluginManifest.model_validate(raw)
     except (OSError, UnicodeError, json.JSONDecodeError, ValidationError, ValueError) as exc:
-        raise ExtensionError("invalid_manifest", "Plugin manifest does not match the v1 schema.") from exc
+        raise ExtensionError("invalid_manifest", "Plugin manifest does not match the Codex schema.") from exc
+
+
+def _display_name(manifest: PluginManifest) -> str:
+    interface = manifest.interface
+    return interface.display_name if interface and interface.display_name else _title(manifest.name)
+
+
+def _developer_name(manifest: PluginManifest) -> str:
+    if manifest.author is not None:
+        return manifest.author.name
+    if manifest.interface is not None and manifest.interface.developer_name:
+        return manifest.interface.developer_name
+    return "Unknown developer"
+
+
+def _title(value: str) -> str:
+    return " ".join(part.capitalize() for part in value.replace("_", "-").split("-") if part)
+
+
+def _component_id(plugin_id: str, component_name: str) -> str:
+    """Build a deterministic internal identity without modifying the package."""
+    _validate_resource_name(plugin_id)
+    _validate_resource_name(component_name)
+    candidate = f"{plugin_id}--{component_name}"
+    if len(candidate) <= 63:
+        return candidate
+    digest = hashlib.sha256(candidate.encode("utf-8")).hexdigest()[:10]
+    prefix = candidate[: 63 - len(digest) - 1].rstrip("-")
+    return f"{prefix}-{digest}"
+
+
+def _tool_prefix(plugin_id: str, component_name: str) -> str:
+    """Build one bounded ADK-safe MCP prefix from standard component names."""
+    candidate = f"{plugin_id.replace('-', '_')}_{component_name.replace('-', '_')}"
+    if len(candidate) <= 128:
+        return candidate
+    digest = hashlib.sha256(candidate.encode("utf-8")).hexdigest()[:10]
+    return f"{candidate[:117].rstrip('_')}_{digest}"
 
 
 def _trust_for_source(source_type: str) -> str:
@@ -943,7 +1093,7 @@ def _trust_for_source(source_type: str) -> str:
 
 def _validate_resource_name(value: str) -> None:
     if _RESOURCE_NAME_PATTERN.fullmatch(value) is None:
-        raise ExtensionError("invalid_identity", "Plugin or Agent identity is invalid.")
+        raise ExtensionError("invalid_identity", "Plugin, component, or Agent identity is invalid.")
 
 
 def _skill_snapshot(skills: tuple[SkillSnapshotEntry, ...]) -> SkillSnapshot:
