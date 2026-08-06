@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import threading
+import time
 from dataclasses import dataclass
 from typing import Any
 
@@ -12,6 +13,7 @@ from google.adk.plugins.base_plugin import BasePlugin
 from .events import RuntimeFeedbackEvent
 from .tool_confirmation import REQUEST_CONFIRMATION_TOOL_NAME, extract_tool_confirmation_requests
 from .tool_context import get_route
+from .trace import structured_runtime_error
 
 logger = logging.getLogger(__name__)
 
@@ -300,6 +302,7 @@ class OpenPpxStepEventPlugin(BasePlugin):
         self._event_seq_by_invocation: dict[str, int] = {}
         self._step_order_by_invocation: dict[str, int] = {}
         self._known_steps: dict[str, set[str]] = {}
+        self._tool_started_at: dict[tuple[str, str], float] = {}
 
     async def before_run_callback(self, *, invocation_context: Any) -> None:
         invocation_id = _clean_str(getattr(invocation_context, "invocation_id", None))
@@ -316,6 +319,8 @@ class OpenPpxStepEventPlugin(BasePlugin):
             self._event_seq_by_invocation.pop(invocation_id, None)
             self._step_order_by_invocation.pop(invocation_id, None)
             self._known_steps.pop(invocation_id, None)
+            for key in [key for key in self._tool_started_at if key[0] == invocation_id]:
+                self._tool_started_at.pop(key, None)
 
     def _next_event_seq(self, invocation_id: str) -> int:
         current = self._event_seq_by_invocation.get(invocation_id, 0) + 1
@@ -397,6 +402,7 @@ class OpenPpxStepEventPlugin(BasePlugin):
         tool_name = _clean_str(getattr(tool, "name", None)) or "tool"
         if not invocation_id or not function_call_id:
             return None
+        self._tool_started_at[(invocation_id, function_call_id)] = time.monotonic()
         await self._publish_step_event(
             invocation_id=invocation_id,
             function_call_id=function_call_id,
@@ -404,6 +410,7 @@ class OpenPpxStepEventPlugin(BasePlugin):
             step_phase="started",
             step_update_kind="lifecycle",
             content=f"Started `{tool_name}`",
+            extra_metadata={"_correlation_id": invocation_id},
         )
         return None
 
@@ -420,6 +427,8 @@ class OpenPpxStepEventPlugin(BasePlugin):
         tool_name = _clean_str(getattr(tool, "name", None)) or "tool"
         if not invocation_id or not function_call_id:
             return None
+        started_at = self._tool_started_at.pop((invocation_id, function_call_id), None)
+        duration_ms = max(0, int((time.monotonic() - started_at) * 1_000)) if started_at is not None else None
         await self._publish_step_event(
             invocation_id=invocation_id,
             function_call_id=function_call_id,
@@ -428,6 +437,10 @@ class OpenPpxStepEventPlugin(BasePlugin):
             step_update_kind="lifecycle",
             content=f"Finished `{tool_name}`",
             done=True,
+            extra_metadata={
+                "_correlation_id": invocation_id,
+                **({"_duration_ms": duration_ms} if duration_ms is not None else {}),
+            },
         )
         return None
 
@@ -444,6 +457,8 @@ class OpenPpxStepEventPlugin(BasePlugin):
         tool_name = _clean_str(getattr(tool, "name", None)) or "tool"
         if not invocation_id or not function_call_id:
             return None
+        started_at = self._tool_started_at.pop((invocation_id, function_call_id), None)
+        duration_ms = max(0, int((time.monotonic() - started_at) * 1_000)) if started_at is not None else None
         await self._publish_step_event(
             invocation_id=invocation_id,
             function_call_id=function_call_id,
@@ -453,6 +468,11 @@ class OpenPpxStepEventPlugin(BasePlugin):
             content=f"`{tool_name}` failed: {type(error).__name__}",
             done=True,
             important=True,
+            extra_metadata={
+                "_correlation_id": invocation_id,
+                "_error": structured_runtime_error(error),
+                **({"_duration_ms": duration_ms} if duration_ms is not None else {}),
+            },
         )
         return None
 

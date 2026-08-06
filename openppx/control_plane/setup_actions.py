@@ -67,6 +67,11 @@ def _spec(
         risk=risk,
         confirmation=confirmation,
         execution=execution,
+        operation=(
+            "mutation"
+            if action_id in {"setup.apply", "setup.hello", "secret.put", "secret.delete"}
+            else "read"
+        ),
         projections=("cli", "desktop", "mobile"),
     )
 

@@ -5,6 +5,7 @@ import type {
   AppCredentialSpec,
   AppToolSpec,
   ExtensionDetail,
+  ExtensionHealthHistory,
   ExtensionPreview,
   ExtensionPresentation,
   ExtensionProbeResult,
@@ -865,6 +866,7 @@ function ExtensionDetailDialog(props: {
   const [removeArmed, setRemoveArmed] = useState(false);
   const [mcpProbe, setMcpProbe] = useState<ExtensionProbeResult | null>(null);
   const [connectionProbes, setConnectionProbes] = useState<Record<string, ExtensionProbeResult>>({});
+  const [healthHistories, setHealthHistories] = useState<Record<string, ExtensionHealthHistory>>({});
   const [hookStatus, setHookStatus] = useState<PluginHookStatus | null>(null);
   const detail = props.detail;
   const builtin = detail.status === "builtin";
@@ -873,6 +875,7 @@ function ExtensionDetailDialog(props: {
   const visibleVersion = detail.version && detail.version !== "builtin" ? detail.version : null;
   const trustLabel = detail.source.trust === "builtin" ? "Built in" : detail.source.trust.replace("_", " ");
   const connections = recordArray(detail.details.connections) as unknown as AppConnectionDetail[];
+  const connectionIds = connections.map((connection) => connection.id).sort().join("|");
   const capabilities = Array.isArray(detail.details.capabilities) ? detail.details.capabilities.map(String) : [];
   const dependencies = Array.isArray(detail.details.dependencies) ? detail.details.dependencies.map(String) : [];
   const resource = asMcpResource(detail.details.resource);
@@ -887,6 +890,23 @@ function ExtensionDetailDialog(props: {
     return () => { active = false; };
   }, [detail.id, detail.kind, detail.revision]);
 
+  useEffect(() => {
+    const targets: Array<{ key: string; kind: "mcp" | "app_connection"; id: string }> = detail.kind === "mcp"
+      ? [{ key: detail.id, kind: "mcp", id: detail.id }]
+      : detail.kind === "app"
+        ? connections.map((connection) => ({ key: connection.id, kind: "app_connection", id: connection.id }))
+        : [];
+    if (!targets.length) {
+      setHealthHistories({});
+      return undefined;
+    }
+    let active = true;
+    Promise.all(targets.map(async (target) => [target.key, await window.ppxClient.getExtensionHealthHistory(target.kind, target.id, 6)] as const))
+      .then((entries) => { if (active) setHealthHistories(Object.fromEntries(entries)); })
+      .catch(() => { if (active) setHealthHistories({}); });
+    return () => { active = false; };
+  }, [connectionIds, detail.id, detail.kind, detail.revision]);
+
   async function run(action: () => Promise<void>): Promise<void> {
     setWorking(true); setError(null);
     try { await action(); }
@@ -897,6 +917,11 @@ function ExtensionDetailDialog(props: {
   async function testMcp(): Promise<void> {
     await run(async () => {
       setMcpProbe(await window.ppxClient.testMcpServer(detail.id));
+      const history = await window.ppxClient.getExtensionHealthHistory("mcp", detail.id, 6);
+      setHealthHistories((current) => ({
+        ...current,
+        [detail.id]: history,
+      }));
     });
   }
 
@@ -904,6 +929,11 @@ function ExtensionDetailDialog(props: {
     await run(async () => {
       const result = await window.ppxClient.testAppConnection(connectionId);
       setConnectionProbes((current) => ({ ...current, [connectionId]: result }));
+      const history = await window.ppxClient.getExtensionHealthHistory("app_connection", connectionId, 6);
+      setHealthHistories((current) => ({
+        ...current,
+        [connectionId]: history,
+      }));
     });
   }
 
@@ -917,8 +947,9 @@ function ExtensionDetailDialog(props: {
     <DialogShell title={detail.displayName} eyebrow={title(detail.kind)} description={detail.description || `${title(detail.kind)} resource on this Node.`} busy={working} onClose={props.onClose} wide>
       <div className="extension-detail-status"><span className={`extension-state ${detail.readiness.ready ? "ready" : "blocked"}`}><i />{stateLabel}</span>{visibleVersion ? <span>{visibleVersion}</span> : null}<span>{trustLabel}</span><span>{detail.risk} risk</span></div>
       {detail.readiness.issues.length ? <section className="extension-issues"><strong>Needs attention</strong>{detail.readiness.issues.map((issue) => <p key={issue}>{issue}</p>)}</section> : null}
+      {detail.kind === "mcp" && healthHistories[detail.id]?.items.length ? <ExtensionHealthHistoryPanel history={healthHistories[detail.id]} /> : null}
       {detail.kind === "mcp" && resource ? <section className="extension-detail-section"><header><strong>Server</strong><div className="extension-section-actions"><button className="secondary" disabled={working} onClick={() => void testMcp()}>{working ? "Testing…" : "Test connection"}</button><button className="secondary" onClick={props.onEditMcp}>Edit</button></div></header><dl className="extension-detail-grid"><div><dt>Transport</dt><dd>{resource.spec.transport.type.replace("_", " ")}</dd></div><div><dt>Tool prefix</dt><dd>{resource.spec.policy.toolNamePrefix || "None"}</dd></div><div><dt>Tool access</dt><dd>{resource.spec.policy.toolFilter.length ? `${resource.spec.policy.toolFilter.length} allowed` : "All tools"}</dd></div><div><dt>Long tasks</dt><dd>{resource.spec.policy.longTaskProxy ? "proxied" : "inline"}</dd></div></dl>{mcpProbe ? <ExtensionProbePanel result={mcpProbe} /> : <p className="extension-probe-hint">Run a live check to verify the server and discover its current tools.</p>}</section> : null}
-      {detail.kind === "app" ? <section className="extension-detail-section"><header><div><strong>Connections</strong><p>Each connection owns its credentials, tool policy, and Agent access.</p></div><button onClick={props.onAddConnection}>Add connection</button></header>{connections.length ? <div className="app-connection-list">{connections.map((connection) => { const connectionEnabled = Boolean(props.selectedAgentId && connection.enabledAgentIds.includes(props.selectedAgentId)); const probe = connectionProbes[connection.id]; const authType = String(detail.details.authType ?? "none"); return <article key={connection.id}><button className="app-connection-open" onClick={() => props.onEditConnection(connection)}><strong>{connection.displayName}</strong><span>{connection.ready ? "Ready" : connection.authState.replace("_", " ")}</span><small>{connection.enabledTools ? `${connection.enabledTools.length} tools` : "Default tools"}</small></button><div className="app-connection-actions"><button className="secondary" disabled={working} onClick={() => void testConnection(connection.id)}>{working ? "Testing…" : "Test"}</button><button className="secondary" disabled={working} onClick={() => props.onEditConnection(connection)}>{authType === "oauth" ? "Reauthorize" : authType === "secret" ? "Update credentials" : "Edit"}</button><button className="secondary" disabled={!props.selectedAgentId || working} onClick={() => void run(() => props.onConnectionEnabled(connection, !connectionEnabled))}>{connectionEnabled ? "Disable" : "Enable"}</button><button className="secondary danger-quiet" disabled={working || connection.enabledAgentIds.length > 0} onClick={() => void run(() => props.onRemoveConnection(connection))}>Remove</button></div>{probe ? <ExtensionProbePanel result={probe} compact /> : null}</article>; })}</div> : <div className="extension-empty-state compact"><span>No connections</span><p>Add an account before an Agent can use this App.</p></div>}</section> : null}
+      {detail.kind === "app" ? <section className="extension-detail-section"><header><div><strong>Connections</strong><p>Each connection owns its credentials, tool policy, and Agent access.</p></div><button onClick={props.onAddConnection}>Add connection</button></header>{connections.length ? <div className="app-connection-list">{connections.map((connection) => { const connectionEnabled = Boolean(props.selectedAgentId && connection.enabledAgentIds.includes(props.selectedAgentId)); const probe = connectionProbes[connection.id]; const health = healthHistories[connection.id]; const authType = String(detail.details.authType ?? "none"); return <article key={connection.id}><button className="app-connection-open" onClick={() => props.onEditConnection(connection)}><strong>{connection.displayName}</strong><span>{connection.ready ? "Ready" : connection.authState.replace("_", " ")}</span><small>{connection.enabledTools ? `${connection.enabledTools.length} tools` : "Default tools"}</small></button><div className="app-connection-actions"><button className="secondary" disabled={working} onClick={() => void testConnection(connection.id)}>{working ? "Testing…" : "Test"}</button><button className="secondary" disabled={working} onClick={() => props.onEditConnection(connection)}>{authType === "oauth" ? "Reauthorize" : authType === "secret" ? "Update credentials" : "Edit"}</button><button className="secondary" disabled={!props.selectedAgentId || working} onClick={() => void run(() => props.onConnectionEnabled(connection, !connectionEnabled))}>{connectionEnabled ? "Disable" : "Enable"}</button><button className="secondary danger-quiet" disabled={working || connection.enabledAgentIds.length > 0} onClick={() => void run(() => props.onRemoveConnection(connection))}>Remove</button></div>{probe ? <ExtensionProbePanel result={probe} compact /> : null}{health?.items.length ? <ExtensionHealthHistoryPanel history={health} compact /> : null}</article>; })}</div> : <div className="extension-empty-state compact"><span>No connections</span><p>Add an account before an Agent can use this App.</p></div>}</section> : null}
       {detail.kind === "plugin" && hookStatus ? <section className="extension-detail-section plugin-hook-section"><header><div><strong>Lifecycle Hooks</strong><p>Host commands execute only after you trust this exact Hook definition. Updating the Plugin revokes trust automatically.</p></div>{hookStatus.handlerCount > 0 ? <button className={hookStatus.trusted ? "secondary" : ""} disabled={working || hookStatus.executableCount === 0} onClick={() => void setHookTrust(!hookStatus.trusted)}>{working ? "Applying…" : hookStatus.trusted ? "Revoke trust" : "Trust exact Hooks"}</button> : null}</header><dl className="extension-detail-grid"><div><dt>Status</dt><dd>{hookStatus.handlerCount === 0 ? "No Hooks" : hookStatus.trusted ? "Trusted for this version" : "Not trusted"}</dd></div><div><dt>Handlers</dt><dd>{hookStatus.executableCount} executable · {hookStatus.unsupportedHandlers} skipped</dd></div></dl>{hookStatus.handlers.length ? <div className="plugin-hook-list">{hookStatus.handlers.map((handler, index) => <article key={`${handler.event}:${index}`}><div><strong>{handler.event}</strong><span>{handler.type} · {handler.timeout}s · {handler.supported ? "supported" : "skipped"}</span></div>{handler.command ? <code>{handler.command}</code> : <span>Prompt/agent Hooks are visible but are not executed by OpenPPX.</span>}</article>)}</div> : null}</section> : null}
       {capabilities.length || dependencies.length ? <section className="extension-detail-section"><strong>{capabilities.length ? "Capabilities" : "Dependencies"}</strong><div className="extension-chip-list">{(capabilities.length ? capabilities : dependencies).map((item) => <span key={item}>{item}</span>)}</div></section> : null}
       {detail.kind !== "app" ? <section className="extension-agent-access"><div><strong>Selected Agent</strong><p>{builtin ? "Built-in capabilities are available to every Agent." : props.selectedAgentId ? (enabled ? "This capability is available to the selected Agent." : "This capability is not available to the selected Agent.") : "Select an Agent in the sidebar to manage access."}</p></div><button className="secondary" disabled={!props.selectedAgentId || builtin || working} onClick={() => props.onSetEnabled(!enabled)}>{builtin ? "Always on" : enabled ? "Disable" : "Enable"}</button></section> : null}
@@ -931,6 +962,16 @@ function ExtensionDetailDialog(props: {
       </footer>
     </DialogShell>
   );
+}
+
+function ExtensionHealthHistoryPanel(props: { history: ExtensionHealthHistory; compact?: boolean }) {
+  const { history } = props;
+  const latest = history.summary.latest;
+  if (!latest) return null;
+  const lastSuccess = history.summary.lastSuccessAtMs
+    ? new Date(history.summary.lastSuccessAtMs).toLocaleString([], { dateStyle: "medium", timeStyle: "short" })
+    : "No successful check yet";
+  return <section className={`extension-health-history${props.compact ? " compact" : ""}`}><header><div><strong>Connection history</strong><span>{history.summary.consecutiveFailures ? `${history.summary.consecutiveFailures} consecutive failures` : "Latest check healthy"}</span></div><time dateTime={new Date(latest.checkedAtMs).toISOString()}>{new Date(latest.checkedAtMs).toLocaleString([], { dateStyle: "medium", timeStyle: "short" })}</time></header><dl><div><dt>Last success</dt><dd>{lastSuccess}</dd></div><div><dt>Latest latency</dt><dd>{latest.elapsedMs} ms</dd></div><div><dt>Latest result</dt><dd>{latest.ready ? "Ready" : latest.errorKind?.replaceAll("_", " ") || latest.status}</dd></div></dl>{latest.issues.length ? <p>{latest.issues.join(" · ").replaceAll("_", " ")}</p> : null}</section>;
 }
 
 function ExtensionProbePanel(props: { result: ExtensionProbeResult; compact?: boolean }) {

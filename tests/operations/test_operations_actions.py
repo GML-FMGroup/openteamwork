@@ -193,6 +193,7 @@ def test_operations_actions_share_policy_audit_and_node_facts(tmp_path: Path) ->
         confirmed=False,
     )
     command_catalog = host.coordinator.action_catalog(namespace="operations", projection="slash")
+    task_command_catalog = host.coordinator.action_catalog(namespace="task", projection="slash")
     cron_command = host.coordinator.invoke_action(
         "system.command.invoke",
         {"rawCommand": "/cron", "userId": "principal:client-api"},
@@ -230,6 +231,12 @@ def test_operations_actions_share_policy_audit_and_node_facts(tmp_path: Path) ->
         for command in item["slashCommands"]
     }
     assert commands == {"/cron", "/heartbeat", "/usage"}
+    task_commands = {
+        command["command"]
+        for item in task_command_catalog["result"]["items"]
+        for command in item["slashCommands"]
+    }
+    assert task_commands == {"/task", "/tasks"}
     assert cron_command["result"]["targetActionId"] == "operations.cron.list"
     assert heartbeat_command["result"]["targetActionId"] == "operations.heartbeat.status"
     assert usage_command["result"]["targetActionId"] == "operations.usage.read"
@@ -280,6 +287,20 @@ def test_operations_task_actions_project_controls_and_retained_output(tmp_path: 
         correlation_id="corr-task-pause",
         confirmed=False,
     )
+    task_command = host.coordinator.invoke_action(
+        "system.command.invoke",
+        {"rawCommand": f"/task show {task.task_id}", "userId": "principal:client-api"},
+        request_id="req-task-command",
+        correlation_id="corr-task-command",
+        confirmed=False,
+    )
+    task_artifacts = host.coordinator.invoke_action(
+        "system.command.invoke",
+        {"rawCommand": f"/task artifacts {task.task_id}", "userId": "principal:client-api"},
+        request_id="req-task-artifacts",
+        correlation_id="corr-task-artifacts",
+        confirmed=False,
+    )
 
     assert listed["ok"] is True
     assert listed["result"]["items"][0]["taskId"] == task.task_id
@@ -288,6 +309,10 @@ def test_operations_task_actions_project_controls_and_retained_output(tmp_path: 
     assert "The report is ready" in output["result"]["output"]
     assert unconfirmed["ok"] is False
     assert unconfirmed["error"]["code"] == "confirmation_required"
+    assert task_command["ok"] is True
+    assert task_command["result"]["targetActionId"] == "task.command"
+    assert task_command["result"]["result"]["task"]["taskId"] == task.task_id
+    assert task_artifacts["result"]["result"] == {"taskId": task.task_id, "items": []}
     host.close()
 
 

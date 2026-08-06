@@ -12,12 +12,15 @@ from openppx.modeling import ModelProfileLifecycleService, ModelProfileRepositor
 from openppx.setup import SetupService
 from openppx.governance import ActionAuditStore, ActionPolicy
 from openppx.runtime.session_metadata_store import SessionMetadataStore
+from openppx.runtime.goal_store import GoalStore
 from openppx.extensions import default_extension_starter_catalog
 
 from .config_actions import register_config_actions
 from .agent_actions import register_agent_actions
+from .automation_actions import register_automation_actions
 from .extension_actions import register_extension_actions
 from .model_actions import register_model_actions
+from .goal_actions import register_goal_actions
 from .operations_actions import register_operations_actions
 from .runtime_actions import register_runtime_actions
 from .system_actions import register_system_actions
@@ -52,8 +55,16 @@ class ControlPlaneApplication:
         self.setup_service = setup_service
         self.audit_store = audit_store
         self.product_version = product_version
+        self.runtime_supervisor = None
+        self.extension_registry = None
+        self.mcp_oauth_service = None
+        self.operations_service = None
+        self.automation_service = None
         self.session_metadata = SessionMetadataStore(
             config_repository.paths.node_root / "database" / "sessions.db"
+        )
+        self.goal_store = GoalStore(
+            db_path=config_repository.paths.node_root / "database" / "goals.db"
         )
         registry = ActionRegistry()
         executor = ActionExecutor(registry, policy=ActionPolicy(), audit=audit_store)
@@ -66,6 +77,15 @@ class ControlPlaneApplication:
             model_selector,
             config_repository,
             provider_access,
+            session_metadata=self.session_metadata,
+            runtime_provider=lambda: self.runtime_supervisor,
+        )
+        register_goal_actions(
+            registry,
+            self.goal_store,
+            config_repository,
+            profile_repository,
+            runtime_provider=lambda: self.runtime_supervisor,
         )
         register_setup_actions(registry, setup_service)
         register_system_actions(
@@ -86,10 +106,6 @@ class ControlPlaneApplication:
         )
         self.registry = registry
         self.executor = executor
-        self.runtime_supervisor = None
-        self.extension_registry = None
-        self.mcp_oauth_service = None
-        self.operations_service = None
 
     @staticmethod
     def _invoke_slash_command(
@@ -101,6 +117,19 @@ class ControlPlaneApplication:
         """Resolve one command projection and execute its target Action once."""
         try:
             resolved = registry.resolve_slash(input_data.raw_command)
+            reason = registry.availability_reason(resolved.registered, context)
+            if reason == "capability_required":
+                raise ActionFailure(ActionError("capability_required", "The caller lacks a required capability."))
+            if reason == "permission_denied":
+                raise ActionFailure(ActionError("permission_denied", "The caller lacks the required permission."))
+            if reason is not None:
+                raise ActionFailure(
+                    ActionError(
+                        "action_unavailable",
+                        "The requested Action is not currently available.",
+                        details={"reason": reason},
+                    )
+                )
             adapter = resolved.registered.slash_input
             if adapter is None:  # pragma: no cover - rejected during registration
                 raise SlashCommandError("command_not_available", "The slash command has no input adapter.")
@@ -154,6 +183,7 @@ class ControlPlaneApplication:
         mcp_probe,
         plugin_marketplaces=None,
         starters=None,
+        health_store=None,
     ) -> None:
         """Attach the Node-owned Extension graph and register its shared Actions."""
         if self.extension_registry is not None:
@@ -162,6 +192,12 @@ class ControlPlaneApplication:
             from openppx.extensions import PluginMarketplaceManager
 
             plugin_marketplaces = PluginMarketplaceManager(self.config_repository.paths.node_root)
+        if health_store is None:
+            from openppx.extensions import ExtensionHealthStore
+
+            health_store = ExtensionHealthStore(
+                self.config_repository.paths.node_root / "database" / "extension_health.db"
+            )
         register_extension_actions(
             self.registry,
             registry,
@@ -173,6 +209,7 @@ class ControlPlaneApplication:
             mcp_probe=mcp_probe,
             starters=starters or default_extension_starter_catalog(),
             mcp_oauth=mcp_probe.oauth_service,
+            health_store=health_store,
         )
         self.extension_registry = registry
         self.mcp_oauth_service = mcp_probe.oauth_service
@@ -196,6 +233,13 @@ class ControlPlaneApplication:
             raise RuntimeError("An Operations Service is already attached.")
         register_operations_actions(self.registry, service)
         self.operations_service = service
+
+    def attach_automations(self, service) -> None:
+        """Attach the formal User Automation domain after scheduler composition."""
+        if self.automation_service is not None:
+            raise RuntimeError("An Automation Service is already attached.")
+        register_automation_actions(self.registry, service)
+        self.automation_service = service
 
     def status(self, context: ActionContext) -> ActionOutcome:
         """Return system readiness through the same Action path used by clients."""

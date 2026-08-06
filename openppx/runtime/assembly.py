@@ -30,6 +30,7 @@ from openppx.core.mcp_registry import ManagedMcpToolset, summarize_mcp_toolsets
 from .adk_utils import run_text_async
 from .artifact_service import ArtifactConfig, create_artifact_service
 from .context_engine import LongTaskContextStore
+from .goal_store import GoalStore
 from .memory_service import MemoryConfig, create_memory_service
 from .mcp_adapter import McpRuntimeAdapter
 from .model_adapter_factory import ModelAdapterFactory
@@ -46,6 +47,7 @@ class RuntimeMetadata:
     node_id: str
     agent_id: str
     model_profile_id: str
+    model_profile_revision: str
     provider: str
     model: str
     workspace: str
@@ -64,6 +66,7 @@ class RuntimeServices:
     artifact_service: Any | None
     task_store: TaskStore
     context_store: LongTaskContextStore
+    goal_store: GoalStore
 
     @classmethod
     def local(cls, node_root: Path) -> "RuntimeServices":
@@ -89,12 +92,14 @@ class RuntimeServices:
         task_db_path = database_dir / "tasks.db"
         task_store = TaskStore(db_path=task_db_path)
         context_store = LongTaskContextStore(db_path=task_db_path)
+        goal_store = GoalStore(db_path=database_dir / "goals.db")
         return cls(
             session_service=session_service,
             memory_service=memory_service,
             artifact_service=artifact_service,
             task_store=task_store,
             context_store=context_store,
+            goal_store=goal_store,
         )
 
 
@@ -290,6 +295,8 @@ class RuntimeAssembler:
             include_gui_tools=False,
             skill_snapshot=resolved_extensions.skills,
             mcp_summaries=summarize_mcp_toolsets(list(mcp_build.toolsets)),
+            goal_store=self.services.goal_store,
+            extension_snapshot_digest=resolved_extensions.revision,
         )
         runner, session_service = self._runner_factory(
             agent=agent,
@@ -300,6 +307,7 @@ class RuntimeAssembler:
             artifact_service=self.services.artifact_service,
             task_store=self.services.task_store,
             context_store=self.services.context_store,
+            goal_store=self.services.goal_store,
             extra_plugins=(
                 ()
                 if not resolved_extensions.plugins.hooks.entries
@@ -316,6 +324,7 @@ class RuntimeAssembler:
             node_id=snapshot.node.metadata.name,
             agent_id=snapshot.agent.metadata.name,
             model_profile_id=snapshot.model.profile_id,
+            model_profile_revision=snapshot.model.revision,
             provider=snapshot.model.provider,
             model=snapshot.model.model,
             workspace=snapshot.agent.spec.workspace,

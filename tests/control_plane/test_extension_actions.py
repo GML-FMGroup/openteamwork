@@ -82,6 +82,11 @@ def test_extension_inventory_projects_skills_and_extensions_commands(tmp_path: P
         {"rawCommand": "/extensions", "userId": "local:test"},
         _context(),
     )
+    skill_command = application.invoke(
+        "system.command.invoke",
+        {"rawCommand": "/skill", "userId": "local:test", "agentId": "writer"},
+        _context(),
+    )
 
     extension_item = next(item for item in catalog.data["items"] if item["actionId"] == "extension.list")
     assert [command["command"] for command in extension_item["slashCommands"]] == [
@@ -91,8 +96,14 @@ def test_extension_inventory_projects_skills_and_extensions_commands(tmp_path: P
         "/apps",
         "/mcp",
     ]
+    skill_item = next(item for item in catalog.data["items"] if item["actionId"] == "extension.skill.command")
+    assert skill_item["slashCommands"][0]["command"] == "/skill"
+    assert skill_item["slashCommands"][0]["lifecycle"] == "agent_turn"
     assert skills.ok is True
     assert skills.data["targetActionId"] == "extension.list"
+    assert skill_command.ok is True
+    assert skill_command.data["targetActionId"] == "extension.skill.command"
+    assert skill_command.data["result"] == {"items": []}
     assert extensions.ok is True
 
 
@@ -195,6 +206,16 @@ def test_skill_preview_install_list_enable_disable_remove_use_one_action_path(tm
         },
         _context(confirmed=True),
     )
+    command = application.invoke(
+        "system.command.invoke",
+        {
+            "rawCommand": "/skill demo summarize the current workspace",
+            "userId": "local:test",
+            "agentId": "writer",
+            "sessionId": "session-1",
+        },
+        _context(),
+    )
     disabled = application.invoke(
         "extension.disable",
         {
@@ -220,6 +241,10 @@ def test_skill_preview_install_list_enable_disable_remove_use_one_action_path(tm
     assert unconfirmed.error is not None and unconfirmed.error.code == "confirmation_required"
     assert installed.ok and listed.data["items"][0]["id"] == "demo"
     assert enabled.data["status"] == "enabled"
+    assert command.ok is True
+    assert command.data["lifecycle"] == "agent_turn"
+    assert command.data["result"]["startAgentTurn"]["skillName"] == "demo"
+    assert 'read_skill before acting' in command.data["result"]["startAgentTurn"]["text"]
     assert disabled.data["status"] == "disabled"
     assert removed.data == {"kind": "skill", "id": "demo", "removed": True}
 
@@ -315,6 +340,11 @@ def test_mcp_and_app_connection_actions_run_live_tool_discovery(tmp_path: Path) 
         {"connectionId": "fixture-account"},
         _context(),
     )
+    health = application.invoke(
+        "extension.health.history",
+        {"kind": "mcp", "extensionId": "probe", "limit": 10},
+        _context(),
+    )
 
     assert created_mcp.ok and installed_app.ok and created_connection.ok
     assert mcp_result.ok is True
@@ -326,6 +356,10 @@ def test_mcp_and_app_connection_actions_run_live_tool_discovery(tmp_path: Path) 
     assert app_result.data["toolNames"] == [
         "app_fixture_app_fixture_account_echo_context"
     ]
+    assert health.ok is True
+    assert health.data["summary"]["lastSuccessAtMs"] is not None
+    assert health.data["items"][0]["ready"] is True
+    assert health.data["items"][0]["toolCount"] == 1
 
 
 def test_live_test_returns_safe_blocked_result_for_static_dependency_failure(tmp_path: Path) -> None:

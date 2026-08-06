@@ -36,6 +36,7 @@ class _RequestRecord:
 
     request_meta: dict[str, Any] = field(default_factory=dict)
     patched_tool_ids: int = 0
+    first_response_at_ms: int = 0
 
 
 class OpenPpxModelCallbackState:
@@ -93,7 +94,31 @@ class OpenPpxModelCallbackState:
             return {}
         with self._lock:
             record = self._records.pop(key, None)
-        return {} if record is None else dict(record.request_meta)
+        if record is None:
+            return {}
+        request_meta = dict(record.request_meta)
+        if record.first_response_at_ms > 0:
+            request_meta["first_response_at_ms"] = record.first_response_at_ms
+        return request_meta
+
+    def record_first_response(self, callback_context: Any) -> None:
+        """Record the first provider response observed for TTFT diagnostics."""
+        key = self._key_from_callback_context(callback_context)
+        if key is None:
+            return
+        with self._lock:
+            record = self._records.setdefault(key, _RequestRecord())
+            if record.first_response_at_ms <= 0:
+                record.first_response_at_ms = int(time.time() * 1_000)
+
+    def first_response_at_ms(self, callback_context: Any) -> int:
+        """Return the first provider response timestamp for the current call."""
+        key = self._key_from_callback_context(callback_context)
+        if key is None:
+            return 0
+        with self._lock:
+            record = self._records.get(key)
+            return 0 if record is None else record.first_response_at_ms
 
     def discard_callback_context(self, callback_context: Any) -> None:
         """Discard any request state for the current callback context."""
@@ -340,6 +365,8 @@ def _write_token_usage_if_possible(
         "session_id": request_meta.get("session_id", ""),
         "invocation_id": invocation_id,
         "raw_usage": raw_usage,
+        "duration_ms": max(0, response_at_ms - int(request_meta.get("request_at_ms", response_at_ms))),
+        "ttft_ms": max(0, int(request_meta.get("first_response_at_ms", response_at_ms)) - int(request_meta.get("request_at_ms", response_at_ms))),
     }
     payload.update(usage_tokens)
     write_token_usage_event(payload)
@@ -414,10 +441,12 @@ class OpenPpxUsageMetricsPlugin(BasePlugin):
     ) -> None:
         if not _matches_target_agent(callback_context, self._target_agent_name):
             return None
+        self._state.record_first_response(callback_context)
         if bool(getattr(llm_response, "partial", False)):
             return None
 
         request_meta = self._state.pop_request_meta(callback_context)
+        request_meta.setdefault("first_response_at_ms", int(time.time() * 1_000))
         try:
             _write_token_usage_if_possible(
                 callback_context=callback_context,

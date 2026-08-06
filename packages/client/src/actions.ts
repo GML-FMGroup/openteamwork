@@ -4,10 +4,18 @@ import { ClientApiHttpTransport, type ClientApiHttpTransportOptions } from "./ht
 import { ExtensionClient } from "./extensions";
 import { ArtifactClient } from "./artifacts";
 
-export type ActionScope = "node" | "agent" | "session" | "run" | "task" | "extension";
+export type ActionScope = "node" | "agent" | "session" | "run" | "task" | "goal" | "flow" | "automation" | "extension";
 export type ActionRisk = "low" | "medium" | "high";
 export type ActionProjection = "cli" | "slash" | "desktop" | "mobile";
-export type SlashCommandLifecycle = "side_channel" | "finalize_active_turn" | "stop_active_turn";
+export type SlashCommandLifecycle = "side_channel" | "finalize_active_turn" | "stop_active_turn" | "agent_turn";
+
+export interface SlashCommandArgumentItem {
+  name: string;
+  valueType: "string" | "text" | "integer" | "boolean" | "enum" | "resource_id";
+  description: string;
+  required: boolean;
+  choices: string[];
+}
 
 export interface SlashCommandItem {
   command: string;
@@ -17,6 +25,9 @@ export interface SlashCommandItem {
   argHint: string;
   lifecycle: SlashCommandLifecycle;
   acceptsArgs: boolean;
+  arguments: SlashCommandArgumentItem[];
+  noArgsBehavior: "invoke" | "show_usage";
+  usage: string;
   order: number;
 }
 
@@ -32,6 +43,9 @@ export interface ActionCatalogItem {
   risk: ActionRisk;
   confirmation: "never" | "required";
   execution: "sync" | "long_running";
+  operation: "read" | "mutation";
+  previewActionId: string | null;
+  successPresentation: "inline" | "panel" | "navigate" | "toast";
   projections: ActionProjection[];
   slashCommands: SlashCommandItem[];
   available: boolean;
@@ -89,6 +103,171 @@ export interface SlashCommandResult extends Record<string, unknown> {
   result: Record<string, unknown>;
 }
 
+export type GoalStatus = "active" | "waiting" | "paused" | "blocked" | "completed" | "cancelled" | "failed";
+
+export interface TaskFlowStep extends Record<string, unknown> {
+  stepId: string;
+  title: string;
+  description: string;
+  status: string;
+  dependsOn: string[];
+  completionCriteria: string[];
+}
+
+export interface TaskFlowDetail extends Record<string, unknown> {
+  flowId: string;
+  goalId: string;
+  status: string;
+  revision: number;
+  steps: TaskFlowStep[];
+  taskRunRefs: Array<Record<string, unknown>>;
+  artifactRefs: Array<Record<string, unknown>>;
+  waitReason: Record<string, unknown>;
+  recoveryState: Record<string, unknown>;
+  lastEvent: string;
+  createdAtMs: number;
+  updatedAtMs: number;
+}
+
+export interface GoalSummary extends Record<string, unknown> {
+  goalId: string;
+  sessionId: string;
+  agentId: string;
+  userId: string;
+  objective: string;
+  status: GoalStatus;
+  revision: number;
+  activeFlowId: string;
+  completionCriteria: string[];
+  budgetState: Record<string, unknown>;
+  createdAtMs: number;
+  updatedAtMs: number;
+  completedAtMs: number | null;
+  cancelledAtMs: number | null;
+}
+
+export interface GoalDetail extends GoalSummary {
+  workspaceRef: string;
+  constraints: string[];
+  budgetPolicy: Record<string, unknown>;
+  permissionRevision: string;
+  modelProfileRevision: string;
+  extensionSnapshotDigest: string;
+  completionEvidence: Array<Record<string, unknown>>;
+  correlationId: string;
+  createdBy: string;
+  flow: TaskFlowDetail | null;
+}
+
+export type AutomationStatus = "active" | "paused" | "blocked";
+export type AutomationRunStatus = "queued" | "running" | "completed" | "failed" | "cancelled" | "skipped" | "blocked";
+
+export interface AutomationTriggerView extends Record<string, unknown> {
+  triggerId: string;
+  type: "schedule" | "local_event";
+  enabled: boolean;
+  schedule: {
+    kind: "every" | "cron" | "at";
+    everySeconds: number | null;
+    cronExpr: string;
+    atMs: number | null;
+    timezone: string;
+  } | null;
+  eventKey: string;
+  inputSchema: Record<string, unknown>;
+  nextRunAtMs: number | null;
+  lastRunAtMs: number | null;
+}
+
+export interface AutomationRunSummary extends Record<string, unknown> {
+  automationRunId: string;
+  automationId: string;
+  definitionRevision: number;
+  triggerType: string;
+  triggerOccurrenceId: string;
+  status: AutomationRunStatus;
+  attempt: number;
+  sessionId: string;
+  adkRunId: string;
+  outputSummary: string;
+  errorSummary: string;
+  blockedReason: string;
+  createdAtMs: number;
+  startedAtMs: number | null;
+  endedAtMs: number | null;
+}
+
+export interface AutomationSummary extends Record<string, unknown> {
+  automationId: string;
+  name: string;
+  description: string;
+  status: AutomationStatus;
+  agentId: string;
+  userId: string;
+  revision: number;
+  trigger: AutomationTriggerView | null;
+  latestRun: AutomationRunSummary | null;
+  createdAtMs: number;
+  updatedAtMs: number;
+}
+
+export interface AutomationDetail extends AutomationSummary {
+  instructions: string;
+  outputRequirements: string[];
+  workspaceRef: string;
+  contextMode: "isolated" | "rolling" | "session";
+  modelProfileRef: string;
+  extensionPolicy: Record<string, unknown>;
+  permissionPolicy: Record<string, unknown>;
+  deliveryPolicy: Record<string, unknown>;
+  concurrencyPolicy: Record<string, unknown>;
+  missedRunPolicy: Record<string, unknown>;
+  retryPolicy: Record<string, unknown>;
+  budgetPolicy: Record<string, unknown>;
+  monitorPolicy: Record<string, unknown>;
+  readiness: { ready: boolean; reasons: Array<{ code: string; message: string }> };
+}
+
+export interface AutomationTemplateSummary extends Record<string, unknown> {
+  templateId: string;
+  name: string;
+  description: string;
+  instructions: string;
+  outputRequirements: string[];
+  recommendedSchedule: Record<string, unknown>;
+  requiredExtensions: string[];
+  deliveryHint: string;
+  behavior: "task" | "monitor";
+  provenance: string;
+  version: number;
+}
+
+export interface AutomationCreateInput extends Record<string, unknown> {
+  userId: string;
+  agentId: string;
+  name: string;
+  description?: string;
+  instructions: string;
+  outputRequirements?: string[];
+  workspaceRef?: string;
+  contextMode?: "isolated" | "rolling" | "session";
+  modelProfileRef?: string | null;
+  extensionPolicy?: Record<string, unknown>;
+  permissionPolicy?: Record<string, unknown>;
+  permissionsConfirmed?: boolean;
+  deliveryPolicy?: Record<string, unknown>;
+  concurrencyPolicy?: Record<string, unknown>;
+  missedRunPolicy?: Record<string, unknown>;
+  retryPolicy?: Record<string, unknown>;
+  budgetPolicy?: Record<string, unknown>;
+  monitorPolicy?: Record<string, unknown>;
+  schedule?: Record<string, unknown> | null;
+  localEvent?: {
+    eventKey: string;
+    inputSchema: Record<string, unknown>;
+  } | null;
+}
+
 export interface ProjectedSlashCommand extends SlashCommandItem {
   actionId: string;
   available: boolean;
@@ -104,6 +283,16 @@ export interface ModelSelectionInput extends Record<string, unknown> {
   minContextTokens?: number;
   maxInputCostPerMillionUsd?: string;
   maxOutputCostPerMillionUsd?: string;
+}
+
+export interface SessionModelSelectionResult extends Record<string, unknown> {
+  items: Array<Record<string, unknown>>;
+  sessionSelection: {
+    profileId: string | null;
+    revision: number;
+  };
+  effectiveSelection: Record<string, unknown>;
+  effect: "next_run";
 }
 
 export interface SetupProvider {
@@ -648,6 +837,51 @@ export class ModelClient {
     return this.actions.invoke("model.select", input);
   }
 
+  public sessionStatus(
+    agentId: string,
+    userId: string,
+    sessionId: string,
+  ): Promise<ActionEnvelope<SessionModelSelectionResult>> {
+    return this.actions.invoke("model.session.command", {
+      agentId,
+      userId,
+      sessionId,
+      operation: "status",
+    });
+  }
+
+  public selectForSession(
+    agentId: string,
+    userId: string,
+    sessionId: string,
+    profileId: string,
+    expectedRevision?: number,
+  ): Promise<ActionEnvelope<SessionModelSelectionResult>> {
+    return this.actions.invoke("model.session.command", {
+      agentId,
+      userId,
+      sessionId,
+      operation: "select",
+      profileId,
+      expectedRevision: expectedRevision ?? null,
+    });
+  }
+
+  public resetSession(
+    agentId: string,
+    userId: string,
+    sessionId: string,
+    expectedRevision?: number,
+  ): Promise<ActionEnvelope<SessionModelSelectionResult>> {
+    return this.actions.invoke("model.session.command", {
+      agentId,
+      userId,
+      sessionId,
+      operation: "reset",
+      expectedRevision: expectedRevision ?? null,
+    });
+  }
+
   public readProfile(profileId: string): Promise<ActionEnvelope<ModelProfileResourceResult>> {
     return this.actions.invoke("model.profile.read", { profileId });
   }
@@ -807,6 +1041,144 @@ export class SessionClient {
   }
 }
 
+/** Durable Goal and TaskFlow client backed by formal product Actions. */
+export class GoalClient {
+  public constructor(private readonly actions: ActionClient) {}
+
+  public list(
+    userId: string,
+    input: { sessionId?: string | null; statuses?: GoalStatus[]; limit?: number } = {},
+  ): Promise<ActionEnvelope<{ items: GoalSummary[] } & Record<string, unknown>>> {
+    return this.actions.invoke("goal.list", {
+      userId,
+      sessionId: input.sessionId ?? null,
+      statuses: input.statuses ?? [],
+      limit: input.limit ?? 20,
+    });
+  }
+
+  public read(goalId: string, userId: string): Promise<ActionEnvelope<GoalDetail>> {
+    return this.actions.invoke("goal.read", { goalId, userId });
+  }
+
+  public create(input: {
+    userId: string;
+    agentId: string;
+    sessionId: string;
+    objective: string;
+    completionCriteria?: string[];
+    constraints?: string[];
+    workspaceRef?: string;
+    budgetPolicy?: Record<string, unknown>;
+  }): Promise<ActionEnvelope<GoalDetail>> {
+    return this.actions.invoke("goal.create", {
+      ...input,
+      completionCriteria: input.completionCriteria ?? [],
+      constraints: input.constraints ?? [],
+      workspaceRef: input.workspaceRef ?? "",
+      budgetPolicy: input.budgetPolicy ?? {},
+    });
+  }
+
+  public update(input: Record<string, unknown>): Promise<ActionEnvelope<GoalDetail>> {
+    return this.actions.invoke("goal.update", input);
+  }
+
+  public transition(
+    operation: "pause" | "resume" | "cancel",
+    input: { goalId: string; userId: string; expectedRevision: number; reason?: string },
+  ): Promise<ActionEnvelope<GoalDetail>> {
+    return this.actions.invoke(`goal.${operation}`, { ...input, reason: input.reason ?? "" });
+  }
+
+  public complete(input: Record<string, unknown>): Promise<ActionEnvelope<GoalDetail>> {
+    return this.actions.invoke("goal.complete", input);
+  }
+
+  public history(goalId: string, userId: string, limit = 100): Promise<ActionEnvelope<Record<string, unknown>>> {
+    return this.actions.invoke("goal.history", { goalId, userId, limit });
+  }
+
+  public readFlow(flowId: string, userId: string): Promise<ActionEnvelope<TaskFlowDetail>> {
+    return this.actions.invoke("task_flow.read", { flowId, userId });
+  }
+
+  public updateFlow(input: Record<string, unknown>): Promise<ActionEnvelope<TaskFlowDetail>> {
+    return this.actions.invoke("task_flow.update", input);
+  }
+}
+
+/** Durable User Automations client backed by formal product Actions. */
+export class AutomationClient {
+  public constructor(private readonly actions: ActionClient) {}
+
+  public list(userId: string, statuses: AutomationStatus[] = [], limit = 100): Promise<ActionEnvelope<{ items: AutomationSummary[] } & Record<string, unknown>>> {
+    return this.actions.invoke("automation.list", { userId, statuses, limit });
+  }
+
+  public read(automationId: string, userId: string): Promise<ActionEnvelope<AutomationDetail>> {
+    return this.actions.invoke("automation.read", { automationId, userId });
+  }
+
+  public create(input: AutomationCreateInput): Promise<ActionEnvelope<AutomationDetail>> {
+    return this.actions.invoke("automation.create", {
+      description: "",
+      outputRequirements: [],
+      workspaceRef: "",
+      contextMode: "isolated",
+      modelProfileRef: null,
+      extensionPolicy: {},
+      permissionPolicy: {},
+      permissionsConfirmed: false,
+      deliveryPolicy: {},
+      concurrencyPolicy: { mode: "skip", limit: 1 },
+      missedRunPolicy: { mode: "run-latest", maxCatchUp: 1 },
+      retryPolicy: { maxAttempts: 1, backoffSeconds: 30 },
+      budgetPolicy: { timeoutSeconds: 1800 },
+      monitorPolicy: { enabled: false, notifyOnChangeOnly: true, stopWhenContains: "" },
+      schedule: null,
+      localEvent: null,
+      ...input,
+    });
+  }
+
+  public update(input: Record<string, unknown>): Promise<ActionEnvelope<AutomationDetail>> {
+    return this.actions.invoke("automation.update", input);
+  }
+
+  public transition(
+    operation: "pause" | "resume" | "delete",
+    input: { automationId: string; userId: string; expectedRevision: number },
+    confirmed = false,
+  ): Promise<ActionEnvelope<AutomationDetail | { automationId: string; deleted: true }>> {
+    return this.actions.invoke(`automation.${operation}`, input, { confirmed });
+  }
+
+  public run(automationId: string, userId: string, input: Record<string, unknown> = {}): Promise<ActionEnvelope<{ run: AutomationRunSummary } & Record<string, unknown>>> {
+    return this.actions.invoke("automation.run", { automationId, userId, input });
+  }
+
+  public history(automationId: string, userId: string, limit = 50): Promise<ActionEnvelope<Record<string, unknown>>> {
+    return this.actions.invoke("automation.history", { automationId, userId, limit });
+  }
+
+  public templates(): Promise<ActionEnvelope<{ items: AutomationTemplateSummary[] } & Record<string, unknown>>> {
+    return this.actions.invoke("automation.template.list", {});
+  }
+
+  public permissionPreview(automationId: string, userId: string): Promise<ActionEnvelope<Record<string, unknown>>> {
+    return this.actions.invoke("automation.permission.preview", { automationId, userId });
+  }
+
+  public revokePermissions(automationId: string, userId: string, expectedRevision: number): Promise<ActionEnvelope<AutomationDetail>> {
+    return this.actions.invoke(
+      "automation.permission.revoke",
+      { automationId, userId, expectedRevision },
+      { confirmed: true },
+    );
+  }
+}
+
 export class RunClient {
   public constructor(private readonly actions: ActionClient) {}
 
@@ -868,6 +1240,10 @@ export class OpenPpxClient {
 
   public readonly run: RunClient;
 
+  public readonly goal: GoalClient;
+
+  public readonly automation: AutomationClient;
+
   public readonly extensions: ExtensionClient;
 
   public readonly commands: CommandClient;
@@ -888,6 +1264,8 @@ export class OpenPpxClient {
     this.model = new ModelClient(this.actions);
     this.session = new SessionClient(this.actions);
     this.run = new RunClient(this.actions);
+    this.goal = new GoalClient(this.actions);
+    this.automation = new AutomationClient(this.actions);
     this.extensions = new ExtensionClient(this.actions);
     this.commands = new CommandClient(this.actions);
     this.setup = new SetupClient(this.actions);

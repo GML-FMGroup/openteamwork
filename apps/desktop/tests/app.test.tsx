@@ -6,6 +6,7 @@ import type {
   ClientDiagnostics,
   ExtensionSummary,
   PpxClientApi,
+  ProjectedSlashCommand,
   RunEvent,
   RuntimeStatus,
   SessionSummary,
@@ -64,7 +65,7 @@ function buildBootstrapPayload(): BootstrapPayload {
 
 function buildDiagnostics(): ClientDiagnostics {
   return {
-    desktopVersion: "0.5.3",
+    desktopVersion: "0.5.4",
     mode: "local",
     target: { id: "local-default", type: "local", name: "This Mac" },
     openppxRoot: "/tmp/openppx_root",
@@ -88,7 +89,7 @@ function buildDiagnostics(): ClientDiagnostics {
   };
 }
 
-function buildSlashCommands() {
+function buildSlashCommands(): ProjectedSlashCommand[] {
   return [
     {
       command: "/help",
@@ -98,6 +99,9 @@ function buildSlashCommands() {
       argHint: "",
       lifecycle: "side_channel" as const,
       acceptsArgs: false,
+      arguments: [],
+      noArgsBehavior: "invoke" as const,
+      usage: "/help",
       order: 10,
       actionId: "system.help",
       available: true,
@@ -111,6 +115,9 @@ function buildSlashCommands() {
       argHint: "",
       lifecycle: "side_channel" as const,
       acceptsArgs: false,
+      arguments: [],
+      noArgsBehavior: "invoke" as const,
+      usage: "/status",
       order: 40,
       actionId: "system.status",
       available: true,
@@ -162,6 +169,7 @@ function installClient(overrides: Partial<PpxClientApi> = {}): { client: PpxClie
       accountKind: "local",
     }),
     getDiagnostics: async () => buildDiagnostics(),
+    setDesktopHostPreferences: async () => undefined,
     testConnectionSettings: async () => buildDiagnostics(),
     saveConnectionSettings: async () => buildDiagnostics(),
     listConnectionProfiles: async () => ({ profiles: [] }),
@@ -377,6 +385,59 @@ function installClient(overrides: Partial<PpxClientApi> = {}): { client: PpxClie
     exportSession: async ({ sessionId }) => ({ sessionId, items: [] }),
     deleteSession: async ({ sessionId }) => ({ sessionId, deleted: true }),
     loadSession: async () => ({ messages: [] }),
+    getCurrentGoal: async () => ({ goal: null }),
+    listAutomations: async () => ({ automations: [] }),
+    getAutomation: async () => {
+      throw new Error("No fixture Automation configured.");
+    },
+    createAutomation: async (input) => ({
+      automationId: "auto_fixture",
+      name: input.name,
+      description: input.description ?? "",
+      instructions: input.instructions,
+      outputRequirements: input.outputRequirements ?? [],
+      status: "active",
+      agentId: input.agentId,
+      userId: input.userId,
+      revision: 1,
+      trigger: null,
+      latestRun: null,
+      workspaceRef: "",
+      contextMode: "isolated",
+      modelProfileRef: "",
+      extensionPolicy: {},
+      permissionPolicy: {},
+      deliveryPolicy: {},
+      concurrencyPolicy: {},
+      missedRunPolicy: {},
+      retryPolicy: {},
+      budgetPolicy: {},
+      monitorPolicy: {},
+      readiness: { ready: true, reasons: [] },
+      createdAtMs: Date.now(),
+      updatedAtMs: Date.now(),
+    }),
+    updateAutomation: async () => {
+      throw new Error("No fixture Automation configured.");
+    },
+    transitionAutomation: async () => ({}),
+    runAutomation: async () => {
+      throw new Error("No fixture Automation configured.");
+    },
+    getAutomationHistory: async () => ({ runs: [], events: [] }),
+    listAutomationTemplates: async () => ({ templates: [{
+      templateId: "morning-brief",
+      name: "Morning brief",
+      description: "Summarize the day before it starts.",
+      instructions: "Summarize today's calendar and important unread email.",
+      outputRequirements: ["Concise daily brief"],
+      recommendedSchedule: { kind: "cron", cronExpr: "0 8 * * 1-5", timezone: "" },
+      requiredExtensions: ["Calendar", "Email"],
+      deliveryHint: "session",
+      behavior: "task",
+      provenance: "openppx",
+      version: 1,
+    }] }),
     uploadArtifact: async (input) => ({
       id: "artifact-test",
       key: `uploads/artifact-test/${input.fileName}`,
@@ -402,6 +463,10 @@ function installClient(overrides: Partial<PpxClientApi> = {}): { client: PpxClie
       throw new Error("No fixture Extension configured.");
     },
     getExtensionReadiness: async (kind, extensionId) => ({ kind, id: extensionId, ready: true, issues: [], status: "installed", revision: "sha256:fixture" }),
+    getExtensionHealthHistory: async () => ({
+      summary: { latest: null, lastSuccessAtMs: null, lastFailureAtMs: null, consecutiveFailures: 0 },
+      items: [],
+    }),
     previewExtension: async () => {
       throw new Error("No fixture Extension preview configured.");
     },
@@ -1107,6 +1172,27 @@ describe("App sending state", () => {
     expect(await screen.findByText("Node status: ready · Studio Node")).toBeInTheDocument();
   });
 
+  it("orders recent commands first and explains unavailable commands", async () => {
+    const local = installLocalStorage();
+    local.storage.setItem("openppx.desktop.recentSlashCommands.v1", JSON.stringify(["/status"]));
+    const commands = buildSlashCommands();
+    commands[0] = {
+      ...commands[0],
+      available: false,
+      availabilityReason: "A writable Session is required.",
+    };
+    installClient({ listSlashCommands: async () => ({ commands }) });
+    render(<App />);
+
+    const composer = await screen.findByPlaceholderText("Describe the outcome you want...");
+    fireEvent.change(composer, { target: { value: "/" } });
+    const options = within(await screen.findByRole("listbox", { name: "Slash commands" })).getAllByRole("option");
+    expect(options[0]).toHaveTextContent("/status");
+    expect(options[1]).toBeDisabled();
+    expect(options[1]).toHaveTextContent("A writable Session is required.");
+    local.restore();
+  });
+
   it("switches to the Session returned by the new command", async () => {
     const created: SessionSummary = {
       id: "session-command",
@@ -1566,7 +1652,7 @@ describe("App sending state", () => {
     expect(screen.getByText("/tmp/openppx_root")).toBeInTheDocument();
     expect(screen.getAllByText("This Mac").length).toBeGreaterThanOrEqual(1);
     expect(screen.getByText("v1")).toBeInTheDocument();
-    expect(screen.getByText("0.5.3")).toBeInTheDocument();
+    expect(screen.getByText("0.5.4")).toBeInTheDocument();
     expect(screen.getByText("0.4")).toBeInTheDocument();
     expect(screen.queryByTitle("Return to conversation")).not.toBeInTheDocument();
     const deviceCard = screen.getByRole("heading", { name: "Device" }).closest("section");
@@ -1590,6 +1676,46 @@ describe("App sending state", () => {
     expect(screen.queryByText("Connections & Settings")).not.toBeInTheDocument();
     expect(screen.getByPlaceholderText("Search sessions")).toBeInTheDocument();
     expect(screen.queryByText("工作区")).not.toBeInTheDocument();
+  });
+
+  it("opens Automations and creates one from a reviewed template", async () => {
+    const createAutomation = vi.fn(async (input) => ({
+      automationId: "auto_created",
+      name: input.name,
+      description: input.description ?? "",
+      instructions: input.instructions,
+      outputRequirements: input.outputRequirements ?? [],
+      status: "active" as const,
+      agentId: input.agentId,
+      userId: input.userId,
+      revision: 1,
+      trigger: null,
+      latestRun: null,
+      workspaceRef: "",
+      contextMode: "isolated" as const,
+      modelProfileRef: "",
+      extensionPolicy: {}, permissionPolicy: {}, deliveryPolicy: {}, concurrencyPolicy: {},
+      missedRunPolicy: {}, retryPolicy: {}, budgetPolicy: {}, monitorPolicy: {},
+      readiness: { ready: true, reasons: [] },
+      createdAtMs: Date.now(), updatedAtMs: Date.now(),
+    }));
+    installClient({ createAutomation });
+    render(<App />);
+    await screen.findByRole("button", { name: "Send" });
+
+    fireEvent.click(screen.getByRole("button", { name: "User profile" }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Automations" }));
+    expect(await screen.findByRole("heading", { name: "Automations" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /Morning brief/ }));
+    expect(await screen.findByRole("dialog", { name: /Define the work/ })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Create automation" }));
+
+    await waitFor(() => expect(createAutomation).toHaveBeenCalledWith(expect.objectContaining({
+      userId: "ppx-client-user",
+      agentId: "agent-1",
+      name: "Morning brief",
+      schedule: { kind: "cron", cronExpr: "0 8 * * 1-5", timezone: "" },
+    })));
   });
 
   it("opens Settings from the user profile menu", async () => {

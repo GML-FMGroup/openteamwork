@@ -441,6 +441,22 @@ def test_create_run_streams_replayable_events(tmp_path: Path, monkeypatch) -> No
     assert "run.finished" in events
 
 
+def test_create_run_passes_persisted_session_model_override_to_runtime(tmp_path: Path) -> None:
+    coordinator, runtime = _coordinator_with_runtime(tmp_path)
+    runtime.create_session_sync("writer", user_id="owner", session_id="session_model")
+    coordinator._session_metadata.update_model_profile(
+        session_id="session_model",
+        agent_id="writer",
+        principal_id="owner",
+        model_profile_id="reasoning",
+    )
+
+    payload = coordinator.create_run("writer", "session_model", "hi", user_id="owner")
+
+    run_id = payload["data"]["run"]["id"]
+    assert runtime.callbacks[run_id]["run_override"] == "reasoning"
+
+
 def test_create_run_rejects_a_session_that_the_node_does_not_own(tmp_path: Path) -> None:
     (tmp_path / "global_config.json").write_text(
         json.dumps({"agents": [{"name": "writer", "enabled": True}]}),

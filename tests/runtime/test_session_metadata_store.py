@@ -26,3 +26,30 @@ def test_session_metadata_persists_title_and_archive_state(tmp_path: Path) -> No
     assert SessionMetadataStore(db_path).get("session-1") == archived
     assert store.delete("session-1") is True
     assert store.get("session-1") is None
+
+
+def test_session_metadata_persists_model_profile_selection_and_revision(tmp_path: Path) -> None:
+    db_path = tmp_path / "sessions.db"
+    store = SessionMetadataStore(db_path)
+
+    selected = store.update_model_profile(
+        session_id="session-1",
+        agent_id="main",
+        principal_id="ppx-client-user",
+        model_profile_id="reasoning",
+    )
+
+    assert selected.model_profile_id == "reasoning"
+    assert selected.model_selection_revision == 1
+    assert SessionMetadataStore(db_path).get("session-1") == selected
+
+    reset = store.update_model_profile(
+        session_id="session-1",
+        agent_id="main",
+        principal_id="ppx-client-user",
+        model_profile_id=None,
+        expected_revision=1,
+    )
+
+    assert reset.model_profile_id is None
+    assert reset.model_selection_revision == 2

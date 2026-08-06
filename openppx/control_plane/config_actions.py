@@ -121,6 +121,7 @@ def _spec(
         scope=scope,
         required_capabilities=frozenset({permission}),
         permission=permission,
+        operation="mutation" if action_id.endswith(".apply") else "read",
         projections=("cli", "desktop", "mobile"),
     )
 

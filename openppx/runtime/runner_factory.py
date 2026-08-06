@@ -251,6 +251,7 @@ def _build_profile_plugins(
     policy: RunnerProfilePolicy,
     task_store: Any | None = None,
     context_store: Any | None = None,
+    goal_store: Any | None = None,
     extra_plugins: tuple[Any, ...] = (),
 ) -> list[Any]:
     """Build plugins according to one profile lifecycle policy."""
@@ -268,6 +269,7 @@ def _build_profile_plugins(
                 target_agent_name=target_agent_name,
                 task_store=task_store,
                 context_store=context_store,
+                goal_store=goal_store,
             )
         )
     if policy.enable_model_callbacks:
@@ -290,6 +292,7 @@ def _build_profile_app(
     policy: RunnerProfilePolicy,
     task_store: Any | None = None,
     context_store: Any | None = None,
+    goal_store: Any | None = None,
     extra_plugins: tuple[Any, ...] = (),
 ) -> App:
     """Build an ADK App according to one profile lifecycle policy."""
@@ -318,6 +321,7 @@ def _build_profile_app(
             policy=policy,
             task_store=task_store,
             context_store=context_store,
+            goal_store=goal_store,
             extra_plugins=extra_plugins,
         ),
     )
@@ -360,6 +364,7 @@ def create_runner(
     artifact_service: Any | None = None,
     task_store: Any | None = None,
     context_store: Any | None = None,
+    goal_store: Any | None = None,
     extra_plugins: tuple[Any, ...] = (),
 ) -> tuple[Runner, Any]:
     """Create a runner with a shared session service contract.
@@ -383,6 +388,7 @@ def create_runner(
         policy=policy,
         task_store=task_store,
         context_store=context_store,
+        goal_store=goal_store,
         extra_plugins=extra_plugins,
     )
 

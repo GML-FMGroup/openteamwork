@@ -9,17 +9,47 @@ from typing import Any, Literal
 from pydantic import BaseModel
 
 
-ActionScope = Literal["node", "agent", "session", "run", "task", "extension"]
+ActionScope = Literal["node", "agent", "session", "run", "task", "goal", "flow", "automation", "extension"]
 ActionRisk = Literal["low", "medium", "high"]
 ActionConfirmation = Literal["never", "required"]
 ActionExecution = Literal["sync", "long_running"]
+ActionOperation = Literal["read", "mutation"]
+ActionSuccessPresentation = Literal["inline", "panel", "navigate", "toast"]
 ActionProjection = Literal["cli", "slash", "desktop", "mobile"]
-SlashCommandLifecycle = Literal["side_channel", "finalize_active_turn", "stop_active_turn"]
+SlashCommandLifecycle = Literal["side_channel", "finalize_active_turn", "stop_active_turn", "agent_turn"]
+SlashCommandArgumentType = Literal["string", "text", "integer", "boolean", "enum", "resource_id"]
+SlashCommandNoArgsBehavior = Literal["invoke", "show_usage"]
 
 _ACTION_ID_PATTERN = re.compile(r"^[a-z][a-z0-9_]*(?:\.[a-z][a-z0-9_]*)+$")
 _NAMESPACE_PATTERN = re.compile(r"^[a-z][a-z0-9_]*$")
 _PERMISSION_PATTERN = re.compile(r"^[a-z][a-z0-9_]*(?:\.[a-z][a-z0-9_]*)+$")
-_SLASH_COMMAND_PATTERN = re.compile(r"^/[a-z][a-z0-9-]*$")
+_SLASH_COMMAND_PATTERN = re.compile(r"^/[a-z][a-z0-9-]*(?::[a-z][a-z0-9-]*)?$")
+_SLASH_ARGUMENT_PATTERN = re.compile(r"^[a-z][a-z0-9_]*$")
+
+
+@dataclass(frozen=True, slots=True)
+class SlashCommandArgumentSpec:
+    """Ordered, client-safe positional argument metadata for one slash command."""
+
+    name: str
+    value_type: SlashCommandArgumentType
+    description: str
+    required: bool = False
+    choices: tuple[str, ...] = ()
+
+    def __post_init__(self) -> None:
+        if _SLASH_ARGUMENT_PATTERN.fullmatch(self.name) is None:
+            raise ValueError("slash argument name must be a lowercase identifier")
+        if not self.description.strip():
+            raise ValueError("slash argument description must contain visible text")
+        if self.value_type not in {"string", "text", "integer", "boolean", "enum", "resource_id"}:
+            raise ValueError("slash argument type is not supported")
+        if self.value_type == "enum" and not self.choices:
+            raise ValueError("enum slash arguments require choices")
+        if self.value_type != "enum" and self.choices:
+            raise ValueError("slash argument choices require enum type")
+        if len(self.choices) != len(set(self.choices)) or any(not choice.strip() for choice in self.choices):
+            raise ValueError("slash argument choices must be unique visible values")
 
 
 @dataclass(frozen=True, slots=True)
@@ -33,19 +63,49 @@ class SlashCommandSpec:
     arg_hint: str = ""
     lifecycle: SlashCommandLifecycle = "side_channel"
     accepts_args: bool = False
+    arguments: tuple[SlashCommandArgumentSpec, ...] = ()
+    no_args_behavior: SlashCommandNoArgsBehavior = "invoke"
     order: int = 100
 
     def __post_init__(self) -> None:
         if _SLASH_COMMAND_PATTERN.fullmatch(self.command) is None:
-            raise ValueError("slash command must be a lowercase slash identifier")
+            raise ValueError("slash command must be a lowercase slash identifier with at most one namespace")
         if not self.title.strip() or not self.description.strip() or not self.icon.strip():
             raise ValueError("slash command presentation fields must contain visible text")
-        if self.lifecycle not in {"side_channel", "finalize_active_turn", "stop_active_turn"}:
+        if self.lifecycle not in {"side_channel", "finalize_active_turn", "stop_active_turn", "agent_turn"}:
             raise ValueError("slash command lifecycle is not supported")
+        if self.no_args_behavior not in {"invoke", "show_usage"}:
+            raise ValueError("slash command no-args behavior is not supported")
+        if self.arguments:
+            object.__setattr__(self, "accepts_args", True)
+        if len({argument.name for argument in self.arguments}) != len(self.arguments):
+            raise ValueError("slash argument names must be unique")
+        optional_seen = False
+        for argument in self.arguments:
+            if not argument.required:
+                optional_seen = True
+            elif optional_seen:
+                raise ValueError("required arguments must precede optional arguments")
+        text_positions = [index for index, argument in enumerate(self.arguments) if argument.value_type == "text"]
+        if text_positions and text_positions != [len(self.arguments) - 1]:
+            raise ValueError("text slash arguments must be the final positional argument")
         if self.arg_hint and not self.accepts_args:
             raise ValueError("slash command arg_hint requires accepts_args")
+        if self.no_args_behavior == "show_usage" and not self.arguments:
+            raise ValueError("show_usage requires a typed slash argument schema")
         if self.order < 0:
             raise ValueError("slash command order must be non-negative")
+
+    @property
+    def usage(self) -> str:
+        """Return stable usage text generated from the typed argument contract."""
+        if not self.arguments:
+            return self.command
+        suffix = " ".join(
+            f"<{argument.name}>" if argument.required else f"[{argument.name}]"
+            for argument in self.arguments
+        )
+        return f"{self.command} {suffix}"
 
 
 @dataclass(frozen=True, slots=True)
@@ -73,6 +133,9 @@ class ActionSpec:
     risk: ActionRisk = "low"
     confirmation: ActionConfirmation = "never"
     execution: ActionExecution = "sync"
+    operation: ActionOperation = "read"
+    preview_action_id: str | None = None
+    success_presentation: ActionSuccessPresentation = "inline"
     projections: tuple[ActionProjection, ...] = ()
     slash_commands: tuple[SlashCommandSpec, ...] = ()
 
@@ -90,7 +153,7 @@ class ActionSpec:
             raise TypeError("input_model must be a Pydantic BaseModel type")
         if _PERMISSION_PATTERN.fullmatch(self.permission) is None:
             raise ValueError("permission must be a lowercase dotted identifier")
-        if self.scope not in {"node", "agent", "session", "run", "task", "extension"}:
+        if self.scope not in {"node", "agent", "session", "run", "task", "goal", "flow", "automation", "extension"}:
             raise ValueError("scope is not supported")
         if self.risk not in {"low", "medium", "high"}:
             raise ValueError("risk is not supported")
@@ -100,6 +163,14 @@ class ActionSpec:
             raise ValueError("high-risk Actions must require confirmation")
         if self.execution not in {"sync", "long_running"}:
             raise ValueError("execution is not supported")
+        if self.operation not in {"read", "mutation"}:
+            raise ValueError("operation is not supported")
+        if self.preview_action_id is not None and _ACTION_ID_PATTERN.fullmatch(self.preview_action_id) is None:
+            raise ValueError("preview_action_id must be a lowercase dotted Action identifier")
+        if self.preview_action_id == self.action_id:
+            raise ValueError("an Action cannot preview itself")
+        if self.success_presentation not in {"inline", "panel", "navigate", "toast"}:
+            raise ValueError("success presentation is not supported")
         invalid_capabilities = [
             capability
             for capability in self.required_capabilities

@@ -1,9 +1,15 @@
-import { app, BrowserWindow, ipcMain, shell } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, Notification, shell } from "electron";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import type { ClientDiagnostics } from "../../app/src/types";
+import type { ClientDiagnostics, DesktopHostPreferences } from "../../app/src/types";
 import {
   validateConnectionSettings,
+  validateAutomationCreateInput,
+  validateAutomationInput,
+  validateAutomationOperation,
+  validateAutomationRevision,
+  validateAutomationStatuses,
+  validateAutomationUpdateInput,
   validateAgentCreateRequest,
   validateAgentUpdateInput,
   validateArtifactSummaryInput,
@@ -11,6 +17,8 @@ import {
   validateExtensionEnablement,
   validateExtensionInstallRequest,
   validateExtensionKind,
+  validateExtensionHealthKind,
+  validateExtensionHealthLimit,
   validateExtensionPreviewRequest,
   validateExtensionRemoveRequest,
   validateMcpMutationRequest,
@@ -52,6 +60,12 @@ import {
 let mainWindow: BrowserWindow | null = null;
 let unsubscribeRunEvents: (() => void) | null = null;
 let adapter: OpenPpxLocalAdapter | null = null;
+let quitting = false;
+let hostPreferences: DesktopHostPreferences = {
+  backgroundBehavior: "confirm-before-close",
+  notificationsEnabled: false,
+  notificationSound: false,
+};
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
@@ -86,6 +100,38 @@ function createWindow(): void {
   adapter = new OpenPpxLocalAdapter(readSecureConnectionSettings() ?? undefined);
   unsubscribeRunEvents = adapter.onRunEvent((event) => {
     mainWindow?.webContents.send("ppx-client:run-event", event);
+    if (
+      event.type === "run.finished"
+      && hostPreferences.notificationsEnabled
+      && Notification.isSupported()
+      && !mainWindow?.isFocused()
+    ) {
+      new Notification({
+        title: "OpenPPX",
+        body: "Agent run finished.",
+        silent: !hostPreferences.notificationSound,
+      }).show();
+    }
+  });
+
+  mainWindow.on("close", (event) => {
+    if (quitting) return;
+    if (hostPreferences.backgroundBehavior === "keep-running") {
+      event.preventDefault();
+      mainWindow?.hide();
+      return;
+    }
+    const choice = dialog.showMessageBoxSync(mainWindow!, {
+      type: "question",
+      buttons: ["Keep Open", "Close Desktop"],
+      defaultId: 0,
+      cancelId: 0,
+      title: "Close OpenPPX Desktop?",
+      message: "Close the Desktop window?",
+      detail: "Active Node work is not treated as cancelled, but this Desktop connection will close.",
+      noLink: true,
+    });
+    if (choice === 0) event.preventDefault();
   });
 
   if (process.env.VITE_DEV_SERVER_URL) {
@@ -99,6 +145,17 @@ app.whenReady().then(() => {
   ipcMain.handle("ppx-client:bootstrap", async () => adapter!.bootstrap());
   ipcMain.handle("ppx-client:get-user-profile", () => adapter!.getUserProfile());
   ipcMain.handle("ppx-client:get-diagnostics", async () => withDesktopVersion(await adapter!.getDiagnostics()));
+  ipcMain.handle("ppx-client:set-desktop-host-preferences", (_event, preferences: DesktopHostPreferences) => {
+    if (
+      !preferences
+      || (preferences.backgroundBehavior !== "keep-running" && preferences.backgroundBehavior !== "confirm-before-close")
+      || typeof preferences.notificationsEnabled !== "boolean"
+      || typeof preferences.notificationSound !== "boolean"
+    ) {
+      throw new TypeError("Invalid Desktop host preferences.");
+    }
+    hostPreferences = { ...preferences };
+  });
   ipcMain.handle("ppx-client:test-connection-settings", async (_event, settings: unknown) => {
     const candidate = resolveCandidateConnectionSettings(validateConnectionSettings(settings));
     return withDesktopVersion(await adapter!.testConnectionSettings(candidate));
@@ -238,6 +295,38 @@ app.whenReady().then(() => {
   ipcMain.handle("ppx-client:load-session", async (_event, sessionId: unknown) =>
     adapter!.loadSession(validateIdentifier(sessionId, "Session id")),
   );
+  ipcMain.handle("ppx-client:get-current-goal", async (_event, sessionId: unknown) =>
+    adapter!.getCurrentGoal(validateIdentifier(sessionId, "Session id")),
+  );
+  ipcMain.handle("ppx-client:list-automations", async (_event, statuses: unknown) =>
+    adapter!.listAutomations(validateAutomationStatuses(statuses)),
+  );
+  ipcMain.handle("ppx-client:get-automation", async (_event, automationId: unknown) =>
+    adapter!.getAutomation(validateIdentifier(automationId, "Automation id")),
+  );
+  ipcMain.handle("ppx-client:create-automation", async (_event, input: unknown) =>
+    adapter!.createAutomation(validateAutomationCreateInput(input)),
+  );
+  ipcMain.handle("ppx-client:update-automation", async (_event, input: unknown) =>
+    adapter!.updateAutomation(validateAutomationUpdateInput(input)),
+  );
+  ipcMain.handle("ppx-client:transition-automation", async (_event, operation: unknown, automationId: unknown, expectedRevision: unknown) =>
+    adapter!.transitionAutomation(
+      validateAutomationOperation(operation),
+      validateIdentifier(automationId, "Automation id"),
+      validateAutomationRevision(expectedRevision),
+    ),
+  );
+  ipcMain.handle("ppx-client:run-automation", async (_event, automationId: unknown, input: unknown) =>
+    adapter!.runAutomation(
+      validateIdentifier(automationId, "Automation id"),
+      validateAutomationInput(input),
+    ),
+  );
+  ipcMain.handle("ppx-client:get-automation-history", async (_event, automationId: unknown) =>
+    adapter!.getAutomationHistory(validateIdentifier(automationId, "Automation id")),
+  );
+  ipcMain.handle("ppx-client:list-automation-templates", async () => adapter!.listAutomationTemplates());
   ipcMain.handle("ppx-client:upload-artifact", async (_event, input: unknown) =>
     adapter!.uploadArtifact(validateArtifactUploadInput(input)),
   );
@@ -284,6 +373,13 @@ app.whenReady().then(() => {
     adapter!.getExtensionReadiness(
       validateExtensionKind(kind),
       validateIdentifier(extensionId, "Extension id"),
+    ),
+  );
+  ipcMain.handle("ppx-client:get-extension-health-history", async (_event, kind: unknown, extensionId: unknown, limit: unknown) =>
+    adapter!.getExtensionHealthHistory(
+      validateExtensionHealthKind(kind),
+      validateIdentifier(extensionId, "Extension id"),
+      limit === null || limit === undefined ? 10 : validateExtensionHealthLimit(limit),
     ),
   );
   ipcMain.handle("ppx-client:preview-extension", async (_event, input: unknown) =>
@@ -381,4 +477,8 @@ app.on("window-all-closed", () => {
   if (process.platform !== "darwin") {
     app.quit();
   }
+});
+
+app.on("before-quit", () => {
+  quitting = true;
 });

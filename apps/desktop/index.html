@@ -6,6 +6,19 @@
       name="viewport"
       content="width=device-width, initial-scale=1.0"
     />
+    <script>
+      (() => {
+        try {
+          const raw = localStorage.getItem("openppx.desktop.preferences.v1");
+          const preference = raw ? JSON.parse(raw).theme : "system";
+          const dark = preference === "dark" || (preference !== "light" && matchMedia("(prefers-color-scheme: dark)").matches);
+          document.documentElement.dataset.theme = dark ? "dark" : "light";
+          document.documentElement.dataset.themePreference = preference;
+        } catch {
+          document.documentElement.dataset.theme = matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+        }
+      })();
+    </script>
     <title>OpenPPX Desktop</title>
   </head>
   <body>

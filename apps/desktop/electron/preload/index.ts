@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from "electron";
-import type { AgentCreateRequest, AgentUpdateInput, AppConnectionEnablementRequest, AppConnectionRemoveRequest, AppConnectionSaveRequest, ArtifactSummary, ArtifactUploadInput, ConnectionSettings, CronCreateInput, CronUpdateInput, DesktopPlatform, ExtensionEnablementRequest, ExtensionInstallRequest, ExtensionPreviewRequest, ExtensionRemoveRequest, HeartbeatConfiguration, McpMutationRequest, ModelProfileCreateInput, ModelProfileUpdateInput, OperationsTaskControlInput, PluginMarketplaceSourceSpec, PpxClientApi, RunEvent, RuntimeCommand, SendMessageInput, SessionMutationRequest, SetupApplyRequest, SlashCommandRequest } from "../../app/src/types";
+import type { AgentCreateRequest, AgentUpdateInput, AppConnectionEnablementRequest, AppConnectionRemoveRequest, AppConnectionSaveRequest, ArtifactSummary, ArtifactUploadInput, AutomationCreateInput, AutomationStatus, AutomationUpdateRequest, ConnectionSettings, CronCreateInput, CronUpdateInput, DesktopHostPreferences, DesktopPlatform, ExtensionEnablementRequest, ExtensionInstallRequest, ExtensionPreviewRequest, ExtensionRemoveRequest, HeartbeatConfiguration, McpMutationRequest, ModelProfileCreateInput, ModelProfileUpdateInput, OperationsTaskControlInput, PluginMarketplaceSourceSpec, PpxClientApi, RunEvent, RuntimeCommand, SendMessageInput, SessionMutationRequest, SetupApplyRequest, SlashCommandRequest } from "../../app/src/types";
 
 function desktopPlatform(): DesktopPlatform {
   if (process.platform === "darwin") {
@@ -19,6 +19,7 @@ const api: PpxClientApi = {
   bootstrap: () => ipcRenderer.invoke("ppx-client:bootstrap"),
   getUserProfile: () => ipcRenderer.invoke("ppx-client:get-user-profile"),
   getDiagnostics: () => ipcRenderer.invoke("ppx-client:get-diagnostics"),
+  setDesktopHostPreferences: (preferences: DesktopHostPreferences) => ipcRenderer.invoke("ppx-client:set-desktop-host-preferences", preferences),
   testConnectionSettings: (settings: ConnectionSettings) => ipcRenderer.invoke("ppx-client:test-connection-settings", settings),
   saveConnectionSettings: (settings: ConnectionSettings) => ipcRenderer.invoke("ppx-client:save-connection-settings", settings),
   listConnectionProfiles: () => ipcRenderer.invoke("ppx-client:list-connection-profiles"),
@@ -64,6 +65,17 @@ const api: PpxClientApi = {
   exportSession: (input: SessionMutationRequest) => ipcRenderer.invoke("ppx-client:export-session", input),
   deleteSession: (input: SessionMutationRequest) => ipcRenderer.invoke("ppx-client:delete-session", input),
   loadSession: (sessionId: string) => ipcRenderer.invoke("ppx-client:load-session", sessionId),
+  getCurrentGoal: (sessionId: string) => ipcRenderer.invoke("ppx-client:get-current-goal", sessionId),
+  listAutomations: (statuses?: AutomationStatus[]) => ipcRenderer.invoke("ppx-client:list-automations", statuses ?? []),
+  getAutomation: (automationId: string) => ipcRenderer.invoke("ppx-client:get-automation", automationId),
+  createAutomation: (input: AutomationCreateInput) => ipcRenderer.invoke("ppx-client:create-automation", input),
+  updateAutomation: (input: AutomationUpdateRequest) => ipcRenderer.invoke("ppx-client:update-automation", input),
+  transitionAutomation: (operation, automationId, expectedRevision) =>
+    ipcRenderer.invoke("ppx-client:transition-automation", operation, automationId, expectedRevision),
+  runAutomation: (automationId: string, input?: Record<string, unknown>) =>
+    ipcRenderer.invoke("ppx-client:run-automation", automationId, input ?? {}),
+  getAutomationHistory: (automationId: string) => ipcRenderer.invoke("ppx-client:get-automation-history", automationId),
+  listAutomationTemplates: () => ipcRenderer.invoke("ppx-client:list-automation-templates"),
   uploadArtifact: (input: ArtifactUploadInput) => ipcRenderer.invoke("ppx-client:upload-artifact", input),
   listArtifacts: (agentId: string, sessionId: string) => ipcRenderer.invoke("ppx-client:list-artifacts", agentId, sessionId),
   downloadArtifact: (agentId: string, sessionId: string, artifact: ArtifactSummary) => ipcRenderer.invoke("ppx-client:download-artifact", agentId, sessionId, artifact),
@@ -76,6 +88,7 @@ const api: PpxClientApi = {
   installAppStarter: (starterId: string) => ipcRenderer.invoke("ppx-client:install-app-starter", starterId),
   getExtension: (kind, extensionId) => ipcRenderer.invoke("ppx-client:get-extension", kind, extensionId),
   getExtensionReadiness: (kind, extensionId) => ipcRenderer.invoke("ppx-client:get-extension-readiness", kind, extensionId),
+  getExtensionHealthHistory: (kind, extensionId, limit) => ipcRenderer.invoke("ppx-client:get-extension-health-history", kind, extensionId, limit ?? 10),
   previewExtension: (input: ExtensionPreviewRequest) => ipcRenderer.invoke("ppx-client:preview-extension", input),
   installExtension: (input: ExtensionInstallRequest) => ipcRenderer.invoke("ppx-client:install-extension", input),
   setExtensionAgentEnabled: (input: ExtensionEnablementRequest) => ipcRenderer.invoke("ppx-client:set-extension-agent-enabled", input),

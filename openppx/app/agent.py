@@ -14,14 +14,14 @@ from google.adk.tools.preload_memory_tool import PreloadMemoryTool
 from ..config import normalize_agent_privilege_level
 from ..core.mcp_registry import summarize_mcp_toolsets
 from ..extensions import ExtensionError, SkillSnapshot
+from ..runtime.goal_store import GoalStore
+from ..tooling.goal_tools import GoalToolRuntimeSnapshot, build_goal_tools
 from ..tooling.skills_adapter import list_skills, read_skill
 from ..tooling.registry import (
     browser,
     check_browser_remote_job_protocol,
     computer_task,
     computer_use,
-    advance_task_flow,
-    complete_goal,
     audit_stuck_tasks,
     remediate_stuck_tasks,
     audit_orphan_runtime_facts,
@@ -33,7 +33,6 @@ from ..tooling.registry import (
     dispatch_task_action,
     edit_file,
     exec_command,
-    finish_task_flow,
     glob,
     grep,
     high_risk_action_requires_confirmation,
@@ -44,9 +43,7 @@ from ..tooling.registry import (
     list_browser_remote_providers,
     list_dir,
     list_context_summaries,
-    list_task_flows,
     list_tasks,
-    long_task,
     pause_task,
     read_file,
     process_session,
@@ -55,7 +52,6 @@ from ..tooling.registry import (
     rollup_context_summaries,
     send_task_input,
     show_task,
-    show_task_flow,
     exec_command_requires_confirmation,
     spawn_subagent,
     start_gui_task,
@@ -67,10 +63,7 @@ from ..tooling.registry import (
     summarize_staged_summary_quality_log,
     web_fetch,
     web_search,
-    update_task_flow_step,
-    write_task_flow,
     write_context_summary,
-    write_todos,
     write_file,
     cancel_task,
 )
@@ -142,6 +135,7 @@ def _build_tools(
     include_gui_tools: bool | None = None,
     extension_tools: tuple[Any, ...] | None = None,
     skill_tools: tuple[Any, ...] | None = None,
+    goal_tools: tuple[Any, ...] = (),
 ) -> list[Any]:
     """Assemble tools from explicit snapshot policy and extension resources."""
     resolved_skill_tools = (list_skills, read_skill) if skill_tools is None else skill_tools
@@ -157,15 +151,7 @@ def _build_tools(
         glob,
         grep,
         invoke_skill_api,
-        long_task,
-        write_todos,
-        complete_goal,
-        write_task_flow,
-        show_task_flow,
-        list_task_flows,
-        update_task_flow_step,
-        advance_task_flow,
-        finish_task_flow,
+        *goal_tools,
         write_context_summary,
         summarize_context_text,
         evaluate_staged_summary_quality_cases,
@@ -217,6 +203,7 @@ def _build_tools(
             "list_dir",
             "glob",
             "grep",
+            "get_goal",
             "list_tasks",
             "show_task",
             "task_control_snapshot",
@@ -241,6 +228,8 @@ def build_root_agent(
     include_gui_tools: bool = False,
     skill_snapshot: SkillSnapshot | None = None,
     mcp_summaries: list[dict[str, str]] | None = None,
+    goal_store: GoalStore | None = None,
+    extension_snapshot_digest: str = "",
 ) -> LlmAgent:
     """Build one ADK Agent from an immutable Config snapshot.
 
@@ -252,6 +241,18 @@ def build_root_agent(
     delegation_override = agent_config.spec.permission_overrides.can_delegate
     if delegation_override is None:
         delegation_override = agent_config.spec.privilege_level in {"medium", "high", "root"}
+    resolved_goal_tools = ()
+    if goal_store is not None:
+        resolved_goal_tools = build_goal_tools(
+            goal_store,
+            GoalToolRuntimeSnapshot(
+                agent_id=agent_config.metadata.name,
+                workspace_ref=agent_config.spec.workspace,
+                permission_revision=snapshot.revision,
+                model_profile_revision=snapshot.model.revision,
+                extension_snapshot_digest=extension_snapshot_digest,
+            ),
+        )
     return LlmAgent(
         name="openppx",
         model=model,
@@ -269,6 +270,7 @@ def build_root_agent(
             include_gui_tools=include_gui_tools,
             extension_tools=extension_tools,
             skill_tools=_snapshot_skill_tools(resolved_skill_snapshot),
+            goal_tools=resolved_goal_tools,
         ),
     )
 

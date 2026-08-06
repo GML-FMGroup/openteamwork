@@ -623,6 +623,17 @@ def test_session_and_run_actions_use_the_same_runtime_supervisor(tmp_path: Path)
         snapshot_revision=supervisor.runtime_for("low-main").metadata.snapshot_revision,
         cancel=lambda: None,
     )
+    inspected = application.invoke(
+        "system.command.invoke",
+        {
+            "rawCommand": "/inspect",
+            "userId": "local:test",
+            "agentId": "low-main",
+            "sessionId": created.data["session"]["id"],
+            "runId": "run-action",
+        },
+        context,
+    )
     stopped = application.invoke(
         "system.command.invoke",
         {
@@ -638,9 +649,116 @@ def test_session_and_run_actions_use_the_same_runtime_supervisor(tmp_path: Path)
 
     assert stopped.ok is True
     assert stopped.data["targetActionId"] == "run.stop"
+    assert inspected.ok is True
+    inspection = inspected.data["result"]
+    assert inspection["effectiveRuntime"]["modelProfileId"] == "primary"
+    assert inspection["effectiveRuntime"]["workspaceConfigured"] is True
+    assert "workspace" not in inspection["effectiveRuntime"]
+    assert str(tmp_path) not in str(inspection)
+    assert inspection["runs"][0]["runId"] == "run-action"
+    assert inspection["goals"] == []
+    assert inspection["tasks"] == []
     assert stopped.data["result"]["run"]["state"] == "cancelling"
     assert missing.error is not None
     assert missing.error.code == "run_not_found"
+
+
+def test_model_command_persists_session_override_and_pins_new_run_snapshot(tmp_path: Path) -> None:
+    config_service, secrets = _configured(tmp_path)
+    config_service.profiles.write_profile(
+        "reasoning",
+        ModelProfile.model_validate(
+            {
+                "apiVersion": "openppx.io/v1alpha1",
+                "kind": "ModelProfile",
+                "metadata": {"name": "reasoning"},
+                "spec": {
+                    "displayName": "Reasoning",
+                    "provider": "openai",
+                    "model": "openai/gpt-reasoning",
+                    "credential": {"store": "system", "name": "primary-key"},
+                    "executionLocation": "remote",
+                    "capabilities": ["text", "tool_calling"],
+                    "fallbackProfiles": [],
+                    "enabled": True,
+                },
+            }
+        ),
+        expected_revision=None,
+    )
+    supervisor = NodeRuntimeSupervisor(
+        config_service=config_service,
+        assembler=RuntimeAssembler(
+            node_root=tmp_path,
+            secret_store=secrets,
+            model_factory=lambda _resolution: _HelloLlm(model="hello-model"),
+        ),
+    )
+    application = build_control_plane(tmp_path, secret_store=secrets, product_version="test")
+    application.attach_runtime(supervisor)
+    permissions = frozenset(
+        {"system.read", "session.read", "session.write", "model.read", "model.use"}
+    )
+    action_context = ActionContext(
+        request_id="req-model-session",
+        correlation_id="corr-model-session",
+        actor_id="local:test",
+        capabilities=permissions,
+        permissions=permissions,
+    )
+    created = application.invoke(
+        "session.new",
+        {"agentId": "low-main", "userId": "local:test"},
+        action_context,
+    )
+    session_id = created.data["session"]["id"]
+
+    selected = application.invoke(
+        "system.command.invoke",
+        {
+            "rawCommand": "/model reasoning",
+            "userId": "local:test",
+            "agentId": "low-main",
+            "sessionId": session_id,
+        },
+        action_context,
+    )
+    status = application.invoke(
+        "system.command.invoke",
+        {
+            "rawCommand": "/model status",
+            "userId": "local:test",
+            "agentId": "low-main",
+            "sessionId": session_id,
+        },
+        action_context,
+    )
+    started = supervisor.start_run(
+        run_id="run-model-session",
+        agent_id="low-main",
+        session_id=session_id,
+        user_id="local:test",
+        text="Hello",
+        run_override=application.session_metadata.get(session_id).model_profile_id,
+    )
+
+    assert selected.ok is True
+    assert selected.data["result"]["sessionSelection"]["profileId"] == "reasoning"
+    assert status.data["result"]["effectiveSelection"]["model"] == "openai/gpt-reasoning"
+    assert started.model_profile_id == "reasoning"
+    assert started.model == "openai/gpt-reasoning"
+
+    reset = application.invoke(
+        "system.command.invoke",
+        {
+            "rawCommand": "/model reset",
+            "userId": "local:test",
+            "agentId": "low-main",
+            "sessionId": session_id,
+        },
+        action_context,
+    )
+    assert reset.data["result"]["sessionSelection"]["profileId"] is None
 
 
 def test_supervisor_executes_background_run_on_the_snapshot_runtime(tmp_path: Path) -> None:

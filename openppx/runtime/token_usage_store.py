@@ -50,10 +50,17 @@ def ensure_token_usage_schema(db_path: Path | None = None) -> None:
                 request_image_tokens INTEGER NOT NULL,
                 response_image_tokens INTEGER NOT NULL,
                 total_tokens INTEGER NOT NULL,
+                duration_ms INTEGER NOT NULL DEFAULT 0,
+                ttft_ms INTEGER NOT NULL DEFAULT 0,
                 raw_usage_json TEXT
             )
             """
         )
+        columns = {str(row[1]) for row in conn.execute("PRAGMA table_info(llm_token_usage_events)").fetchall()}
+        if "duration_ms" not in columns:
+            conn.execute("ALTER TABLE llm_token_usage_events ADD COLUMN duration_ms INTEGER NOT NULL DEFAULT 0")
+        if "ttft_ms" not in columns:
+            conn.execute("ALTER TABLE llm_token_usage_events ADD COLUMN ttft_ms INTEGER NOT NULL DEFAULT 0")
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_llm_token_usage_events_response_at_ms "
             "ON llm_token_usage_events(response_at_ms DESC)"
@@ -185,8 +192,10 @@ def write_token_usage_event(event: dict[str, Any], db_path: Path | None = None) 
                 request_image_tokens,
                 response_image_tokens,
                 total_tokens,
+                duration_ms,
+                ttft_ms,
                 raw_usage_json
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 str(event.get("request_at", "")),
@@ -204,6 +213,8 @@ def write_token_usage_event(event: dict[str, Any], db_path: Path | None = None) 
                 _safe_int(event.get("request_image_tokens")),
                 _safe_int(event.get("response_image_tokens")),
                 _safe_int(event.get("total_tokens")),
+                _safe_int(event.get("duration_ms")),
+                _safe_int(event.get("ttft_ms")),
                 json.dumps(event.get("raw_usage", {}), ensure_ascii=False, default=str),
             ),
         )
@@ -257,7 +268,9 @@ def read_token_usage_stats(
                 "COALESCE(SUM(response_text_tokens), 0) AS response_text_tokens, "
                 "COALESCE(SUM(request_image_tokens), 0) AS request_image_tokens, "
                 "COALESCE(SUM(response_image_tokens), 0) AS response_image_tokens, "
-                "COALESCE(SUM(total_tokens), 0) AS total_tokens "
+                "COALESCE(SUM(total_tokens), 0) AS total_tokens, "
+                "COALESCE(SUM(duration_ms), 0) AS duration_ms, "
+                "COALESCE(SUM(ttft_ms), 0) AS ttft_ms "
                 "FROM llm_token_usage_events"
                 f"{where}"
             ),
@@ -268,7 +281,7 @@ def read_token_usage_stats(
             (
                 "SELECT response_at, provider, model, session_id, invocation_id, "
                 "request_tokens, response_tokens, request_text_tokens, response_text_tokens, "
-                "request_image_tokens, response_image_tokens, total_tokens "
+                "request_image_tokens, response_image_tokens, total_tokens, duration_ms, ttft_ms "
                 "FROM llm_token_usage_events"
                 f"{where} "
                 "ORDER BY response_at_ms DESC "
@@ -286,6 +299,8 @@ def read_token_usage_stats(
         "request_image_tokens": int(totals["request_image_tokens"]) if totals else 0,
         "response_image_tokens": int(totals["response_image_tokens"]) if totals else 0,
         "total_tokens": int(totals["total_tokens"]) if totals else 0,
+        "duration_ms": int(totals["duration_ms"]) if totals else 0,
+        "ttft_ms": int(totals["ttft_ms"]) if totals else 0,
         "since_ms": int(since_ms) if since_ms is not None else None,
         "until_ms": int(until_ms) if until_ms is not None else None,
         "recent": [dict(row) for row in recent_rows],

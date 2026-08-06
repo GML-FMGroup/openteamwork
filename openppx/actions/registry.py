@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
+import shlex
 from typing import Any, Protocol
 
 from pydantic import BaseModel
@@ -50,6 +51,7 @@ class ResolvedSlashCommand:
     registered: RegisteredAction
     command: SlashCommandSpec
     args: str
+    parsed_args: tuple[object, ...] = ()
 
 
 class ActionRegistry:
@@ -126,7 +128,57 @@ class ActionRegistry:
         args = remainder.strip() if separator else ""
         if args and not command.accepts_args:
             raise SlashCommandError("command_arguments_not_allowed", "This slash command does not accept arguments.")
-        return ResolvedSlashCommand(registered=registered, command=command, args=args)
+        parsed_args = self._validate_slash_arguments(command, args)
+        return ResolvedSlashCommand(
+            registered=registered,
+            command=command,
+            args=args,
+            parsed_args=parsed_args,
+        )
+
+    @staticmethod
+    def _validate_slash_arguments(command: SlashCommandSpec, raw_args: str) -> tuple[object, ...]:
+        """Validate positional command text against its projected typed schema."""
+        if not command.arguments:
+            return ()
+        text_argument = command.arguments[-1] if command.arguments[-1].value_type == "text" else None
+        try:
+            tokens = shlex.split(raw_args)
+        except ValueError:
+            raise SlashCommandError("command_arguments_invalid", f"Usage: {command.usage}") from None
+        if not tokens:
+            if command.no_args_behavior == "show_usage":
+                raise SlashCommandError("command_usage_required", f"Usage: {command.usage}")
+            return ()
+        required_count = sum(1 for argument in command.arguments if argument.required)
+        maximum_count = None if text_argument is not None else len(command.arguments)
+        if len(tokens) < required_count or (maximum_count is not None and len(tokens) > maximum_count):
+            raise SlashCommandError("command_argument_count_invalid", f"Usage: {command.usage}")
+        values: list[object] = []
+        token_index = 0
+        for argument in command.arguments:
+            if token_index >= len(tokens):
+                break
+            token = " ".join(tokens[token_index:]) if argument.value_type == "text" else tokens[token_index]
+            try:
+                if argument.value_type == "integer":
+                    value: object = int(token)
+                elif argument.value_type == "boolean":
+                    normalized = token.lower()
+                    if normalized not in {"true", "false"}:
+                        raise ValueError
+                    value = normalized == "true"
+                elif argument.value_type == "enum":
+                    if token not in argument.choices:
+                        raise ValueError
+                    value = token
+                else:
+                    value = token
+            except ValueError:
+                raise SlashCommandError("command_argument_type_invalid", f"Usage: {command.usage}") from None
+            values.append(value)
+            token_index = len(tokens) if argument.value_type == "text" else token_index + 1
+        return tuple(values)
 
     @staticmethod
     def availability_reason(registered: RegisteredAction, context: ActionContext) -> str | None:

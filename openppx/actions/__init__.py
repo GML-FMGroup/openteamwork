@@ -8,6 +8,7 @@ from .models import (
     ActionFailure,
     ActionOutcome,
     ActionSpec,
+    SlashCommandArgumentSpec,
     SlashCommandSpec,
     SlashInvocationContext,
 )
@@ -24,6 +25,7 @@ __all__ = [
     "ActionRegistry",
     "ActionSpec",
     "ResolvedSlashCommand",
+    "SlashCommandArgumentSpec",
     "SlashCommandError",
     "SlashCommandSpec",
     "SlashInvocationContext",

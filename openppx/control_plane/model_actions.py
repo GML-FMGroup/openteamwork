@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 from decimal import Decimal, InvalidOperation
-from typing import cast
+from typing import Callable, cast
 
-from openppx.actions import ActionError, ActionFailure, ActionRegistry, ActionSpec, SlashCommandSpec
+from openppx.actions import ActionError, ActionFailure, ActionRegistry, ActionSpec, SlashCommandArgumentSpec, SlashCommandSpec, SlashInvocationContext
 from openppx.config import ConfigError
 from openppx.modeling import (
     ModelProfileRepository,
@@ -17,9 +17,11 @@ from openppx.modeling import (
     ProviderAccessError,
     ProviderAccessService,
 )
+from openppx.runtime.node_runtime import NodeRuntimeSupervisor
+from openppx.runtime.session_metadata_store import SessionMetadataRevisionError, SessionMetadataStore
 
 from .errors import raise_config_failure, raise_model_failure
-from .input_models import EmptyInput, ModelProfileCreateInput, ModelProfileMutationInput, ModelProfileReadInput, ModelProfileUpdateInput, ModelProfileWriteInput, ModelProviderInput, ModelSelectionInput
+from .input_models import EmptyInput, ModelProfileCreateInput, ModelProfileMutationInput, ModelProfileReadInput, ModelProfileUpdateInput, ModelProfileWriteInput, ModelProviderInput, ModelSelectionInput, ModelSessionCommandInput
 from .projections import project_resolution, project_resource
 
 
@@ -30,12 +32,14 @@ def register_model_actions(
     selector: ModelProfileSelector,
     config_repository,
     provider_access: ProviderAccessService,
+    *,
+    session_metadata: SessionMetadataStore,
+    runtime_provider: Callable[[], NodeRuntimeSupervisor | None],
 ) -> None:
     """Register deterministic Model Profile query and selection Actions."""
     registry.register(
         _spec("model.list", "List Model Profiles", "List configured Model Profiles.", EmptyInput, "model.read"),
         lambda _context, _input: _list_profiles(profiles, selector),
-        slash_input=lambda _command, _args, _context: {},
     )
     registry.register(
         _spec("model.readiness", "Check model readiness", "Check Model selection without starting a Run.", ModelSelectionInput, "model.read"),
@@ -103,22 +107,54 @@ def register_model_actions(
             lambda: provider_access.refresh_auth(cast(ModelProviderInput, input_data).provider_id)
         ),
     )
+    registry.register(
+        ActionSpec(
+            action_id="model.session.command",
+            namespace="model",
+            title="Session model",
+            description="Inspect or change the Model Profile used by future Runs in one Session.",
+            input_model=ModelSessionCommandInput,
+            scope="session",
+            required_capabilities=frozenset({"model.use"}),
+            permission="model.use",
+            risk="medium",
+            operation="mutation",
+            projections=("cli", "slash", "desktop", "mobile"),
+            slash_commands=(
+                SlashCommandSpec(
+                    command="/model",
+                    title="Session model",
+                    description="List Profiles, inspect status, select a Profile, or restore the Agent default.",
+                    icon="brain",
+                    arg_hint="[profile|status|default|reset]",
+                    arguments=(
+                        SlashCommandArgumentSpec(
+                            name="profile_or_operation",
+                            value_type="string",
+                            description="A Model Profile ID, status, default, or reset.",
+                        ),
+                    ),
+                    no_args_behavior="invoke",
+                    order=50,
+                ),
+            ),
+        ),
+        lambda _context, input_data: _session_model_command(
+            profiles,
+            selector,
+            config_repository,
+            session_metadata,
+            runtime_provider,
+            cast(ModelSessionCommandInput, input_data),
+        ),
+        availability=lambda _context: None if runtime_provider() is not None else "runtime_required",
+        slash_input=_session_model_slash_input,
+    )
 
 
 def _spec(action_id: str, title: str, description: str, input_model, permission: str) -> ActionSpec:
     slash_commands = ()
     projections = ("cli", "desktop", "mobile")
-    if action_id == "model.list":
-        projections = ("cli", "slash", "desktop", "mobile")
-        slash_commands = (
-            SlashCommandSpec(
-                command="/model",
-                title="Show models",
-                description="List configured Model Profiles and credential readiness.",
-                icon="brain",
-                order=50,
-            ),
-        )
     return ActionSpec(
         action_id=action_id,
         namespace="model",
@@ -139,9 +175,108 @@ def _spec(action_id: str, title: str, description: str, input_model, permission:
         required_capabilities=frozenset({permission}),
         permission=permission,
         risk="medium" if action_id in {"model.profile.apply", "model.profile.create", "model.profile.update"} else "low",
+        operation="mutation" if permission == "model.write" else "read",
         projections=projections,
         slash_commands=slash_commands,
     )
+
+
+def _session_model_slash_input(
+    _command: SlashCommandSpec,
+    args: str,
+    context: SlashInvocationContext,
+) -> dict[str, object]:
+    if context.agent_id is None or context.session_id is None:
+        raise ActionFailure(ActionError("session_context_required", "The /model command requires an active Session."))
+    value = args.strip()
+    if not value:
+        operation = "list"
+        profile_id = None
+    elif value == "status":
+        operation = "status"
+        profile_id = None
+    elif value in {"default", "reset"}:
+        operation = "reset"
+        profile_id = None
+    else:
+        operation = "select"
+        profile_id = value
+    return {
+        "agentId": context.agent_id,
+        "userId": context.user_id,
+        "sessionId": context.session_id,
+        "operation": operation,
+        "profileId": profile_id,
+    }
+
+
+def _session_model_command(
+    profiles: ModelProfileRepository,
+    selector: ModelProfileSelector,
+    config_repository,
+    metadata: SessionMetadataStore,
+    runtime_provider: Callable[[], NodeRuntimeSupervisor | None],
+    input_data: ModelSessionCommandInput,
+) -> dict[str, object]:
+    supervisor = runtime_provider()
+    if supervisor is None:
+        raise ActionFailure(ActionError("runtime_required", "The Node Runtime is not available."))
+    session = supervisor.get_session_sync(
+        input_data.agent_id,
+        user_id=input_data.user_id,
+        session_id=input_data.session_id,
+    )
+    if session is None:
+        raise ActionFailure(ActionError("session_not_found", "The requested Session was not found."))
+    current = metadata.get(input_data.session_id)
+    override = current.model_profile_id if current is not None else None
+    if input_data.operation == "select":
+        assert input_data.profile_id is not None
+        try:
+            agent = config_repository.read_agent(input_data.agent_id).document
+            selector.select(agent, run_override=input_data.profile_id)
+        except ModelSelectionError as exc:
+            raise_model_failure(exc)
+        try:
+            current = metadata.update_model_profile(
+                session_id=input_data.session_id,
+                agent_id=input_data.agent_id,
+                principal_id=input_data.user_id,
+                model_profile_id=input_data.profile_id,
+                expected_revision=input_data.expected_revision,
+            )
+        except SessionMetadataRevisionError as exc:
+            raise ActionFailure(ActionError("revision_conflict", str(exc), retryable=True)) from exc
+        override = current.model_profile_id
+    elif input_data.operation == "reset":
+        try:
+            current = metadata.update_model_profile(
+                session_id=input_data.session_id,
+                agent_id=input_data.agent_id,
+                principal_id=input_data.user_id,
+                model_profile_id=None,
+                expected_revision=input_data.expected_revision,
+            )
+        except SessionMetadataRevisionError as exc:
+            raise ActionFailure(ActionError("revision_conflict", str(exc), retryable=True)) from exc
+        override = None
+    try:
+        agent = config_repository.read_agent(input_data.agent_id).document
+        effective = selector.select(agent, run_override=override)
+    except ConfigError as exc:
+        raise_config_failure(exc)
+    except ModelSelectionError as exc:
+        raise_model_failure(exc)
+    stored = metadata.get(input_data.session_id)
+    return {
+        "items": _list_profiles(profiles, selector)["items"],
+        "sessionSelection": {
+            "profileId": stored.model_profile_id if stored is not None else None,
+            "revision": stored.model_selection_revision if stored is not None else 0,
+        },
+        "effectiveSelection": project_resolution(effective),
+        "effect": "next_run",
+    }
 
 
 def _list_profiles(profiles: ModelProfileRepository, selector: ModelProfileSelector) -> dict[str, object]:

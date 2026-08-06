@@ -50,6 +50,10 @@ class ManagedRunSnapshot:
     snapshot_revision: str
     started_at: str
     state: RunState
+    model_profile_id: str | None = None
+    model_profile_revision: str | None = None
+    provider: str | None = None
+    model: str | None = None
 
 
 @dataclass(slots=True)
@@ -433,6 +437,10 @@ class NodeRuntimeSupervisor:
         agent_id: str,
         session_id: str,
         snapshot_revision: str,
+        model_profile_id: str | None = None,
+        model_profile_revision: str | None = None,
+        provider: str | None = None,
+        model: str | None = None,
         cancel: Callable[[], None],
     ) -> ManagedRunSnapshot:
         """Register a newly active Run and its cooperative cancel boundary."""
@@ -442,6 +450,10 @@ class NodeRuntimeSupervisor:
             agent_id=agent_id,
             session_id=session_id,
             snapshot_revision=snapshot_revision,
+            model_profile_id=model_profile_id,
+            model_profile_revision=model_profile_revision,
+            provider=provider,
+            model=model,
             started_at=datetime.now(timezone.utc).isoformat(),
             state="running",
         )
@@ -459,6 +471,7 @@ class NodeRuntimeSupervisor:
         session_id: str,
         user_id: str,
         text: str,
+        run_override: str | None = None,
         artifact_parts: tuple[types.Part, ...] = (),
         on_event: Callable[[Any], None] | None = None,
         on_text_update: Callable[[str, str], None] | None = None,
@@ -467,13 +480,17 @@ class NodeRuntimeSupervisor:
         on_cancelled: Callable[[], None] | None = None,
     ) -> ManagedRunSnapshot:
         """Start one snapshot-pinned Run on a Node-owned background thread."""
-        runtime = self.runtime_for(agent_id)
+        runtime = self.runtime_for(agent_id, run_override=run_override)
         control = _RunTaskControl()
         snapshot = self.register_run(
             run_id=run_id,
             agent_id=agent_id,
             session_id=session_id,
             snapshot_revision=runtime.metadata.snapshot_revision,
+            model_profile_id=runtime.metadata.model_profile_id,
+            model_profile_revision=runtime.metadata.model_profile_revision,
+            provider=runtime.metadata.provider,
+            model=runtime.metadata.model,
             cancel=control.cancel,
         )
 
@@ -554,6 +571,74 @@ class NodeRuntimeSupervisor:
                 raise RunNotFoundError(f"Run '{run_id}' was not found.")
             return managed.snapshot
 
+    def inspect(
+        self,
+        *,
+        agent_id: str | None = None,
+        session_id: str | None = None,
+        run_id: str | None = None,
+        limit: int = 20,
+    ) -> dict[str, object]:
+        """Return a bounded, secret-free projection of current Runtime facts.
+
+        The projection reads the same immutable Config and Extension snapshots
+        used to assemble future ADK Runs.  It deliberately omits workspace
+        paths, credentials, message bodies, tool arguments, and model prompts.
+        """
+        self._ensure_running()
+        safe_limit = max(1, min(int(limit or 20), 100))
+        with self._lock:
+            snapshots = [managed.snapshot for managed in self._runs.values()]
+        snapshots.sort(key=lambda item: item.started_at, reverse=True)
+        if agent_id is not None:
+            snapshots = [item for item in snapshots if item.agent_id == agent_id]
+        if session_id is not None:
+            snapshots = [item for item in snapshots if item.session_id == session_id]
+        if run_id is not None:
+            snapshots = [item for item in snapshots if item.run_id == run_id]
+
+        effective: dict[str, object] | None = None
+        if agent_id is not None:
+            snapshot = self.config_service.snapshot(agent_id)
+            extensions = self.assembler.extension_snapshot_for_agent(agent_id)
+            effective = {
+                "agentId": agent_id,
+                "configSnapshotRevision": snapshot.revision,
+                "modelProfileId": snapshot.model.profile_id,
+                "modelProfileRevision": snapshot.model.revision,
+                "provider": snapshot.model.provider,
+                "model": snapshot.model.model,
+                "workspaceConfigured": bool(snapshot.agent.spec.workspace.strip()),
+                "extensionSnapshotRevision": extensions.revision,
+                "extensions": {
+                    "skills": len(extensions.skills.skills),
+                    "mcpServers": len(extensions.mcp.entries),
+                    "apps": len(extensions.apps.entries),
+                    "plugins": len(extensions.plugins.entries),
+                    "pluginHooks": len(extensions.plugins.hooks.entries),
+                },
+            }
+
+        return {
+            "supervisor": self.status(),
+            "effectiveRuntime": effective,
+            "runs": [
+                {
+                    "runId": item.run_id,
+                    "agentId": item.agent_id,
+                    "sessionId": item.session_id,
+                    "state": item.state,
+                    "startedAt": item.started_at,
+                    "configSnapshotRevision": item.snapshot_revision,
+                    "modelProfileId": item.model_profile_id,
+                    "modelProfileRevision": item.model_profile_revision,
+                    "provider": item.provider,
+                    "model": item.model,
+                }
+                for item in snapshots[:safe_limit]
+            ],
+        }
+
     def status(self) -> dict[str, object]:
         """Return a redacted Runtime Supervisor status projection."""
         with self._lock:
@@ -599,6 +684,10 @@ def _replace_run_state(snapshot: ManagedRunSnapshot, state: RunState) -> Managed
         agent_id=snapshot.agent_id,
         session_id=snapshot.session_id,
         snapshot_revision=snapshot.snapshot_revision,
+        model_profile_id=snapshot.model_profile_id,
+        model_profile_revision=snapshot.model_profile_revision,
+        provider=snapshot.provider,
+        model=snapshot.model,
         started_at=snapshot.started_at,
         state=state,
     )

@@ -14,6 +14,7 @@ import type {
   ExtensionPreview,
   ExtensionReadinessResult,
   ExtensionProbeResult,
+  ExtensionHealthHistory,
   McpServerResource,
   McpValueBinding,
   AppConnectionDetail,
@@ -49,6 +50,13 @@ import type {
   PluginMarketplaceEntry,
   PluginMarketplaceSource,
   PluginMarketplaceSourceSpec,
+  GoalDetail,
+  AutomationCreateInput,
+  AutomationDetail,
+  AutomationRunSummary,
+  AutomationStatus,
+  AutomationSummary,
+  AutomationTemplateSummary,
 } from "@openppx/client";
 
 export type {
@@ -74,6 +82,7 @@ export type {
   ExtensionPreview,
   ExtensionReadinessResult,
   ExtensionProbeResult,
+  ExtensionHealthHistory,
   McpServerResource,
   McpValueBinding,
   AppConnectionDetail,
@@ -116,6 +125,17 @@ export type {
   ModelProfileCreateInput,
   ModelProfileUpdateInput,
   SetupProvider,
+  GoalDetail,
+  GoalStatus,
+  GoalSummary,
+  TaskFlowDetail,
+  TaskFlowStep,
+  AutomationCreateInput,
+  AutomationDetail,
+  AutomationRunSummary,
+  AutomationStatus,
+  AutomationSummary,
+  AutomationTemplateSummary,
 } from "@openppx/client";
 
 export type RuntimeState = "stopped" | "starting" | "reconnecting" | "healthy" | "error";
@@ -332,11 +352,24 @@ export interface OperationsDashboard {
   audit: OperationsAuditItem[];
 }
 
+export interface AutomationUpdateRequest extends Record<string, unknown> {
+  automationId: string;
+  userId: string;
+  expectedRevision: number;
+}
+
+export interface DesktopHostPreferences {
+  backgroundBehavior: "keep-running" | "confirm-before-close";
+  notificationsEnabled: boolean;
+  notificationSound: boolean;
+}
+
 export interface PpxClientApi {
   readonly platform: DesktopPlatform;
   bootstrap(): Promise<BootstrapPayload>;
   getUserProfile(): Promise<UserProfile>;
   getDiagnostics(): Promise<ClientDiagnostics>;
+  setDesktopHostPreferences(preferences: DesktopHostPreferences): Promise<void>;
   testConnectionSettings(settings: ConnectionSettings): Promise<ClientDiagnostics>;
   saveConnectionSettings(settings: ConnectionSettings): Promise<ClientDiagnostics>;
   listConnectionProfiles(): Promise<{ profiles: ConnectionProfileSummary[] }>;
@@ -356,6 +389,15 @@ export interface PpxClientApi {
   exportSession(input: SessionMutationRequest): Promise<Record<string, unknown>>;
   deleteSession(input: SessionMutationRequest): Promise<Record<string, unknown>>;
   loadSession(sessionId: string): Promise<{ messages: ChatMessage[] }>;
+  getCurrentGoal(sessionId: string): Promise<{ goal: GoalDetail | null }>;
+  listAutomations(statuses?: AutomationStatus[]): Promise<{ automations: AutomationSummary[] }>;
+  getAutomation(automationId: string): Promise<AutomationDetail>;
+  createAutomation(input: AutomationCreateInput): Promise<AutomationDetail>;
+  updateAutomation(input: AutomationUpdateRequest): Promise<AutomationDetail>;
+  transitionAutomation(operation: "pause" | "resume" | "delete", automationId: string, expectedRevision: number): Promise<Record<string, unknown>>;
+  runAutomation(automationId: string, input?: Record<string, unknown>): Promise<AutomationRunSummary>;
+  getAutomationHistory(automationId: string): Promise<Record<string, unknown>>;
+  listAutomationTemplates(): Promise<{ templates: AutomationTemplateSummary[] }>;
   uploadArtifact(input: ArtifactUploadInput): Promise<ArtifactSummary>;
   listArtifacts(agentId: string, sessionId: string): Promise<{ artifacts: ArtifactSummary[] }>;
   downloadArtifact(agentId: string, sessionId: string, artifact: ArtifactSummary): Promise<{ dataBase64: string; mimeType: string }>;
@@ -393,6 +435,7 @@ export interface PpxClientApi {
   installAppStarter(starterId: string): Promise<ExtensionMutationResult>;
   getExtension(kind: ExtensionSummary["kind"], extensionId: string): Promise<{ extension: ExtensionDetail }>;
   getExtensionReadiness(kind: ExtensionSummary["kind"], extensionId: string): Promise<ExtensionReadinessResult>;
+  getExtensionHealthHistory(kind: "mcp" | "app_connection", extensionId: string, limit?: number): Promise<ExtensionHealthHistory>;
   previewExtension(input: ExtensionPreviewRequest): Promise<ExtensionPreview>;
   installExtension(input: ExtensionInstallRequest): Promise<ExtensionMutationResult>;
   setExtensionAgentEnabled(input: ExtensionEnablementRequest): Promise<{ revision: string; status: string }>;

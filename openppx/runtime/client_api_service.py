@@ -566,12 +566,19 @@ class ClientApiCoordinator:
                 "extension.auth",
                 "extension.read",
                 "extension.write",
+                "flow.read",
+                "flow.write",
+                "goal.read",
+                "goal.write",
                 "model.read",
                 "model.write",
                 "model.use",
                 "operations.read",
                 "operations.write",
                 "audit.read",
+                "automation.read",
+                "automation.run",
+                "automation.write",
                 "session.read",
                 "session.write",
                 "run.control",
@@ -581,6 +588,7 @@ class ClientApiCoordinator:
                 "setup.read",
                 "setup.write",
                 "task.read",
+                "task.control",
             }
         )
         return ActionContext(
@@ -593,6 +601,21 @@ class ClientApiCoordinator:
             confirmed=confirmed,
         )
 
+    def _record_goal_fact(self, method_name: str, **facts: object) -> None:
+        """Attach a best-effort runtime fact without masking the authoritative ADK Run."""
+        try:
+            method = getattr(self._control_plane.goal_store, method_name)
+            method(**facts)
+        except Exception as exc:
+            _debug(
+                "goal_fact_record_failed",
+                {
+                    "method": method_name,
+                    "run_id": facts.get("run_id"),
+                    "session_id": facts.get("session_id"),
+                    "error": str(exc),
+                },
+            )
     def _invoke_control(self, action_id: str, payload: dict[str, object] | None = None) -> ActionOutcome:
         """Invoke one migrated business operation through the Control Plane."""
         request_id = f"client_api_{action_id.replace('.', '_')}"
@@ -2046,18 +2069,38 @@ class ClientApiCoordinator:
             },
         )
         try:
-            self._runtime_supervisor.start_run(
+            session_metadata = self._session_metadata.get(session_id)
+            run_snapshot = self._runtime_supervisor.start_run(
                 run_id=run_id,
                 agent_id=agent_id,
                 session_id=session_id,
                 user_id=requester.principal_id,
                 text=text,
+                run_override=(
+                    session_metadata.model_profile_id
+                    if session_metadata is not None
+                    else None
+                ),
                 artifact_parts=resolved_artifact_parts,
                 on_event=lambda event: self._publish_adk_run_event(handle, event),
                 on_text_update=lambda merged, _delta: self._publish_run_text(handle, merged),
                 on_complete=lambda final_text: self._complete_node_run(handle, final_text),
                 on_error=lambda error: self._fail_node_run(handle, error),
                 on_cancelled=lambda: self._cancel_node_run(handle),
+            )
+            self._record_goal_fact(
+                "record_run_fact",
+                session_id=session_id,
+                run_id=run_id,
+                status="running",
+                correlation_id=run_id,
+                snapshot={
+                    "snapshotRevision": run_snapshot.snapshot_revision,
+                    "modelProfileId": run_snapshot.model_profile_id,
+                    "modelProfileRevision": run_snapshot.model_profile_revision,
+                    "provider": run_snapshot.provider,
+                    "model": run_snapshot.model,
+                },
             )
         except Exception as exc:
             with self._lock:
@@ -2255,6 +2298,19 @@ class ClientApiCoordinator:
     def _publish_adk_run_event(self, handle: RunHandle, event: Any) -> None:
         """Project one raw ADK event into transport-stable tool-step events."""
         payload = event.model_dump(mode="json")
+        actions = payload.get("actions") if isinstance(payload.get("actions"), dict) else {}
+        artifact_delta = actions.get("artifact_delta")
+        if isinstance(artifact_delta, dict):
+            for artifact_ref, raw_version in artifact_delta.items():
+                version = raw_version if isinstance(raw_version, int) else None
+                self._record_goal_fact(
+                    "record_artifact_fact",
+                    session_id=handle.session_id,
+                    run_id=handle.run_id,
+                    artifact_ref=str(artifact_ref),
+                    version=version,
+                    correlation_id=handle.run_id,
+                )
         content = payload.get("content") if isinstance(payload.get("content"), dict) else {}
         raw_parts = content.get("parts") if isinstance(content.get("parts"), list) else []
         raw_long_running_ids = payload.get("long_running_tool_ids") or []
@@ -2389,6 +2445,13 @@ class ClientApiCoordinator:
 
     def _finish_node_run(self, handle: RunHandle, *, status: str) -> None:
         """Close one Run stream after publishing its common terminal event."""
+        self._record_goal_fact(
+            "record_run_fact",
+            session_id=handle.session_id,
+            run_id=handle.run_id,
+            status=status,
+            correlation_id=handle.run_id,
+        )
         handle.publish(
             "run.finished",
             {

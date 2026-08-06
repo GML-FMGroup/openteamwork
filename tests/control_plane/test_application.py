@@ -84,8 +84,8 @@ def profile_payload() -> dict[str, object]:
 
 
 def context(*, write: bool = True) -> ActionContext:
-    capabilities = frozenset({"system.read", "config.read", "config.write", "model.read", "model.write", "model.use"})
-    permissions = capabilities if write else frozenset({"system.read", "config.read", "model.read", "model.use"})
+    capabilities = frozenset({"system.read", "config.read", "config.write", "flow.read", "flow.write", "goal.read", "goal.write", "model.read", "model.write", "model.use"})
+    permissions = capabilities if write else frozenset({"system.read", "config.read", "flow.read", "goal.read", "model.read", "model.use"})
     return ActionContext(
         request_id="req_control_plane",
         correlation_id="corr_control_plane",
@@ -93,6 +93,107 @@ def context(*, write: bool = True) -> ActionContext:
         capabilities=capabilities,
         permissions=permissions,
     )
+
+
+def test_goal_actions_persist_plan_and_require_completion_evidence(tmp_path: Path) -> None:
+    application = configured_application(tmp_path)
+
+    created = application.invoke(
+        "goal.create",
+        {
+            "userId": "local:test",
+            "agentId": "low-main",
+            "sessionId": "session-goal",
+            "objective": "Ship a verified release",
+            "completionCriteria": ["Tests pass", "Artifact exists"],
+        },
+        context(),
+    )
+
+    assert created.ok is True
+    assert created.data["status"] == "active"
+    assert created.data["permissionRevision"]
+    assert created.data["modelProfileRevision"]
+    flow = created.data["flow"]
+    updated_flow = application.invoke(
+        "task_flow.update",
+        {
+            "flowId": flow["flowId"],
+            "userId": "local:test",
+            "expectedRevision": flow["revision"],
+            "steps": [
+                {
+                    "stepId": "verify",
+                    "title": "Verify release",
+                    "status": "pending",
+                    "dependsOn": [],
+                }
+            ],
+        },
+        context(),
+    )
+    assert updated_flow.ok is True
+    denied = application.invoke(
+        "goal.complete",
+        {
+            "goalId": created.data["goalId"],
+            "userId": "local:test",
+            "expectedRevision": created.data["revision"],
+        },
+        context(),
+    )
+    assert denied.ok is False
+    assert denied.error.code == "goal_state_invalid"
+    completed = application.invoke(
+        "goal.complete",
+        {
+            "goalId": created.data["goalId"],
+            "userId": "local:test",
+            "expectedRevision": created.data["revision"],
+            "completionEvidence": [
+                {"type": "artifact", "ref": "release.zip", "label": "Release artifact", "version": 0}
+            ],
+        },
+        context(),
+    )
+    assert completed.ok is True
+    assert completed.data["status"] == "completed"
+
+
+def test_goal_slash_command_creates_goal_and_requests_one_normal_agent_turn(tmp_path: Path) -> None:
+    application = configured_application(tmp_path)
+
+    outcome = application.invoke(
+        "system.command.invoke",
+        {
+            "rawCommand": "/goal Prepare a release with test evidence",
+            "userId": "local:test",
+            "agentId": "low-main",
+            "sessionId": "session-slash-goal",
+        },
+        context(),
+    )
+
+    assert outcome.ok is True
+    assert outcome.data["targetActionId"] == "goal.command"
+    result = outcome.data["result"]
+    assert result["objective"] == "Prepare a release with test evidence"
+    assert result["startAgentTurn"] == {
+        "text": "Prepare a release with test evidence",
+        "goalId": result["goalId"],
+    }
+    status = application.invoke(
+        "system.command.invoke",
+        {
+            "rawCommand": "/goal status",
+            "userId": "local:test",
+            "agentId": "low-main",
+            "sessionId": "session-slash-goal",
+        },
+        context(),
+    )
+    assert status.ok is True
+    assert status.data["result"]["current"]["goalId"] == result["goalId"]
 
 
 def configured_application(tmp_path: Path):
@@ -336,6 +437,19 @@ def test_slash_command_catalog_and_invocation_share_action_authorization(tmp_pat
 
     assert commands.ok is True
     assert all(item["slashCommands"] for item in commands.data["items"])
+    command_items = {item["actionId"]: item for item in commands.data["items"]}
+    model_command = command_items["model.session.command"]
+    assert model_command["operation"] == "mutation"
+    assert model_command["slashCommands"][0]["usage"] == "/model [profile_or_operation]"
+    assert model_command["slashCommands"][0]["arguments"] == [
+        {
+            "name": "profile_or_operation",
+            "valueType": "string",
+            "description": "A Model Profile ID, status, default, or reset.",
+            "required": False,
+            "choices": [],
+        }
+    ]
     assert status.ok is True
     assert status.data["targetActionId"] == "system.status"
     assert status.data["result"]["state"] == "ready"
@@ -346,8 +460,15 @@ def test_slash_command_catalog_and_invocation_share_action_authorization(tmp_pat
     assert {item["actionId"] for item in help_result.data["result"]["items"]} >= {
         "system.help",
         "system.status",
-        "model.list",
+        "model.session.command",
     }
+    desktop_items = {
+        item["actionId"]: item
+        for item in application.catalog(authorized, projection="desktop").data["items"]
+    }
+    assert desktop_items["config.node.preview"]["operation"] == "read"
+    assert desktop_items["config.node.apply"]["operation"] == "mutation"
+    assert desktop_items["agent.create"]["operation"] == "mutation"
 
 
 def test_slash_command_reports_unknown_command_and_rechecks_target_permission(tmp_path: Path) -> None:

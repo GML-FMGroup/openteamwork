@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from typing import Any
 
 from openppx.runtime.node_host import run_node
@@ -9,6 +10,19 @@ from openppx.runtime.node_host import run_node
 from .service import install_node_service, node_service_status
 from .setup import run_setup
 from .transport import action_catalog, invoke_action, parse_json_object, read_json_object
+
+
+def _parse_json_list(raw: str, *, label: str) -> list[object]:
+    """Parse one strict JSON list used by typed CLI Action inputs."""
+    import json
+
+    try:
+        value = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"{label} must contain valid JSON: {exc.msg}") from exc
+    if not isinstance(value, list):
+        raise ValueError(f"{label} must contain one JSON array")
+    return value
 
 
 def _source_input(args: Any) -> dict[str, object]:
@@ -62,8 +76,147 @@ def _dispatch_model(args: Any) -> int:
     )
 
 
+def _dispatch_goal(args: Any) -> int:
+    """Project the stable Goal CLI onto the formal Goal Actions."""
+    command = args.goal_command
+    if command == "list":
+        return invoke_action(
+            args,
+            "goal.list",
+            {
+                "userId": args.user_id,
+                "sessionId": args.session_id,
+                "statuses": args.statuses,
+                "limit": args.limit,
+            },
+        )
+    if command == "show":
+        return invoke_action(args, "goal.read", {"goalId": args.goal_id, "userId": args.user_id})
+    if command == "create":
+        return invoke_action(
+            args,
+            "goal.create",
+            {
+                "userId": args.user_id,
+                "agentId": args.agent_id,
+                "sessionId": args.session_id,
+                "objective": args.objective,
+                "completionCriteria": args.completion_criteria,
+                "constraints": args.constraints,
+                "workspaceRef": args.workspace_ref,
+                "budgetPolicy": parse_json_object(args.budget_json, label="--budget-json"),
+            },
+        )
+    if command == "update":
+        raw: dict[str, object] = {
+            "goalId": args.goal_id,
+            "userId": args.user_id,
+            "expectedRevision": args.expected_revision,
+        }
+        for key, value in {
+            "objective": args.objective,
+            "completionCriteria": args.completion_criteria,
+            "constraints": args.constraints,
+        }.items():
+            if value is not None:
+                raw[key] = value
+        if args.budget_json is not None:
+            raw["budgetPolicy"] = parse_json_object(args.budget_json, label="--budget-json")
+        return invoke_action(args, "goal.update", raw)
+    if command in {"pause", "resume", "cancel"}:
+        return invoke_action(
+            args,
+            f"goal.{command}",
+            {
+                "goalId": args.goal_id,
+                "userId": args.user_id,
+                "expectedRevision": args.expected_revision,
+                "reason": args.reason,
+            },
+        )
+    if command == "complete":
+        return invoke_action(
+            args,
+            "goal.complete",
+            {
+                "goalId": args.goal_id,
+                "userId": args.user_id,
+                "expectedRevision": args.expected_revision,
+                "completionEvidence": _parse_json_list(args.evidence_json, label="--evidence-json"),
+                "userConfirmed": args.user_confirmed,
+                "reason": args.reason,
+            },
+        )
+    return invoke_action(
+        args,
+        "goal.history",
+        {"goalId": args.goal_id, "userId": args.user_id, "limit": args.limit},
+    )
+
+
+def _dispatch_automation(args: Any) -> int:
+    """Project the stable Automation CLI onto formal Automation Actions."""
+    command = args.automation_command
+    if command == "list":
+        return invoke_action(args, "automation.list", {"userId": args.user_id, "statuses": args.statuses, "limit": args.limit})
+    if command == "show":
+        return invoke_action(args, "automation.read", {"automationId": args.automation_id, "userId": args.user_id})
+    if command == "create":
+        raw: dict[str, object] = {
+            "userId": args.user_id,
+            "agentId": args.agent_id,
+            "name": args.name,
+            "description": args.description,
+            "instructions": args.instructions,
+            "outputRequirements": args.output_requirements,
+            "workspaceRef": args.workspace_ref,
+            "modelProfileRef": args.model_profile_ref,
+            "permissionPolicy": parse_json_object(args.permission_json, label="--permission-json"),
+            "extensionPolicy": parse_json_object(args.extension_json, label="--extension-json"),
+            "deliveryPolicy": parse_json_object(args.delivery_json, label="--delivery-json"),
+            "permissionsConfirmed": args.yes,
+        }
+        if args.schedule_json is not None:
+            raw["schedule"] = parse_json_object(args.schedule_json, label="--schedule-json")
+        return invoke_action(args, "automation.create", raw)
+    if command == "update":
+        raw = {"automationId": args.automation_id, "userId": args.user_id, "expectedRevision": args.expected_revision}
+        for key, value in {"name": args.name, "description": args.description, "instructions": args.instructions}.items():
+            if value is not None:
+                raw[key] = value
+        if args.schedule_json is not None:
+            raw["schedule"] = parse_json_object(args.schedule_json, label="--schedule-json")
+        return invoke_action(args, "automation.update", raw)
+    if command in {"pause", "resume", "delete"}:
+        return invoke_action(
+            args,
+            f"automation.{command}",
+            {"automationId": args.automation_id, "userId": args.user_id, "expectedRevision": args.expected_revision},
+            confirmed=bool(getattr(args, "yes", False)),
+        )
+    if command == "run":
+        return invoke_action(args, "automation.run", {"automationId": args.automation_id, "userId": args.user_id, "input": parse_json_object(args.input_json, label="--input-json")})
+    if command == "history":
+        return invoke_action(args, "automation.history", {"automationId": args.automation_id, "userId": args.user_id, "limit": args.limit})
+    if command == "trigger":
+        return invoke_action(
+            args,
+            "automation.trigger",
+            {
+                "automationId": args.automation_id,
+                "userId": args.user_id,
+                "eventKey": args.event_key,
+                "eventId": args.event_id,
+                "input": parse_json_object(args.input_json, label="--input-json"),
+            },
+        )
+    return invoke_action(args, "automation.template.list", {})
+
+
 def _dispatch_extension(args: Any) -> int:
     command = args.extension_command
+    if command == "author":
+        return _dispatch_extension_author(args)
     if command == "list":
         raw: dict[str, object] = {"kind": args.kind, "agentId": args.agent_id}
     elif command in {"get", "readiness"}:
@@ -91,6 +244,46 @@ def _dispatch_extension(args: Any) -> int:
             "expectedRevision": args.expected_revision,
         }
     return invoke_action(args, f"extension.{command}", raw, confirmed=bool(getattr(args, "yes", False)))
+
+
+def _dispatch_extension_author(args: Any) -> int:
+    """Run local authoring operations without mutating Node installation state."""
+    from openppx.extensions.authoring import (
+        package_extension,
+        run_adk_evaluation,
+        scaffold_extension,
+        validate_adk_evalset,
+        validate_extension_source,
+    )
+
+    command = args.author_command
+    if command == "scaffold":
+        result = scaffold_extension(
+            args.kind,
+            args.name,
+            args.destination,
+            description=args.description,
+            display_name=args.display_name,
+            developer=args.developer,
+        )
+    elif command == "validate":
+        result = validate_extension_source(args.kind, args.source)
+    elif command == "package":
+        result = package_extension(args.kind, args.source, args.output)
+    elif args.validate_only:
+        result = validate_adk_evalset(args.evalset)
+    else:
+        result = run_adk_evaluation(
+            args.agent_module,
+            args.evalset,
+            num_runs=args.num_runs,
+            agent_name=args.agent_name,
+        )
+    if bool(getattr(args, "output_json", False)):
+        print(json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True))
+    else:
+        print(f"{command}: {result}")
+    return 0
 
 
 def _cron_schedule(args: Any) -> dict[str, object]:
@@ -195,6 +388,10 @@ def dispatch(args: Any) -> int:
             return _dispatch_config(args)
         if args.command == "model":
             return _dispatch_model(args)
+        if args.command == "goal":
+            return _dispatch_goal(args)
+        if args.command == "automation":
+            return _dispatch_automation(args)
         if args.command == "extension":
             return _dispatch_extension(args)
         if args.command == "operations":

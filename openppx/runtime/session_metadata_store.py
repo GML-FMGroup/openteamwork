@@ -18,11 +18,17 @@ class SessionMetadata:
     principal_id: str
     title: str | None
     archived: bool
+    model_profile_id: str | None
+    model_selection_revision: int
     updated_at: str
 
 
+class SessionMetadataRevisionError(RuntimeError):
+    """Raised when a Session metadata mutation uses a stale revision."""
+
+
 class SessionMetadataStore:
-    """Persist Session titles and archive state without mutating ADK event history."""
+    """Persist Session presentation and next-Run policy without mutating ADK history."""
 
     def __init__(self, db_path: Path) -> None:
         self.db_path = db_path.expanduser().resolve(strict=False)
@@ -46,10 +52,22 @@ class SessionMetadataStore:
                     principal_id TEXT NOT NULL,
                     title TEXT,
                     archived INTEGER NOT NULL DEFAULT 0 CHECK (archived IN (0, 1)),
+                    model_profile_id TEXT,
+                    model_selection_revision INTEGER NOT NULL DEFAULT 0,
                     updated_at TEXT NOT NULL
                 )
                 """
             )
+            columns = {
+                str(row["name"])
+                for row in connection.execute("PRAGMA table_info(session_metadata)").fetchall()
+            }
+            if "model_profile_id" not in columns:
+                connection.execute("ALTER TABLE session_metadata ADD COLUMN model_profile_id TEXT")
+            if "model_selection_revision" not in columns:
+                connection.execute(
+                    "ALTER TABLE session_metadata ADD COLUMN model_selection_revision INTEGER NOT NULL DEFAULT 0"
+                )
             connection.execute(
                 "CREATE INDEX IF NOT EXISTS idx_session_metadata_agent ON session_metadata(agent_id, principal_id)"
             )
@@ -76,25 +94,112 @@ class SessionMetadataStore:
         now = datetime.now(timezone.utc).isoformat()
         with self._lock, self._connect() as connection:
             current = connection.execute(
-                "SELECT title, archived FROM session_metadata WHERE session_id = ?",
+                "SELECT title, archived, model_profile_id, model_selection_revision FROM session_metadata WHERE session_id = ?",
                 (session_id,),
             ).fetchone()
             resolved_title = title if title is not None else (str(current["title"]) if current and current["title"] else None)
             resolved_archived = archived if archived is not None else bool(current["archived"]) if current else False
+            model_profile_id = str(current["model_profile_id"]) if current and current["model_profile_id"] else None
+            model_selection_revision = int(current["model_selection_revision"]) if current else 0
             connection.execute(
                 """
-                INSERT INTO session_metadata(session_id, agent_id, principal_id, title, archived, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?)
+                INSERT INTO session_metadata(
+                    session_id, agent_id, principal_id, title, archived,
+                    model_profile_id, model_selection_revision, updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(session_id) DO UPDATE SET
                     agent_id=excluded.agent_id,
                     principal_id=excluded.principal_id,
                     title=excluded.title,
                     archived=excluded.archived,
+                    model_profile_id=excluded.model_profile_id,
+                    model_selection_revision=excluded.model_selection_revision,
                     updated_at=excluded.updated_at
                 """,
-                (session_id, agent_id, principal_id, resolved_title, int(resolved_archived), now),
+                (
+                    session_id,
+                    agent_id,
+                    principal_id,
+                    resolved_title,
+                    int(resolved_archived),
+                    model_profile_id,
+                    model_selection_revision,
+                    now,
+                ),
             )
-        return SessionMetadata(session_id, agent_id, principal_id, resolved_title, resolved_archived, now)
+        return SessionMetadata(
+            session_id,
+            agent_id,
+            principal_id,
+            resolved_title,
+            resolved_archived,
+            model_profile_id,
+            model_selection_revision,
+            now,
+        )
+
+    def update_model_profile(
+        self,
+        *,
+        session_id: str,
+        agent_id: str,
+        principal_id: str,
+        model_profile_id: str | None,
+        expected_revision: int | None = None,
+    ) -> SessionMetadata:
+        """Persist a Session model override for future Runs with optimistic revision checks."""
+        now = datetime.now(timezone.utc).isoformat()
+        with self._lock, self._connect() as connection:
+            current = connection.execute(
+                "SELECT * FROM session_metadata WHERE session_id = ?",
+                (session_id,),
+            ).fetchone()
+            actual_revision = int(current["model_selection_revision"]) if current is not None else 0
+            if expected_revision is not None and expected_revision != actual_revision:
+                raise SessionMetadataRevisionError(
+                    f"Expected Session model revision {expected_revision}, found {actual_revision}."
+                )
+            title = str(current["title"]) if current is not None and current["title"] is not None else None
+            archived = bool(current["archived"]) if current is not None else False
+            next_revision = actual_revision + 1
+            connection.execute(
+                """
+                INSERT INTO session_metadata(
+                    session_id, agent_id, principal_id, title, archived,
+                    model_profile_id, model_selection_revision, updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(session_id) DO UPDATE SET
+                    agent_id=excluded.agent_id,
+                    principal_id=excluded.principal_id,
+                    title=excluded.title,
+                    archived=excluded.archived,
+                    model_profile_id=excluded.model_profile_id,
+                    model_selection_revision=excluded.model_selection_revision,
+                    updated_at=excluded.updated_at
+                """,
+                (
+                    session_id,
+                    agent_id,
+                    principal_id,
+                    title,
+                    int(archived),
+                    model_profile_id,
+                    next_revision,
+                    now,
+                ),
+            )
+        return SessionMetadata(
+            session_id,
+            agent_id,
+            principal_id,
+            title,
+            archived,
+            model_profile_id,
+            next_revision,
+            now,
+        )
 
     def delete(self, session_id: str) -> bool:
         """Delete presentation metadata after the owning ADK Session is removed."""
@@ -110,5 +215,7 @@ class SessionMetadataStore:
             principal_id=str(row["principal_id"]),
             title=str(row["title"]) if row["title"] is not None else None,
             archived=bool(row["archived"]),
+            model_profile_id=str(row["model_profile_id"]) if row["model_profile_id"] is not None else None,
+            model_selection_revision=int(row["model_selection_revision"]),
             updated_at=str(row["updated_at"]),
         )

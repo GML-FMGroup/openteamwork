@@ -3,6 +3,7 @@ import { SettingsView, type SettingsSection } from "./components/settings/Settin
 import { OnboardingView } from "./components/setup/OnboardingView";
 import { NewAgentDialog } from "./components/agents/NewAgentDialog";
 import { ModelProfileDialog } from "./components/models/ModelProfileDialog";
+import { AutomationsPage } from "./components/automations/AutomationsPage";
 import { Composer } from "./components/workspace/Composer";
 import {
   CollapsedSidebarTools,
@@ -14,10 +15,11 @@ import { WorkspaceInspector } from "./components/workspace/WorkspaceInspector";
 import { ColumnResizeHandle } from "./components/workspace/ColumnResizeHandle";
 import { COLUMN_WIDTH_LIMITS, useColumnLayout } from "./hooks/use-column-layout";
 import { useDesktopWorkspace } from "./hooks/use-desktop-workspace";
+import { useDesktopPreferences } from "./hooks/use-desktop-preferences";
 import { useTranscriptFollow } from "./hooks/use-transcript-follow";
 import type { ExtensionSummary } from "./types";
 
-type NavView = "chat" | "settings";
+type NavView = "chat" | "settings" | "automations";
 type SettingsDestination =
   | { area: "settings"; section: SettingsSection }
   | { area: "extensions"; extensionKind: ExtensionSummary["kind"] };
@@ -38,6 +40,7 @@ function resizeComposer(textarea: HTMLTextAreaElement | null): void {
 
 export function App() {
   const workspace = useDesktopWorkspace();
+  const { preferences, updatePreferences, requestNotificationPermission } = useDesktopPreferences();
   const columnLayout = useColumnLayout();
   const transcript = useTranscriptFollow(workspace.messages, workspace.transcriptResetKey);
   const [view, setView] = useState<NavView>("chat");
@@ -103,6 +106,10 @@ export function App() {
   function openExtensions(): void {
     setSettingsDestination({ area: "extensions", extensionKind: "plugin" });
     handleChangeView("settings");
+  }
+
+  function openAutomations(): void {
+    handleChangeView("automations");
   }
 
   function revealSidebarForSearch(): void {
@@ -186,7 +193,7 @@ export function App() {
   const workspaceAgentName = workspace.selectedAgent?.name ?? "OpenPPX";
   const titlebarTitle = view === "chat"
     ? workspace.selectedSession?.title ?? workspace.selectedAgent?.name ?? "No session"
-    : settingsDestination.area === "extensions" ? "Extensions" : "Settings";
+    : view === "automations" ? "Automations" : settingsDestination.area === "extensions" ? "Extensions" : "Settings";
   const titlebarSubtitle = view === "chat" ? workspace.selectedAgent?.name ?? "No agent selected" : "ppx-client";
   const canSend = Boolean(workspace.composer.trim() || workspace.attachments.length) && Boolean(workspace.selectedAgentId) && !workspace.selectedAgentBusy;
   const suggestedAgentId = (() => {
@@ -231,7 +238,7 @@ export function App() {
       <ContextSidebar
         platform={window.ppxClient.platform}
         view={view}
-        controlArea={view === "settings" ? settingsDestination.area : null}
+        controlArea={view === "automations" ? "automations" : view === "settings" ? settingsDestination.area : null}
         runtime={runtime}
         diagnostics={workspace.diagnostics}
         userProfile={workspace.userProfile}
@@ -246,6 +253,7 @@ export function App() {
         onChangeView={handleChangeView}
         onOpenSettings={openSettings}
         onOpenExtensions={openExtensions}
+        onOpenAutomations={openAutomations}
         onSelectAgent={selectAgentFromSidebar}
         onSelectSession={selectSessionFromSidebar}
         onRenameSession={(session, title) => void workspace.renameSession(session, title)}
@@ -334,11 +342,23 @@ export function App() {
             sessionId={workspace.selectedSessionId}
             messages={workspace.messages}
             running={workspace.currentSessionRunning}
+            goal={workspace.currentGoal}
             collapsed={inspectorCollapsed}
             artifacts={workspace.sessionArtifacts}
             onLoadArtifact={workspace.loadArtifactData}
           />
         </>
+      ) : view === "automations" ? (
+        <AutomationsPage
+          agents={workspace.agents}
+          selectedAgentId={workspace.selectedAgentId}
+          userId={workspace.userProfile.id}
+          sidebarCollapsed={leftSidebarCollapsed}
+          canCreateSession={Boolean(workspace.selectedAgentId)}
+          onRevealSidebar={() => setLeftSidebarCollapsed(false)}
+          onNewSession={createSessionFromTopbar}
+          onSearchSessions={revealSidebarForSearch}
+        />
       ) : (
         <SettingsView
           key={settingsDestination.area === "settings" ? `settings:${settingsDestination.section}` : `extensions:${settingsDestination.extensionKind}`}
@@ -374,6 +394,9 @@ export function App() {
           onEditModelProfile={(profileId) => setModelProfileDialog({ mode: "edit", profileId })}
           onSetExtensionEnabled={(extension, enabled) => void workspace.setExtensionEnabled(extension, enabled)}
           onWorkspaceChanged={workspace.reloadWorkspace}
+          preferences={preferences}
+          onChangePreferences={updatePreferences}
+          onRequestNotificationPermission={requestNotificationPermission}
         />
       )}
       {newAgentOpen ? (

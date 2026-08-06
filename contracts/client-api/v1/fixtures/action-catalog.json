@@ -13,7 +13,9 @@
         "type": "object"
       },
       "namespace": "system",
+      "operation": "read",
       "permission": "system.read",
+      "previewActionId": null,
       "projections": [
         "cli",
         "slash",
@@ -29,14 +31,18 @@
         {
           "acceptsArgs": false,
           "argHint": "",
+          "arguments": [],
           "command": "/status",
           "description": "Display Node and Agent readiness.",
           "icon": "activity",
           "lifecycle": "side_channel",
+          "noArgsBehavior": "invoke",
           "order": 40,
-          "title": "Show status"
+          "title": "Show status",
+          "usage": "/status"
         }
       ],
+      "successPresentation": "inline",
       "title": "System status"
     }
   ]

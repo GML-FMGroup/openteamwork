@@ -27,6 +27,12 @@ RunId = Annotated[
     str,
     StringConstraints(min_length=1, max_length=128, pattern=r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$"),
 ]
+GoalId = Annotated[str, StringConstraints(pattern=r"^goal_[a-f0-9]{20}$")]
+FlowId = Annotated[str, StringConstraints(pattern=r"^flow_[a-f0-9]{20}$")]
+AutomationId = Annotated[str, StringConstraints(pattern=r"^auto_[a-f0-9]{20}$")]
+AutomationRunId = Annotated[str, StringConstraints(pattern=r"^arun_[a-f0-9]{20}$")]
+GoalStatus = Literal["active", "waiting", "paused", "blocked", "completed", "cancelled", "failed"]
+TaskFlowStepStatus = Literal["pending", "running", "waiting", "blocked", "completed", "cancelled", "failed"]
 
 
 class ActionInput(BaseModel):
@@ -60,6 +66,410 @@ class SlashCommandInvokeInput(ActionInput):
     agent_id: ResourceId | None = None
     session_id: RunId | None = None
     run_id: RunId | None = None
+
+
+class GoalCreateInput(ActionInput):
+    """Create one durable Goal bound to an Agent Session."""
+
+    user_id: PrincipalId
+    agent_id: ResourceId
+    session_id: RunId
+    objective: Annotated[str, StringConstraints(min_length=1, max_length=16_384)]
+    completion_criteria: list[Annotated[str, StringConstraints(min_length=1, max_length=2_048)]] = Field(
+        default_factory=list,
+        max_length=50,
+    )
+    constraints: list[Annotated[str, StringConstraints(min_length=1, max_length=2_048)]] = Field(
+        default_factory=list,
+        max_length=50,
+    )
+    workspace_ref: Annotated[str, StringConstraints(max_length=1_024)] = ""
+    budget_policy: dict[str, object] = Field(default_factory=dict)
+
+    @field_validator("objective", "workspace_ref")
+    @classmethod
+    def goal_text_must_not_contain_controls(cls, value: str) -> str:
+        """Normalize user-visible Goal text and reject hidden controls."""
+        normalized = value.strip()
+        if any((ord(character) < 32 and character not in {"\n", "\t"}) or ord(character) == 127 for character in normalized):
+            raise ValueError("value must not contain control characters")
+        return normalized
+
+
+class GoalIdentityInput(ActionInput):
+    """Identify one Goal while retaining its requesting principal."""
+
+    goal_id: GoalId
+    user_id: PrincipalId
+
+
+class GoalListInput(ActionInput):
+    """Filter visible Goals without exposing storage queries."""
+
+    user_id: PrincipalId
+    session_id: RunId | None = None
+    statuses: list[GoalStatus] = Field(default_factory=list, max_length=7)
+    limit: StrictInt = Field(default=20, ge=1, le=200)
+
+    @field_validator("statuses")
+    @classmethod
+    def goal_statuses_must_be_unique(cls, value: list[str]) -> list[str]:
+        """Keep Goal filters deterministic."""
+        if len(value) != len(set(value)):
+            raise ValueError("statuses entries must be unique")
+        return value
+
+
+class GoalUpdateInput(GoalIdentityInput):
+    """Edit mutable Goal policy fields with optimistic concurrency."""
+
+    expected_revision: StrictInt = Field(ge=1)
+    objective: Annotated[str, StringConstraints(min_length=1, max_length=16_384)] | None = None
+    completion_criteria: list[Annotated[str, StringConstraints(min_length=1, max_length=2_048)]] | None = Field(
+        default=None,
+        max_length=50,
+    )
+    constraints: list[Annotated[str, StringConstraints(min_length=1, max_length=2_048)]] | None = Field(
+        default=None,
+        max_length=50,
+    )
+    budget_policy: dict[str, object] | None = None
+
+
+class CompletionEvidenceInput(ActionInput):
+    """Reference one independently persisted completion fact."""
+
+    type: Literal["task_run", "artifact", "delivery", "user_confirmation"]
+    ref: Annotated[str, StringConstraints(min_length=1, max_length=256)]
+    label: Annotated[str, StringConstraints(min_length=1, max_length=256)]
+    run_id: RunId | None = None
+    mime_type: Annotated[str, StringConstraints(min_length=1, max_length=128)] | None = None
+    version: StrictInt | None = Field(default=None, ge=0)
+
+
+class GoalTransitionInput(GoalIdentityInput):
+    """Request an explicit non-completion Goal lifecycle transition."""
+
+    expected_revision: StrictInt = Field(ge=1)
+    reason: Annotated[str, StringConstraints(max_length=2_048)] = ""
+
+
+class GoalCompleteInput(GoalTransitionInput):
+    """Complete one Goal using evidence or explicit user confirmation."""
+
+    completion_evidence: list[CompletionEvidenceInput] = Field(default_factory=list, max_length=100)
+    user_confirmed: StrictBool = False
+
+
+class GoalHistoryInput(GoalIdentityInput):
+    """Read the append-only event history for one visible Goal."""
+
+    limit: StrictInt = Field(default=100, ge=1, le=500)
+
+
+class GoalCommandInput(ActionInput):
+    """Typed `/goal` command request projected to the Goal domain."""
+
+    user_id: PrincipalId
+    agent_id: ResourceId
+    session_id: RunId
+    operation: Literal["status", "create", "update", "pause", "resume", "complete", "cancel", "history"]
+    text: Annotated[str, StringConstraints(max_length=16_384)] = ""
+
+
+class TaskFlowIdentityInput(ActionInput):
+    """Identify one TaskFlow and its requesting principal."""
+
+    flow_id: FlowId
+    user_id: PrincipalId
+
+
+class TaskFlowListInput(ActionInput):
+    """List TaskFlows belonging to one visible Goal."""
+
+    goal_id: GoalId
+    user_id: PrincipalId
+    limit: StrictInt = Field(default=20, ge=1, le=200)
+
+
+class TaskFlowStepInput(ActionInput):
+    """One declarative TaskFlow step; execution remains a TaskRun fact."""
+
+    step_id: ResourceId
+    title: Annotated[str, StringConstraints(min_length=1, max_length=256)]
+    description: Annotated[str, StringConstraints(max_length=4_096)] = ""
+    status: TaskFlowStepStatus = "pending"
+    depends_on: list[ResourceId] = Field(default_factory=list, max_length=50)
+    completion_criteria: list[Annotated[str, StringConstraints(min_length=1, max_length=1_024)]] = Field(
+        default_factory=list,
+        max_length=20,
+    )
+
+
+class TaskFlowUpdateInput(TaskFlowIdentityInput):
+    """Replace a TaskFlow plan under optimistic concurrency."""
+
+    expected_revision: StrictInt = Field(ge=1)
+    steps: list[TaskFlowStepInput] = Field(max_length=200)
+
+
+class TaskFlowAdvanceInput(TaskFlowIdentityInput):
+    """Advance one TaskFlow step after dependency checks."""
+
+    expected_revision: StrictInt = Field(ge=1)
+    step_id: ResourceId
+    status: TaskFlowStepStatus
+
+
+class TaskFlowBindTaskInput(TaskFlowIdentityInput):
+    """Bind an existing durable TaskRun reference to a Flow step."""
+
+    expected_revision: StrictInt = Field(ge=1)
+    step_id: ResourceId
+    task_id: RunId
+
+
+class TaskFlowFinishInput(TaskFlowIdentityInput):
+    """Finish a TaskFlow only when all declared steps are complete."""
+
+    expected_revision: StrictInt = Field(ge=1)
+
+
+class AutomationScheduleInput(ActionInput):
+    """One schedule trigger definition owned by an Automation."""
+
+    kind: Literal["every", "cron", "at"]
+    every_seconds: StrictInt | None = Field(default=None, ge=60, le=31_536_000)
+    cron_expr: Annotated[str, StringConstraints(max_length=128)] = ""
+    at_ms: StrictInt | None = Field(default=None, ge=1)
+    timezone: Annotated[str, StringConstraints(max_length=128)] = ""
+
+    @model_validator(mode="after")
+    def exactly_one_schedule_shape(self) -> "AutomationScheduleInput":
+        """Reject ambiguous or incomplete schedule configurations."""
+        if self.kind == "every" and self.every_seconds is None:
+            raise ValueError("everySeconds is required for an every schedule")
+        if self.kind == "cron" and not self.cron_expr.strip():
+            raise ValueError("cronExpr is required for a cron schedule")
+        if self.kind == "at" and self.at_ms is None:
+            raise ValueError("atMs is required for an at schedule")
+        return self
+
+
+class AutomationLocalEventInput(ActionInput):
+    """One explicitly declared trusted-LAN event trigger."""
+
+    event_key: ResourceId
+    input_schema: dict[str, object] = Field(
+        default_factory=lambda: {
+            "type": "object",
+            "properties": {},
+            "additionalProperties": False,
+        }
+    )
+
+    @field_validator("input_schema")
+    @classmethod
+    def schema_must_be_bounded_object(cls, value: dict[str, object]) -> dict[str, object]:
+        """Accept the small JSON Schema subset enforced by the Automation runtime."""
+        if value.get("type") != "object":
+            raise ValueError("local event inputSchema.type must be object")
+        properties = value.get("properties", {})
+        required = value.get("required", [])
+        if not isinstance(properties, dict) or len(properties) > 64:
+            raise ValueError("local event inputSchema properties must contain at most 64 fields")
+        if not isinstance(required, list) or len(required) > 64 or any(not isinstance(item, str) for item in required):
+            raise ValueError("local event inputSchema required must be a string array")
+        if not set(required).issubset(properties):
+            raise ValueError("local event required fields must exist in properties")
+        if value.get("additionalProperties", False) not in {True, False}:
+            raise ValueError("local event additionalProperties must be boolean")
+        return value
+
+
+class AutomationConcurrencyPolicyInput(ActionInput):
+    """Deterministic behavior when a previous Run is still active."""
+
+    mode: Literal["skip", "queue-one", "parallel-with-limit"] = "skip"
+    limit: StrictInt = Field(default=1, ge=1, le=16)
+
+    @model_validator(mode="after")
+    def valid_limit(self) -> "AutomationConcurrencyPolicyInput":
+        """Keep serial modes unambiguous and bounded."""
+        if self.mode in {"skip", "queue-one"} and self.limit != 1:
+            raise ValueError("limit must be 1 for skip and queue-one")
+        return self
+
+
+class AutomationMissedRunPolicyInput(ActionInput):
+    """Bounded policy for occurrences missed while the Node was offline."""
+
+    mode: Literal["skip", "run-latest", "bounded-catch-up"] = "run-latest"
+    max_catch_up: StrictInt = Field(default=1, ge=1, le=10)
+
+    @model_validator(mode="after")
+    def valid_catch_up(self) -> "AutomationMissedRunPolicyInput":
+        """Only bounded catch-up may request more than one occurrence."""
+        if self.mode != "bounded-catch-up" and self.max_catch_up != 1:
+            raise ValueError("maxCatchUp must be 1 unless mode is bounded-catch-up")
+        return self
+
+
+class AutomationRetryPolicyInput(ActionInput):
+    """Bounded retry policy for retryable runtime failures."""
+
+    max_attempts: StrictInt = Field(default=1, ge=1, le=5)
+    backoff_seconds: StrictInt = Field(default=30, ge=0, le=3_600)
+
+
+class AutomationBudgetPolicyInput(ActionInput):
+    """Per-run safety budget enforced around the normal ADK turn."""
+
+    timeout_seconds: StrictInt = Field(default=1_800, ge=1, le=86_400)
+    max_tool_calls: StrictInt | None = Field(default=None, ge=1, le=10_000)
+    max_input_tokens: StrictInt | None = Field(default=None, ge=1, le=10_000_000)
+    max_output_tokens: StrictInt | None = Field(default=None, ge=1, le=10_000_000)
+
+
+class AutomationMonitorPolicyInput(ActionInput):
+    """Quiet-completion rules for monitor-style Automations."""
+
+    enabled: StrictBool = False
+    notify_on_change_only: StrictBool = True
+    stop_when_contains: Annotated[str, StringConstraints(max_length=1_024)] = ""
+
+
+class AutomationIdentityInput(ActionInput):
+    """Identify one user-owned Automation."""
+
+    automation_id: AutomationId
+    user_id: PrincipalId
+
+
+class AutomationListInput(ActionInput):
+    """List user-created Automations without runtime infrastructure records."""
+
+    user_id: PrincipalId
+    statuses: list[Literal["active", "paused", "blocked"]] = Field(default_factory=list, max_length=3)
+    limit: StrictInt = Field(default=100, ge=1, le=200)
+
+
+class AutomationCreateInput(ActionInput):
+    """Create one durable Automation Definition and optional schedule."""
+
+    user_id: PrincipalId
+    agent_id: ResourceId
+    name: Annotated[str, StringConstraints(min_length=1, max_length=128)]
+    description: Annotated[str, StringConstraints(max_length=1_024)] = ""
+    instructions: Annotated[str, StringConstraints(min_length=1, max_length=16_384)]
+    output_requirements: list[Annotated[str, StringConstraints(min_length=1, max_length=1_024)]] = Field(default_factory=list, max_length=50)
+    workspace_ref: Annotated[str, StringConstraints(max_length=1_024)] = ""
+    context_mode: Literal["isolated", "rolling", "session"] = "isolated"
+    model_profile_ref: ResourceId | None = None
+    extension_policy: dict[str, object] = Field(default_factory=dict)
+    permission_policy: dict[str, object] = Field(default_factory=dict)
+    permissions_confirmed: StrictBool = False
+    delivery_policy: dict[str, object] = Field(default_factory=dict)
+    concurrency_policy: AutomationConcurrencyPolicyInput = Field(default_factory=AutomationConcurrencyPolicyInput)
+    missed_run_policy: AutomationMissedRunPolicyInput = Field(default_factory=AutomationMissedRunPolicyInput)
+    retry_policy: AutomationRetryPolicyInput = Field(default_factory=AutomationRetryPolicyInput)
+    budget_policy: AutomationBudgetPolicyInput = Field(default_factory=AutomationBudgetPolicyInput)
+    monitor_policy: AutomationMonitorPolicyInput = Field(default_factory=AutomationMonitorPolicyInput)
+    schedule: AutomationScheduleInput | None = None
+    local_event: AutomationLocalEventInput | None = None
+
+    @model_validator(mode="after")
+    def only_one_automatic_trigger(self) -> "AutomationCreateInput":
+        """Keep the first version's automatic trigger model unambiguous."""
+        if self.schedule is not None and self.local_event is not None:
+            raise ValueError("schedule and localEvent cannot both be configured")
+        return self
+
+
+class AutomationUpdateInput(AutomationIdentityInput):
+    """Edit one Automation under optimistic concurrency."""
+
+    expected_revision: StrictInt = Field(ge=1)
+    agent_id: ResourceId | None = None
+    name: Annotated[str, StringConstraints(min_length=1, max_length=128)] | None = None
+    description: Annotated[str, StringConstraints(max_length=1_024)] | None = None
+    instructions: Annotated[str, StringConstraints(min_length=1, max_length=16_384)] | None = None
+    output_requirements: list[Annotated[str, StringConstraints(min_length=1, max_length=1_024)]] | None = Field(default=None, max_length=50)
+    workspace_ref: Annotated[str, StringConstraints(max_length=1_024)] | None = None
+    context_mode: Literal["isolated", "rolling", "session"] | None = None
+    model_profile_ref: ResourceId | None = None
+    extension_policy: dict[str, object] | None = None
+    permission_policy: dict[str, object] | None = None
+    delivery_policy: dict[str, object] | None = None
+    concurrency_policy: AutomationConcurrencyPolicyInput | None = None
+    missed_run_policy: AutomationMissedRunPolicyInput | None = None
+    retry_policy: AutomationRetryPolicyInput | None = None
+    budget_policy: AutomationBudgetPolicyInput | None = None
+    monitor_policy: AutomationMonitorPolicyInput | None = None
+    schedule: AutomationScheduleInput | None = None
+    local_event: AutomationLocalEventInput | None = None
+
+    @model_validator(mode="after")
+    def only_one_automatic_trigger(self) -> "AutomationUpdateInput":
+        """Reject an update that attempts to install two automatic triggers."""
+        if self.schedule is not None and self.local_event is not None:
+            raise ValueError("schedule and localEvent cannot both be configured")
+        return self
+
+
+class AutomationTransitionInput(AutomationIdentityInput):
+    """Pause, resume, or delete one Automation revision."""
+
+    expected_revision: StrictInt = Field(ge=1)
+
+
+class AutomationRunInput(AutomationIdentityInput):
+    """Start one independent Automation Run now."""
+
+    input: dict[str, object] = Field(default_factory=dict)
+
+
+class AutomationHistoryInput(AutomationIdentityInput):
+    """Read Automation runs and append-only events."""
+
+    limit: StrictInt = Field(default=50, ge=1, le=200)
+
+
+class AutomationRunReadInput(ActionInput):
+    """Read one Automation Run under owner visibility."""
+
+    automation_run_id: AutomationRunId
+    user_id: PrincipalId
+
+
+class AutomationTriggerInput(AutomationIdentityInput):
+    """Submit one trusted local typed event through the normal run path."""
+
+    event_key: ResourceId
+    event_id: RunId
+    input: dict[str, object] = Field(default_factory=dict)
+
+
+class AutomationTemplateReadInput(ActionInput):
+    """Identify one built-in reviewed Automation template."""
+
+    template_id: ResourceId
+
+
+class AutomationPermissionRevokeInput(AutomationIdentityInput):
+    """Revoke Automation-specific standing permissions."""
+
+    expected_revision: StrictInt = Field(ge=1)
+
+
+class AutomationCommandInput(ActionInput):
+    """Typed `/automation` command request for the current principal."""
+
+    user_id: PrincipalId
+    agent_id: ResourceId
+    operation: Literal["list", "create", "show", "run", "pause", "resume", "history", "delete"]
+    target: Annotated[str, StringConstraints(max_length=256)] = ""
+    text: Annotated[str, StringConstraints(max_length=16_384)] = ""
 
 
 class NodeValidateInput(ActionInput):
@@ -318,6 +728,23 @@ class SessionIdentityInput(AgentReadInput):
     session_id: RunId
 
 
+class ModelSessionCommandInput(SessionIdentityInput):
+    """Inspect or mutate the Model Profile override for one Session's future Runs."""
+
+    operation: Literal["list", "status", "select", "reset"] = "list"
+    profile_id: ResourceId | None = None
+    expected_revision: StrictInt | None = Field(default=None, ge=0)
+
+    @model_validator(mode="after")
+    def selection_requires_profile(self) -> "ModelSessionCommandInput":
+        """Keep command and direct Action inputs semantically identical."""
+        if self.operation == "select" and self.profile_id is None:
+            raise ValueError("profileId is required for select")
+        if self.operation != "select" and self.profile_id is not None:
+            raise ValueError("profileId is only valid for select")
+        return self
+
+
 class SessionRenameInput(SessionIdentityInput):
     """Assign a user-facing title without modifying ADK event history."""
 
@@ -352,11 +779,46 @@ class RunStopInput(ActionInput):
     run_id: RunId
 
 
+class RuntimeInspectInput(ActionInput):
+    """Select bounded, non-sensitive Runtime facts for diagnostics."""
+
+    user_id: PrincipalId | None = None
+    agent_id: ResourceId | None = None
+    session_id: RunId | None = None
+    run_id: RunId | None = None
+    limit: StrictInt = Field(default=20, ge=1, le=100)
+
+    @model_validator(mode="after")
+    def resource_context_is_consistent(self) -> "RuntimeInspectInput":
+        """Require an Agent whenever Session-scoped facts are requested."""
+        if self.session_id is not None and self.agent_id is None:
+            raise ValueError("agentId is required when sessionId is provided")
+        return self
+
+
 class TaskListInput(ActionInput):
     """Read bounded durable Tasks, optionally scoped to one Session."""
 
     session_id: RunId | None = None
     limit: StrictInt = Field(default=20, ge=1, le=100)
+
+
+class TaskCommandInput(ActionInput):
+    """Typed `/task` request over the existing durable TaskController facts."""
+
+    operation: Literal["list", "show", "pause", "resume", "cancel", "retry", "output", "artifacts"]
+    task_id: RunId | None = None
+    session_id: RunId | None = None
+    limit: StrictInt = Field(default=20, ge=1, le=100)
+
+    @model_validator(mode="after")
+    def operation_matches_identity(self) -> "TaskCommandInput":
+        """Require a Task identity for every operation except list."""
+        if self.operation == "list" and self.task_id is not None:
+            raise ValueError("task_id is not valid for list")
+        if self.operation != "list" and self.task_id is None:
+            raise ValueError("task_id is required for this operation")
+        return self
 
 
 class OperationsTaskIdentityInput(ActionInput):
@@ -507,6 +969,14 @@ class ExtensionListInput(ActionInput):
     agent_id: ResourceId | None = None
 
 
+class SkillCommandInput(ActionInput):
+    """Select one Agent-visible Skill for a normal ADK turn."""
+
+    agent_id: ResourceId | None = None
+    skill_name: ResourceId | None = None
+    instruction: Annotated[str, StringConstraints(max_length=16_384)] = ""
+
+
 class ExtensionStarterListInput(ActionInput):
     """Filter the safe first-party Extension starter catalog."""
 
@@ -518,6 +988,14 @@ class ExtensionStarterIdentityInput(ActionInput):
     """Identify one Extension starter catalog entry."""
 
     starter_id: ResourceId
+
+
+class ExtensionHealthHistoryInput(ActionInput):
+    """Read bounded connection-test history for one executable Extension."""
+
+    kind: Literal["mcp", "app_connection"]
+    extension_id: ResourceId
+    limit: StrictInt = Field(default=20, ge=1, le=50)
 
 
 class McpOAuthInput(ActionInput):

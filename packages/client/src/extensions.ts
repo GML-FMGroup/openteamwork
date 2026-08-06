@@ -128,6 +128,33 @@ export interface ExtensionProbeResult extends Record<string, unknown> {
   message: string;
 }
 
+export interface ExtensionHealthObservation extends Record<string, unknown> {
+  observationId: number;
+  kind: "mcp" | "app_connection";
+  id: string;
+  revision: string;
+  ready: boolean;
+  status: string;
+  transport: string;
+  elapsedMs: number;
+  attempts: number;
+  toolCount: number;
+  issues: string[];
+  errorKind: string | null;
+  message: string;
+  checkedAtMs: number;
+}
+
+export interface ExtensionHealthHistory extends Record<string, unknown> {
+  summary: {
+    latest: ExtensionHealthObservation | null;
+    lastSuccessAtMs: number | null;
+    lastFailureAtMs: number | null;
+    consecutiveFailures: number;
+  };
+  items: ExtensionHealthObservation[];
+}
+
 export interface McpOAuthStatus extends Record<string, unknown> {
   serverId: string;
   status: "needs_auth" | "starting" | "authorizing" | "connected" | "error";
@@ -430,6 +457,15 @@ export class ExtensionClient {
 
   public readiness(kind: ExtensionKind, extensionId: string): Promise<ActionEnvelope<ExtensionReadinessResult>> {
     return this.actions.invoke("extension.readiness", { kind, extensionId });
+  }
+
+  /** Read bounded, credential-free observations recorded by explicit connection tests. */
+  public healthHistory(
+    kind: "mcp" | "app_connection",
+    extensionId: string,
+    limit = 10,
+  ): Promise<ActionEnvelope<ExtensionHealthHistory>> {
+    return this.actions.invoke("extension.health.history", { kind, extensionId, limit });
   }
 
   public getPluginHookStatus(pluginId: string, expectedRevision: string): Promise<ActionEnvelope<PluginHookStatus>> {

@@ -152,11 +152,19 @@ class CronSchedule:
 
 @dataclass(slots=True)
 class CronPayload:
-    """Execution payload for a cron job."""
+    """Execution payload for a scheduler job.
+
+    ``source_kind`` and ``source_id`` identify a derived schedule owned by a
+    higher-level domain such as User Automations.  They keep scheduler records
+    out of the product contract while avoiding message-prefix protocols.
+    """
 
     message: str
     agent_id: str | None = None
     user_id: str | None = None
+    source_kind: str = "operations_cron"
+    source_id: str = ""
+    source_revision: int = 0
 
 
 @dataclass(slots=True)
@@ -352,6 +360,9 @@ class CronService:
                 message=str(payload_raw["message"]),
                 agent_id=payload_raw.get("agent_id"),
                 user_id=payload_raw.get("user_id"),
+                source_kind=str(payload_raw.get("source_kind") or "operations_cron"),
+                source_id=str(payload_raw.get("source_id") or ""),
+                source_revision=int(payload_raw.get("source_revision") or 0),
             )
             state = CronJobState(
                 next_run_at_ms=state_raw.get("next_run_at_ms"),
@@ -391,6 +402,9 @@ class CronService:
                 "message": job.payload.message,
                 "agent_id": job.payload.agent_id,
                 "user_id": job.payload.user_id,
+                "source_kind": job.payload.source_kind,
+                "source_id": job.payload.source_id,
+                "source_revision": job.payload.source_revision,
             },
             "state": {
                 "next_run_at_ms": job.state.next_run_at_ms,
@@ -559,7 +573,10 @@ class CronService:
             if not job.enabled:
                 job.state.next_run_at_ms = None
                 continue
-            if job.schedule.kind == "every" and job.state.next_run_at_ms is not None and job.state.next_run_at_ms > now_ms:
+            # A persisted due occurrence is intentionally retained.  The next
+            # tick executes it once, providing bounded ``run-latest`` restart
+            # behavior instead of silently dropping all missed work.
+            if job.state.next_run_at_ms is not None:
                 continue
             job.state.next_run_at_ms = _compute_next_run(job.schedule, now_ms)
 
@@ -683,6 +700,9 @@ class CronService:
                     "schedule": _schedule_payload(job.schedule),
                     "agent_id": job.payload.agent_id,
                     "user_id": job.payload.user_id,
+                    "source_kind": job.payload.source_kind,
+                    "source_id": job.payload.source_id,
+                    "source_revision": job.payload.source_revision,
                     "started_at_ms": started_at_ms,
                 },
                 runner_capabilities=CRON_RUNNER_CAPABILITIES,
@@ -776,6 +796,9 @@ class CronService:
         agent_id: str | None = None,
         user_id: str | None = None,
         delete_after_run: bool = False,
+        source_kind: str = "operations_cron",
+        source_id: str = "",
+        source_revision: int = 0,
     ) -> CronJob:
         store = self._load_store()
         now_ms = self._now()
@@ -788,6 +811,9 @@ class CronService:
                 message=message,
                 agent_id=agent_id,
                 user_id=user_id,
+                source_kind=source_kind,
+                source_id=source_id,
+                source_revision=source_revision,
             ),
             state=CronJobState(next_run_at_ms=_compute_next_run(schedule, now_ms)),
             created_at_ms=now_ms,
@@ -832,6 +858,9 @@ class CronService:
         agent_id: str | None,
         user_id: str | None,
         delete_after_run: bool,
+        source_kind: str | None = None,
+        source_id: str | None = None,
+        source_revision: int | None = None,
     ) -> CronJob | None:
         """Update one persisted job while preserving its execution history."""
         store = self._load_store()
@@ -840,7 +869,16 @@ class CronService:
                 continue
             job.name = name
             job.schedule = schedule
-            job.payload = CronPayload(message=message, agent_id=agent_id, user_id=user_id)
+            job.payload = CronPayload(
+                message=message,
+                agent_id=agent_id,
+                user_id=user_id,
+                source_kind=source_kind if source_kind is not None else job.payload.source_kind,
+                source_id=source_id if source_id is not None else job.payload.source_id,
+                source_revision=(
+                    source_revision if source_revision is not None else job.payload.source_revision
+                ),
+            )
             job.delete_after_run = delete_after_run
             job.updated_at_ms = self._now()
             job.state.next_run_at_ms = _compute_next_run(schedule, self._now()) if job.enabled else None

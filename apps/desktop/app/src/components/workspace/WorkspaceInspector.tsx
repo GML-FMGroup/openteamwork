@@ -4,7 +4,7 @@ import {
   mergeArtifactResources,
   type ArtifactItem,
 } from "../../lib/workspace-inspector";
-import type { ArtifactSummary, ChatMessage } from "../../types";
+import type { ArtifactSummary, ChatMessage, GoalDetail } from "../../types";
 import { ShellIcon } from "./ContextSidebar";
 
 function formatBytes(value: number | undefined): string {
@@ -88,6 +88,7 @@ interface WorkspaceInspectorProps {
   sessionId: string;
   messages: ChatMessage[];
   running: boolean;
+  goal?: GoalDetail | null;
   collapsed: boolean;
   artifacts?: ArtifactSummary[];
   onLoadArtifact?: (artifact: ArtifactSummary) => Promise<string>;
@@ -98,6 +99,7 @@ export function WorkspaceInspector({
   sessionId,
   messages,
   running,
+  goal = null,
   collapsed,
   artifacts: artifactResources = [],
   onLoadArtifact,
@@ -177,6 +179,37 @@ export function WorkspaceInspector({
           open={open.progress}
           onToggle={() => setOpen((current) => ({ ...current, progress: !current.progress }))}
         >
+          {goal ? (
+            <div className="goal-summary" data-goal-status={goal.status}>
+              <div className="goal-summary-heading">
+                <span className="goal-state-dot" />
+                <div>
+                  <small>{goal.status === "waiting" ? "WAITING" : goal.status.toUpperCase()}</small>
+                  <strong>{goal.objective}</strong>
+                </div>
+              </div>
+              {goal.flow?.steps.length ? (
+                <ol className="goal-step-list">
+                  {goal.flow.steps.map((step) => (
+                    <li key={step.stepId} data-step-status={step.status}>
+                      <span className="goal-step-marker" />
+                      <span>{step.title}</span>
+                    </li>
+                  ))}
+                </ol>
+              ) : null}
+              {Object.keys(goal.flow?.waitReason ?? {}).length ? (
+                <p className="goal-wait-reason">
+                  {String(goal.flow?.waitReason.message ?? goal.flow?.waitReason.reason ?? "Waiting to continue")}
+                </p>
+              ) : null}
+              {goal.completionCriteria.length ? (
+                <p className="goal-criteria">
+                  {goal.completionCriteria.length} completion {goal.completionCriteria.length === 1 ? "criterion" : "criteria"}
+                </p>
+              ) : null}
+            </div>
+          ) : null}
           <div className={`run-summary ${running ? "running" : "idle"}`}>
             <span className="run-orbit" />
             <div>

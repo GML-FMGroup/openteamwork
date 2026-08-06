@@ -61,11 +61,34 @@
           "title": "Namespace",
           "type": "string"
         },
+        "operation": {
+          "default": "read",
+          "enum": [
+            "read",
+            "mutation"
+          ],
+          "title": "Operation",
+          "type": "string"
+        },
         "permission": {
           "maxLength": 128,
           "minLength": 1,
           "title": "Permission",
           "type": "string"
+        },
+        "previewActionId": {
+          "anyOf": [
+            {
+              "maxLength": 128,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Previewactionid"
         },
         "projections": {
           "items": {
@@ -105,6 +128,9 @@
             "session",
             "run",
             "task",
+            "goal",
+            "flow",
+            "automation",
             "extension"
           ],
           "title": "Scope",
@@ -116,6 +142,17 @@
           },
           "title": "Slashcommands",
           "type": "array"
+        },
+        "successPresentation": {
+          "default": "inline",
+          "enum": [
+            "inline",
+            "panel",
+            "navigate",
+            "toast"
+          ],
+          "title": "Successpresentation",
+          "type": "string"
         },
         "title": {
           "maxLength": 120,
@@ -593,6 +630,57 @@
       "title": "ExtensionSummaryItem",
       "type": "object"
     },
+    "SlashCommandArgumentItem": {
+      "additionalProperties": false,
+      "description": "One typed positional argument projected to all command clients.",
+      "properties": {
+        "choices": {
+          "items": {
+            "maxLength": 120,
+            "minLength": 1,
+            "type": "string"
+          },
+          "title": "Choices",
+          "type": "array"
+        },
+        "description": {
+          "maxLength": 240,
+          "minLength": 1,
+          "title": "Description",
+          "type": "string"
+        },
+        "name": {
+          "maxLength": 128,
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "required": {
+          "default": false,
+          "title": "Required",
+          "type": "boolean"
+        },
+        "valueType": {
+          "enum": [
+            "string",
+            "text",
+            "integer",
+            "boolean",
+            "enum",
+            "resource_id"
+          ],
+          "title": "Valuetype",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "valueType",
+        "description"
+      ],
+      "title": "SlashCommandArgumentItem",
+      "type": "object"
+    },
     "SlashCommandInvokeInput": {
       "additionalProperties": false,
       "description": "Structured context for the shared command invocation Action.",
@@ -672,7 +760,8 @@
           "enum": [
             "side_channel",
             "finalize_active_turn",
-            "stop_active_turn"
+            "stop_active_turn",
+            "agent_turn"
           ],
           "title": "Lifecycle",
           "type": "string"
@@ -713,6 +802,13 @@
           "title": "Arghint",
           "type": "string"
         },
+        "arguments": {
+          "items": {
+            "$ref": "#/$defs/SlashCommandArgumentItem"
+          },
+          "title": "Arguments",
+          "type": "array"
+        },
         "command": {
           "pattern": "^/[a-z][a-z0-9-]*$",
           "title": "Command",
@@ -734,9 +830,19 @@
           "enum": [
             "side_channel",
             "finalize_active_turn",
-            "stop_active_turn"
+            "stop_active_turn",
+            "agent_turn"
           ],
           "title": "Lifecycle",
+          "type": "string"
+        },
+        "noArgsBehavior": {
+          "default": "invoke",
+          "enum": [
+            "invoke",
+            "show_usage"
+          ],
+          "title": "Noargsbehavior",
           "type": "string"
         },
         "order": {
@@ -749,6 +855,12 @@
           "minLength": 1,
           "title": "Title",
           "type": "string"
+        },
+        "usage": {
+          "maxLength": 240,
+          "minLength": 1,
+          "title": "Usage",
+          "type": "string"
         }
       },
       "required": [
@@ -757,6 +869,7 @@
         "description",
         "icon",
         "lifecycle",
+        "usage",
         "order"
       ],
       "title": "SlashCommandItem",

@@ -12,11 +12,13 @@ import { CollapsedSidebarTools } from "../workspace/ContextSidebar";
 import { ExtensionsSettings } from "./ExtensionsSettings";
 import { OperationsSettings } from "./OperationsSettings";
 import { AgentSettings } from "./AgentSettings";
+import { PreferencesSettings } from "./PreferencesSettings";
+import type { DesktopPreferenceChanges, DesktopPreferences } from "../../lib/desktop-preferences";
 
-export type SettingsSection = "general" | "models" | "operations" | "agent";
+export type SettingsSection = "general" | "models" | "operations" | "agent" | "preferences";
 type ControlPanelArea = "settings" | "extensions";
 
-const SETTINGS_SECTIONS: SettingsSection[] = ["general", "models", "operations", "agent"];
+const SETTINGS_SECTIONS: SettingsSection[] = ["general", "models", "operations", "agent", "preferences"];
 const EXTENSION_SECTIONS: ExtensionSummary["kind"][] = ["plugin", "app", "mcp", "skill"];
 
 interface SettingsViewProps {
@@ -52,6 +54,9 @@ interface SettingsViewProps {
   onEditModelProfile: (profileId: string) => void;
   onSetExtensionEnabled: (extension: ExtensionSummary, enabled: boolean) => void;
   onWorkspaceChanged: () => Promise<void>;
+  preferences: DesktopPreferences;
+  onChangePreferences: (changes: DesktopPreferenceChanges) => void;
+  onRequestNotificationPermission: () => Promise<NotificationPermission | "unsupported">;
 }
 
 function sectionTitle(section: string): string {
@@ -259,6 +264,14 @@ export function SettingsView(props: SettingsViewProps) {
 
           {!extensionsArea && section === "agent" ? (
             <AgentSettings selectedAgentId={props.selectedAgentId} modelProfiles={props.modelProfiles} onWorkspaceChanged={props.onWorkspaceChanged} />
+          ) : null}
+
+          {!extensionsArea && section === "preferences" ? (
+            <PreferencesSettings
+              preferences={props.preferences}
+              onChange={props.onChangePreferences}
+              onRequestNotificationPermission={props.onRequestNotificationPermission}
+            />
           ) : null}
         </main>
       </div>

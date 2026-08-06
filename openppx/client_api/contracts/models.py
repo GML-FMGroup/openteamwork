@@ -62,13 +62,16 @@ class ActionCatalogItem(WireModel):
     namespace: Identifier
     title: Annotated[str, StringConstraints(min_length=1, max_length=120)]
     description: Annotated[str, StringConstraints(min_length=1, max_length=512)]
-    scope: Literal["node", "agent", "session", "run", "task", "extension"]
+    scope: Literal["node", "agent", "session", "run", "task", "goal", "flow", "automation", "extension"]
     input_schema: dict[str, Any]
     required_capabilities: list[Identifier]
     permission: Identifier
     risk: Literal["low", "medium", "high"]
     confirmation: Literal["never", "required"]
     execution: Literal["sync", "long_running"]
+    operation: Literal["read", "mutation"] = "read"
+    preview_action_id: Identifier | None = None
+    success_presentation: Literal["inline", "panel", "navigate", "toast"] = "inline"
     projections: list[Literal["cli", "slash", "desktop", "mobile"]]
     slash_commands: list["SlashCommandItem"] = Field(default_factory=list)
     available: StrictBool
@@ -83,9 +86,22 @@ class SlashCommandItem(WireModel):
     description: Annotated[str, StringConstraints(min_length=1, max_length=512)]
     icon: Identifier
     arg_hint: Annotated[str, StringConstraints(max_length=120)] = ""
-    lifecycle: Literal["side_channel", "finalize_active_turn", "stop_active_turn"]
+    lifecycle: Literal["side_channel", "finalize_active_turn", "stop_active_turn", "agent_turn"]
     accepts_args: StrictBool = False
+    arguments: list["SlashCommandArgumentItem"] = Field(default_factory=list)
+    no_args_behavior: Literal["invoke", "show_usage"] = "invoke"
+    usage: Annotated[str, StringConstraints(min_length=1, max_length=240)]
     order: StrictInt = Field(ge=0)
+
+
+class SlashCommandArgumentItem(WireModel):
+    """One typed positional argument projected to all command clients."""
+
+    name: Identifier
+    value_type: Literal["string", "text", "integer", "boolean", "enum", "resource_id"]
+    description: Annotated[str, StringConstraints(min_length=1, max_length=240)]
+    required: StrictBool = False
+    choices: list[Annotated[str, StringConstraints(min_length=1, max_length=120)]] = Field(default_factory=list)
 
 
 class ActionCatalogPayload(WireModel):
@@ -118,7 +134,7 @@ class SlashCommandInvokeResult(WireModel):
     """Structured command outcome retaining target Action provenance."""
 
     command: Annotated[str, StringConstraints(pattern=r"^/[a-z][a-z0-9-]*$")]
-    lifecycle: Literal["side_channel", "finalize_active_turn", "stop_active_turn"]
+    lifecycle: Literal["side_channel", "finalize_active_turn", "stop_active_turn", "agent_turn"]
     target_action_id: Identifier
     result: dict[str, Any]
 

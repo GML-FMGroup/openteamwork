@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 from copy import deepcopy
 from datetime import UTC, datetime
+import shlex
 from time import perf_counter
 from typing import cast
 
@@ -13,12 +14,14 @@ from openppx.actions import (
     ActionFailure,
     ActionRegistry,
     ActionSpec,
+    SlashCommandArgumentSpec,
     SlashCommandSpec,
     SlashInvocationContext,
 )
 from openppx.extensions import (
     AppManager,
     ExtensionError,
+    ExtensionHealthStore,
     ExtensionRegistry,
     ExtensionStarterCatalog,
     McpManager,
@@ -44,6 +47,7 @@ from .input_models import (
     ExtensionRemoveInput,
     ExtensionStarterIdentityInput,
     ExtensionStarterListInput,
+    ExtensionHealthHistoryInput,
     McpCreateInput,
     McpOAuthInput,
     McpTestInput,
@@ -52,6 +56,7 @@ from .input_models import (
     PluginMarketplaceIdentityInput,
     PluginMarketplaceListInput,
     PluginMarketplaceMutationInput,
+    SkillCommandInput,
 )
 
 
@@ -67,12 +72,52 @@ def register_extension_actions(
     mcp_probe,
     starters: ExtensionStarterCatalog,
     mcp_oauth,
+    health_store: ExtensionHealthStore,
 ) -> None:
     """Register common inventory plus domain-owned lifecycle operations."""
     actions.register(
         _spec("extension.list", "List Extensions", "List installed Extension resources.", ExtensionListInput, "extension.read"),
         lambda _context, value: _call(lambda: _list(inventory, cast(ExtensionListInput, value))),
         slash_input=_extension_list_slash_input,
+    )
+    actions.register(
+        ActionSpec(
+            action_id="extension.skill.command",
+            namespace="extension",
+            title="Use Skill",
+            description="List Agent-visible Skills or select one for a normal Google ADK turn.",
+            input_model=SkillCommandInput,
+            scope="extension",
+            required_capabilities=frozenset({"extension.read"}),
+            permission="extension.read",
+            projections=("cli", "slash", "desktop", "mobile"),
+            slash_commands=(
+                SlashCommandSpec(
+                    command="/skill",
+                    title="Use a skill",
+                    description="List available Skills or use one for the next request.",
+                    icon="sparkles",
+                    arguments=(
+                        SlashCommandArgumentSpec(
+                            name="skill_name",
+                            value_type="resource_id",
+                            description="Installed Skill identity.",
+                        ),
+                        SlashCommandArgumentSpec(
+                            name="instruction",
+                            value_type="text",
+                            description="Task to complete with the selected Skill.",
+                        ),
+                    ),
+                    lifecycle="agent_turn",
+                    order=79,
+                ),
+            ),
+        ),
+        lambda _context, value: _call(
+            lambda: _skill_command(skills, plugins, cast(SkillCommandInput, value))
+        ),
+        slash_input=_skill_command_slash_input,
     )
     actions.register(
         _domain_spec("mcp.oauth.begin", "Connect MCP OAuth", "Start an explicit browser authorization flow.", McpOAuthInput, "extension.auth", risk="medium"),
@@ -101,6 +146,18 @@ def register_extension_actions(
     actions.register(
         _domain_spec("extension.starter.get", "Get Extension starter", "Read one safe first-party Extension starter.", ExtensionStarterIdentityInput, "extension.read"),
         lambda _context, value: _call(lambda: starters.get(cast(ExtensionStarterIdentityInput, value).starter_id).to_payload()),
+    )
+    actions.register(
+        _domain_spec(
+            "extension.health.history",
+            "Extension health history",
+            "Read recent explicit connection-test observations without credentials.",
+            ExtensionHealthHistoryInput,
+            "extension.read",
+        ),
+        lambda _context, value: _call(
+            lambda: _health_history(health_store, cast(ExtensionHealthHistoryInput, value))
+        ),
     )
     actions.register(
         _domain_spec(
@@ -297,7 +354,7 @@ def register_extension_actions(
             risk="medium",
         ),
         lambda _context, value: _call(
-            lambda: _test_mcp(mcp, mcp_probe, cast(McpTestInput, value))
+            lambda: _test_mcp(mcp, mcp_probe, health_store, cast(McpTestInput, value))
         ),
     )
     actions.register(
@@ -330,7 +387,7 @@ def register_extension_actions(
             risk="medium",
         ),
         lambda _context, value: _call(
-            lambda: _test_app_connection(apps, mcp_probe, cast(AppConnectionTestInput, value))
+            lambda: _test_app_connection(apps, mcp_probe, health_store, cast(AppConnectionTestInput, value))
         ),
     )
     actions.register(
@@ -404,6 +461,16 @@ def _spec(action_id, title, description, input_model, permission, *, risk="low",
         permission=permission,
         risk=risk,
         confirmation=confirmation,
+        operation=(
+            "mutation"
+            if action_id in {
+                "extension.install",
+                "extension.enable",
+                "extension.disable",
+                "extension.remove",
+            }
+            else "read"
+        ),
         projections=projections,
         slash_commands=slash_commands,
     )
@@ -425,7 +492,43 @@ def _extension_list_slash_input(
     return {"kind": None, "agentId": None}
 
 
+def _skill_command_slash_input(
+    _command: SlashCommandSpec,
+    args: str,
+    context: SlashInvocationContext,
+) -> dict[str, object]:
+    """Project `/skill [name] [instruction]` into one typed command input."""
+    tokens = shlex.split(args) if args else []
+    return {
+        "agentId": context.agent_id,
+        "skillName": tokens[0] if tokens else None,
+        "instruction": " ".join(tokens[1:]) if len(tokens) > 1 else "",
+    }
+
+
 def _domain_spec(action_id, title, description, input_model, permission, *, risk="low", confirmation="never") -> ActionSpec:
+    mutation_actions = {
+        "app.connection.create",
+        "app.connection.disable",
+        "app.connection.enable",
+        "app.connection.reauthorize",
+        "app.connection.remove",
+        "app.connection.update",
+        "app.definition.install",
+        "app.definition.remove",
+        "app.definition.update",
+        "app.starter.install",
+        "mcp.create",
+        "mcp.oauth.begin",
+        "mcp.oauth.signout",
+        "mcp.update",
+        "plugin.hooks.trust",
+        "plugin.hooks.untrust",
+        "plugin.marketplace.source.create",
+        "plugin.marketplace.source.refresh",
+        "plugin.marketplace.source.remove",
+        "plugin.marketplace.source.update",
+    }
     return ActionSpec(
         action_id=action_id,
         namespace=action_id.split(".", 1)[0],
@@ -437,6 +540,7 @@ def _domain_spec(action_id, title, description, input_model, permission, *, risk
         permission=permission,
         risk=risk,
         confirmation=confirmation,
+        operation="mutation" if action_id in mutation_actions else "read",
         projections=("cli", "desktop", "mobile"),
     )
 
@@ -450,6 +554,44 @@ def _call(operation):
 
 def _list(inventory: ExtensionRegistry, value: ExtensionListInput) -> dict[str, object]:
     return {"items": [item.to_payload() for item in inventory.list(kind=value.kind, agent_id=value.agent_id)]}
+
+
+def _skill_command(
+    skills: SkillManager,
+    plugins: PluginManager,
+    value: SkillCommandInput,
+) -> dict[str, object]:
+    """Resolve only Skills frozen into the selected Agent's next Runtime."""
+    if value.agent_id is None:
+        raise ExtensionError("invalid_operation", "Select an Agent before using a Skill.")
+    direct = skills.snapshot_for_agent(value.agent_id)
+    plugin = plugins.snapshot_for_agent(value.agent_id).skills
+    entries = tuple(sorted((*direct.skills, *plugin.skills), key=lambda item: item.name))
+    if value.skill_name is None:
+        return {
+            "items": [
+                {"name": item.name, "description": item.description, "source": item.source}
+                for item in entries
+            ]
+        }
+    selected = next((item for item in entries if item.name == value.skill_name), None)
+    if selected is None:
+        raise ExtensionError(
+            "extension_not_found",
+            "The selected Skill is not available to this Agent.",
+            details={"skillName": value.skill_name},
+        )
+    request = value.instruction.strip() or "Explain this Skill's purpose and ask what task I want to complete with it."
+    return {
+        "skill": {"name": selected.name, "description": selected.description, "source": selected.source},
+        "startAgentTurn": {
+            "text": (
+                f'Use the installed Skill "{selected.name}" for this request. '
+                f'Read it with read_skill before acting. User request: {request}'
+            ),
+            "skillName": selected.name,
+        },
+    }
 
 
 def _list_starters(
@@ -595,41 +737,50 @@ def _remove_marketplace(manager, value: PluginMarketplaceIdentityInput) -> dict[
     return {"id": value.marketplace_id, "kind": "PluginMarketplaceSource", "removed": True}
 
 
-def _test_mcp(mcp: McpManager, probe, value: McpTestInput) -> dict[str, object]:
+def _test_mcp(
+    mcp: McpManager,
+    probe,
+    health_store: ExtensionHealthStore,
+    value: McpTestInput,
+) -> dict[str, object]:
     """Run one live MCP probe after the inexpensive dependency check passes."""
     current = mcp.get(value.server_id)
     readiness = mcp.readiness(value.server_id)
     if not readiness.ready:
-        return _blocked_probe(
+        result = _blocked_probe(
             kind="mcp",
             resource_id=value.server_id,
             revision=current.revision,
             issues=readiness.issues,
         )
-    return _live_probe(
+        return _record_probe(health_store, result)
+    result = _live_probe(
         probe,
         mcp.snapshot_for_probe(value.server_id),
         kind="mcp",
         resource_id=value.server_id,
         revision=current.revision,
     )
+    return _record_probe(health_store, result)
 
 
 def _test_app_connection(
     apps: AppManager,
     probe,
+    health_store: ExtensionHealthStore,
     value: AppConnectionTestInput,
 ) -> dict[str, object]:
     """Probe one App execution adapter without changing Agent access."""
     current = apps.get_connection(value.connection_id)
     readiness = apps.readiness(value.connection_id)
     if not readiness.ready:
-        return _blocked_probe(
+        result = _blocked_probe(
             kind="app_connection",
             resource_id=value.connection_id,
             revision=current.revision,
             issues=readiness.issues,
         )
+        return _record_probe(health_store, result)
     if apps.execution_kind(value.connection_id) == "native":
         tools = apps.native_tools_for_probe(value.connection_id)
         names = sorted(
@@ -642,7 +793,7 @@ def _test_app_connection(
         probe_result = asyncio.run(apps.probe_native_connection(value.connection_id))
         elapsed_ms = max(0, round((perf_counter() - started) * 1000))
         issues = ([] if probe_result.ready else [probe_result.issue or "connection_failed"])
-        return {
+        result = {
             "kind": "app_connection",
             "id": value.connection_id,
             "revision": current.revision,
@@ -660,13 +811,38 @@ def _test_app_connection(
             ),
             "message": "" if probe_result.ready else (probe_result.issue or "connection_failed"),
         }
-    return _live_probe(
+        return _record_probe(health_store, result)
+    result = _live_probe(
         probe,
         apps.mcp_snapshot_for_probe(value.connection_id),
         kind="app_connection",
         resource_id=value.connection_id,
         revision=current.revision,
     )
+    return _record_probe(health_store, result)
+
+
+def _record_probe(
+    health_store: ExtensionHealthStore,
+    result: dict[str, object],
+) -> dict[str, object]:
+    """Persist one probe and include a compact durable summary in its response."""
+    observation = health_store.record(result)
+    return {**result, "health": health_store.summary(observation.kind, observation.resource_id)}
+
+
+def _health_history(
+    health_store: ExtensionHealthStore,
+    value: ExtensionHealthHistoryInput,
+) -> dict[str, object]:
+    """Project recent observations plus stable last-success/failure facts."""
+    return {
+        "summary": health_store.summary(value.kind, value.extension_id),
+        "items": [
+            item.to_payload()
+            for item in health_store.recent(value.kind, value.extension_id, limit=value.limit)
+        ],
+    }
 
 
 def _live_probe(

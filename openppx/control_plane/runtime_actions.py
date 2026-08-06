@@ -10,6 +10,7 @@ from openppx.actions import (
     ActionFailure,
     ActionRegistry,
     ActionSpec,
+    SlashCommandArgumentSpec,
     SlashCommandError,
     SlashCommandSpec,
     SlashInvocationContext,
@@ -26,6 +27,7 @@ from openppx.runtime.session_metadata_store import SessionMetadataStore
 
 from .input_models import (
     RunStopInput,
+    RuntimeInspectInput,
     SessionHistoryInput,
     SessionArchiveInput,
     SessionIdentityInput,
@@ -56,6 +58,7 @@ def register_runtime_actions(
             scope="agent",
             required_capabilities=frozenset({"session.write"}),
             permission="session.write",
+            operation="mutation",
             projections=("cli", "slash", "desktop", "mobile"),
             slash_commands=(
                 SlashCommandSpec(
@@ -92,7 +95,13 @@ def register_runtime_actions(
                     description="Show recent visible messages in this Session.",
                     icon="history",
                     arg_hint="[limit]",
-                    accepts_args=True,
+                    arguments=(
+                        SlashCommandArgumentSpec(
+                            name="limit",
+                            value_type="integer",
+                            description="Maximum number of visible messages to return.",
+                        ),
+                    ),
                     order=60,
                 ),
             ),
@@ -114,6 +123,7 @@ def register_runtime_actions(
             required_capabilities=frozenset({"session.write"}),
             permission="session.write",
             risk="medium",
+            operation="mutation",
             projections=("cli", "slash", "desktop", "mobile"),
             slash_commands=(
                 SlashCommandSpec(
@@ -122,7 +132,13 @@ def register_runtime_actions(
                     description="Hide the latest turn, or a selected invocation, from future model context.",
                     icon="undo-2",
                     arg_hint="[last|invocation-id]",
-                    accepts_args=True,
+                    arguments=(
+                        SlashCommandArgumentSpec(
+                            name="invocation",
+                            value_type="string",
+                            description="The invocation ID to rewind before, or last.",
+                        ),
+                    ),
                     lifecycle="finalize_active_turn",
                     order=25,
                 ),
@@ -145,6 +161,7 @@ def register_runtime_actions(
             required_capabilities=frozenset({"run.control"}),
             permission="run.control",
             risk="medium",
+            operation="mutation",
             projections=("cli", "slash", "desktop", "mobile"),
             slash_commands=(
                 SlashCommandSpec(
@@ -165,6 +182,33 @@ def register_runtime_actions(
     )
     registry.register(
         ActionSpec(
+            action_id="runtime.inspect",
+            namespace="runtime",
+            title="Inspect runtime",
+            description="Inspect effective Runtime snapshots, limits, and active work without exposing sensitive values.",
+            input_model=RuntimeInspectInput,
+            scope="node",
+            required_capabilities=frozenset({"system.read"}),
+            permission="system.read",
+            projections=("cli", "slash", "desktop", "mobile"),
+            slash_commands=(
+                SlashCommandSpec(
+                    command="/inspect",
+                    title="Inspect runtime",
+                    description="Show the current Agent Runtime snapshot and active work.",
+                    icon="scan-search",
+                    order=45,
+                ),
+            ),
+        ),
+        lambda _context, input_data: _inspect_runtime(
+            supervisor,
+            cast(RuntimeInspectInput, input_data),
+        ),
+        slash_input=_runtime_inspect_slash_input,
+    )
+    registry.register(
+        ActionSpec(
             action_id="task.list",
             namespace="task",
             title="List tasks",
@@ -181,7 +225,13 @@ def register_runtime_actions(
                     description="Show recent Tasks for this Session.",
                     icon="list-checks",
                     arg_hint="[limit]",
-                    accepts_args=True,
+                    arguments=(
+                        SlashCommandArgumentSpec(
+                            name="limit",
+                            value_type="integer",
+                            description="Maximum number of durable Tasks to return.",
+                        ),
+                    ),
                     order=70,
                 ),
             ),
@@ -203,6 +253,7 @@ def register_runtime_actions(
             scope="session",
             required_capabilities=frozenset({"session.write"}),
             permission="session.write",
+            operation="mutation",
             projections=("cli", "desktop", "mobile"),
         ),
         lambda _context, input_data: _rename_session(
@@ -219,6 +270,7 @@ def register_runtime_actions(
             scope="session",
             required_capabilities=frozenset({"session.write"}),
             permission="session.write",
+            operation="mutation",
             projections=("cli", "desktop", "mobile"),
         ),
         lambda _context, input_data: _archive_session(
@@ -236,6 +288,7 @@ def register_runtime_actions(
             required_capabilities=frozenset({"session.write"}),
             permission="session.write",
             risk="medium",
+            operation="mutation",
             projections=("cli", "desktop", "mobile"),
         ),
         lambda _context, input_data: _fork_session(
@@ -270,6 +323,7 @@ def register_runtime_actions(
             permission="session.write",
             risk="high",
             confirmation="required",
+            operation="mutation",
             projections=("cli", "desktop", "mobile"),
         ),
         lambda _context, input_data: _delete_session(
@@ -301,6 +355,20 @@ def _stop_run_slash_input(
     context: SlashInvocationContext,
 ) -> dict[str, object]:
     return {"runId": _required_context(context.run_id, "active Run")}
+
+
+def _runtime_inspect_slash_input(
+    _command: SlashCommandSpec,
+    _args: str,
+    context: SlashInvocationContext,
+) -> dict[str, object]:
+    return {
+        "userId": context.user_id,
+        "agentId": context.agent_id,
+        "sessionId": context.session_id,
+        "runId": context.run_id,
+        "limit": 20,
+    }
 
 
 def _bounded_limit(args: str, *, default: int = 20) -> int:
@@ -404,6 +472,10 @@ def _stop_run(
             "agentId": run.agent_id,
             "sessionId": run.session_id,
             "snapshotRevision": run.snapshot_revision,
+            "modelProfileId": run.model_profile_id,
+            "modelProfileRevision": run.model_profile_revision,
+            "provider": run.provider,
+            "model": run.model,
             "startedAt": run.started_at,
             "state": run.state,
         }
@@ -568,6 +640,66 @@ def _list_tasks(controller: TaskController | None, input_data: TaskListInput) ->
         raise ActionFailure(ActionError("runtime_unavailable", "Task storage is not available."))
     result = controller.list_tasks(session_id=input_data.session_id, limit=input_data.limit)
     return {"items": result.get("items", [])}
+
+
+def _inspect_runtime(
+    supervisor: NodeRuntimeSupervisor,
+    input_data: RuntimeInspectInput,
+) -> dict[str, object]:
+    """Combine ADK Runtime snapshots with durable Goal and Task summaries."""
+    try:
+        result = supervisor.inspect(
+            agent_id=input_data.agent_id,
+            session_id=input_data.session_id,
+            run_id=input_data.run_id,
+            limit=input_data.limit,
+        )
+    except RuntimeSupervisorError as exc:
+        raise ActionFailure(ActionError("runtime_unavailable", "The Node runtime is not available.")) from exc
+    except Exception as exc:
+        raise ActionFailure(ActionError("runtime_inspection_failed", "The Runtime snapshot could not be inspected.")) from exc
+
+    services = supervisor.assembler.services
+    goals = (
+        services.goal_store.list_goals(
+            session_id=input_data.session_id,
+            user_id=input_data.user_id,
+            limit=min(input_data.limit, 20),
+        )
+        if input_data.user_id is not None
+        else []
+    )
+    tasks = services.task_store.list_tasks(
+        session_id=input_data.session_id,
+        limit=min(input_data.limit, 20),
+    )
+    result["goals"] = [
+        {
+            "goalId": goal.goal_id,
+            "agentId": goal.agent_id,
+            "sessionId": goal.session_id,
+            "status": goal.status,
+            "revision": goal.revision,
+            "objective": goal.objective[:240],
+            "activeFlowId": goal.active_flow_id or None,
+            "budgetState": goal.budget_state,
+            "updatedAtMs": goal.updated_at_ms,
+        }
+        for goal in goals
+    ]
+    result["tasks"] = [
+        {
+            "taskId": task.task_id,
+            "sessionId": task.session_id,
+            "status": task.status,
+            "kind": task.kind,
+            "title": task.title[:240],
+            "progressSummary": task.progress_summary[:500],
+            "updatedAtMs": task.updated_at_ms,
+        }
+        for task in tasks
+    ]
+    return result
 
 
 __all__ = ["register_runtime_actions"]

@@ -1,6 +1,7 @@
 """OpenPPX Extension Platform domain boundary."""
 
 from .errors import ExtensionError
+from .health import ExtensionHealthObservation, ExtensionHealthStore
 from .app_adapters import (
     NativeAppAdapter,
     NativeAppAdapterProbe,
@@ -80,6 +81,8 @@ from .skills import (
 
 __all__ = [
     "ExtensionError",
+    "ExtensionHealthObservation",
+    "ExtensionHealthStore",
     "ExtensionDetail",
     "ExtensionKind",
     "ExtensionRegistry",

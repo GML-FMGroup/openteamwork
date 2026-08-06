@@ -6,10 +6,12 @@ import path from "node:path";
 import {
   ActionClient,
   AgentClient,
+  AutomationClient,
   ArtifactClient,
   CLIENT_API_PROTOCOL_VERSION,
   CommandClient,
   ExtensionClient,
+  GoalClient,
   ModelClient,
   OperationsClient,
   SecretClient,
@@ -28,6 +30,13 @@ import type {
   AgentCreateResult,
   AgentResourceSummary,
   AgentUpdateInput,
+  AutomationCreateInput,
+  AutomationDetail,
+  AutomationRunSummary,
+  AutomationStatus,
+  AutomationSummary,
+  AutomationTemplateSummary,
+  AutomationUpdateRequest,
   ArtifactSummary,
   ArtifactUploadInput,
   BootstrapPayload,
@@ -42,9 +51,11 @@ import type {
   ExtensionPreview,
   ExtensionPreviewRequest,
   ExtensionProbeResult,
+  ExtensionHealthHistory,
   ExtensionReadinessResult,
   ExtensionRemoveRequest,
   ExtensionSummary,
+  GoalDetail,
   McpServerResource,
   McpMutationRequest,
   McpOAuthStatus,
@@ -246,7 +257,7 @@ function normalizeAgentProfile(payload: Record<string, unknown>): AgentProfile {
 
 export class OpenPpxLocalAdapter implements Omit<
   PpxClientApi,
-  "openExternalUrl" | "platform" | "listConnectionProfiles" | "activateConnectionProfile" | "removeConnectionProfile"
+  "openExternalUrl" | "platform" | "listConnectionProfiles" | "activateConnectionProfile" | "removeConnectionProfile" | "setDesktopHostPreferences"
 > {
   private readonly listeners = new Set<EventSink>();
 
@@ -273,6 +284,10 @@ export class OpenPpxLocalAdapter implements Omit<
   private readonly actions: ActionClient;
 
   private readonly extensions: ExtensionClient;
+
+  private readonly goals: GoalClient;
+
+  private readonly automations: AutomationClient;
 
   private readonly agentManagement: AgentClient;
 
@@ -310,6 +325,8 @@ export class OpenPpxLocalAdapter implements Omit<
     });
     this.actions = new ActionClient(this.connection);
     this.extensions = new ExtensionClient(this.actions);
+    this.goals = new GoalClient(this.actions);
+    this.automations = new AutomationClient(this.actions);
     this.agentManagement = new AgentClient(this.actions);
     this.sessions = new SessionClient(this.actions);
     this.artifacts = new ArtifactClient(this.connection);
@@ -808,6 +825,71 @@ export class OpenPpxLocalAdapter implements Omit<
     };
   }
 
+  /** Read the unfinished Goal bound to one Session from the Node-owned Goal store. */
+  public async getCurrentGoal(sessionId: string): Promise<{ goal: GoalDetail | null }> {
+    await this.ensureClientApiAvailable();
+    const listed = await this.goals.list(LOCAL_USER_ID, {
+      sessionId,
+      statuses: ["active", "waiting", "paused", "blocked"],
+      limit: 1,
+    });
+    const summary = listed.result.items[0];
+    if (!summary) {
+      return { goal: null };
+    }
+    return { goal: (await this.goals.read(summary.goalId, LOCAL_USER_ID)).result };
+  }
+
+  /** List visible user Automations without exposing internal Cron records. */
+  public async listAutomations(statuses: AutomationStatus[] = []): Promise<{ automations: AutomationSummary[] }> {
+    await this.ensureClientApiAvailable();
+    const envelope = await this.automations.list(LOCAL_USER_ID, statuses);
+    return { automations: envelope.result.items };
+  }
+
+  public async getAutomation(automationId: string): Promise<AutomationDetail> {
+    await this.ensureClientApiAvailable();
+    return (await this.automations.read(automationId, LOCAL_USER_ID)).result;
+  }
+
+  public async createAutomation(input: AutomationCreateInput): Promise<AutomationDetail> {
+    await this.ensureClientApiAvailable();
+    return (await this.automations.create({ ...input, userId: LOCAL_USER_ID })).result;
+  }
+
+  public async updateAutomation(input: AutomationUpdateRequest): Promise<AutomationDetail> {
+    await this.ensureClientApiAvailable();
+    return (await this.automations.update({ ...input, userId: LOCAL_USER_ID })).result;
+  }
+
+  public async transitionAutomation(
+    operation: "pause" | "resume" | "delete",
+    automationId: string,
+    expectedRevision: number,
+  ): Promise<Record<string, unknown>> {
+    await this.ensureClientApiAvailable();
+    return (await this.automations.transition(
+      operation,
+      { automationId, userId: LOCAL_USER_ID, expectedRevision },
+      operation === "delete",
+    )).result;
+  }
+
+  public async runAutomation(automationId: string, input: Record<string, unknown> = {}): Promise<AutomationRunSummary> {
+    await this.ensureClientApiAvailable();
+    return (await this.automations.run(automationId, LOCAL_USER_ID, input)).result.run;
+  }
+
+  public async getAutomationHistory(automationId: string): Promise<Record<string, unknown>> {
+    await this.ensureClientApiAvailable();
+    return (await this.automations.history(automationId, LOCAL_USER_ID)).result;
+  }
+
+  public async listAutomationTemplates(): Promise<{ templates: AutomationTemplateSummary[] }> {
+    await this.ensureClientApiAvailable();
+    return { templates: (await this.automations.templates()).result.items };
+  }
+
   public async getOperationsTask(taskId: string): Promise<OperationsTaskDetailResult> {
     await this.ensureClientApiAvailable();
     return (await this.operations.task(taskId)).result;
@@ -907,6 +989,15 @@ export class OpenPpxLocalAdapter implements Omit<
   ): Promise<ExtensionReadinessResult> {
     await this.ensureClientApiAvailable();
     return (await this.extensions.readiness(kind, extensionId)).result;
+  }
+
+  public async getExtensionHealthHistory(
+    kind: "mcp" | "app_connection",
+    extensionId: string,
+    limit = 10,
+  ): Promise<ExtensionHealthHistory> {
+    await this.ensureClientApiAvailable();
+    return (await this.extensions.healthHistory(kind, extensionId, limit)).result;
   }
 
   public async previewExtension(input: ExtensionPreviewRequest): Promise<ExtensionPreview> {

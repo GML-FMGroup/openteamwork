@@ -88,6 +88,7 @@ def register_system_actions(
             scope="session",
             required_capabilities=frozenset({"system.read"}),
             permission="system.read",
+            operation="mutation",
             projections=("cli", "desktop", "mobile"),
         ),
         lambda context, input_data: command_invoker(
@@ -175,6 +176,9 @@ def project_catalog_entry(item: ActionCatalogEntry) -> dict[str, object]:
         "risk": spec.risk,
         "confirmation": spec.confirmation,
         "execution": spec.execution,
+        "operation": spec.operation,
+        "previewActionId": spec.preview_action_id,
+        "successPresentation": spec.success_presentation,
         "projections": list(spec.projections),
         "slashCommands": [
             {
@@ -185,6 +189,18 @@ def project_catalog_entry(item: ActionCatalogEntry) -> dict[str, object]:
                 "argHint": command.arg_hint,
                 "lifecycle": command.lifecycle,
                 "acceptsArgs": command.accepts_args,
+                "arguments": [
+                    {
+                        "name": argument.name,
+                        "valueType": argument.value_type,
+                        "description": argument.description,
+                        "required": argument.required,
+                        "choices": list(argument.choices),
+                    }
+                    for argument in command.arguments
+                ],
+                "noArgsBehavior": command.no_args_behavior,
+                "usage": command.usage,
                 "order": command.order,
             }
             for command in spec.slash_commands

@@ -18,9 +18,18 @@ class NodeAutomationExecutor:
     ) -> None:
         self.repository = repository
         self.supervisor = supervisor
+        self.automation_service = None
+
+    def attach_automation_service(self, service) -> None:
+        """Attach the formal User Automation executor after scheduler composition."""
+        self.automation_service = service
 
     async def run_cron(self, job: CronJob) -> str:
         """Execute one persisted Cron job with explicit Agent and principal scope."""
+        if job.payload.source_kind == "automation":
+            if self.automation_service is None:
+                raise RuntimeError("The User Automation service is not attached.")
+            return await self.automation_service.run_scheduled(job)
         agent_id = self._enabled_agent(job.payload.agent_id)
         user_id = job.payload.user_id or "service:cron"
         session_id = f"cron-{job.id}"

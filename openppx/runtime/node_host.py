@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from openppx.config import ConfigLoadError, NodeOperationsSpec, SecretStore, SystemCredentialSecretStore
+from openppx.automation import AutomationService, AutomationStore
 from openppx.control_plane import ControlPlaneApplication, build_control_plane
 from openppx.extensions import (
     AppManager,
@@ -48,6 +49,7 @@ class NodeComposition:
     assembler: RuntimeAssembler
     operations_service: OperationsService
     operations_runtime: NodeOperationsRuntime
+    automation_service: AutomationService
     session_metadata: SessionMetadataStore
 
 
@@ -172,12 +174,25 @@ def build_node_composition(
         audit=control_plane.audit_store,
     )
     control_plane.attach_operations(operations_service)
+    automation_service = AutomationService(
+        node_root=root,
+        store=AutomationStore(root / "database" / "automations.db"),
+        config_repository=control_plane.config_repository,
+        profile_repository=control_plane.profile_repository,
+        supervisor=runtime_supervisor,
+        cron=resolved_cron,
+        task_store=assembler.services.task_store,
+        operations_runtime=operations_runtime,
+    )
+    automation.attach_automation_service(automation_service)
+    control_plane.attach_automations(automation_service)
     return NodeComposition(
         control_plane=control_plane,
         runtime_supervisor=runtime_supervisor,
         assembler=assembler,
         operations_service=operations_service,
         operations_runtime=operations_runtime,
+        automation_service=automation_service,
         session_metadata=session_metadata,
     )
 

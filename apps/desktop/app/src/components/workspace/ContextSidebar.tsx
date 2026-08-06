@@ -15,7 +15,7 @@ import type {
   UserProfile,
 } from "../../types";
 
-type ShellIconName = "settings" | "extensions" | "expand" | "search" | "plus" | "sidebar" | "sidebar-right" | "more";
+type ShellIconName = "settings" | "extensions" | "automations" | "expand" | "search" | "plus" | "sidebar" | "sidebar-right" | "more";
 
 export function ShellIcon({ name }: { name: ShellIconName }) {
   const paths: Record<ShellIconName, ReactNode> = {
@@ -31,6 +31,12 @@ export function ShellIcon({ name }: { name: ShellIconName }) {
         <rect x="14" y="4" width="6" height="6" rx="1.5" />
         <rect x="4" y="14" width="6" height="6" rx="1.5" />
         <rect x="14" y="14" width="6" height="6" rx="1.5" />
+      </>
+    ),
+    automations: (
+      <>
+        <circle cx="12" cy="12" r="7.5" />
+        <path d="M12 8v4.5l3 1.8M7 3.8 4.8 6M17 3.8 19.2 6" />
       </>
     ),
     expand: <path d="m10 6 6 6-6 6" />,
@@ -145,8 +151,8 @@ function profileInitials(displayName: string): string {
 
 interface ContextSidebarProps {
   platform: DesktopPlatform;
-  view: "chat" | "settings";
-  controlArea: "settings" | "extensions" | null;
+  view: "chat" | "settings" | "automations";
+  controlArea: "settings" | "extensions" | "automations" | null;
   runtime: RuntimeStatus;
   diagnostics: ClientDiagnostics | null;
   userProfile: UserProfile;
@@ -158,9 +164,10 @@ interface ContextSidebarProps {
   collapsed: boolean;
   searchFocusRequest: number;
   onToggleCollapse: () => void;
-  onChangeView: (view: "chat" | "settings") => void;
+  onChangeView: (view: "chat" | "settings" | "automations") => void;
   onOpenSettings: () => void;
   onOpenExtensions: () => void;
+  onOpenAutomations: () => void;
   onSelectAgent: (agentId: string) => void;
   onSelectSession: (session: SessionSummary) => void;
   onRenameSession: (session: SessionSummary, title: string) => void;
@@ -191,6 +198,7 @@ export function ContextSidebar({
   onChangeView,
   onOpenSettings,
   onOpenExtensions,
+  onOpenAutomations,
   onSelectAgent,
   onSelectSession,
   onRenameSession,
@@ -508,6 +516,18 @@ export function ContextSidebar({
                 </span>
               </div>
               <div className="profile-menu-divider" />
+              <button
+                className={view === "automations" ? "profile-menu-item active" : "profile-menu-item"}
+                type="button"
+                role="menuitem"
+                onClick={() => {
+                  setProfileMenuOpen(false);
+                  onOpenAutomations();
+                }}
+              >
+                <ShellIcon name="automations" />
+                <span>Automations</span>
+              </button>
               <button
                 className={view === "settings" && controlArea === "settings" ? "profile-menu-item active" : "profile-menu-item"}
                 type="button"

@@ -107,7 +107,9 @@ class TokenUsageStoreTests(unittest.TestCase):
             all_stats = read_token_usage_stats(limit=10, db_path=db_path)
             google_stats = read_token_usage_stats(limit=10, provider="google", db_path=db_path)
 
-        self.assertEqual(all_stats["requests"], 2)
+            self.assertEqual(all_stats["requests"], 2)
+            self.assertIn("duration_ms", all_stats)
+            self.assertIn("ttft_ms", all_stats)
         self.assertEqual(all_stats["request_tokens"], 28)
         self.assertEqual(all_stats["response_tokens"], 22)
         self.assertEqual(all_stats["total_tokens"], 50)

@@ -1,4 +1,4 @@
-import type { AgentCreateRequest, AgentUpdateInput, AppConnectionEnablementRequest, AppConnectionRemoveRequest, AppConnectionSaveRequest, ArtifactSummary, ArtifactUploadInput, ConnectionSettings, CronCreateInput, CronUpdateInput, ExtensionEnablementRequest, ExtensionInstallRequest, ExtensionPreviewRequest, ExtensionRemoveRequest, HeartbeatConfiguration, McpMutationRequest, McpServerResource, McpValueBinding, ModelCapability, ModelProfileCreateInput, ModelProfileUpdateInput, OperationsTaskControlInput, PluginMarketplaceSourceSpec, RuntimeCommand, SendMessageInput, SessionMutationRequest, SetupApplyRequest, SlashCommandRequest } from "../../app/src/types";
+import type { AgentCreateRequest, AgentUpdateInput, AppConnectionEnablementRequest, AppConnectionRemoveRequest, AppConnectionSaveRequest, ArtifactSummary, ArtifactUploadInput, AutomationCreateInput, AutomationStatus, AutomationUpdateRequest, ConnectionSettings, CronCreateInput, CronUpdateInput, ExtensionEnablementRequest, ExtensionInstallRequest, ExtensionPreviewRequest, ExtensionRemoveRequest, HeartbeatConfiguration, McpMutationRequest, McpServerResource, McpValueBinding, ModelCapability, ModelProfileCreateInput, ModelProfileUpdateInput, OperationsTaskControlInput, PluginMarketplaceSourceSpec, RuntimeCommand, SendMessageInput, SessionMutationRequest, SetupApplyRequest, SlashCommandRequest } from "../../app/src/types";
 
 function record(value: unknown, label: string): Record<string, unknown> {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
@@ -55,6 +55,71 @@ export function validateRuntimeCommand(value: unknown): RuntimeCommand {
 /** Validate one session or Run identifier crossing the IPC trust boundary. */
 export function validateIdentifier(value: unknown, label: string): string {
   return string(value, label, 512);
+}
+
+/** Validate a bounded JSON object without allowing functions or cyclic values through IPC. */
+function boundedJsonRecord(value: unknown, label: string, maxLength = 65_536): Record<string, unknown> {
+  const input = record(value, label);
+  let encoded: string;
+  try {
+    encoded = JSON.stringify(input);
+  } catch {
+    throw new TypeError(`${label} must be JSON serializable.`);
+  }
+  if (encoded.length > maxLength) throw new TypeError(`${label} is too large.`);
+  return JSON.parse(encoded) as Record<string, unknown>;
+}
+
+export function validateAutomationStatuses(value: unknown): AutomationStatus[] {
+  if (!Array.isArray(value) || value.length > 3) throw new TypeError("Automation statuses must be an array.");
+  return value.map((status) => {
+    if (status !== "active" && status !== "paused" && status !== "blocked") {
+      throw new TypeError("Automation status is not supported.");
+    }
+    return status;
+  });
+}
+
+export function validateAutomationCreateInput(value: unknown): AutomationCreateInput {
+  const input = boundedJsonRecord(value, "Automation create request");
+  const outputRequirements = input.outputRequirements === undefined ? [] : input.outputRequirements;
+  if (!Array.isArray(outputRequirements) || outputRequirements.length > 50 || outputRequirements.some((item) => typeof item !== "string" || item.length > 1_024)) {
+    throw new TypeError("Automation output requirements are invalid.");
+  }
+  return {
+    ...input,
+    userId: string(input.userId, "Automation user id", 128),
+    agentId: string(input.agentId, "Automation Agent id", 63),
+    name: string(input.name, "Automation name", 128),
+    description: input.description === undefined ? "" : string(input.description, "Automation description", 1_024, true),
+    instructions: string(input.instructions, "Automation instructions", 16_384),
+    outputRequirements: outputRequirements as string[],
+  } as AutomationCreateInput;
+}
+
+export function validateAutomationUpdateInput(value: unknown): AutomationUpdateRequest {
+  const input = boundedJsonRecord(value, "Automation update request");
+  return {
+    ...input,
+    automationId: validateIdentifier(input.automationId, "Automation id"),
+    userId: string(input.userId, "Automation user id", 128),
+    expectedRevision: integer(input.expectedRevision, "Automation revision", 1, Number.MAX_SAFE_INTEGER),
+  } as AutomationUpdateRequest;
+}
+
+export function validateAutomationOperation(value: unknown): "pause" | "resume" | "delete" {
+  if (value !== "pause" && value !== "resume" && value !== "delete") {
+    throw new TypeError("Automation transition is not supported.");
+  }
+  return value;
+}
+
+export function validateAutomationRevision(value: unknown): number {
+  return integer(value, "Automation revision", 1, Number.MAX_SAFE_INTEGER);
+}
+
+export function validateAutomationInput(value: unknown): Record<string, unknown> {
+  return boundedJsonRecord(value, "Automation input");
 }
 
 /** Validate one durable Task control request from the isolated Renderer. */
@@ -436,7 +501,7 @@ function validateMcpBindings(value: unknown, label: string): Record<string, McpV
   ]));
 }
 
-function boundedJsonRecord(value: unknown, label: string): Record<string, unknown> | null {
+function nullableBoundedJsonRecord(value: unknown, label: string): Record<string, unknown> | null {
   if (value === null || value === undefined) return null;
   const input = record(value, label);
   const encoded = JSON.stringify(input);
@@ -592,7 +657,7 @@ export function validateMcpMutationRequest(value: unknown): McpMutationRequest {
         progressEvents: policy.progressEvents,
         longTaskProxy: policy.longTaskProxy,
         inlineBudgetMs,
-        jobProtocol: boundedJsonRecord(policy.jobProtocol, "MCP job protocol"),
+        jobProtocol: nullableBoundedJsonRecord(policy.jobProtocol, "MCP job protocol"),
       },
       risk,
       enabledAgentIds: stringList(spec.enabledAgentIds ?? [], "MCP enabled Agents", 256, 63).map((item) => resourceName(item, "MCP Agent id")),
@@ -843,6 +908,19 @@ export function validateExtensionKind(value: unknown): "plugin" | "app" | "mcp" 
     throw new TypeError("Extension kind is not supported.");
   }
   return value;
+}
+
+/** Validate one Extension resource kind that supports durable live-probe history. */
+export function validateExtensionHealthKind(value: unknown): "mcp" | "app_connection" {
+  if (value !== "mcp" && value !== "app_connection") {
+    throw new TypeError("Extension health kind is not supported.");
+  }
+  return value;
+}
+
+/** Validate the bounded number of credential-free probe observations returned to Renderer. */
+export function validateExtensionHealthLimit(value: unknown): number {
+  return integer(value, "Extension health history limit", 1, 50);
 }
 
 /** Validate one bounded catalog search without accepting structured input. */

@@ -2555,7 +2555,7 @@ class LongTaskRuntimeTests(unittest.TestCase):
                 context_store=context_store,
             )
 
-            self.assertIn("Current goal mirror:", rendered)
+            self.assertIn("Legacy goal mirror:", rendered)
             self.assertIn("Refine long task runtime", rendered)
             self.assertIn("All tests pass", rendered)
             self.assertIn("[in_progress] Design", rendered)

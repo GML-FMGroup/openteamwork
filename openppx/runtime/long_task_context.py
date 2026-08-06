@@ -10,6 +10,7 @@ from google.adk.plugins.base_plugin import BasePlugin
 from google.genai import types
 
 from .context_engine import LongTaskContextStore
+from .goal_store import GoalStore
 from .task_store import TASK_TERMINAL_STATUSES, TaskCheckpointStore, TaskStore
 from .workspace_bootstrap import _insert_before_latest_user_batch
 
@@ -42,6 +43,7 @@ def render_long_task_context(
     task_store: TaskStore | None = None,
     checkpoint_store: TaskCheckpointStore | None = None,
     context_store: LongTaskContextStore | None = None,
+    goal_store: GoalStore | None = None,
     limit: int = 5,
 ) -> str:
     """Render the concise long-task behavior and active-task context block."""
@@ -81,9 +83,20 @@ def render_long_task_context(
         "- TaskFlow facts describe multi-step DAG plans and current steps; they advance bookkeeping but do not execute external work by themselves.",
         "- Staged summaries are compact context facts, not proof that work completed.",
     ]
-    goal = context.get_active_goal(session_id)
-    if goal is not None:
-        lines.extend(["", "Current goal mirror:"])
+    durable_goal = goal_store.current_goal(session_id) if goal_store is not None else None
+    goal = context.get_active_goal(session_id) if durable_goal is None else None
+    if durable_goal is not None:
+        lines.extend(["", "Current durable Goal:"])
+        lines.append(f"- goal_id: {durable_goal.goal_id}")
+        lines.append(f"- status: {durable_goal.status}")
+        lines.append(f"- objective: {_truncate(durable_goal.objective, 320)}")
+        if durable_goal.completion_criteria:
+            lines.append(
+                f"- completion_criteria: {_truncate('; '.join(durable_goal.completion_criteria), 320)}"
+            )
+        todos = []
+    elif goal is not None:
+        lines.extend(["", "Legacy goal mirror:"])
         lines.append(f"- goal_id: {goal.goal_id}")
         lines.append(f"- objective: {_truncate(goal.objective, 320)}")
         if goal.completion_criteria:
@@ -100,8 +113,22 @@ def render_long_task_context(
             lines.append(f"- [{item.status}] {item.content}")
     else:
         lines.extend(["", "Current todos: none"])
-    flow = context.get_active_flow(session_id)
-    if flow is not None:
+    durable_flow = goal_store.flow_for_goal(durable_goal.goal_id) if goal_store is not None and durable_goal is not None else None
+    flow = context.get_active_flow(session_id) if durable_flow is None else None
+    if durable_flow is not None:
+        lines.extend(["", "Current durable TaskFlow:"])
+        lines.append(f"- flow_id: {durable_flow.flow_id}")
+        lines.append(f"- status: {durable_flow.status}")
+        if durable_flow.wait_reason:
+            lines.append(f"- wait_reason: {_truncate(str(durable_flow.wait_reason), 240)}")
+        if durable_flow.steps:
+            lines.append("- steps:")
+            for step in durable_flow.steps[:10]:
+                lines.append(
+                    f"  - [{step.get('status', 'pending')}] "
+                    f"{_truncate(str(step.get('title') or step.get('stepId') or ''), 180)}"
+                )
+    elif flow is not None:
         flow_steps = context.list_flow_steps(flow_id=flow.flow_id, limit=10)
         current_step = next((step for step in flow_steps if step.step_id == flow.current_step_id), None)
         lines.extend(["", "Current TaskFlow:"])
@@ -169,11 +196,13 @@ class LongTaskContextPlugin(BasePlugin):
         target_agent_name: str | None = None,
         task_store: TaskStore | None = None,
         context_store: LongTaskContextStore | None = None,
+        goal_store: GoalStore | None = None,
     ) -> None:
         super().__init__(name="openppx_long_task_context")
         self._target_agent_name = target_agent_name
         self._task_store = task_store
         self._context_store = context_store
+        self._goal_store = goal_store
 
     def _matches_agent(self, callback_context: Any) -> bool:
         if not self._target_agent_name:
@@ -197,6 +226,7 @@ class LongTaskContextPlugin(BasePlugin):
             session_id=_session_id(callback_context),
             task_store=self._task_store,
             context_store=self._context_store,
+            goal_store=self._goal_store,
         )
         if not isinstance(contents, list):
             contents = []

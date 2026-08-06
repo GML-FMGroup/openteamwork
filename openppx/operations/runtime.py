@@ -71,6 +71,17 @@ class NodeOperationsRuntime:
         future = asyncio.run_coroutine_threadsafe(invoke(), loop)
         return future.result(timeout=timeout)
 
+    def submit(self, operation: Callable[[], Any]) -> None:
+        """Submit background work to the owned loop without blocking a client Action."""
+        loop = self._loop
+        if loop is None or not self._running:
+            raise RuntimeError("Node operations runtime is not running.")
+
+        async def invoke() -> None:
+            await _maybe_await(operation())
+
+        asyncio.run_coroutine_threadsafe(invoke(), loop)
+
     def status(self) -> dict[str, object]:
         """Return lifecycle state without exposing thread or event-loop internals."""
         return {

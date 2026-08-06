@@ -40,6 +40,63 @@ import healthV1 from "../../../contracts/client-api/fixtures/health-v1.json";
 import nodeV1 from "../../../contracts/client-api/fixtures/node-v1.json";
 
 describe("OpenPPX Client public contract", () => {
+  it("routes Automation lifecycle operations through typed Actions", async () => {
+    const fetchMock = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body));
+      const result = body.actionId === "automation.template.list"
+        ? { items: [] }
+        : body.actionId === "automation.list"
+          ? { items: [] }
+          : body.actionId === "automation.delete"
+            ? { automationId: body.input.automationId, deleted: true }
+            : { automationId: "auto_fixture", revision: 1 };
+      return new Response(JSON.stringify({
+        protocolVersion: 1,
+        requestId: body.requestId,
+        correlationId: body.correlationId,
+        ok: true,
+        result,
+      }), { status: 200, headers: { "Content-Type": "application/json" } });
+    });
+    const client = new OpenPpxClient({
+      baseUrl: "http://127.0.0.1:18765",
+      fetch: fetchMock as unknown as typeof fetch,
+      idFactory: () => "request-automation",
+    });
+
+    await client.automation.list("user_fixture");
+    await client.automation.templates();
+    await client.automation.create({
+      userId: "user_fixture",
+      agentId: "writer",
+      name: "Morning brief",
+      instructions: "Summarize the day.",
+      schedule: { kind: "cron", cronExpr: "0 8 * * 1-5", timezone: "" },
+    });
+    await client.automation.transition(
+      "delete",
+      { automationId: "auto_fixture", userId: "user_fixture", expectedRevision: 1 },
+      true,
+    );
+
+    const bodies = (fetchMock.mock.calls as unknown as Array<[string, RequestInit]>)
+      .map((call) => JSON.parse(String(call[1].body)));
+    expect(bodies.map((body) => body.actionId)).toEqual([
+      "automation.list",
+      "automation.template.list",
+      "automation.create",
+      "automation.delete",
+    ]);
+    expect(bodies[2].input).toMatchObject({
+      userId: "user_fixture",
+      agentId: "writer",
+      schedule: { kind: "cron", cronExpr: "0 8 * * 1-5", timezone: "" },
+      concurrencyPolicy: { mode: "skip", limit: 1 },
+      retryPolicy: { maxAttempts: 1, backoffSeconds: 30 },
+    });
+    expect(bodies[3].confirmed).toBe(true);
+  });
+
   it("builds bearer headers without placing credentials in URLs", () => {
     expect(buildClientApiAuthorizationHeaders("")).toEqual({});
     expect(buildClientApiAuthorizationHeaders("  secret-token  ")).toEqual({
@@ -226,6 +283,64 @@ describe("OpenPPX Client public contract", () => {
     expect(bodies.every((body) => body.input.providerId === "openai_codex")).toBe(true);
   });
 
+  it("routes Session model selection through the shared model Action", async () => {
+    const fetchMock = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body));
+      return new Response(JSON.stringify({
+        protocolVersion: 1,
+        requestId: body.requestId,
+        correlationId: body.correlationId,
+        ok: true,
+        result: {
+          items: [],
+          sessionSelection: { profileId: body.input.profileId ?? null, revision: 2 },
+          effectiveSelection: { profileId: body.input.profileId ?? "primary" },
+          effect: "next_run",
+        },
+      }), { status: 200, headers: { "Content-Type": "application/json" } });
+    });
+    const client = new OpenPpxClient({
+      baseUrl: "http://127.0.0.1:18765",
+      fetch: fetchMock as unknown as typeof fetch,
+      idFactory: () => "request-session-model",
+    });
+
+    await client.model.sessionStatus("writer", "user_fixture", "session_fixture");
+    await client.model.selectForSession("writer", "user_fixture", "session_fixture", "reasoning", 1);
+    await client.model.resetSession("writer", "user_fixture", "session_fixture", 2);
+
+    const calls = fetchMock.mock.calls as unknown as Array<[string, RequestInit]>;
+    const bodies = calls.map((call) => JSON.parse(String(call[1].body)));
+    expect(bodies.map((body) => body.actionId)).toEqual([
+      "model.session.command",
+      "model.session.command",
+      "model.session.command",
+    ]);
+    expect(bodies.map((body) => body.input)).toEqual([
+      {
+        agentId: "writer",
+        userId: "user_fixture",
+        sessionId: "session_fixture",
+        operation: "status",
+      },
+      {
+        agentId: "writer",
+        userId: "user_fixture",
+        sessionId: "session_fixture",
+        operation: "select",
+        profileId: "reasoning",
+        expectedRevision: 1,
+      },
+      {
+        agentId: "writer",
+        userId: "user_fixture",
+        sessionId: "session_fixture",
+        operation: "reset",
+        expectedRevision: 2,
+      },
+    ]);
+  });
+
   it("reads, creates, and updates Model Profiles through distinct typed Node Actions", async () => {
     const document = {
       apiVersion: "openppx.io/v1alpha1" as const,
@@ -386,6 +501,32 @@ describe("OpenPPX Client public contract", () => {
     const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
     expect(url).toBe("http://127.0.0.1:8765/api/v1/actions/invoke");
     expect(JSON.parse(String(init.body))).toEqual(actionInvokeExtensionList);
+  });
+
+  it("reads bounded Extension health history through the formal Action", async () => {
+    const result = {
+      summary: { latest: null, lastSuccessAtMs: null, lastFailureAtMs: null, consecutiveFailures: 0 },
+      items: [],
+    };
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({
+      protocolVersion: 1,
+      requestId: "req-health",
+      correlationId: "req-health",
+      ok: true,
+      result,
+    }), { status: 200, headers: { "Content-Type": "application/json" } }));
+    const client = new OpenPpxClient({
+      baseUrl: "http://127.0.0.1:8765",
+      fetch: fetchMock as unknown as typeof fetch,
+      idFactory: () => "req-health",
+    });
+
+    await expect(client.extensions.healthHistory("mcp", "context7", 6)).resolves.toMatchObject({ result });
+    const body = JSON.parse(String((fetchMock.mock.calls[0] as unknown as [string, RequestInit])[1].body));
+    expect(body).toMatchObject({
+      actionId: "extension.health.history",
+      input: { kind: "mcp", extensionId: "context7", limit: 6 },
+    });
   });
 
   it("lists and validates typed Extension starters", async () => {

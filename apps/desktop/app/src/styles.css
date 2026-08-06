@@ -55,6 +55,58 @@
   --motion-base: 180ms;
 }
 
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --canvas: #17191c;
+  --canvas-deep: #131518;
+  --paper: #1d2024;
+  --paper-warm: #202328;
+  --paper-deep: #292d33;
+  --ink: #f1f3f5;
+  --ink-soft: #c1c6cd;
+  --ink-faint: #929aa5;
+  --hairline: #343940;
+  --hairline-strong: #454b54;
+  --vermilion: #f1f3f5;
+  --vermilion-deep: #ffffff;
+  --vermilion-soft: #2b2f35;
+  --copper: #aeb5be;
+  --moss: #62b68b;
+  --amber: #d2994e;
+  --danger: #e37c7c;
+  --surface-strong: var(--paper-warm);
+  --surface-soft: #24272c;
+  --surface-muted: var(--paper-deep);
+  --border-soft: var(--hairline);
+  --border-strong: var(--hairline-strong);
+  --text-subtle: var(--ink-faint);
+  --text-strong: var(--ink);
+  --accent: var(--vermilion);
+  --accent-deep: var(--vermilion-deep);
+  --success: var(--moss);
+  --shadow-float: 0 16px 46px rgba(0, 0, 0, 0.38);
+  --shadow-composer: 0 12px 34px rgba(0, 0, 0, 0.3);
+}
+
+:root[data-theme="dark"] body,
+:root[data-theme="dark"] #root {
+  background: var(--canvas);
+}
+
+:root[data-code-wrap="wrap"] pre,
+:root[data-code-wrap="wrap"] code,
+:root[data-code-wrap="wrap"] .step-card-detail,
+:root[data-code-wrap="wrap"] .tool-result-raw pre {
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+:root[data-activity-detail="summary"] .tool-result-raw,
+:root[data-activity-detail="summary"] .step-card-detail {
+  display: none;
+}
+
 * {
   box-sizing: border-box;
 }

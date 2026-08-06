@@ -215,6 +215,7 @@ def _catalog_fixture() -> dict[str, Any]:
                         icon="activity",
                         lifecycle="side_channel",
                         accepts_args=False,
+                        usage="/status",
                         order=40,
                     )
                 ],

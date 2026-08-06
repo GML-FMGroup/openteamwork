@@ -8,6 +8,7 @@ import type {
   ClientDiagnostics,
   ConnectionSettings,
   ExtensionSummary,
+  GoalDetail,
   ModelProfileSummary,
   ModelProfileResourceResult,
   ModelProfileCreateInput,
@@ -287,6 +288,19 @@ function formatSlashCommandResult(outcome: SlashCommandResult): string {
         }).join("\n")
       : "No Tasks were found for this Session.";
   }
+  if (outcome.targetActionId === "task.command") {
+    const task = record(result.task);
+    const items = Array.isArray(result.items) ? result.items : [];
+    if (task.taskId) {
+      return `${String(task.status ?? "unknown")} · ${String(task.title ?? task.taskId)}`;
+    }
+    return items.length
+      ? items.map((item) => {
+          const entry = record(item);
+          return `${String(entry.status ?? "unknown")} · ${String(entry.title ?? entry.taskId ?? "Task")}`;
+        }).join("\n")
+      : "No matching Task information was found.";
+  }
   if (outcome.targetActionId === "extension.list") {
     const items = Array.isArray(result.items) ? result.items : [];
     return items.length
@@ -301,6 +315,20 @@ function formatSlashCommandResult(outcome: SlashCommandResult): string {
   }
   if (outcome.targetActionId === "run.stop") {
     return "Stop requested for the active Run.";
+  }
+  if (outcome.targetActionId === "goal.command") {
+    const current = record(result.current);
+    const goal = Object.keys(current).length ? current : result;
+    if (goal.goalId) {
+      return `${String(goal.status ?? "active")} · ${String(goal.objective ?? "Goal")}`;
+    }
+    const items = Array.isArray(result.items) ? result.items : [];
+    return items.length
+      ? items.map((item) => {
+          const history = record(item);
+          return `${String(history.status ?? "unknown")} · ${String(history.objective ?? history.goalId ?? "Goal")}`;
+        }).join("\n")
+      : "This Session has no active Goal.";
   }
   return JSON.stringify(result, null, 2);
 }
@@ -322,6 +350,7 @@ export function useDesktopWorkspace() {
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [sessionArtifacts, setSessionArtifacts] = useState<ArtifactSummary[]>([]);
+  const [currentGoal, setCurrentGoal] = useState<GoalDetail | null>(null);
   const [selectedAgentId, setSelectedAgentId] = useState("");
   const [selectedSessionId, setSelectedSessionId] = useState("");
   const [composer, setComposer] = useState("");
@@ -358,6 +387,23 @@ export function useDesktopWorkspace() {
   const setupFormInitializedRef = useRef(false);
   const activeRuns = useActiveRuns();
 
+  async function refreshCurrentGoal(sessionId = selectedSessionIdRef.current): Promise<void> {
+    if (!sessionId) {
+      setCurrentGoal(null);
+      return;
+    }
+    try {
+      const result = await window.ppxClient.getCurrentGoal(sessionId);
+      if (sessionId === selectedSessionIdRef.current) {
+        setCurrentGoal(result.goal);
+      }
+    } catch {
+      if (sessionId === selectedSessionIdRef.current) {
+        setCurrentGoal(null);
+      }
+    }
+  }
+
   useEffect(() => {
     let cancelled = false;
     if (!selectedAgentId || !selectedSessionId) {
@@ -369,6 +415,10 @@ export function useDesktopWorkspace() {
       .catch(() => { if (!cancelled) setSessionArtifacts([]); });
     return () => { cancelled = true; };
   }, [selectedAgentId, selectedSessionId]);
+
+  useEffect(() => {
+    void refreshCurrentGoal(selectedSessionId);
+  }, [selectedSessionId]);
 
   const selectAgentId = (agentId: string): void => {
     selectedAgentIdRef.current = agentId;
@@ -423,6 +473,9 @@ export function useDesktopWorkspace() {
       } else if (event.type === "run.finished") {
         activeRuns.finish(event.sessionId);
         setCancellingRunId((current) => (current === event.runId ? null : current));
+        if (event.sessionId === selectedSessionIdRef.current) {
+          void refreshCurrentGoal(event.sessionId);
+        }
       }
     });
 
@@ -1126,6 +1179,15 @@ export function useDesktopWorkspace() {
       if (outcome.targetActionId === "run.stop" && activeRunId) {
         setCancellingRunId(activeRunId);
       }
+      if (outcome.lifecycle === "agent_turn") {
+        await refreshCurrentGoal(selectedSessionIdRef.current);
+        const startAgentTurn = record(record(outcome.result).startAgentTurn);
+        const turnText = String(startAgentTurn.text ?? "").trim();
+        if (turnText) {
+          await sendMessage(turnText);
+          return;
+        }
+      }
       appendCommandNotice(outcome);
     } catch (error) {
       setSendError(error instanceof Error ? error.message : String(error));
@@ -1303,6 +1365,7 @@ export function useDesktopWorkspace() {
     sessions,
     messages,
     sessionArtifacts,
+    currentGoal,
     selectedAgentId,
     selectedSessionId,
     selectedAgent,

@@ -15,7 +15,7 @@ def test_help_exposes_only_converged_product_groups(capsys) -> None:
         cli.main(["--help"])
     assert raised.value.code == 0
     output = capsys.readouterr().out
-    for command in ("setup", "node", "action", "command", "config", "model", "extension", "operations"):
+    for command in ("setup", "node", "action", "command", "goal", "config", "model", "extension", "operations"):
         assert command in output
     assert "client-api" not in output
     assert "gateway" not in output
@@ -59,6 +59,51 @@ def test_cron_disable_uses_revisionless_node_action() -> None:
         {"jobId": "job-1", "enabled": False},
         confirmed=True,
     )
+
+
+def test_goal_create_routes_to_formal_goal_action() -> None:
+    args = build_parser().parse_args([
+        "goal",
+        "create",
+        "Ship the release",
+        "--agent",
+        "main",
+        "--session",
+        "session-1",
+        "--criterion",
+        "All checks pass",
+        "--constraint",
+        "Do not publish",
+    ])
+    with patch("openppx.command.dispatch.invoke_action", return_value=0) as invoke:
+        assert dispatch(args) == 0
+    invoke.assert_called_once_with(
+        args,
+        "goal.create",
+        {
+            "userId": "ppx-client-user",
+            "agentId": "main",
+            "sessionId": "session-1",
+            "objective": "Ship the release",
+            "completionCriteria": ["All checks pass"],
+            "constraints": ["Do not publish"],
+            "workspaceRef": "",
+            "budgetPolicy": {},
+        },
+    )
+
+
+def test_goal_complete_requires_json_array_evidence(capsys) -> None:
+    args = build_parser().parse_args([
+        "goal",
+        "complete",
+        "goal-1",
+        "3",
+        "--evidence-json",
+        "{}",
+    ])
+    assert dispatch(args) == 2
+    assert "must contain one JSON array" in capsys.readouterr().out
 
 
 def test_node_run_passes_explicit_root_and_transport() -> None:
