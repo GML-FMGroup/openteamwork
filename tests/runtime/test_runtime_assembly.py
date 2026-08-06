@@ -8,8 +8,10 @@ import os
 import sys
 import threading
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
+from google.adk.agents.invocation_context import LlmCallsLimitExceededError
 from google.adk.models.base_llm import BaseLlm
 from google.adk.models.llm_response import LlmResponse
 from google.genai import types
@@ -39,6 +41,7 @@ from openppx.extensions.app_models import AppConnection, AppDefinition
 from openppx.core.mcp_registry import ManagedMcpToolset
 from openppx.modeling import ModelCatalog, ModelProfile, ModelProfileRepository, ModelProfileSelector
 from openppx.runtime.assembly import RuntimeAssembler
+from openppx.runtime.goal_store import GoalStore
 from openppx.runtime.node_runtime import NodeRuntimeSupervisor, RunNotActiveError, RunNotFoundError
 
 from tests.extensions.test_plugin_resources import _write_plugin
@@ -663,6 +666,88 @@ def test_session_and_run_actions_use_the_same_runtime_supervisor(tmp_path: Path)
     assert missing.error.code == "run_not_found"
 
 
+def test_session_lifecycle_has_deterministic_goal_semantics(tmp_path: Path) -> None:
+    config_service, secrets = _configured(tmp_path)
+    supervisor = NodeRuntimeSupervisor(
+        config_service=config_service,
+        assembler=RuntimeAssembler(
+            node_root=tmp_path,
+            secret_store=secrets,
+            model_factory=lambda _resolution: _HelloLlm(model="hello-model"),
+        ),
+    )
+    application = build_control_plane(tmp_path, secret_store=secrets, product_version="test")
+    application.attach_runtime(supervisor)
+    permissions = frozenset({"session.read", "session.write", "goal.write"})
+    action_context = ActionContext(
+        request_id="req-session-goal",
+        correlation_id="corr-session-goal",
+        actor_id="local:test",
+        capabilities=permissions,
+        permissions=permissions,
+        confirmed=True,
+    )
+    created = application.invoke(
+        "session.new",
+        {"agentId": "low-main", "userId": "local:test"},
+        action_context,
+    )
+    session_id = created.data["session"]["id"]
+    goal = application.invoke(
+        "goal.create",
+        {
+            "userId": "local:test",
+            "agentId": "low-main",
+            "sessionId": session_id,
+            "objective": "Finish durable work",
+        },
+        action_context,
+    )
+    assert goal.ok is True
+
+    archived = application.invoke(
+        "session.archive",
+        {
+            "userId": "local:test",
+            "agentId": "low-main",
+            "sessionId": session_id,
+            "archived": True,
+        },
+        action_context,
+    )
+    assert archived.ok is True
+    paused = application.goal_store.current_goal(session_id)
+    assert paused is not None and paused.status == "paused"
+
+    forked = application.invoke(
+        "session.fork",
+        {"userId": "local:test", "agentId": "low-main", "sessionId": session_id},
+        action_context,
+    )
+    assert forked.ok is True
+    assert forked.data["goalInherited"] is False
+    assert forked.data["sourceGoalId"] == goal.data["goalId"]
+    assert application.goal_store.current_goal(forked.data["session"]["id"]) is None
+
+    resumed = application.invoke(
+        "goal.resume",
+        {
+            "goalId": goal.data["goalId"],
+            "userId": "local:test",
+            "expectedRevision": paused.revision,
+        },
+        action_context,
+    )
+    assert resumed.ok is True
+    deleted = application.invoke(
+        "session.delete",
+        {"userId": "local:test", "agentId": "low-main", "sessionId": session_id},
+        action_context,
+    )
+    assert deleted.ok is True
+    assert application.goal_store.get_goal(goal.data["goalId"]).status == "cancelled"  # type: ignore[union-attr]
+
+
 def test_model_command_persists_session_override_and_pins_new_run_snapshot(tmp_path: Path) -> None:
     config_service, secrets = _configured(tmp_path)
     config_service.profiles.write_profile(
@@ -788,3 +873,236 @@ def test_supervisor_executes_background_run_on_the_snapshot_runtime(tmp_path: Pa
     assert completed.wait(timeout=5)
     assert replies == ["Hello from immutable snapshot"]
     assert supervisor.run_status("run-background").state == "completed"
+
+
+def test_goal_run_continues_in_fresh_adk_invocation_after_slice_limit(tmp_path: Path) -> None:
+    """A Goal keeps one client Run while ADK receives bounded invocations."""
+
+    class _Runtime:
+        metadata = SimpleNamespace(
+            snapshot_revision="snapshot-r1",
+            model_profile_id="primary",
+            model_profile_revision="model-r1",
+            provider="test",
+            model="test/model",
+        )
+
+        def __init__(self) -> None:
+            self.initial_calls = 0
+            self.continuation_calls = 0
+            self.run_configs = []
+
+        async def run_message(self, _message, **kwargs):
+            self.initial_calls += 1
+            self.run_configs.append(kwargs["run_config"])
+            raise LlmCallsLimitExceededError()
+
+        async def continue_message(self, **kwargs):
+            self.continuation_calls += 1
+            self.run_configs.append(kwargs["run_config"])
+            return "continued result"
+
+    runtime = _Runtime()
+    goal_store = GoalStore(db_path=tmp_path / "goals.db")
+    goal_store.create_goal(
+        session_id="session-long",
+        agent_id="main",
+        user_id="local:user",
+        objective="Finish long work",
+        budget_policy={
+            "maxContinuations": 2,
+            "maxLlmCallsPerInvocation": 7,
+            "autoContinue": False,
+        },
+        created_by="local:user",
+    )
+
+    class _Config:
+        @staticmethod
+        def snapshot(_agent_id, **_kwargs):
+            return SimpleNamespace(revision="config-r1")
+
+    class _Assembler:
+        services = SimpleNamespace(goal_store=goal_store)
+
+        @staticmethod
+        def extension_snapshot_for_agent(_agent_id):
+            return SimpleNamespace(revision="extensions-r1")
+
+        @staticmethod
+        def assemble(_snapshot, *, extension_snapshot):
+            del extension_snapshot
+            return runtime
+
+    supervisor = NodeRuntimeSupervisor(config_service=_Config(), assembler=_Assembler())  # type: ignore[arg-type]
+    completed = threading.Event()
+    replies: list[str] = []
+    errors: list[BaseException] = []
+
+    supervisor.start_run(
+        run_id="run-long",
+        agent_id="main",
+        session_id="session-long",
+        user_id="local:user",
+        text="continue until done",
+        on_complete=lambda text: (replies.append(text), completed.set()),
+        on_error=lambda exc: (errors.append(exc), completed.set()),
+    )
+
+    assert completed.wait(timeout=5)
+    assert errors == []
+    assert replies == ["continued result"]
+    assert runtime.initial_calls == 1
+    assert runtime.continuation_calls == 1
+    assert runtime.run_configs[0].max_llm_calls == 7
+    goal = goal_store.current_goal("session-long")
+    assert goal is not None
+    assert goal.budget_state["continuationCount"] == 1
+    assert supervisor.run_status("run-long").state == "completed"
+
+
+def test_active_goal_auto_continues_until_it_enters_waiting_state(tmp_path: Path) -> None:
+    """A normal final reply does not silently stop an otherwise active Goal."""
+    goal_store = GoalStore(db_path=tmp_path / "goals.db")
+    goal, _flow = goal_store.create_goal(
+        session_id="session-long",
+        agent_id="main",
+        user_id="local:user",
+        objective="Finish long work",
+        budget_policy={"maxContinuations": 3},
+        created_by="local:user",
+    )
+
+    class _Runtime:
+        metadata = SimpleNamespace(
+            snapshot_revision="snapshot-r1",
+            model_profile_id="primary",
+            model_profile_revision="model-r1",
+            provider="test",
+            model="test/model",
+        )
+
+        def __init__(self) -> None:
+            self.continuation_calls = 0
+
+        async def run_message(self, _message, **_kwargs):
+            return "first slice"
+
+        async def continue_message(self, **_kwargs):
+            self.continuation_calls += 1
+            current = goal_store.get_goal(goal.goal_id)
+            assert current is not None
+            goal_store.transition_goal(
+                current.goal_id,
+                status="waiting",
+                expected_revision=current.revision,
+                actor_id="system:test",
+            )
+            return "waiting for user input"
+
+    runtime = _Runtime()
+
+    class _Config:
+        @staticmethod
+        def snapshot(_agent_id, **_kwargs):
+            return SimpleNamespace(revision="config-r1")
+
+    class _Assembler:
+        services = SimpleNamespace(goal_store=goal_store)
+
+        @staticmethod
+        def extension_snapshot_for_agent(_agent_id):
+            return SimpleNamespace(revision="extensions-r1")
+
+        @staticmethod
+        def assemble(_snapshot, *, extension_snapshot):
+            del extension_snapshot
+            return runtime
+
+    supervisor = NodeRuntimeSupervisor(config_service=_Config(), assembler=_Assembler())  # type: ignore[arg-type]
+    completed = threading.Event()
+    replies: list[str] = []
+    supervisor.start_run(
+        run_id="run-long",
+        agent_id="main",
+        session_id="session-long",
+        user_id="local:user",
+        text="continue until waiting",
+        on_complete=lambda text: (replies.append(text), completed.set()),
+    )
+
+    assert completed.wait(timeout=5)
+    assert replies == ["waiting for user input"]
+    assert runtime.continuation_calls == 1
+    assert goal_store.get_goal(goal.goal_id).status == "waiting"  # type: ignore[union-attr]
+
+
+def test_active_goal_enters_waiting_when_continuation_budget_is_exhausted(tmp_path: Path) -> None:
+    goal_store = GoalStore(db_path=tmp_path / "goals.db")
+    goal, _flow = goal_store.create_goal(
+        session_id="session-long",
+        agent_id="main",
+        user_id="local:user",
+        objective="Finish bounded work",
+        budget_policy={"maxContinuations": 1},
+        created_by="local:user",
+    )
+
+    class _Runtime:
+        metadata = SimpleNamespace(
+            snapshot_revision="snapshot-r1",
+            model_profile_id="primary",
+            model_profile_revision="model-r1",
+            provider="test",
+            model="test/model",
+        )
+
+        def __init__(self) -> None:
+            self.continuation_calls = 0
+
+        async def run_message(self, _message, **_kwargs):
+            return "first slice"
+
+        async def continue_message(self, **_kwargs):
+            self.continuation_calls += 1
+            return "bounded result"
+
+    runtime = _Runtime()
+
+    class _Config:
+        @staticmethod
+        def snapshot(_agent_id, **_kwargs):
+            return SimpleNamespace(revision="config-r1")
+
+    class _Assembler:
+        services = SimpleNamespace(goal_store=goal_store)
+
+        @staticmethod
+        def extension_snapshot_for_agent(_agent_id):
+            return SimpleNamespace(revision="extensions-r1")
+
+        @staticmethod
+        def assemble(_snapshot, *, extension_snapshot):
+            del extension_snapshot
+            return runtime
+
+    supervisor = NodeRuntimeSupervisor(config_service=_Config(), assembler=_Assembler())  # type: ignore[arg-type]
+    completed = threading.Event()
+    replies: list[str] = []
+    supervisor.start_run(
+        run_id="run-long",
+        agent_id="main",
+        session_id="session-long",
+        user_id="local:user",
+        text="continue within a bounded budget",
+        on_complete=lambda text: (replies.append(text), completed.set()),
+    )
+
+    assert completed.wait(timeout=5)
+    assert replies == ["bounded result"]
+    assert runtime.continuation_calls == 1
+    waiting = goal_store.get_goal(goal.goal_id)
+    assert waiting is not None and waiting.status == "waiting"
+    flow = goal_store.flow_for_goal(goal.goal_id)
+    assert flow is not None
+    assert "continuation budget" in flow.wait_reason["message"]

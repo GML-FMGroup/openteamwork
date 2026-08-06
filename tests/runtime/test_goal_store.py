@@ -219,6 +219,7 @@ def test_goal_pause_resume_cancel_state_machine_is_explicit(tmp_path) -> None:
     )
 
     assert [paused.status, resumed.status, cancelled.status] == ["paused", "active", "cancelled"]
+    assert store.flow_for_goal(goal.goal_id).status == "cancelled"  # type: ignore[union-attr]
     with pytest.raises(GoalStateError):
         store.transition_goal(
             goal.goal_id,
@@ -226,6 +227,57 @@ def test_goal_pause_resume_cancel_state_machine_is_explicit(tmp_path) -> None:
             expected_revision=cancelled.revision,
             actor_id="local:user",
         )
+
+
+def test_goal_start_failure_blocks_goal_and_flow(tmp_path) -> None:
+    store = GoalStore(db_path=tmp_path / "goals.db")
+    goal, _flow = store.create_goal(
+        session_id="session-1",
+        agent_id="main",
+        user_id="local:user",
+        objective="Long work",
+        created_by="local:user",
+    )
+
+    blocked = store.block_current_goal("session-1", reason="provider unavailable")
+
+    assert blocked is not None
+    assert blocked.status == "blocked"
+    flow = store.flow_for_goal(goal.goal_id)
+    assert flow is not None
+    assert flow.status == "blocked"
+    assert flow.wait_reason == {"kind": "blocked", "message": "provider unavailable"}
+
+
+def test_runtime_wait_and_pause_leave_goal_resumable_with_reason(tmp_path) -> None:
+    store = GoalStore(db_path=tmp_path / "goals.db")
+    goal, _flow = store.create_goal(
+        session_id="session-1",
+        agent_id="main",
+        user_id="local:user",
+        objective="Long work",
+        created_by="local:user",
+    )
+
+    waiting = store.wait_current_goal("session-1", reason="continuation budget exhausted")
+    assert waiting is not None and waiting.status == "waiting"
+    waiting_flow = store.flow_for_goal(goal.goal_id)
+    assert waiting_flow is not None
+    assert waiting_flow.wait_reason["message"] == "continuation budget exhausted"
+
+    resumed = store.transition_goal(
+        goal.goal_id,
+        status="active",
+        expected_revision=waiting.revision,
+        actor_id="local:user",
+    )
+    assert store.flow_for_goal(goal.goal_id).wait_reason == {}  # type: ignore[union-attr]
+
+    paused = store.pause_current_goal("session-1", reason="run stopped")
+    assert paused is not None and paused.status == "paused"
+    paused_flow = store.flow_for_goal(goal.goal_id)
+    assert paused_flow is not None
+    assert paused_flow.wait_reason == {"kind": "paused", "message": "run stopped"}
 
 
 def test_advancing_waiting_flow_restores_active_state(tmp_path) -> None:
@@ -325,3 +377,65 @@ def test_runtime_and_artifact_facts_attach_without_completing_goal(tmp_path) -> 
     assert completed_run.recovery_state["currentRunId"] == ""
     assert store.get_goal(goal.goal_id).status == "active"  # type: ignore[union-attr]
     assert flow.flow_id == completed_run.flow_id
+
+
+def test_explicit_completion_request_is_reconciled_by_matching_invocation_only(tmp_path) -> None:
+    store = GoalStore(db_path=tmp_path / "goals.db")
+    goal, _flow = store.create_goal(
+        session_id="session-1",
+        agent_id="main",
+        user_id="local:user",
+        objective="Finish one verified run",
+        created_by="local:user",
+    )
+    store.request_completion(
+        goal.goal_id,
+        expected_revision=goal.revision,
+        actor_id="local:user",
+        invocation_id="invocation-target",
+    )
+
+    store.record_run_fact(
+        session_id="session-1",
+        run_id="run-other",
+        status="completed",
+        invocation_id="invocation-other",
+    )
+    assert store.get_goal(goal.goal_id).status == "active"  # type: ignore[union-attr]
+
+    store.record_run_fact(
+        session_id="session-1",
+        run_id="run-target",
+        status="completed",
+        invocation_id="invocation-target",
+    )
+    assert store.get_goal(goal.goal_id).status == "completed"  # type: ignore[union-attr]
+
+
+def test_goal_continuation_facts_accumulate_budget_and_recovery_state(tmp_path) -> None:
+    store = GoalStore(db_path=tmp_path / "goals.db")
+    goal, _flow = store.create_goal(
+        session_id="session-continuation",
+        agent_id="main",
+        user_id="local:user",
+        objective="Complete a long task",
+        budget_policy={"maxContinuations": 3, "maxLlmCallsPerInvocation": 12},
+        created_by="local:user",
+    )
+
+    updated = store.record_continuation_fact(
+        session_id=goal.session_id,
+        run_id="run-long",
+        continuation_index=1,
+        max_continuations=3,
+        max_llm_calls_per_invocation=12,
+    )
+
+    assert updated is not None
+    assert updated.status == "active"
+    assert updated.budget_state["continuationCount"] == 1
+    assert updated.budget_state["continuationExhausted"] is False
+    flow = store.flow_for_goal(goal.goal_id)
+    assert flow is not None
+    assert flow.recovery_state["continuations"][0]["runId"] == "run-long"
+    assert store.list_events(goal.goal_id)[-1].event_type == "goal.continuation.started"

@@ -71,6 +71,7 @@ class _FakeRuntimeSupervisor:
         if self.run_mode == "pending":
             return snapshot
         event_payload = {
+            "invocation_id": "invocation-test-run",
             "long_running_tool_ids": None,
             "content": {
                 "parts": [
@@ -774,6 +775,13 @@ def test_cancel_run_emits_cancelled_message_and_run(tmp_path: Path, monkeypatch)
         supervisor=_FakeRuntimeSupervisor(run_mode="pending"),
     )
     runtime.create_session_sync("writer", user_id="owner", session_id="session_cancel")
+    goal, _flow = coordinator._control_plane.goal_store.create_goal(
+        session_id="session_cancel",
+        agent_id="writer",
+        user_id="owner",
+        objective="Finish the cancellable task",
+        created_by="owner",
+    )
     payload = coordinator.create_run("writer", "session_cancel", "hi", user_id="owner")
     run_id = payload["data"]["run"]["id"]
     cancel_payload = coordinator.cancel_run(run_id)
@@ -793,6 +801,52 @@ def test_cancel_run_emits_cancelled_message_and_run(tmp_path: Path, monkeypatch)
     assert by_event["message.cancelled"]["status"] == "cancelled"
     assert by_event["message.cancelled"]["message_id"].startswith("msg_")
     assert by_event["run.cancelled"]["status"] == "cancelled"
+    paused_goal = coordinator._control_plane.goal_store.get_goal(goal.goal_id)
+    paused_flow = coordinator._control_plane.goal_store.get_flow(goal.active_flow_id)
+    assert paused_goal is not None
+    assert paused_goal.status == "paused"
+    assert paused_flow is not None
+    assert paused_flow.status == "paused"
+    assert paused_flow.wait_reason["kind"] == "paused"
+
+
+def test_failed_run_blocks_the_active_goal(tmp_path: Path) -> None:
+    (tmp_path / "global_config.json").write_text(
+        json.dumps({"agents": [{"name": "writer", "enabled": True}]}),
+        encoding="utf-8",
+    )
+    agent_dir = tmp_path / "writer"
+    agent_dir.mkdir()
+    (agent_dir / "config.json").write_text(
+        json.dumps({"agent": {"workspace": "workspace/writer"}}),
+        encoding="utf-8",
+    )
+
+    coordinator, runtime = _coordinator_with_runtime(
+        tmp_path,
+        supervisor=_FakeRuntimeSupervisor(run_mode="pending"),
+    )
+    runtime.create_session_sync("writer", user_id="owner", session_id="session_failure")
+    goal, _flow = coordinator._control_plane.goal_store.create_goal(
+        session_id="session_failure",
+        agent_id="writer",
+        user_id="owner",
+        objective="Finish the failing task",
+        created_by="owner",
+    )
+    payload = coordinator.create_run("writer", "session_failure", "hi", user_id="owner")
+    run_id = payload["data"]["run"]["id"]
+
+    runtime.callbacks[run_id]["on_error"](RuntimeError("model transport failed"))
+
+    blocked_goal = coordinator._control_plane.goal_store.get_goal(goal.goal_id)
+    blocked_flow = coordinator._control_plane.goal_store.get_flow(goal.active_flow_id)
+    assert blocked_goal is not None
+    assert blocked_goal.status == "blocked"
+    assert blocked_flow is not None
+    assert blocked_flow.status == "blocked"
+    assert blocked_flow.wait_reason["kind"] == "blocked"
+    assert "model transport failed" in blocked_flow.wait_reason["message"]
 
 
 def test_run_event_replay_uses_sequence_after_two_digit_event_id() -> None:

@@ -135,6 +135,25 @@ def test_node_operations_runtime_orders_start_and_reverse_stop() -> None:
     ]
 
 
+def test_node_operations_runtime_runs_reconciliation_after_services_start() -> None:
+    events: list[str] = []
+    runtime = NodeOperationsRuntime(
+        task_scheduler=_Service("tasks", events),
+        cron=_Service("cron", events),
+        heartbeat=_Service("heartbeat", events),
+        heartbeat_enabled=True,
+    )
+    runtime.register_startup_hook(lambda: events.append("reconcile"))
+
+    async def exercise() -> None:
+        await runtime.start()
+        await runtime.stop()
+
+    asyncio.run(exercise())
+
+    assert events.index("reconcile") > events.index("heartbeat.start")
+
+
 def test_operations_actions_share_policy_audit_and_node_facts(tmp_path: Path) -> None:
     host = OpenPpxNodeHost.build(
         tmp_path,

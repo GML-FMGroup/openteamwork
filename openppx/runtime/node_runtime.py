@@ -11,17 +11,37 @@ from datetime import datetime, timezone
 from typing import Any, Callable, Literal
 
 from google.genai import types
+from google.adk.agents.invocation_context import LlmCallsLimitExceededError
 
 from openppx.config import ConfigService
 
 from .assembly import AssembledRuntime, RuntimeAssembler
 from .message_time import inject_request_time
+from .run_config import build_run_config
 from .session_history import project_visible_history
 from .session_rewind import RewindTarget, resolve_rewind_target
 
 
 RunState = Literal["running", "cancelling", "completed", "failed", "cancelled"]
 TerminalRunState = Literal["completed", "failed", "cancelled"]
+
+
+def _bounded_policy_int(
+    policy: dict[str, Any],
+    camel_name: str,
+    snake_name: str,
+    *,
+    default: int,
+    minimum: int,
+    maximum: int,
+) -> int:
+    """Read and clamp one integer Goal execution policy."""
+    raw = policy.get(camel_name, policy.get(snake_name, default))
+    try:
+        value = int(raw)
+    except (TypeError, ValueError):
+        value = default
+    return max(minimum, min(value, maximum))
 
 
 class RuntimeSupervisorError(RuntimeError):
@@ -507,13 +527,132 @@ class NodeRuntimeSupervisor:
                     ),
                     *artifact_parts,
                 ])
-                final_text = await runtime.run_message(
-                    request,
-                    user_id=user_id,
-                    session_id=session_id,
-                    on_event=on_event,
-                    on_text_update=on_text_update,
+                goal = self.assembler.services.goal_store.current_goal(session_id)
+                budget = goal.budget_policy if goal is not None else {}
+                calls_per_invocation = _bounded_policy_int(
+                    budget,
+                    "maxLlmCallsPerInvocation",
+                    "max_llm_calls_per_invocation",
+                    default=64,
+                    minimum=1,
+                    maximum=500,
                 )
+                max_continuations = _bounded_policy_int(
+                    budget,
+                    "maxContinuations",
+                    "max_continuations",
+                    default=8,
+                    minimum=0,
+                    maximum=64,
+                )
+                auto_continue = bool(
+                    budget.get("autoContinue", budget.get("auto_continue", True))
+                )
+                run_config = (
+                    build_run_config(
+                        profile="full",
+                        max_llm_calls=calls_per_invocation,
+                        custom_metadata={"goalId": goal.goal_id, "clientRunId": run_id},
+                    )
+                    if goal is not None
+                    else None
+                )
+                continuation_index = 0
+                final_text = ""
+                while True:
+                    try:
+                        if continuation_index == 0:
+                            final_text = await runtime.run_message(
+                                request,
+                                user_id=user_id,
+                                session_id=session_id,
+                                on_event=on_event,
+                                on_text_update=on_text_update,
+                                run_config=run_config,
+                            )
+                        else:
+                            final_text = await runtime.continue_message(
+                                user_id=user_id,
+                                session_id=session_id,
+                                on_event=on_event,
+                                on_text_update=on_text_update,
+                                run_config=run_config,
+                            )
+                        if goal is None:
+                            break
+                        if not auto_continue:
+                            self.assembler.services.goal_store.wait_current_goal(
+                                session_id,
+                                reason="Automatic Goal continuation is disabled by its budget policy.",
+                                correlation_id=run_id,
+                            )
+                            break
+                        refreshed = self.assembler.services.goal_store.current_goal(session_id)
+                        flow = (
+                            self.assembler.services.goal_store.flow_for_goal(refreshed.goal_id)
+                            if refreshed is not None
+                            else None
+                        )
+                        completion_pending = bool(
+                            (flow.recovery_state if flow is not None else {}).get("pendingCompletion")
+                        )
+                        if refreshed is None or refreshed.status != "active" or completion_pending:
+                            break
+                        if continuation_index >= max_continuations:
+                            self.assembler.services.goal_store.record_continuation_fact(
+                                session_id=session_id,
+                                run_id=run_id,
+                                continuation_index=continuation_index,
+                                max_continuations=max_continuations,
+                                max_llm_calls_per_invocation=calls_per_invocation,
+                                exhausted=True,
+                            )
+                            self.assembler.services.goal_store.wait_current_goal(
+                                session_id,
+                                reason="The Goal continuation budget was exhausted. Resume it to start another bounded Run.",
+                                correlation_id=run_id,
+                            )
+                            break
+                        continuation_index += 1
+                        self.assembler.services.goal_store.record_continuation_fact(
+                            session_id=session_id,
+                            run_id=run_id,
+                            continuation_index=continuation_index,
+                            max_continuations=max_continuations,
+                            max_llm_calls_per_invocation=calls_per_invocation,
+                        )
+                    except LlmCallsLimitExceededError:
+                        if goal is None or continuation_index >= max_continuations:
+                            if goal is not None:
+                                self.assembler.services.goal_store.record_continuation_fact(
+                                    session_id=session_id,
+                                    run_id=run_id,
+                                    continuation_index=continuation_index,
+                                    max_continuations=max_continuations,
+                                    max_llm_calls_per_invocation=calls_per_invocation,
+                                    exhausted=True,
+                                )
+                                if final_text.strip():
+                                    self.assembler.services.goal_store.wait_current_goal(
+                                        session_id,
+                                        reason="The Goal LLM-call budget was exhausted. Resume it to continue.",
+                                        correlation_id=run_id,
+                                    )
+                                    break
+                                self.assembler.services.goal_store.block_current_goal(
+                                    session_id,
+                                    reason="The Goal exhausted its LLM-call budget before producing a result.",
+                                    correlation_id=run_id,
+                                )
+                            raise
+                        continuation_index += 1
+                        self.assembler.services.goal_store.record_continuation_fact(
+                            session_id=session_id,
+                            run_id=run_id,
+                            continuation_index=continuation_index,
+                            max_continuations=max_continuations,
+                            max_llm_calls_per_invocation=calls_per_invocation,
+                        )
                 if not final_text.strip():
                     raise RuntimeError("Run finished without returning a final reply.")
                 return final_text
@@ -539,7 +678,6 @@ class NodeRuntimeSupervisor:
             daemon=True,
         ).start()
         return snapshot
-
     def stop_run(self, run_id: str) -> ManagedRunSnapshot:
         """Request cooperative cancellation of one active Run exactly once."""
         with self._lock:

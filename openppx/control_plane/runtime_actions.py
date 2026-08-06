@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 from typing import cast
 
 from openppx.actions import (
+    ActionContext,
     ActionError,
     ActionFailure,
     ActionRegistry,
@@ -273,8 +274,8 @@ def register_runtime_actions(
             operation="mutation",
             projections=("cli", "desktop", "mobile"),
         ),
-        lambda _context, input_data: _archive_session(
-            supervisor, metadata, cast(SessionArchiveInput, input_data)
+        lambda context, input_data: _archive_session(
+            supervisor, metadata, cast(SessionArchiveInput, input_data), context=context
         ),
     )
     registry.register(
@@ -326,8 +327,8 @@ def register_runtime_actions(
             operation="mutation",
             projections=("cli", "desktop", "mobile"),
         ),
-        lambda _context, input_data: _delete_session(
-            supervisor, metadata, cast(SessionIdentityInput, input_data)
+        lambda context, input_data: _delete_session(
+            supervisor, metadata, cast(SessionIdentityInput, input_data), context=context
         ),
     )
 
@@ -551,8 +552,18 @@ def _archive_session(
     supervisor: NodeRuntimeSupervisor,
     metadata: SessionMetadataStore,
     input_data: SessionArchiveInput,
+    *,
+    context: ActionContext | None = None,
 ) -> dict[str, object]:
     _require_session(supervisor, input_data)
+    if input_data.archived:
+        _settle_session_goal(
+            supervisor,
+            input_data.session_id,
+            target="paused",
+            actor_id=context.actor_id if context is not None else input_data.user_id,
+            correlation_id=context.correlation_id if context is not None else "",
+        )
     stored = metadata.update(
         session_id=input_data.session_id,
         agent_id=input_data.agent_id,
@@ -584,7 +595,12 @@ def _fork_session(
         principal_id=input_data.user_id,
         title=title[:120],
     )
-    return {"session": {"id": session_id, "agentId": input_data.agent_id, "title": title[:120], "archived": False}}
+    source_goal = _current_session_goal(supervisor, input_data.session_id)
+    return {
+        "session": {"id": session_id, "agentId": input_data.agent_id, "title": title[:120], "archived": False},
+        "goalInherited": False,
+        "sourceGoalId": source_goal.goal_id if source_goal is not None else None,
+    }
 
 
 def _export_session(
@@ -614,7 +630,16 @@ def _delete_session(
     supervisor: NodeRuntimeSupervisor,
     metadata: SessionMetadataStore,
     input_data: SessionIdentityInput,
+    *,
+    context: ActionContext | None = None,
 ) -> dict[str, object]:
+    _settle_session_goal(
+        supervisor,
+        input_data.session_id,
+        target="cancelled",
+        actor_id=context.actor_id if context is not None else input_data.user_id,
+        correlation_id=context.correlation_id if context is not None else "",
+    )
     try:
         supervisor.delete_session_sync(
             input_data.agent_id,
@@ -625,6 +650,48 @@ def _delete_session(
         raise ActionFailure(ActionError("session_not_found", "The requested Session was not found.")) from exc
     metadata.delete(input_data.session_id)
     return {"sessionId": input_data.session_id, "deleted": True, "artifactsRetained": False}
+
+
+def _current_session_goal(supervisor: NodeRuntimeSupervisor, session_id: str):
+    """Resolve the current Goal without coupling registration to store internals."""
+    services = getattr(getattr(supervisor, "assembler", None), "services", None)
+    store = getattr(services, "goal_store", None)
+    return store.current_goal(session_id) if store is not None else None
+
+
+def _settle_session_goal(
+    supervisor: NodeRuntimeSupervisor,
+    session_id: str,
+    *,
+    target: str,
+    actor_id: str,
+    correlation_id: str,
+) -> None:
+    """Apply deterministic Goal semantics before Session archive or deletion."""
+    services = getattr(getattr(supervisor, "assembler", None), "services", None)
+    store = getattr(services, "goal_store", None)
+    if store is None:
+        return
+    goal = store.current_goal(session_id)
+    if goal is None:
+        return
+    if target == "paused" and goal.status not in {"active", "waiting"}:
+        return
+    flow = store.flow_for_goal(goal.goal_id)
+    run_id = str((flow.recovery_state if flow is not None else {}).get("currentRunId") or "").strip()
+    store.transition_goal(
+        goal.goal_id,
+        status=target,
+        expected_revision=goal.revision,
+        actor_id=actor_id,
+        reason=f"session_{'archived' if target == 'paused' else 'deleted'}",
+        correlation_id=correlation_id,
+    )
+    if run_id:
+        try:
+            supervisor.stop_run(run_id)
+        except (RunNotFoundError, RunNotActiveError):
+            pass
 
 
 def _task_controller_from_supervisor(supervisor: NodeRuntimeSupervisor) -> TaskController | None:

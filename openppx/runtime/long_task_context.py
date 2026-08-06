@@ -82,6 +82,8 @@ def render_long_task_context(
         "- Do not treat todos as durable execution state; TaskRun facts remain the source of truth for running work.",
         "- TaskFlow facts describe multi-step DAG plans and current steps; they advance bookkeeping but do not execute external work by themselves.",
         "- Staged summaries are compact context facts, not proof that work completed.",
+        "- When the durable Goal is actually satisfied, complete every declared TaskFlow step and call complete_goal before the final answer.",
+        "- If the current ADK Run is the only completion evidence, call complete_goal with no evidence; runtime reconciliation commits only after this Run succeeds.",
     ]
     durable_goal = goal_store.current_goal(session_id) if goal_store is not None else None
     goal = context.get_active_goal(session_id) if durable_goal is None else None

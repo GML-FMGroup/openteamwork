@@ -495,6 +495,23 @@ class AutomationStore:
             ).fetchall()
             return [_from_row(AutomationDefinition, row) for row in rows]
 
+    def list_all_definitions(
+        self,
+        *,
+        statuses: list[str] | None = None,
+        limit: int = 10_000,
+    ) -> list[AutomationDefinition]:
+        """Return Node-owned definitions for startup reconciliation."""
+        requested = list(statuses or AUTOMATION_VISIBLE_STATUSES)
+        placeholders = ",".join("?" for _ in requested)
+        with self._lock, _connect(self.db_path) as conn:
+            rows = conn.execute(
+                f"SELECT * FROM automation_definitions WHERE status IN ({placeholders}) "
+                "ORDER BY updated_at_ms DESC LIMIT ?",
+                (*requested, max(1, min(int(limit), 50_000))),
+            ).fetchall()
+            return [_from_row(AutomationDefinition, row) for row in rows]
+
     def update_definition(self, automation_id: str, *, expected_revision: int, actor_id: str, correlation_id: str, **changes: Any) -> AutomationDefinition:
         """Update mutable definition fields under optimistic concurrency."""
         allowed = {
@@ -644,11 +661,30 @@ class AutomationStore:
                 raise AutomationNotFoundError("automation run not found")
             return _from_row(AutomationRun, row)
 
+    def run_for_occurrence(self, automation_id: str, occurrence_id: str) -> AutomationRun | None:
+        """Resolve the idempotency fact before allocating a duplicate Task."""
+        with self._lock, _connect(self.db_path) as conn:
+            row = conn.execute(
+                "SELECT * FROM automation_runs WHERE automation_id = ? AND trigger_occurrence_id = ?",
+                (automation_id, occurrence_id),
+            ).fetchone()
+            return _from_row(AutomationRun, row) if row is not None else None
+
     def list_runs(self, automation_id: str, *, limit: int = 50) -> list[AutomationRun]:
         with self._lock, _connect(self.db_path) as conn:
             rows = conn.execute(
                 "SELECT * FROM automation_runs WHERE automation_id = ? ORDER BY created_at_ms DESC LIMIT ?",
                 (automation_id, limit),
+            ).fetchall()
+            return [_from_row(AutomationRun, row) for row in rows]
+
+    def list_incomplete_runs(self, *, limit: int = 1_000) -> list[AutomationRun]:
+        """Return Runs that require explicit restart reconciliation."""
+        with self._lock, _connect(self.db_path) as conn:
+            rows = conn.execute(
+                "SELECT * FROM automation_runs WHERE status IN ('queued','running') "
+                "ORDER BY created_at_ms ASC LIMIT ?",
+                (max(1, min(int(limit), 10_000)),),
             ).fetchall()
             return [_from_row(AutomationRun, row) for row in rows]
 

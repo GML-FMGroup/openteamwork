@@ -100,3 +100,86 @@ def test_goal_tools_plan_and_completion_require_persisted_evidence(tmp_path) -> 
     assert rejected["ok"] is False
     assert completed["ok"] is True
     assert completed["goal"]["status"] == "completed"
+
+
+def test_goal_tool_stages_current_run_completion_until_runtime_success(tmp_path) -> None:
+    store = GoalStore(db_path=tmp_path / "goals.db")
+    tools = _tools(store)
+    created = json.loads(
+        tools["create_goal"]("Answer the question", tool_context=_context())  # type: ignore[operator]
+    )
+    goal_id = created["goal"]["goalId"]
+
+    pending = json.loads(
+        tools["complete_goal"](tool_context=_context())  # type: ignore[operator]
+    )
+    still_active = store.get_goal(goal_id)
+    store.record_run_fact(
+        session_id="session-1",
+        run_id="run-1",
+        status="running",
+        invocation_id="invocation-1",
+    )
+    store.record_run_fact(
+        session_id="session-1",
+        run_id="run-1",
+        status="completed",
+        invocation_id="invocation-1",
+    )
+    completed = store.get_goal(goal_id)
+    flow = store.flow_for_goal(goal_id)
+
+    assert pending["ok"] is True
+    assert pending["pending"] is True
+    assert still_active is not None and still_active.status == "active"
+    assert completed is not None and completed.status == "completed"
+    assert completed.completion_evidence[0]["ref"] == "run-1"
+    assert flow is not None and flow.status == "completed"
+
+
+def test_goal_tool_does_not_complete_when_requesting_run_fails(tmp_path) -> None:
+    store = GoalStore(db_path=tmp_path / "goals.db")
+    tools = _tools(store)
+    created = json.loads(
+        tools["create_goal"]("Answer safely", tool_context=_context())  # type: ignore[operator]
+    )
+    goal_id = created["goal"]["goalId"]
+    json.loads(tools["complete_goal"](tool_context=_context()))  # type: ignore[operator]
+
+    flow = store.record_run_fact(
+        session_id="session-1",
+        run_id="run-failed",
+        status="failed",
+        invocation_id="invocation-1",
+    )
+    goal = store.get_goal(goal_id)
+
+    assert goal is not None and goal.status == "active"
+    assert flow is not None
+    assert "pendingCompletion" not in flow.recovery_state
+    assert flow.recovery_state["lastCompletionRequest"]["status"] == "rejected"
+
+
+def test_completed_run_can_be_cited_as_persisted_evidence(tmp_path) -> None:
+    store = GoalStore(db_path=tmp_path / "goals.db")
+    tools = _tools(store)
+    created = json.loads(
+        tools["create_goal"]("Use earlier evidence", tool_context=_context())  # type: ignore[operator]
+    )
+    goal_id = created["goal"]["goalId"]
+    store.record_run_fact(
+        session_id="session-1",
+        run_id="run-complete",
+        status="completed",
+        invocation_id="invocation-earlier",
+    )
+
+    completed = json.loads(
+        tools["complete_goal"](  # type: ignore[operator]
+            [{"type": "run", "ref": "run-complete"}],
+            tool_context=_context(),
+        )
+    )
+
+    assert completed["ok"] is True
+    assert store.get_goal(goal_id).status == "completed"  # type: ignore[union-attr]

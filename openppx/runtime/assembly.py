@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from google.genai import types
+from google.adk.agents.run_config import RunConfig
 
 from openppx.app.agent import build_root_agent
 from openppx.config import ConfigSnapshot, SecretStore
@@ -173,6 +174,7 @@ class AssembledRuntime:
         session_id: str,
         on_event: Callable[[Any], None] | None = None,
         on_text_update: Callable[[str, str], None] | None = None,
+        run_config: RunConfig | None = None,
     ) -> str:
         """Run one text turn while retaining this runtime's snapshot revision."""
         request = types.UserContent(parts=[types.Part.from_text(text=text)])
@@ -183,6 +185,7 @@ class AssembledRuntime:
             user_id=user_id,
             session_id=session_id,
             new_message=request,
+            run_config=run_config,
         )
 
     async def run_message(
@@ -193,6 +196,7 @@ class AssembledRuntime:
         session_id: str,
         on_event: Callable[[Any], None] | None = None,
         on_text_update: Callable[[str, str], None] | None = None,
+        run_config: RunConfig | None = None,
     ) -> str:
         """Run one multimodal ADK turn from a validated user Content value."""
         return await run_text_async(
@@ -202,6 +206,33 @@ class AssembledRuntime:
             user_id=user_id,
             session_id=session_id,
             new_message=message,
+            run_config=run_config,
+        )
+
+    async def continue_message(
+        self,
+        *,
+        user_id: str,
+        session_id: str,
+        on_event: Callable[[Any], None] | None = None,
+        on_text_update: Callable[[str, str], None] | None = None,
+        run_config: RunConfig | None = None,
+    ) -> str:
+        """Continue the current Session in a fresh ADK invocation.
+
+        No synthetic user message is inserted. The root Agent receives the
+        durable Session history and OpenPPX long-task context through its
+        normal ADK plugins, so continuation remains an ADK-native Run rather
+        than a second execution engine.
+        """
+        return await run_text_async(
+            self.runner,
+            on_event=on_event,
+            on_text_update=on_text_update,
+            user_id=user_id,
+            session_id=session_id,
+            new_message=None,
+            run_config=run_config,
         )
 
 

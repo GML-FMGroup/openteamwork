@@ -35,6 +35,7 @@ class _Supervisor:
     def __init__(self, outputs: list[object] | None = None) -> None:
         self.outputs = list(outputs or ["completed output"])
         self.sessions: dict[tuple[str, str, str], object] = {}
+        self.prompts: list[str] = []
         self.assembler = SimpleNamespace(
             extension_snapshot_for_agent=lambda _agent_id: SimpleNamespace(revision="extensions-r1")
         )
@@ -51,6 +52,7 @@ class _Supervisor:
         return session
 
     async def hello(self, agent_id: str, _text: str, *, user_id: str, session_id: str) -> str:
+        self.prompts.append(_text)
         value = self.outputs.pop(0)
         if isinstance(value, BaseException):
             raise value
@@ -68,6 +70,8 @@ class _Cron:
         self.sequence += 1
         job = SimpleNamespace(
             id=f"cron-{self.sequence}",
+            schedule=kwargs.get("schedule"),
+            enabled=True,
             state=SimpleNamespace(next_run_at_ms=1_700_000_000_000, last_run_at_ms=None),
             payload=SimpleNamespace(**{key: kwargs.get(key) for key in ("source_kind", "source_id", "source_revision")}),
         )
@@ -75,10 +79,18 @@ class _Cron:
         return job
 
     def update_job(self, job_id: str, **_kwargs):
-        return self.jobs.get(job_id)
+        job = self.jobs.get(job_id)
+        if job is not None:
+            job.payload.source_revision = _kwargs.get(
+                "source_revision", job.payload.source_revision
+            )
+        return job
 
-    def enable_job(self, _job_id: str, *, enabled: bool):
-        return enabled
+    def enable_job(self, job_id: str, *, enabled: bool):
+        job = self.jobs.get(job_id)
+        if job is not None:
+            job.enabled = enabled
+        return job
 
     def remove_job(self, job_id: str):
         return self.jobs.pop(job_id, None) is not None
@@ -215,6 +227,21 @@ def test_deleting_definition_removes_derived_scheduler_job(tmp_path) -> None:
     assert cron.jobs == {}
 
 
+def test_reconcile_preserves_due_occurrence_for_unchanged_definition(tmp_path) -> None:
+    service = _service(tmp_path)
+    definition = _create(
+        service,
+        schedule={"kind": "every", "everySeconds": 3600, "timezone": ""},
+    )
+    job = service.cron.jobs[definition.scheduler_job_id]
+    due_at = 1_600_000_000_000
+    job.state.next_run_at_ms = due_at
+
+    asyncio.run(service.reconcile_runtime())
+
+    assert service.cron.jobs[definition.scheduler_job_id].state.next_run_at_ms == due_at
+
+
 def test_update_can_remove_schedule_without_deleting_automation(tmp_path) -> None:
     service = _service(tmp_path)
     definition = _create(
@@ -313,3 +340,127 @@ def test_local_event_occurrence_is_idempotent(tmp_path) -> None:
 
     assert repeated.automation_run_id == first.automation_run_id
     assert len(service.operations_runtime.submitted) == 1
+
+
+def test_manual_request_is_idempotent_without_allocating_duplicate_task(tmp_path) -> None:
+    service = _service(tmp_path)
+    definition = _create(service)
+
+    first = service.run_now(
+        definition,
+        actor_id="local:user",
+        correlation_id="corr-first",
+        input_snapshot={},
+        request_id="request-1",
+    )
+    repeated = service.run_now(
+        definition,
+        actor_id="local:user",
+        correlation_id="corr-repeat",
+        input_snapshot={"ignored": True},
+        request_id="request-1",
+    )
+
+    assert repeated.automation_run_id == first.automation_run_id
+    assert len(service.task_store.list_tasks(limit=20)) == 1
+    assert len(service.operations_runtime.submitted) == 1
+
+
+def test_queue_one_keeps_exactly_one_successor_and_drains_it(tmp_path) -> None:
+    service = _service(tmp_path, outputs=["first", "second"])
+    definition = _create(service, concurrency_policy={"mode": "queue-one", "limit": 1})
+
+    first = service.run_now(definition, actor_id="local:user", correlation_id="c1", input_snapshot={})
+    second = service.run_now(definition, actor_id="local:user", correlation_id="c2", input_snapshot={})
+    third = service.run_now(definition, actor_id="local:user", correlation_id="c3", input_snapshot={})
+
+    assert first.status == "queued"
+    assert second.status == "queued"
+    assert third.status == "skipped"
+    assert len(service.operations_runtime.submitted) == 1
+
+    asyncio.run(service._execute_run(first.automation_run_id))
+
+    assert service.store.read_run(first.automation_run_id).status == "completed"
+    assert service.store.read_run(second.automation_run_id).status == "completed"
+
+
+def test_run_uses_frozen_definition_after_definition_is_edited(tmp_path) -> None:
+    service = _service(tmp_path)
+    definition = _create(service, instructions="Original instructions")
+    run = service.run_now(definition, actor_id="local:user", correlation_id="c1", input_snapshot={})
+    service.update_definition(
+        definition,
+        actor_id="local:user",
+        correlation_id="update",
+        expected_revision=definition.revision,
+        instructions="Changed instructions",
+    )
+
+    asyncio.run(service._execute_run(run.automation_run_id))
+
+    assert "Original instructions" in service.supervisor.prompts[0]
+    assert "Changed instructions" not in service.supervisor.prompts[0]
+
+
+def test_delivery_failure_does_not_rewrite_successful_execution(tmp_path, monkeypatch) -> None:
+    service = _service(tmp_path)
+    definition = _create(service)
+    run = service.run_now(definition, actor_id="local:user", correlation_id="c1", input_snapshot={})
+
+    def fail_delivery(_delivery_key):
+        raise RuntimeError("provider unavailable")
+
+    monkeypatch.setattr(service.delivery_store, "mark_delivered", fail_delivery)
+    completed = asyncio.run(service._execute_run(run.automation_run_id))
+
+    assert completed.status == "completed"
+    assert completed.delivery_refs[0]["status"] == "failed"
+
+
+def test_missed_schedule_skip_policy_records_skipped_run(tmp_path) -> None:
+    service = _service(tmp_path)
+    definition = _create(
+        service,
+        schedule={"kind": "every", "everySeconds": 10, "timezone": ""},
+        missed_run_policy={"mode": "skip", "maxCatchUp": 1},
+    )
+    job = service.cron.jobs[definition.scheduler_job_id]
+    job.state.next_run_at_ms = int(__import__("time").time() * 1000) - 60_000
+
+    result = asyncio.run(service.run_scheduled(job))
+
+    assert result == "skipped"
+    assert service.store.list_runs(definition.automation_id)[0].status == "skipped"
+
+
+def test_missed_schedule_bounded_catch_up_runs_only_latest_occurrences(tmp_path) -> None:
+    service = _service(tmp_path, outputs=["catch-up-1", "catch-up-2", "catch-up-3"])
+    definition = _create(
+        service,
+        schedule={"kind": "every", "everySeconds": 10, "timezone": ""},
+        missed_run_policy={"mode": "bounded-catch-up", "maxCatchUp": 3},
+    )
+    job = service.cron.jobs[definition.scheduler_job_id]
+    job.state.next_run_at_ms = int(__import__("time").time() * 1000) - 95_000
+
+    result = asyncio.run(service.run_scheduled(job))
+
+    runs = service.store.list_runs(definition.automation_id)
+    assert result == "catch-up-3"
+    assert len(runs) == 3
+    assert all(run.status == "completed" for run in runs)
+    assert all(run.input_snapshot["catchUpCount"] == 3 for run in runs)
+
+
+def test_reconcile_blocks_interrupted_running_run(tmp_path) -> None:
+    service = _service(tmp_path)
+    definition = _create(service)
+    run = service.run_now(definition, actor_id="local:user", correlation_id="c1", input_snapshot={})
+    service.store.update_run(run.automation_run_id, status="running")
+
+    asyncio.run(service.reconcile_runtime())
+
+    recovered = service.store.read_run(run.automation_run_id)
+    assert recovered.status == "blocked"
+    assert "restarted" in recovered.blocked_reason

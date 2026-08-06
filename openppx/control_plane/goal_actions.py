@@ -30,6 +30,7 @@ from openppx.runtime.goal_store import (
     TaskFlow,
 )
 from openppx.runtime.node_runtime import NodeRuntimeSupervisor
+from openppx.runtime.node_runtime import RunNotActiveError, RunNotFoundError
 
 from .input_models import (
     GoalCommandInput,
@@ -91,6 +92,7 @@ def register_goal_actions(
             _spec(action_id, title, f"Transition one Goal to {target}.", GoalTransitionInput, "goal.write", "goal", mutation=True),
             lambda context, input_data, target=target: _transition_goal(
                 store,
+                runtime_provider,
                 context,
                 cast(GoalTransitionInput, input_data),
                 target,
@@ -281,17 +283,26 @@ def _update_goal(store: GoalStore, context: ActionContext, input_data: GoalUpdat
         _raise_goal_failure(exc)
 
 
-def _transition_goal(store: GoalStore, context: ActionContext, input_data: GoalTransitionInput, target: str) -> dict[str, object]:
+def _transition_goal(
+    store: GoalStore,
+    runtime_provider: Callable[[], NodeRuntimeSupervisor | None],
+    context: ActionContext,
+    input_data: GoalTransitionInput,
+    target: str,
+) -> dict[str, object]:
+    """Transition Goal facts and cooperatively stop an active ADK Run."""
     _owned_goal(store, input_data.goal_id, input_data.user_id)
     try:
         goal = store.transition_goal(
             input_data.goal_id,
-        status=cast(GoalStatus, target),
+            status=cast(GoalStatus, target),
             expected_revision=input_data.expected_revision,
             actor_id=context.actor_id,
             reason=input_data.reason,
             correlation_id=context.correlation_id,
         )
+        if target in {"paused", "cancelled"}:
+            _stop_current_goal_run(store, runtime_provider(), goal.goal_id)
         return project_goal_detail(goal, store.flow_for_goal(goal.goal_id))
     except GoalStoreError as exc:
         _raise_goal_failure(exc)
@@ -486,8 +497,9 @@ def _goal_command(
             ),
         )
     target = {"pause": "paused", "resume": "active", "cancel": "cancelled"}[input_data.operation]
-    return _transition_goal(
+    result = _transition_goal(
         store,
+        runtime_provider,
         context,
         GoalTransitionInput(
             goalId=current.goal_id,
@@ -496,6 +508,30 @@ def _goal_command(
         ),
         target,
     )
+    if target == "active":
+        result["startAgentTurn"] = {
+            "text": f"Resume the active Goal and continue working toward: {current.objective}",
+            "goalId": current.goal_id,
+        }
+    return result
+
+
+def _stop_current_goal_run(
+    store: GoalStore,
+    supervisor: NodeRuntimeSupervisor | None,
+    goal_id: str,
+) -> None:
+    """Request cancellation of the Run referenced by the Goal's active Flow."""
+    if supervisor is None:
+        return
+    flow = store.flow_for_goal(goal_id)
+    run_id = str((flow.recovery_state if flow is not None else {}).get("currentRunId") or "").strip()
+    if not run_id:
+        return
+    try:
+        supervisor.stop_run(run_id)
+    except (RunNotFoundError, RunNotActiveError):
+        return
 
 
 def _owned_goal(store: GoalStore, goal_id: str, user_id: str) -> Goal:

@@ -114,10 +114,16 @@ def _completion_evidence_is_persisted(flow: TaskFlow, evidence: list[dict[str, A
     artifact_refs = {
         str(item.get("artifactId") or item.get("ref") or "") for item in flow.artifact_refs
     }
-    recovery_refs = {
+    recovery = flow.recovery_state
+    completed_run_refs = {
+        str(item.get("runId") or "")
+        for item in recovery.get("runs", [])
+        if isinstance(item, dict) and item.get("status") == "completed"
+    }
+    checkpoint_refs = {
         str(value)
-        for key, value in flow.recovery_state.items()
-        if key in {"runId", "invocationId", "checkpointRef"} and value
+        for key, value in recovery.items()
+        if key in {"checkpointRef"} and value
     }
     for item in evidence:
         evidence_type = str(item.get("type") or "").strip()
@@ -128,7 +134,9 @@ def _completion_evidence_is_persisted(flow: TaskFlow, evidence: list[dict[str, A
             continue
         if evidence_type == "artifact" and ref in artifact_refs:
             continue
-        if evidence_type in {"run", "checkpoint"} and ref in recovery_refs:
+        if evidence_type == "run" and ref in completed_run_refs:
+            continue
+        if evidence_type == "checkpoint" and ref in checkpoint_refs:
             continue
         return False
     return bool(evidence)
@@ -295,23 +303,50 @@ def build_goal_tools(
             return _json_result({"ok": False, "error": str(exc)})
 
     def complete_goal(
-        evidence: list[dict[str, Any]],
+        evidence: list[dict[str, Any]] | None = None,
         goal_id: str = "",
         tool_context: Any | None = None,
     ) -> str:
-        """Complete the current Goal only with persisted execution evidence."""
+        """Request safe Goal completion after the current ADK Run succeeds.
+
+        Existing TaskRun, Artifact, Run, or Checkpoint evidence completes the
+        Goal immediately. Passing no evidence stages completion against this
+        invocation; runtime reconciliation commits it only if the Run itself
+        reaches ``completed``.
+        """
         try:
             user_id, session_id, invocation_id = _identity(tool_context)
             goal = _owned_goal(store, goal_id, user_id=user_id, session_id=session_id)
             flow = store.flow_for_goal(goal.goal_id)
-            if flow is None or not _completion_evidence_is_persisted(flow, evidence):
+            normalized_evidence = [dict(item) for item in evidence or () if isinstance(item, dict)]
+            if flow is None:
+                raise GoalStateError("Goal is missing its TaskFlow")
+            if flow.steps and any(step.get("status") != "completed" for step in flow.steps):
+                raise GoalStateError("Goal completion requires every declared TaskFlow step to be completed")
+            if not normalized_evidence:
+                pending_flow = store.request_completion(
+                    goal.goal_id,
+                    expected_revision=goal.revision,
+                    actor_id=user_id,
+                    invocation_id=invocation_id,
+                    correlation_id=invocation_id,
+                )
+                return _json_result(
+                    {
+                        "ok": True,
+                        "pending": True,
+                        "message": "Goal will complete only after this ADK Run succeeds.",
+                        "goal": _goal_payload(goal, pending_flow),
+                    }
+                )
+            if not _completion_evidence_is_persisted(flow, normalized_evidence):
                 raise GoalStateError("Goal completion evidence is not present in persisted TaskFlow facts")
             completed = store.transition_goal(
                 goal.goal_id,
                 status="completed",
                 expected_revision=goal.revision,
                 actor_id=user_id,
-                completion_evidence=evidence,
+                completion_evidence=normalized_evidence,
                 correlation_id=invocation_id,
             )
             return _json_result({"ok": True, "goal": _goal_payload(completed, flow)})

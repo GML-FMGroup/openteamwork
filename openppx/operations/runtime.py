@@ -33,6 +33,13 @@ class NodeOperationsRuntime:
         self._started: list[tuple[str, Any]] = []
         self._loop: asyncio.AbstractEventLoop | None = None
         self._startup_error: str | None = None
+        self._startup_hooks: list[Callable[[], Any]] = []
+
+    def register_startup_hook(self, operation: Callable[[], Any]) -> None:
+        """Register one reconciliation hook executed after services start."""
+        if self._running:
+            raise RuntimeError("Startup hooks must be registered before the operations runtime starts.")
+        self._startup_hooks.append(operation)
 
     async def start(self) -> None:
         """Start enabled services in dependency order and roll back on failure."""
@@ -46,6 +53,8 @@ class NodeOperationsRuntime:
                     continue
                 await _maybe_await(service.start())
                 self._started.append((name, service))
+            for operation in self._startup_hooks:
+                await _maybe_await(operation())
         except Exception:
             self._startup_error = "operations_service_start_failed"
             await self._stop_started()

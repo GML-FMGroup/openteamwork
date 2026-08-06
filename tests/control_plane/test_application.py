@@ -176,6 +176,7 @@ def test_goal_slash_command_creates_goal_and_requests_one_normal_agent_turn(tmp_
 
     assert outcome.ok is True
     assert outcome.data["targetActionId"] == "goal.command"
+    assert outcome.data["lifecycle"] == "agent_turn"
     result = outcome.data["result"]
     assert result["objective"] == "Prepare a release with test evidence"
     assert result["startAgentTurn"] == {
@@ -193,6 +194,7 @@ def test_goal_slash_command_creates_goal_and_requests_one_normal_agent_turn(tmp_
         context(),
     )
     assert status.ok is True
+    assert status.data["lifecycle"] == "side_channel"
     assert status.data["result"]["current"]["goalId"] == result["goalId"]
 
 

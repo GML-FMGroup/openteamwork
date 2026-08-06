@@ -165,11 +165,21 @@ class ControlPlaneApplication:
         if not outcome.ok:
             assert outcome.error is not None
             raise ActionFailure(outcome.error)
+        result = outcome.data or {}
+        lifecycle = resolved.command.lifecycle
+        start_agent_turn = result.get("startAgentTurn") if isinstance(result, dict) else None
+        if (
+            isinstance(start_agent_turn, dict)
+            and str(start_agent_turn.get("text") or "").strip()
+        ):
+            # Mixed commands such as /goal use side-channel behavior for status
+            # operations, but creating a Goal must enter the normal ADK turn.
+            lifecycle = "agent_turn"
         return {
             "command": resolved.command.command,
-            "lifecycle": resolved.command.lifecycle,
+            "lifecycle": lifecycle,
             "targetActionId": outcome.action_id,
-            "result": outcome.data or {},
+            "result": result,
         }
 
     def attach_extensions(

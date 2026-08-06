@@ -13,7 +13,12 @@ from typing import Any
 
 from openppx.config import ConfigError, FilesystemConfigRepository
 from openppx.modeling import ModelProfileRepository
-from openppx.runtime.cron_service import CronJob, CronSchedule, CronService
+from openppx.runtime.cron_service import (
+    CronJob,
+    CronSchedule,
+    CronService,
+    missed_schedule_occurrences,
+)
 from openppx.runtime.node_runtime import NodeRuntimeSupervisor
 from openppx.runtime.task_store import TaskDeliveryStore, TaskEventStore, TaskStore
 
@@ -285,12 +290,20 @@ class AutomationService:
             reasons.append({"code": f"automation_{definition.status}", "message": f"The Automation is {definition.status}."})
         return {"ready": not reasons, "reasons": reasons}
 
-    def run_now(self, definition: AutomationDefinition, *, actor_id: str, correlation_id: str, input_snapshot: dict[str, Any]) -> AutomationRun:
+    def run_now(
+        self,
+        definition: AutomationDefinition,
+        *,
+        actor_id: str,
+        correlation_id: str,
+        input_snapshot: dict[str, Any],
+        request_id: str = "",
+    ) -> AutomationRun:
         """Create a manual run and submit normal ADK execution without blocking the client."""
         run, created = self._prepare_run(
             definition,
             trigger_type="manual",
-            occurrence_id=f"manual:{uuid.uuid4().hex}",
+            occurrence_id=f"manual:{request_id or uuid.uuid4().hex}",
             started_by=actor_id,
             correlation_id=correlation_id,
             input_snapshot=input_snapshot,
@@ -338,25 +351,64 @@ class AutomationService:
         """Execute one derived Cron occurrence through the same Automation run path."""
         definition = self.store.read_definition(job.payload.source_id)
         occurrence = job.state.next_run_at_ms or int(time.time() * 1000)
-        run, created = self._prepare_run(
-            definition,
-            trigger_type="schedule",
-            occurrence_id=f"schedule:{occurrence}",
-            started_by=f"automation:{definition.automation_id}",
-            correlation_id=f"automation:{definition.automation_id}:{occurrence}",
-            input_snapshot={"scheduledForMs": occurrence},
-        )
-        if not created:
-            return run.output_summary or run.status
-        result = await self._execute_run(run.automation_run_id)
+        now_ms = int(time.time() * 1000)
+        policy = definition.missed_run_policy
+        mode = str(_policy_value(policy, "mode", "mode", default="run-latest"))
+        max_catch_up = int(_policy_value(policy, "maxCatchUp", "max_catch_up", default=1))
+        grace_ms = max(0, int(_policy_value(policy, "graceSeconds", "grace_seconds", default=30))) * 1_000
+        missed = now_ms > occurrence + grace_ms
+        occurrences = [occurrence]
+        if missed and mode == "bounded-catch-up":
+            occurrences = missed_schedule_occurrences(
+                job.schedule,
+                first_due_ms=occurrence,
+                now_ms=now_ms,
+                limit=max_catch_up,
+            )
+        elif missed and mode == "skip":
+            run, _created = self._prepare_run(
+                definition,
+                trigger_type="schedule",
+                occurrence_id=f"schedule:{occurrence}",
+                started_by=f"automation:{definition.automation_id}",
+                correlation_id=f"automation:{definition.automation_id}:{occurrence}",
+                input_snapshot={"scheduledForMs": occurrence, "missed": True},
+            )
+            task_id = str(run.task_run_refs[0].get("taskId", "")) if run.task_run_refs else ""
+            summary = "Skipped by the Automation missed-run policy."
+            self._settle_task(task_id, completed=False, summary=summary, terminal="cancelled")
+            result = self.store.update_run(
+                run.automation_run_id,
+                status="skipped",
+                blocked_reason=summary,
+            )
+            self._sync_trigger_runtime(definition)
+            return result.status
+
+        result: AutomationRun | None = None
+        for scheduled_for in occurrences:
+            run, created = self._prepare_run(
+                definition,
+                trigger_type="schedule",
+                occurrence_id=f"schedule:{scheduled_for}",
+                started_by=f"automation:{definition.automation_id}",
+                correlation_id=f"automation:{definition.automation_id}:{scheduled_for}",
+                input_snapshot={
+                    "scheduledForMs": scheduled_for,
+                    "missed": missed,
+                    "catchUpCount": len(occurrences),
+                },
+            )
+            result = await self._execute_run(run.automation_run_id) if created else run
         refreshed = self.store.read_definition(definition.automation_id)
         self._sync_trigger_runtime(refreshed)
-        return result.output_summary or result.status
+        return (result.output_summary or result.status) if result is not None else "skipped"
 
     async def _execute_run(self, automation_run_id: str) -> AutomationRun:
         """Execute one prepared run using a regular, snapshot-native ADK turn."""
         run = self.store.read_run(automation_run_id)
         definition = self.store.read_definition(run.automation_id)
+        definition_snapshot = self._definition_snapshot_for_run(definition, run)
         task_id = str(run.task_run_refs[0].get("taskId", "")) if run.task_run_refs else ""
         readiness = self.readiness(definition)
         if not readiness["ready"]:
@@ -367,10 +419,10 @@ class AutomationService:
             return blocked
         self.store.update_run(automation_run_id, status="running")
         self._update_task(task_id, status="running", summary="Automation Agent Run started.")
-        retry = definition.retry_policy
+        retry = dict(definition_snapshot.get("retryPolicy") or {})
         max_attempts = int(_policy_value(retry, "maxAttempts", "max_attempts", default=1))
         backoff_seconds = int(_policy_value(retry, "backoffSeconds", "backoff_seconds", default=30))
-        budget = definition.budget_policy
+        budget = dict(definition_snapshot.get("budgetPolicy") or {})
         timeout_seconds = int(_policy_value(budget, "timeoutSeconds", "timeout_seconds", default=1_800))
         started_at = time.monotonic()
         last_error = ""
@@ -395,7 +447,7 @@ class AutomationService:
                     payload={"attempt": attempt, "maxAttempts": max_attempts},
                 )
                 try:
-                    prompt = self._render_prompt(definition, run)
+                    prompt = self._render_prompt(definition_snapshot, run)
                     output = await asyncio.wait_for(
                         self.supervisor.hello(
                             definition.agent_id,
@@ -410,8 +462,19 @@ class AutomationService:
                         definition.automation_id,
                         run.session_id,
                     )
-                    visible_output, monitor_state = self._apply_monitor_policy(definition, output)
-                    delivery_refs = self._record_delivery(definition, task_id, visible_output, monitor_state)
+                    monitor_policy = dict(definition_snapshot.get("monitorPolicy") or {})
+                    visible_output, monitor_state = self._apply_monitor_policy(
+                        definition,
+                        output,
+                        policy=monitor_policy,
+                    )
+                    delivery_refs = self._record_delivery(
+                        definition,
+                        task_id,
+                        visible_output,
+                        monitor_state,
+                        policy=dict(definition_snapshot.get("deliveryPolicy") or {}),
+                    )
                     elapsed_ms = int((time.monotonic() - started_at) * 1_000)
                     budget_state = {
                         "timeoutSeconds": timeout_seconds,
@@ -428,7 +491,7 @@ class AutomationService:
                         delivery_refs_json=json.dumps(delivery_refs, ensure_ascii=False, sort_keys=True),
                         budget_state_json=json.dumps(budget_state, ensure_ascii=False, sort_keys=True),
                     )
-                    self._apply_monitor_stop_condition(definition, output)
+                    self._apply_monitor_stop_condition(definition, output, policy=monitor_policy)
                     return result
                 except Exception as exc:
                     last_error = "timeout" if isinstance(exc, TimeoutError) else type(exc).__name__
@@ -471,23 +534,26 @@ class AutomationService:
     ) -> tuple[AutomationRun, bool]:
         if definition.status != "active":
             raise AutomationStateError("automation is not active")
+        existing = self.store.run_for_occurrence(definition.automation_id, occurrence_id)
+        if existing is not None:
+            return existing, False
         concurrency = definition.concurrency_policy
         mode = str(concurrency.get("mode") or "skip")
         active_count = self.store.active_run_count(definition.automation_id)
-        running_count = self.store.running_run_count(definition.automation_id)
         parallel_limit = int(concurrency.get("limit") or 1)
         skip_for_concurrency = (
             (mode == "skip" and active_count > 0)
             or (mode == "parallel-with-limit" and active_count >= parallel_limit)
-            or (mode == "queue-one" and active_count > running_count)
+            or (mode == "queue-one" and active_count >= 2)
         )
-        queue_for_concurrency = mode == "queue-one" and running_count > 0 and not skip_for_concurrency
+        queue_for_concurrency = mode == "queue-one" and active_count == 1
         agent = self.config_repository.read_agent(definition.agent_id)
         runtime = self.supervisor.runtime_for(definition.agent_id)
         principal = {
             "principalId": f"automation:{definition.automation_id}",
             "ownerUserId": definition.user_id,
             "permissionPolicy": definition.permission_policy,
+            "definitionSnapshot": self._definition_snapshot(definition),
         }
         task = self.task_store.create_task(
             kind="automation_run",
@@ -540,7 +606,52 @@ class AutomationService:
             created = False
         return run, created
 
+    async def reconcile_runtime(self) -> None:
+        """Rebuild derived schedules and make interrupted facts explicit on startup."""
+        definitions = self.store.list_all_definitions()
+        by_id = {item.automation_id: item for item in definitions}
+        for definition in definitions:
+            self._sync_schedule(definition)
+
+        for job in list(self.cron.list_jobs(include_disabled=True)):
+            if job.payload.source_kind == "automation" and job.payload.source_id not in by_id:
+                self.cron.remove_job(job.id)
+
+        queued_by_automation: dict[str, list[AutomationRun]] = {}
+        for run in self.store.list_incomplete_runs():
+            task_id = str(run.task_run_refs[0].get("taskId", "")) if run.task_run_refs else ""
+            if run.status == "running":
+                summary = "The Node restarted before this Automation Run settled."
+                self._settle_task(task_id, completed=False, summary=summary, terminal="blocked")
+                self.store.update_run(
+                    run.automation_run_id,
+                    status="blocked",
+                    blocked_reason=summary,
+                )
+                continue
+            queued_by_automation.setdefault(run.automation_id, []).append(run)
+
+        for automation_id, queued in queued_by_automation.items():
+            definition = by_id.get(automation_id)
+            if definition is None or definition.status != "active":
+                continue
+            mode = str(definition.concurrency_policy.get("mode") or "skip")
+            limit = int(definition.concurrency_policy.get("limit") or 1)
+            resumable = queued[:1] if mode in {"skip", "queue-one"} else queued[: max(1, limit)]
+            for run in resumable:
+                asyncio.create_task(self._execute_run(run.automation_run_id))
+
+        for delivery in self.delivery_store.list_retryable_deliveries(limit=100):
+            self.delivery_store.mark_delivered(delivery.delivery_key)
+
     def _sync_schedule(self, definition: AutomationDefinition) -> AutomationDefinition:
+        """Synchronize the derived Cron job without discarding persisted due work.
+
+        A Node restart may load a Cron job whose ``next_run_at_ms`` is already
+        due.  Rewriting an unchanged job would recompute that timestamp and
+        silently lose the missed occurrence.  Only definition revisions or
+        enablement changes are therefore written back.
+        """
         if definition.status == "deleted":
             if definition.scheduler_job_id:
                 self.cron.remove_job(definition.scheduler_job_id)
@@ -563,15 +674,29 @@ class AutomationService:
         )
         enabled = definition.status == "active"
         if definition.scheduler_job_id:
-            job = self.cron.update_job(
-                definition.scheduler_job_id, name=definition.name, schedule=schedule,
-                message=definition.instructions, agent_id=definition.agent_id,
-                user_id=f"automation:{definition.automation_id}", delete_after_run=trigger.schedule_kind == "at",
-                source_kind="automation", source_id=definition.automation_id, source_revision=definition.revision,
+            existing = next(
+                (
+                    item
+                    for item in self.cron.list_jobs(include_disabled=True)
+                    if item.id == definition.scheduler_job_id
+                ),
+                None,
             )
-            if job is None:
+            if existing is None:
                 definition = self.store.set_scheduler_job_id(definition.automation_id, "")
                 return self._sync_schedule(definition)
+            if existing.payload.source_revision != definition.revision:
+                job = self.cron.update_job(
+                    definition.scheduler_job_id, name=definition.name, schedule=schedule,
+                    message=definition.instructions, agent_id=definition.agent_id,
+                    user_id=f"automation:{definition.automation_id}", delete_after_run=trigger.schedule_kind == "at",
+                    source_kind="automation", source_id=definition.automation_id, source_revision=definition.revision,
+                )
+                if job is None:
+                    definition = self.store.set_scheduler_job_id(definition.automation_id, "")
+                    return self._sync_schedule(definition)
+            else:
+                job = existing
         else:
             job = self.cron.add_job(
                 name=definition.name, schedule=schedule, message=definition.instructions,
@@ -580,7 +705,10 @@ class AutomationService:
                 source_id=definition.automation_id, source_revision=definition.revision,
             )
             definition = self.store.set_scheduler_job_id(definition.automation_id, job.id)
-        self.cron.enable_job(job.id, enabled=enabled)
+        if job.enabled != enabled:
+            updated = self.cron.enable_job(job.id, enabled=enabled)
+            if updated is not None and not isinstance(updated, bool):
+                job = updated
         self.store.update_trigger_runtime(
             definition.automation_id, next_run_at_ms=job.state.next_run_at_ms,
             last_run_at_ms=job.state.last_run_at_ms,
@@ -614,12 +742,12 @@ class AutomationService:
             raise AutomationNotFoundError("automation not found")
 
     @staticmethod
-    def _render_prompt(definition: AutomationDefinition, run: AutomationRun) -> str:
-        requirements = "\n".join(f"- {item}" for item in definition.output_requirements)
+    def _render_prompt(definition: dict[str, Any], run: AutomationRun) -> str:
+        requirements = "\n".join(f"- {item}" for item in definition.get("outputRequirements", []))
         input_text = repr(run.input_snapshot) if run.input_snapshot else "{}"
         return (
             "You are executing a user-created OpenPPX Automation as an independent Google ADK Agent Run.\n"
-            f"Automation: {definition.name}\nInstructions:\n{definition.instructions}\n"
+            f"Automation: {definition.get('name', '')}\nInstructions:\n{definition.get('instructions', '')}\n"
             f"Output requirements:\n{requirements or '- Return a clear result.'}\n"
             f"Typed input snapshot: {input_text}\n"
             "Do not claim completion without reporting concrete results, artifacts, errors, and access limitations."
@@ -654,9 +782,15 @@ class AutomationService:
         if queued:
             await self._execute_run(queued[0].automation_run_id)
 
-    def _apply_monitor_policy(self, definition: AutomationDefinition, output: str) -> tuple[str, dict[str, Any]]:
+    def _apply_monitor_policy(
+        self,
+        definition: AutomationDefinition,
+        output: str,
+        *,
+        policy: dict[str, Any] | None = None,
+    ) -> tuple[str, dict[str, Any]]:
         """Persist a comparison cursor and suppress duplicate monitor notifications."""
-        policy = definition.monitor_policy
+        policy = dict(policy if policy is not None else definition.monitor_policy)
         enabled = bool(policy.get("enabled"))
         digest = hashlib.sha256(output.strip().encode("utf-8")).hexdigest()
         previous = self.store.monitor_state(definition.automation_id) if enabled else {}
@@ -674,9 +808,16 @@ class AutomationService:
             return "No change detected.", state
         return output, state
 
-    def _apply_monitor_stop_condition(self, definition: AutomationDefinition, output: str) -> None:
+    def _apply_monitor_stop_condition(
+        self,
+        definition: AutomationDefinition,
+        output: str,
+        *,
+        policy: dict[str, Any] | None = None,
+    ) -> None:
         """Pause a monitor after its explicit deterministic stop condition matches."""
-        needle = str(_policy_value(definition.monitor_policy, "stopWhenContains", "stop_when_contains", default="")).strip()
+        resolved_policy = dict(policy if policy is not None else definition.monitor_policy)
+        needle = str(_policy_value(resolved_policy, "stopWhenContains", "stop_when_contains", default="")).strip()
         if not needle or needle.casefold() not in output.casefold():
             return
         current = self.store.read_definition(definition.automation_id)
@@ -695,20 +836,62 @@ class AutomationService:
         task_id: str,
         output: str,
         monitor_state: dict[str, Any],
+        *,
+        policy: dict[str, Any] | None = None,
     ) -> list[dict[str, Any]]:
-        """Record once-only session/artifact delivery facts without duplicating output."""
+        """Record delivery independently so publishing failures do not fail execution."""
         if monitor_state.get("enabled") and not monitor_state.get("changed"):
             return []
-        delivery_type = str(definition.delivery_policy.get("type") or "session")
+        delivery_policy = dict(policy if policy is not None else definition.delivery_policy)
+        delivery_type = str(delivery_policy.get("type") or "session")
         delivery, _created = self.delivery_store.record_once(
             task_id=task_id,
             delivery_type=delivery_type,
             delivery_key=f"automation:{definition.automation_id}:{task_id}:{delivery_type}",
             payload={"automationId": definition.automation_id, "summary": output[:2_000]},
         )
-        delivered = self.delivery_store.mark_delivered(delivery.delivery_key)
-        final = delivered or delivery
+        try:
+            delivered = self.delivery_store.mark_delivered(delivery.delivery_key)
+            final = delivered or delivery
+        except Exception as exc:
+            failed = self.delivery_store.mark_failed(
+                delivery.delivery_key,
+                error=type(exc).__name__,
+                retry_after_ms=60_000,
+            )
+            final = failed or delivery
         return [{"deliveryKey": final.delivery_key, "type": final.delivery_type, "status": final.status}]
+
+    @staticmethod
+    def _definition_snapshot(definition: AutomationDefinition) -> dict[str, Any]:
+        """Freeze all behavior-affecting Definition fields for one Run."""
+        return {
+            "revision": definition.revision,
+            "name": definition.name,
+            "instructions": definition.instructions,
+            "outputRequirements": definition.output_requirements,
+            "agentId": definition.agent_id,
+            "workspaceRef": definition.workspace_ref,
+            "modelProfileRef": definition.model_profile_ref,
+            "extensionPolicy": definition.extension_policy,
+            "permissionPolicy": definition.permission_policy,
+            "deliveryPolicy": definition.delivery_policy,
+            "concurrencyPolicy": definition.concurrency_policy,
+            "missedRunPolicy": definition.missed_run_policy,
+            "retryPolicy": definition.retry_policy,
+            "budgetPolicy": definition.budget_policy,
+            "monitorPolicy": definition.monitor_policy,
+        }
+
+    @classmethod
+    def _definition_snapshot_for_run(
+        cls,
+        definition: AutomationDefinition,
+        run: AutomationRun,
+    ) -> dict[str, Any]:
+        """Read the immutable Run snapshot, with backward-compatible fallback."""
+        value = run.principal_snapshot.get("definitionSnapshot")
+        return dict(value) if isinstance(value, dict) else cls._definition_snapshot(definition)
 
     @staticmethod
     def templates() -> tuple[AutomationTemplate, ...]:

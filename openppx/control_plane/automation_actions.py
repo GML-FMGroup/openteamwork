@@ -183,7 +183,17 @@ def _transition(service: AutomationService, context: ActionContext, value: Autom
 def _run(service: AutomationService, context: ActionContext, value: AutomationRunInput) -> dict[str, object]:
     definition = service.read_definition(value.automation_id, user_id=value.user_id)
     try:
-        return {"run": project_automation_run(service.run_now(definition, actor_id=context.actor_id, correlation_id=context.correlation_id, input_snapshot=value.input))}
+        return {
+            "run": project_automation_run(
+                service.run_now(
+                    definition,
+                    actor_id=context.actor_id,
+                    correlation_id=context.correlation_id,
+                    input_snapshot=value.input,
+                    request_id=context.request_id,
+                )
+            )
+        }
     except Exception as exc:
         _raise_failure(exc)
 

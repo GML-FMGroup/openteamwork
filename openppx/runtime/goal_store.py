@@ -600,7 +600,7 @@ class GoalStore:
             updates["completed_at_ms"] = now_ms
         if target == "cancelled":
             updates["cancelled_at_ms"] = now_ms
-        return self._update_goal_row(
+        updated = self._update_goal_row(
             current,
             updates,
             expected_revision=expected_revision,
@@ -608,6 +608,149 @@ class GoalStore:
             actor_id=actor_id,
             correlation_id=correlation_id,
             event_payload={"from": current.status, "to": target, "reason": reason.strip()},
+        )
+        flow_status = {
+            "active": "active",
+            "waiting": "waiting",
+            "paused": "paused",
+            "blocked": "blocked",
+            "completed": "completed",
+            "cancelled": "cancelled",
+            "failed": "failed",
+        }.get(target)
+        if flow_status is not None:
+            flow = self.flow_for_goal(current.goal_id)
+            if flow is not None and flow.status not in FLOW_TERMINAL_STATUSES:
+                wait_reason = {}
+                if target in {"waiting", "paused", "blocked"}:
+                    wait_reason = {
+                        "kind": target,
+                        "message": reason.strip() or f"Goal entered {target} state.",
+                    }
+                self._update_flow_row(
+                    flow,
+                    {
+                        "status": flow_status,
+                        "wait_reason_json": _json_dumps(wait_reason),
+                        "last_event": f"flow.{flow_status}",
+                    },
+                    expected_revision=flow.revision,
+                    event_type=f"flow.{flow_status}",
+                    actor_id=actor_id,
+                    correlation_id=correlation_id,
+                    event_payload={"reason": f"goal_{target}"},
+                )
+        return updated
+
+    def wait_current_goal(
+        self,
+        session_id: str,
+        *,
+        reason: str,
+        actor_id: str = "system:runtime",
+        correlation_id: str = "",
+    ) -> Goal | None:
+        """Move an actively executing Goal to a resumable waiting state."""
+        goal = self.current_goal(session_id)
+        if goal is None or goal.status != "active":
+            return goal
+        return self.transition_goal(
+            goal.goal_id,
+            status="waiting",
+            expected_revision=goal.revision,
+            actor_id=actor_id,
+            reason=str(reason or "Goal execution is waiting for another Run")[:2_000],
+            correlation_id=correlation_id,
+        )
+
+    def pause_current_goal(
+        self,
+        session_id: str,
+        *,
+        reason: str,
+        actor_id: str = "system:runtime",
+        correlation_id: str = "",
+    ) -> Goal | None:
+        """Pause an active Goal when its current Run is cancelled directly."""
+        goal = self.current_goal(session_id)
+        if goal is None or goal.status != "active":
+            return goal
+        return self.transition_goal(
+            goal.goal_id,
+            status="paused",
+            expected_revision=goal.revision,
+            actor_id=actor_id,
+            reason=str(reason or "The current Goal Run was cancelled")[:2_000],
+            correlation_id=correlation_id,
+        )
+
+    def block_current_goal(
+        self,
+        session_id: str,
+        *,
+        reason: str,
+        actor_id: str = "system:runtime",
+        correlation_id: str = "",
+    ) -> Goal | None:
+        """Block the current Goal after its initial ADK Run cannot start."""
+        goal = self.current_goal(session_id)
+        if goal is None or goal.status not in {"active", "waiting"}:
+            return goal
+        return self.transition_goal(
+            goal.goal_id,
+            status="blocked",
+            expected_revision=goal.revision,
+            actor_id=actor_id,
+            reason=str(reason or "ADK Run failed to start")[:2_000],
+            correlation_id=correlation_id,
+        )
+
+    def request_completion(
+        self,
+        goal_id: str,
+        *,
+        expected_revision: int,
+        actor_id: str,
+        invocation_id: str,
+        completion_evidence: list[dict[str, Any]] | tuple[dict[str, Any], ...] = (),
+        correlation_id: str = "",
+    ) -> TaskFlow:
+        """Stage completion until the requesting ADK invocation succeeds.
+
+        The Goal remains unfinished while its current Run is active. Runtime
+        reconciliation consumes this request only after it persists a
+        successful Run fact for the same ADK invocation.
+        """
+        goal = self._required_goal(goal_id)
+        if expected_revision != goal.revision:
+            raise GoalConflictError("Goal revision changed; refresh and retry")
+        if goal.status not in GOAL_ACTIVE_STATUSES:
+            raise GoalStateError("terminal Goals cannot request completion")
+        normalized_invocation = str(invocation_id or "").strip()
+        if not normalized_invocation:
+            raise GoalStateError("Goal completion requires an ADK invocation identity")
+        flow = self._required_flow(goal.active_flow_id)
+        if flow.steps and any(step.get("status") != "completed" for step in flow.steps):
+            raise GoalStateError("Goal completion requires every declared TaskFlow step to be completed")
+        recovery = flow.recovery_state
+        recovery["pendingCompletion"] = {
+            "goalId": goal.goal_id,
+            "invocationId": normalized_invocation,
+            "requestedBy": str(actor_id or "system").strip(),
+            "requestedAtMs": _now_ms(),
+            "evidence": [dict(item) for item in completion_evidence if isinstance(item, dict)],
+        }
+        return self._update_flow_row(
+            flow,
+            {
+                "recovery_state_json": _json_dumps(recovery),
+                "last_event": "goal.completion.requested",
+            },
+            expected_revision=flow.revision,
+            event_type="goal.completion.requested",
+            actor_id=actor_id,
+            correlation_id=correlation_id or normalized_invocation,
+            event_payload={"invocationId": normalized_invocation},
         )
 
     def get_flow(self, flow_id: str) -> TaskFlow | None:
@@ -747,12 +890,13 @@ class GoalStore:
         actor_id: str = "system:runtime",
         correlation_id: str = "",
         snapshot: dict[str, Any] | None = None,
+        invocation_id: str = "",
     ) -> TaskFlow | None:
         """Attach one ADK Run lifecycle fact to the current Session Goal.
 
-        Runtime reconciliation deliberately does not transition the Goal to a
-        terminal state. A successful Run is evidence, but it is not sufficient
-        by itself to prove every Goal completion criterion.
+        A successful Run is not sufficient by itself to complete a Goal. The
+        only terminal reconciliation performed here consumes an explicit
+        ``request_completion`` fact from the same ADK invocation.
         """
         normalized_session = str(session_id or "").strip()
         normalized_run = str(run_id or "").strip()
@@ -776,6 +920,7 @@ class GoalStore:
             payload = {
                 "runId": normalized_run,
                 "status": normalized_status,
+                **({"invocationId": invocation_id} if str(invocation_id or "").strip() else {}),
                 **(dict(snapshot or {})),
             }
             if run_fact is None:
@@ -790,6 +935,44 @@ class GoalStore:
                     "runs": runs[-20:],
                 }
             )
+            pending = recovery.get("pendingCompletion")
+            pending_matches = (
+                isinstance(pending, dict)
+                and str(pending.get("invocationId") or "").strip()
+                and str(pending.get("invocationId") or "").strip()
+                == str(invocation_id or "").strip()
+            )
+            completion_evidence: list[dict[str, Any]] | None = None
+            completion_actor = actor_id
+            if pending_matches and normalized_status == "completed":
+                completion_evidence = [
+                    dict(item)
+                    for item in pending.get("evidence", [])
+                    if isinstance(item, dict)
+                ]
+                completion_evidence.append(
+                    {
+                        "type": "run",
+                        "ref": normalized_run,
+                        "label": "Completed ADK Run",
+                        "invocationId": str(invocation_id or "").strip(),
+                    }
+                )
+                completion_actor = str(pending.get("requestedBy") or actor_id).strip()
+                recovery.pop("pendingCompletion", None)
+                recovery["lastCompletionRequest"] = {
+                    "invocationId": str(invocation_id or "").strip(),
+                    "runId": normalized_run,
+                    "status": "completed",
+                }
+            elif pending_matches and normalized_status in {"failed", "cancelled"}:
+                recovery.pop("pendingCompletion", None)
+                recovery["lastCompletionRequest"] = {
+                    "invocationId": str(invocation_id or "").strip(),
+                    "runId": normalized_run,
+                    "status": "rejected",
+                    "runStatus": normalized_status,
+                }
             now_ms = _now_ms()
             conn.execute(
                 """
@@ -797,7 +980,12 @@ class GoalStore:
                 SET recovery_state_json = ?, last_event = ?, revision = revision + 1, updated_at_ms = ?
                 WHERE flow_id = ?
                 """,
-                (_json_dumps(recovery), f"run.{normalized_status}", now_ms, current.flow_id),
+                (
+                    _json_dumps(recovery),
+                    "flow.completed" if completion_evidence is not None else f"run.{normalized_status}",
+                    now_ms,
+                    current.flow_id,
+                ),
             )
             self._append_event_conn(
                 conn,
@@ -809,7 +997,129 @@ class GoalStore:
                 payload=payload,
                 created_at_ms=now_ms,
             )
+            if completion_evidence is not None:
+                conn.execute(
+                    """
+                    UPDATE task_flows
+                    SET status = 'completed'
+                    WHERE flow_id = ?
+                    """,
+                    (current.flow_id,),
+                )
+                cursor = conn.execute(
+                    """
+                    UPDATE goals
+                    SET status = 'completed', completion_evidence_json = ?,
+                        completed_at_ms = ?, updated_at_ms = ?, revision = revision + 1
+                    WHERE goal_id = ? AND status IN ('active', 'waiting', 'paused', 'blocked')
+                    """,
+                    (_json_dumps(completion_evidence), now_ms, now_ms, goal.goal_id),
+                )
+                if cursor.rowcount == 0:
+                    raise GoalConflictError("Goal changed before Run completion could be reconciled")
+                self._append_event_conn(
+                    conn,
+                    goal_id=goal.goal_id,
+                    flow_id=current.flow_id,
+                    event_type="goal.completed",
+                    actor_id=completion_actor,
+                    correlation_id=correlation_id or str(invocation_id or "").strip(),
+                    payload={
+                        "from": goal.status,
+                        "to": "completed",
+                        "reason": "explicit_agent_completion_after_successful_run",
+                        "runId": normalized_run,
+                    },
+                    created_at_ms=now_ms,
+                )
         return self._required_flow(goal.active_flow_id)
+
+    def record_continuation_fact(
+        self,
+        *,
+        session_id: str,
+        run_id: str,
+        continuation_index: int,
+        max_continuations: int,
+        max_llm_calls_per_invocation: int,
+        exhausted: bool = False,
+        actor_id: str = "system:runtime",
+        correlation_id: str = "",
+    ) -> Goal | None:
+        """Persist one bounded ADK continuation and its accumulated budget.
+
+        A continuation is an execution fact, not a Goal lifecycle transition.
+        Recording it therefore keeps the Goal active while making restart and
+        diagnostics decisions deterministic.
+        """
+        goal = self.current_goal(str(session_id or "").strip())
+        if goal is None:
+            return None
+        index = max(0, int(continuation_index))
+        limit = max(0, int(max_continuations))
+        llm_limit = max(1, int(max_llm_calls_per_invocation))
+        now_ms = _now_ms()
+        event_type = "goal.continuation.exhausted" if exhausted else "goal.continuation.started"
+        budget_state = goal.budget_state
+        budget_state.update(
+            {
+                "continuationCount": index,
+                "maxContinuations": limit,
+                "maxLlmCallsPerInvocation": llm_limit,
+                "continuationExhausted": bool(exhausted),
+                "lastContinuationAtMs": now_ms,
+                "latestRunId": str(run_id or "").strip(),
+            }
+        )
+        payload = {
+            "runId": str(run_id or "").strip(),
+            "continuationIndex": index,
+            "maxContinuations": limit,
+            "maxLlmCallsPerInvocation": llm_limit,
+            "exhausted": bool(exhausted),
+        }
+        with self._lock, _connect(self._db_path) as conn:
+            conn.execute(
+                """
+                UPDATE goals
+                SET budget_state_json = ?, updated_at_ms = ?, revision = revision + 1
+                WHERE goal_id = ?
+                """,
+                (_json_dumps(budget_state), now_ms, goal.goal_id),
+            )
+            flow_row = conn.execute(
+                "SELECT * FROM task_flows WHERE flow_id = ?",
+                (goal.active_flow_id,),
+            ).fetchone()
+            if flow_row is None:
+                raise GoalNotFoundError("current Goal is missing its active TaskFlow")
+            flow = _flow_from_row(flow_row)
+            recovery = flow.recovery_state
+            continuations = [
+                item for item in recovery.get("continuations", []) if isinstance(item, dict)
+            ]
+            continuations.append({**payload, "createdAtMs": now_ms})
+            recovery["continuations"] = continuations[-20:]
+            conn.execute(
+                """
+                UPDATE task_flows
+                SET recovery_state_json = ?, last_event = ?,
+                    updated_at_ms = ?, revision = revision + 1
+                WHERE flow_id = ?
+                """,
+                (_json_dumps(recovery), event_type, now_ms, flow.flow_id),
+            )
+            self._append_event_conn(
+                conn,
+                goal_id=goal.goal_id,
+                flow_id=flow.flow_id,
+                event_type=event_type,
+                actor_id=actor_id,
+                correlation_id=correlation_id or str(run_id or "").strip(),
+                payload=payload,
+                created_at_ms=now_ms,
+            )
+        return self._required_goal(goal.goal_id)
 
     def record_artifact_fact(
         self,

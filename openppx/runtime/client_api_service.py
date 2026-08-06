@@ -446,6 +446,14 @@ class RunHandle:
         self._seq = 0
         self.done = threading.Event()
         self.failed = False
+        self.invocation_id = ""
+
+    def observe_invocation(self, invocation_id: str) -> None:
+        """Remember the ADK invocation that produced this client Run."""
+        normalized = str(invocation_id or "").strip()
+        if normalized:
+            with self._lock:
+                self.invocation_id = normalized
 
     def publish(self, event: str, payload: dict[str, Any]) -> None:
         """Store and fan out one SSE event."""
@@ -2103,6 +2111,20 @@ class ClientApiCoordinator:
                 },
             )
         except Exception as exc:
+            self._record_goal_fact(
+                "record_run_fact",
+                session_id=session_id,
+                run_id=run_id,
+                status="failed",
+                correlation_id=run_id,
+                snapshot={"startFailure": type(exc).__name__},
+            )
+            self._record_goal_fact(
+                "block_current_goal",
+                session_id=session_id,
+                reason=f"The initial ADK Run could not start: {type(exc).__name__}",
+                correlation_id=run_id,
+            )
             with self._lock:
                 self._runs.pop(run_id, None)
             return _error("RUNTIME_UNAVAILABLE", str(exc))
@@ -2298,6 +2320,7 @@ class ClientApiCoordinator:
     def _publish_adk_run_event(self, handle: RunHandle, event: Any) -> None:
         """Project one raw ADK event into transport-stable tool-step events."""
         payload = event.model_dump(mode="json")
+        handle.observe_invocation(str(payload.get("invocation_id") or ""))
         actions = payload.get("actions") if isinstance(payload.get("actions"), dict) else {}
         artifact_delta = actions.get("artifact_delta")
         if isinstance(artifact_delta, dict):
@@ -2417,10 +2440,22 @@ class ClientApiCoordinator:
             "error",
             {"run_id": handle.run_id, "code": "RUN_FAILED", "message": message},
         )
+        self._record_goal_fact(
+            "block_current_goal",
+            session_id=handle.session_id,
+            reason=f"The current ADK Run failed: {message}"[:2_000],
+            correlation_id=handle.run_id,
+        )
         self._finish_node_run(handle, status="failed")
 
     def _cancel_node_run(self, handle: RunHandle) -> None:
         """Publish one cooperative cancellation terminal state."""
+        self._record_goal_fact(
+            "pause_current_goal",
+            session_id=handle.session_id,
+            reason="The current ADK Run was stopped before the Goal completed.",
+            correlation_id=handle.run_id,
+        )
         handle.publish(
             "message.cancelled",
             {
@@ -2451,6 +2486,7 @@ class ClientApiCoordinator:
             run_id=handle.run_id,
             status=status,
             correlation_id=handle.run_id,
+            invocation_id=handle.invocation_id,
         )
         handle.publish(
             "run.finished",

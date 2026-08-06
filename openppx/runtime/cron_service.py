@@ -241,6 +241,32 @@ def _compute_next_run(schedule: CronSchedule, now_ms: int) -> int | None:
     return None
 
 
+def missed_schedule_occurrences(
+    schedule: CronSchedule,
+    *,
+    first_due_ms: int,
+    now_ms: int,
+    limit: int,
+) -> list[int]:
+    """Return the latest bounded due occurrences through ``now_ms``.
+
+    The scheduler stays policy-neutral: Automation decides whether these
+    occurrences should be skipped, collapsed, or executed.
+    """
+    safe_limit = max(1, min(int(limit), 100))
+    due: list[int] = []
+    cursor = int(first_due_ms)
+    while cursor <= now_ms:
+        due.append(cursor)
+        if len(due) > safe_limit:
+            due = due[-safe_limit:]
+        next_cursor = _compute_next_run(schedule, cursor)
+        if next_cursor is None or next_cursor <= cursor:
+            break
+        cursor = next_cursor
+    return due[-safe_limit:]
+
+
 def _schedule_payload(schedule: CronSchedule) -> dict[str, Any]:
     """Return a JSON-safe cron schedule payload."""
     return {
