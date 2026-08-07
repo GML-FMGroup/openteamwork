@@ -358,6 +358,14 @@ export interface AutomationUpdateRequest extends Record<string, unknown> {
   expectedRevision: number;
 }
 
+export interface GoalUpdateRequest {
+  goalId: string;
+  expectedRevision: number;
+  objective: string;
+}
+
+export type GoalTransitionOperation = "pause" | "resume" | "cancel";
+
 export interface DesktopHostPreferences {
   backgroundBehavior: "keep-running" | "confirm-before-close";
   notificationsEnabled: boolean;
@@ -390,6 +398,8 @@ export interface PpxClientApi {
   deleteSession(input: SessionMutationRequest): Promise<Record<string, unknown>>;
   loadSession(sessionId: string): Promise<{ messages: ChatMessage[] }>;
   getCurrentGoal(sessionId: string): Promise<{ goal: GoalDetail | null }>;
+  updateGoal(input: GoalUpdateRequest): Promise<GoalDetail>;
+  transitionGoal(operation: GoalTransitionOperation, goalId: string, expectedRevision: number): Promise<GoalDetail>;
   listAutomations(statuses?: AutomationStatus[]): Promise<{ automations: AutomationSummary[] }>;
   getAutomation(automationId: string): Promise<AutomationDetail>;
   createAutomation(input: AutomationCreateInput): Promise<AutomationDetail>;

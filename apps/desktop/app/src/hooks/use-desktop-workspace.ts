@@ -9,6 +9,7 @@ import type {
   ConnectionSettings,
   ExtensionSummary,
   GoalDetail,
+  GoalTransitionOperation,
   ModelProfileSummary,
   ModelProfileResourceResult,
   ModelProfileCreateInput,
@@ -245,6 +246,14 @@ function compactText(value: unknown, limit = 180): string {
   return text.length > limit ? `${text.slice(0, limit - 3).trimEnd()}...` : text;
 }
 
+function clientErrorMessage(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error);
+  return message
+    .replace(/^Error invoking remote method '[^']+':\s*/, "")
+    .replace(/^ClientApiRequestError:\s*/, "")
+    .trim();
+}
+
 /** Render structured command data only at the Desktop presentation boundary. */
 function formatSlashCommandResult(outcome: SlashCommandResult): string {
   const result = record(outcome.result);
@@ -351,6 +360,8 @@ export function useDesktopWorkspace() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [sessionArtifacts, setSessionArtifacts] = useState<ArtifactSummary[]>([]);
   const [currentGoal, setCurrentGoal] = useState<GoalDetail | null>(null);
+  const [goalMutation, setGoalMutation] = useState<"update" | GoalTransitionOperation | null>(null);
+  const [goalMutationError, setGoalMutationError] = useState<string | null>(null);
   const [selectedAgentId, setSelectedAgentId] = useState("");
   const [selectedSessionId, setSelectedSessionId] = useState("");
   const [composer, setComposer] = useState("");
@@ -404,6 +415,64 @@ export function useDesktopWorkspace() {
     }
   }
 
+  /** Persist a new objective while preserving the current Goal identity and policy. */
+  async function updateCurrentGoal(objective: string): Promise<boolean> {
+    const goal = currentGoal;
+    const normalized = objective.trim();
+    if (!goal || goalMutation || !normalized) return false;
+    if (normalized === goal.objective) {
+      setGoalMutationError(null);
+      return true;
+    }
+    const sessionId = selectedSessionIdRef.current;
+    setGoalMutation("update");
+    setGoalMutationError(null);
+    try {
+      const updated = await window.ppxClient.updateGoal({
+        goalId: goal.goalId,
+        expectedRevision: goal.revision,
+        objective: normalized,
+      });
+      if (sessionId === selectedSessionIdRef.current) setCurrentGoal(updated);
+      return true;
+    } catch (error) {
+      setGoalMutationError(clientErrorMessage(error));
+      await refreshCurrentGoal(sessionId);
+      return false;
+    } finally {
+      setGoalMutation(null);
+    }
+  }
+
+  /** Transition the current Goal and immediately reconcile the shared Desktop fact. */
+  async function transitionCurrentGoal(operation: GoalTransitionOperation): Promise<boolean> {
+    const goal = currentGoal;
+    if (!goal || goalMutation) return false;
+    const sessionId = selectedSessionIdRef.current;
+    setGoalMutation(operation);
+    setGoalMutationError(null);
+    try {
+      const updated = await window.ppxClient.transitionGoal(operation, goal.goalId, goal.revision);
+      if (sessionId === selectedSessionIdRef.current) {
+        setCurrentGoal(
+          updated.status === "completed" || updated.status === "cancelled" || updated.status === "failed"
+            ? null
+            : updated,
+        );
+      }
+      if (operation === "resume" && sessionId === selectedSessionIdRef.current) {
+        await sendMessage(`Resume the active Goal and continue working toward: ${updated.objective}`);
+      }
+      return true;
+    } catch (error) {
+      setGoalMutationError(clientErrorMessage(error));
+      await refreshCurrentGoal(sessionId);
+      return false;
+    } finally {
+      setGoalMutation(null);
+    }
+  }
+
   useEffect(() => {
     let cancelled = false;
     if (!selectedAgentId || !selectedSessionId) {
@@ -417,6 +486,7 @@ export function useDesktopWorkspace() {
   }, [selectedAgentId, selectedSessionId]);
 
   useEffect(() => {
+    setGoalMutationError(null);
     void refreshCurrentGoal(selectedSessionId);
   }, [selectedSessionId]);
 
@@ -1190,7 +1260,7 @@ export function useDesktopWorkspace() {
       }
       appendCommandNotice(outcome);
     } catch (error) {
-      setSendError(error instanceof Error ? error.message : String(error));
+      setSendError(clientErrorMessage(error));
     }
   }
 
@@ -1366,6 +1436,8 @@ export function useDesktopWorkspace() {
     messages,
     sessionArtifacts,
     currentGoal,
+    goalMutation,
+    goalMutationError,
     selectedAgentId,
     selectedSessionId,
     selectedAgent,
@@ -1439,5 +1511,7 @@ export function useDesktopWorkspace() {
     deleteSession,
     sendMessage,
     cancelCurrentRun,
+    updateCurrentGoal,
+    transitionCurrentGoal,
   };
 }

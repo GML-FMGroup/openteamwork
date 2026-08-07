@@ -159,6 +159,34 @@ def test_node_host_starts_scheduler_before_server_and_stops_once(tmp_path: Path)
     assert host.runtime_supervisor.status()["state"] == "stopped"
 
 
+def test_node_startup_reconciles_orphaned_active_goal(tmp_path: Path) -> None:
+    secrets = _configure(tmp_path)
+    host = OpenPpxNodeHost.build(
+        tmp_path,
+        access_token="node-token",
+        secret_store=secrets,
+        scheduler=_Scheduler(),
+        server_factory=_Server,
+    )
+    goal, _flow = host.control_plane.goal_store.create_goal(
+        session_id="session-orphaned-goal",
+        agent_id="low-main",
+        user_id="local:owner",
+        objective="Resume after restart",
+        created_by="local:owner",
+    )
+    host.control_plane.goal_store.record_run_fact(
+        session_id=goal.session_id,
+        run_id="run-completed-before-restart",
+        status="completed",
+    )
+
+    host.serve_forever()
+
+    reconciled = host.control_plane.goal_store.current_goal(goal.session_id)
+    assert reconciled is not None and reconciled.status == "waiting"
+
+
 def test_unconfigured_node_starts_safe_loopback_bootstrap_surface(tmp_path: Path) -> None:
     servers: list[_Server] = []
     host = OpenPpxNodeHost.build(

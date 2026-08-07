@@ -184,6 +184,7 @@ def build_node_composition(
         task_store=assembler.services.task_store,
         operations_runtime=operations_runtime,
     )
+    operations_runtime.register_startup_hook(control_plane.goal_store.reconcile_runtime)
     operations_runtime.register_startup_hook(automation_service.reconcile_runtime)
     automation.attach_automation_service(automation_service)
     control_plane.attach_automations(automation_service)

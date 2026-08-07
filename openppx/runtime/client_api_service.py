@@ -227,16 +227,26 @@ def _error_part_payload(*, code: str, text: str) -> dict[str, Any]:
     }
 
 
-def _tool_result_payload(*, tool_name: str, summary: str, detail: str, raw_text: str) -> dict[str, Any]:
+def _tool_result_payload(
+    *,
+    tool_name: str,
+    summary: str,
+    detail: str,
+    raw_text: str,
+    tool_call_id: str | None = None,
+) -> dict[str, Any]:
     """Build one client-facing tool result part payload."""
 
-    return {
+    payload = {
         "type": "tool_result",
         "tool_name": tool_name,
         "summary": summary,
         "detail": detail,
         "raw_text": raw_text,
     }
+    if tool_call_id:
+        payload["tool_call_id"] = tool_call_id
+    return payload
 
 
 def _tool_result_summary(tool_name: str, response: Any) -> str:
@@ -379,20 +389,12 @@ def project_session_event(event: dict[str, Any], session_id: str) -> dict[str, A
             tool_name = str(function_response.get("name") or "tool")
             response = function_response.get("response") or {}
             parts.append(
-                {
-                    "type": "step_ref",
-                    "step_id": step_id,
-                    "title": tool_name,
-                    "status": "completed",
-                    "detail": _preview_value(response, "Tool returned without a payload"),
-                }
-            )
-            parts.append(
                 _tool_result_payload(
                     tool_name=tool_name,
                     summary=_tool_result_summary(tool_name, response),
                     detail=_preview_value(response, "Tool returned without a payload"),
                     raw_text=json.dumps(response, ensure_ascii=False, indent=2),
+                    tool_call_id=step_id,
                 )
             )
     if not parts:

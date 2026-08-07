@@ -186,11 +186,21 @@ def validate_browser_url(url: str) -> None:
             raise BrowserRuntimeError(error)
 
 
+def _active_workspace() -> str:
+    """Return the Agent-bound Workspace or the standalone environment fallback."""
+    from openppx.runtime.tool_execution_context import current_tool_execution_context
+
+    runtime_context = current_tool_execution_context()
+    if runtime_context is not None:
+        return str(runtime_context.workspace_root)
+    return os.getenv("OPENPPX_WORKSPACE", "").strip()
+
+
 def _resolve_upload_root() -> str:
     configured = os.getenv("OPENPPX_BROWSER_UPLOAD_ROOT", "").strip()
     if configured:
         return os.path.realpath(os.path.abspath(os.path.expanduser(configured)))
-    workspace = os.getenv("OPENPPX_WORKSPACE", "").strip()
+    workspace = _active_workspace()
     base = workspace or os.getcwd()
     return os.path.realpath(os.path.abspath(base))
 
@@ -206,7 +216,7 @@ def _resolve_artifact_root() -> str:
     configured = os.getenv("OPENPPX_BROWSER_ARTIFACT_ROOT", "").strip()
     if configured:
         return os.path.realpath(os.path.abspath(os.path.expanduser(configured)))
-    workspace = os.getenv("OPENPPX_WORKSPACE", "").strip()
+    workspace = _active_workspace()
     base = workspace or os.getcwd()
     return os.path.realpath(os.path.abspath(os.path.join(base, ".openppx", "browser_artifacts")))
 
@@ -220,7 +230,12 @@ def resolve_browser_artifact_path(out_path: str | None, *, default_filename: str
     if not target_raw:
         target_path = os.path.join(artifact_root, default_filename)
     else:
-        target_path = os.path.abspath(os.path.expanduser(target_raw))
+        expanded = os.path.expanduser(target_raw)
+        target_path = (
+            expanded
+            if os.path.isabs(expanded)
+            else os.path.join(artifact_root, expanded)
+        )
     resolved = os.path.realpath(target_path)
     if enforce_root and not _is_within_root(resolved, artifact_root):
         raise BrowserRuntimeError(f"artifact path is outside artifact root: {target_raw or target_path}")
@@ -241,7 +256,12 @@ def validate_browser_upload_paths(paths: list[str]) -> list[str]:
         path_value = str(raw).strip()
         if not path_value:
             continue
-        abs_path = os.path.abspath(path_value)
+        expanded = os.path.expanduser(path_value)
+        abs_path = os.path.abspath(
+            os.path.join(upload_root, expanded)
+            if enforce_root and not os.path.isabs(expanded)
+            else expanded
+        )
         if not os.path.isfile(abs_path):
             raise BrowserRuntimeError(f"upload file not found: {path_value}", status=404)
         real_path = os.path.realpath(abs_path)

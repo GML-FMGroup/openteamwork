@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from "electron";
-import type { AgentCreateRequest, AgentUpdateInput, AppConnectionEnablementRequest, AppConnectionRemoveRequest, AppConnectionSaveRequest, ArtifactSummary, ArtifactUploadInput, AutomationCreateInput, AutomationStatus, AutomationUpdateRequest, ConnectionSettings, CronCreateInput, CronUpdateInput, DesktopHostPreferences, DesktopPlatform, ExtensionEnablementRequest, ExtensionInstallRequest, ExtensionPreviewRequest, ExtensionRemoveRequest, HeartbeatConfiguration, McpMutationRequest, ModelProfileCreateInput, ModelProfileUpdateInput, OperationsTaskControlInput, PluginMarketplaceSourceSpec, PpxClientApi, RunEvent, RuntimeCommand, SendMessageInput, SessionMutationRequest, SetupApplyRequest, SlashCommandRequest } from "../../app/src/types";
+import type { AgentCreateRequest, AgentUpdateInput, AppConnectionEnablementRequest, AppConnectionRemoveRequest, AppConnectionSaveRequest, ArtifactSummary, ArtifactUploadInput, AutomationCreateInput, AutomationStatus, AutomationUpdateRequest, ConnectionSettings, CronCreateInput, CronUpdateInput, DesktopHostPreferences, DesktopPlatform, ExtensionEnablementRequest, ExtensionInstallRequest, ExtensionPreviewRequest, ExtensionRemoveRequest, GoalTransitionOperation, GoalUpdateRequest, HeartbeatConfiguration, McpMutationRequest, ModelProfileCreateInput, ModelProfileUpdateInput, OperationsTaskControlInput, PluginMarketplaceSourceSpec, PpxClientApi, RunEvent, RuntimeCommand, SendMessageInput, SessionMutationRequest, SetupApplyRequest, SlashCommandRequest } from "../../app/src/types";
 
 function desktopPlatform(): DesktopPlatform {
   if (process.platform === "darwin") {
@@ -66,6 +66,9 @@ const api: PpxClientApi = {
   deleteSession: (input: SessionMutationRequest) => ipcRenderer.invoke("ppx-client:delete-session", input),
   loadSession: (sessionId: string) => ipcRenderer.invoke("ppx-client:load-session", sessionId),
   getCurrentGoal: (sessionId: string) => ipcRenderer.invoke("ppx-client:get-current-goal", sessionId),
+  updateGoal: (input: GoalUpdateRequest) => ipcRenderer.invoke("ppx-client:update-goal", input),
+  transitionGoal: (operation: GoalTransitionOperation, goalId: string, expectedRevision: number) =>
+    ipcRenderer.invoke("ppx-client:transition-goal", operation, goalId, expectedRevision),
   listAutomations: (statuses?: AutomationStatus[]) => ipcRenderer.invoke("ppx-client:list-automations", statuses ?? []),
   getAutomation: (automationId: string) => ipcRenderer.invoke("ppx-client:get-automation", automationId),
   createAutomation: (input: AutomationCreateInput) => ipcRenderer.invoke("ppx-client:create-automation", input),

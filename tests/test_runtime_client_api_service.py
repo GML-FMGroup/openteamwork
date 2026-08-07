@@ -279,8 +279,9 @@ def test_project_session_event_builds_structured_parts() -> None:
     assert message["role"] == "assistant"
     assert message["parts"][0]["type"] == "markdown"
     assert message["parts"][1]["type"] == "step_ref"
-    assert message["parts"][2]["type"] == "step_ref"
-    assert message["parts"][3]["type"] == "tool_result"
+    assert message["parts"][2]["type"] == "tool_result"
+    assert message["parts"][2]["tool_call_id"] == "call_1"
+    assert len(message["parts"]) == 3
 
 
 def test_project_session_event_skips_thought_text() -> None:

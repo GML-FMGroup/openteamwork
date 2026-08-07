@@ -1,4 +1,5 @@
-import type { ArtifactSummary, ChatMessage, MessagePart } from "../types";
+import type { ArtifactSummary, ChatMessage } from "../types";
+import { projectActivityGroups } from "./activity-presentation";
 
 export interface ActivityItem {
   id: string;
@@ -7,6 +8,7 @@ export interface ActivityItem {
   detail: string;
   status: "running" | "completed" | "failed";
   messageId: string;
+  count: number;
 }
 
 export interface ArtifactItem {
@@ -21,57 +23,27 @@ export interface ArtifactItem {
   resource?: ArtifactSummary;
 }
 
-function activityFromPart(message: ChatMessage, part: MessagePart, index: number): ActivityItem | null {
-  if (part.type === "step_ref") {
-    return {
-      id: `step:${part.stepId}`,
-      kind: "step",
-      title: part.title,
-      detail: part.detail,
-      status: part.status,
-      messageId: message.id,
-    };
-  }
-  if (part.type === "tool_result") {
-    return {
-      id: `tool:${message.id}:${index}`,
-      kind: "tool",
-      title: part.toolName,
-      detail: part.detail ? `${part.summary}\n${part.detail}` : part.summary,
-      status: message.status === "failed" ? "failed" : "completed",
-      messageId: message.id,
-    };
-  }
-  if (part.type === "error") {
-    return {
-      id: `error:${message.id}:${index}`,
-      kind: "error",
-      title: part.errorCode || "Run error",
-      detail: part.text,
-      status: "failed",
-      messageId: message.id,
-    };
-  }
-  return null;
-}
-
 /** Project transcript parts into a stable, inspectable activity timeline. */
 export function projectActivityItems(messages: ChatMessage[]): ActivityItem[] {
-  const orderedIds: string[] = [];
-  const items = new Map<string, ActivityItem>();
-  messages.forEach((message) => {
-    message.parts.forEach((part, index) => {
-      const item = activityFromPart(message, part, index);
-      if (!item) {
-        return;
-      }
-      if (!items.has(item.id)) {
-        orderedIds.push(item.id);
-      }
-      items.set(item.id, item);
-    });
-  });
-  return orderedIds.map((id) => items.get(id)!).filter(Boolean);
+  const activity = projectActivityGroups(messages).map((group) => ({
+    id: `activity:${group.key}`,
+    kind: "tool" as const,
+    title: group.label,
+    detail: group.count > 1 ? group.countLabel : group.entries[0]?.detail || group.countLabel,
+    status: group.status,
+    messageId: group.messageId,
+    count: group.count,
+  }));
+  const errors = messages.flatMap((message) => message.parts.flatMap((part, index) => part.type === "error" ? [{
+    id: `error:${message.id}:${index}`,
+    kind: "error" as const,
+    title: part.errorCode || "Run error",
+    detail: part.text,
+    status: "failed" as const,
+    messageId: message.id,
+    count: 1,
+  }] : []));
+  return [...activity, ...errors];
 }
 
 /** Project existing file and image message parts without inventing an artifact backend. */

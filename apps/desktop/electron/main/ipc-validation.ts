@@ -1,4 +1,4 @@
-import type { AgentCreateRequest, AgentUpdateInput, AppConnectionEnablementRequest, AppConnectionRemoveRequest, AppConnectionSaveRequest, ArtifactSummary, ArtifactUploadInput, AutomationCreateInput, AutomationStatus, AutomationUpdateRequest, ConnectionSettings, CronCreateInput, CronUpdateInput, ExtensionEnablementRequest, ExtensionInstallRequest, ExtensionPreviewRequest, ExtensionRemoveRequest, HeartbeatConfiguration, McpMutationRequest, McpServerResource, McpValueBinding, ModelCapability, ModelProfileCreateInput, ModelProfileUpdateInput, OperationsTaskControlInput, PluginMarketplaceSourceSpec, RuntimeCommand, SendMessageInput, SessionMutationRequest, SetupApplyRequest, SlashCommandRequest } from "../../app/src/types";
+import type { AgentCreateRequest, AgentUpdateInput, AppConnectionEnablementRequest, AppConnectionRemoveRequest, AppConnectionSaveRequest, ArtifactSummary, ArtifactUploadInput, AutomationCreateInput, AutomationStatus, AutomationUpdateRequest, ConnectionSettings, CronCreateInput, CronUpdateInput, ExtensionEnablementRequest, ExtensionInstallRequest, ExtensionPreviewRequest, ExtensionRemoveRequest, GoalTransitionOperation, GoalUpdateRequest, HeartbeatConfiguration, McpMutationRequest, McpServerResource, McpValueBinding, ModelCapability, ModelProfileCreateInput, ModelProfileUpdateInput, OperationsTaskControlInput, PluginMarketplaceSourceSpec, RuntimeCommand, SendMessageInput, SessionMutationRequest, SetupApplyRequest, SlashCommandRequest } from "../../app/src/types";
 
 function record(value: unknown, label: string): Record<string, unknown> {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
@@ -120,6 +120,27 @@ export function validateAutomationRevision(value: unknown): number {
 
 export function validateAutomationInput(value: unknown): Record<string, unknown> {
   return boundedJsonRecord(value, "Automation input");
+}
+
+/** Validate one user-authored Goal objective and its optimistic revision. */
+export function validateGoalUpdateRequest(value: unknown): GoalUpdateRequest {
+  const input = record(value, "Goal update request");
+  return {
+    goalId: validateIdentifier(input.goalId, "Goal id"),
+    expectedRevision: integer(input.expectedRevision, "Goal revision", 1, Number.MAX_SAFE_INTEGER),
+    objective: string(input.objective, "Goal objective", 16_384),
+  };
+}
+
+export function validateGoalTransitionOperation(value: unknown): GoalTransitionOperation {
+  if (value !== "pause" && value !== "resume" && value !== "cancel") {
+    throw new TypeError("Goal transition is not supported.");
+  }
+  return value;
+}
+
+export function validateGoalRevision(value: unknown): number {
+  return integer(value, "Goal revision", 1, Number.MAX_SAFE_INTEGER);
 }
 
 /** Validate one durable Task control request from the isolated Renderer. */

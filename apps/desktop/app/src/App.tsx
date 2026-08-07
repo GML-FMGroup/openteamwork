@@ -323,6 +323,9 @@ export function App() {
                   stopping={workspace.cancellingCurrentRun}
                   helperText={workspace.sendError ?? ""}
                   agentName={workspaceAgentName}
+                  goal={workspace.currentGoal}
+                  goalMutation={workspace.goalMutation}
+                  goalMutationError={workspace.goalMutationError}
                   commands={workspace.slashCommands}
                   attachments={workspace.attachments}
                   onChange={workspace.setComposer}
@@ -334,6 +337,8 @@ export function App() {
                   onStop={() => void workspace.cancelCurrentRun()}
                   onAddAttachments={(files) => void workspace.addAttachments(files)}
                   onRemoveAttachment={workspace.removeAttachment}
+                  onUpdateGoal={workspace.updateCurrentGoal}
+                  onTransitionGoal={workspace.transitionCurrentGoal}
                 />
               </main>
             </div>
@@ -341,8 +346,6 @@ export function App() {
           <WorkspaceInspector
             sessionId={workspace.selectedSessionId}
             messages={workspace.messages}
-            running={workspace.currentSessionRunning}
-            goal={workspace.currentGoal}
             collapsed={inspectorCollapsed}
             artifacts={workspace.sessionArtifacts}
             onLoadArtifact={workspace.loadArtifactData}

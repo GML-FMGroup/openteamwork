@@ -31,23 +31,25 @@ const messages: ChatMessage[] = [
 ];
 
 describe("workspace inspector projections", () => {
-  it("updates repeated steps in place while preserving timeline order", () => {
+  it("updates repeated steps in place and presents standalone tools semantically", () => {
     expect(projectActivityItems(messages)).toEqual([
       {
-        id: "step:inspect",
-        kind: "step",
-        title: "Inspect repository",
-        detail: "Repository mapped",
+        id: "activity:inspect repository",
+        kind: "tool",
+        title: "Used Inspect repository",
+        detail: "1 action",
         status: "completed",
         messageId: "assistant-2",
+        count: 1,
       },
       {
-        id: "tool:assistant-1:1",
+        id: "activity:rg",
         kind: "tool",
-        title: "rg",
-        detail: "Found the UI entry points",
+        title: "Used Rg",
+        detail: "1 action",
         status: "completed",
         messageId: "assistant-1",
+        count: 1,
       },
     ]);
   });

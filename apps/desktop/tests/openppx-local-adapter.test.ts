@@ -35,15 +35,11 @@ describe("openppx local adapter projections", () => {
       status: "completed",
     });
     expect(parts[2]).toMatchObject({
-      type: "step_ref",
-      stepId: "call-1",
-      title: "inspect_workspace",
-      status: "completed",
-    });
-    expect(parts[3]).toMatchObject({
       type: "tool_result",
+      toolCallId: "call-1",
       toolName: "inspect_workspace",
     });
+    expect(parts).toHaveLength(3);
   });
 
   it("updates running tool cards from Node run events", () => {

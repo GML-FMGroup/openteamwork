@@ -67,6 +67,7 @@ export function normalizeClientApiPart(payload: unknown): MessagePart | null {
   if (type === "tool_result") {
     return {
       type,
+      toolCallId: asString(part.tool_call_id ?? part.toolCallId) || undefined,
       toolName: asString(part.tool_name ?? part.toolName, "tool"),
       summary: asString(part.summary, "Tool returned without a payload"),
       detail: asString(part.detail) || undefined,

@@ -83,11 +83,11 @@ def profile_payload() -> dict[str, object]:
     }
 
 
-def context(*, write: bool = True) -> ActionContext:
+def context(*, write: bool = True, request_id: str = "req_control_plane") -> ActionContext:
     capabilities = frozenset({"system.read", "config.read", "config.write", "flow.read", "flow.write", "goal.read", "goal.write", "model.read", "model.write", "model.use"})
     permissions = capabilities if write else frozenset({"system.read", "config.read", "flow.read", "goal.read", "model.read", "model.use"})
     return ActionContext(
-        request_id="req_control_plane",
+        request_id=request_id,
         correlation_id="corr_control_plane",
         actor_id="local:test",
         capabilities=capabilities,
@@ -196,6 +196,46 @@ def test_goal_slash_command_creates_goal_and_requests_one_normal_agent_turn(tmp_
     assert status.ok is True
     assert status.data["lifecycle"] == "side_channel"
     assert status.data["result"]["current"]["goalId"] == result["goalId"]
+
+
+def test_goal_conflict_explains_how_to_continue_or_cancel_current_goal(tmp_path: Path) -> None:
+    application = configured_application(tmp_path)
+    first = application.invoke(
+        "system.command.invoke",
+        {
+            "rawCommand": "/goal Prepare the existing release",
+            "userId": "local:test",
+            "agentId": "low-main",
+            "sessionId": "session-goal-conflict",
+        },
+        context(request_id="req_goal_first"),
+    )
+
+    conflict = application.invoke(
+        "system.command.invoke",
+        {
+            "rawCommand": "/goal Replace it with another objective",
+            "userId": "local:test",
+            "agentId": "low-main",
+            "sessionId": "session-goal-conflict",
+        },
+        context(request_id="req_goal_second"),
+    )
+
+    assert first.ok is True
+    assert conflict.ok is False
+    assert conflict.error is not None
+    assert conflict.error.code == "goal_active_exists"
+    assert "Prepare the existing release" in conflict.error.message
+    assert "/goal status" in conflict.error.message
+    assert "/goal resume" in conflict.error.message
+    assert "/goal cancel" in conflict.error.message
+    assert conflict.error.details["currentGoal"]["goalId"] == first.data["result"]["goalId"]
+    assert conflict.error.details["suggestedCommands"] == [
+        "/goal status",
+        "/goal resume",
+        "/goal cancel",
+    ]
 
 
 def configured_application(tmp_path: Path):

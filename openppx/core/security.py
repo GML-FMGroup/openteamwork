@@ -87,8 +87,8 @@ def _workspace_from_env() -> Path:
     return Path.cwd().resolve()
 
 
-def load_security_policy() -> SecurityPolicy:
-    """Load security policy from runtime environment."""
+def load_security_policy(*, workspace_root: Path | None = None) -> SecurityPolicy:
+    """Load Node limits with an optional explicit Agent Workspace binding."""
     restrict_to_workspace = env_enabled("OPENPPX_RESTRICT_TO_WORKSPACE", default=False)
     filesystem_access = os.getenv("OPENPPX_FILESYSTEM_ACCESS", "read_write").strip().lower() or "read_write"
     if filesystem_access not in {"read_only", "read_write"}:
@@ -98,7 +98,11 @@ def load_security_policy() -> SecurityPolicy:
     exec_allowlist = _parse_allowlist(os.getenv("OPENPPX_EXEC_ALLOWLIST", ""))
 
     return SecurityPolicy(
-        workspace_root=_workspace_from_env(),
+        workspace_root=(
+            workspace_root.expanduser().resolve(strict=False)
+            if workspace_root is not None
+            else _workspace_from_env()
+        ),
         restrict_to_workspace=restrict_to_workspace,
         filesystem_access=filesystem_access,
         allow_exec=allow_exec,

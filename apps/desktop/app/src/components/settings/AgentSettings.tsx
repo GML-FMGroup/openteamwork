@@ -58,7 +58,7 @@ export function AgentSettings({ selectedAgentId, modelProfiles, onWorkspaceChang
   }
 
   return (
-    <section className="settings-card agent-lifecycle-card">
+    <section className="settings-card settings-page-card agent-lifecycle-card">
       <div className="settings-card-heading">
         <div><h3>Agents</h3><p>Workspaces, permissions, instructions, and model policy owned by this Node.</p></div>
         <button className="secondary settings-quiet-button" onClick={() => void refresh()} disabled={busy}>Refresh</button>

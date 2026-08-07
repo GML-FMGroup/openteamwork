@@ -85,6 +85,7 @@ from ..runtime.staged_summary_eval import (
 from ..runtime.task_store import TaskEventStore, TaskStore, ToolCallRecordStore
 from ..runtime.paths import node_database_path
 from ..runtime.tool_context import get_route
+from ..runtime.tool_execution_context import current_tool_execution_context
 from ..core.security import PathGuard, SecurityPolicy, load_security_policy, validate_network_url
 from . import file_state
 
@@ -115,6 +116,9 @@ class SubagentSpawnRequest:
 
 
 def _security_policy() -> SecurityPolicy:
+    runtime_context = current_tool_execution_context()
+    if runtime_context is not None:
+        return runtime_context.security_policy
     return load_security_policy()
 
 

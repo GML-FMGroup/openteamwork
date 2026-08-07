@@ -15,6 +15,7 @@ from ..config import normalize_agent_privilege_level
 from ..core.mcp_registry import summarize_mcp_toolsets
 from ..extensions import ExtensionError, SkillSnapshot
 from ..runtime.goal_store import GoalStore
+from ..runtime.tool_execution_context import ToolExecutionContext, bind_tool_callable
 from ..tooling.goal_tools import GoalToolRuntimeSnapshot, build_goal_tools
 from ..tooling.skills_adapter import list_skills, read_skill
 from ..tooling.registry import (
@@ -118,9 +119,28 @@ def _cron_requires_confirmation(action: str, **_kwargs: Any) -> bool:
     return normalized in {"add", "remove"} and _confirm_high_risk_action(f"cron.{normalized}")
 
 
-def _confirmation_tool(func: Any, predicate: Any) -> FunctionTool:
+def _runtime_callable(func: Any, context: ToolExecutionContext | None) -> Any:
+    """Bind one function to immutable runtime facts when assembling a Runtime."""
+    return bind_tool_callable(func, context) if context is not None else func
+
+
+def _runtime_tool_entry(item: Any, context: ToolExecutionContext | None) -> Any:
+    """Bind a raw function entry while preserving already constructed ADK tools."""
+    if context is None or isinstance(item, FunctionTool) or not callable(item):
+        return item
+    return _runtime_callable(item, context)
+
+
+def _confirmation_tool(
+    func: Any,
+    predicate: Any,
+    context: ToolExecutionContext | None = None,
+) -> FunctionTool:
     """Wrap a Python function in ADK's native confirmation tool wrapper."""
-    return FunctionTool(func=func, require_confirmation=predicate)
+    return FunctionTool(
+        func=_runtime_callable(func, context),
+        require_confirmation=_runtime_callable(predicate, context),
+    )
 
 
 def _build_static_instruction() -> str:
@@ -136,6 +156,7 @@ def _build_tools(
     extension_tools: tuple[Any, ...] | None = None,
     skill_tools: tuple[Any, ...] | None = None,
     goal_tools: tuple[Any, ...] = (),
+    tool_execution_context: ToolExecutionContext | None = None,
 ) -> list[Any]:
     """Assemble tools from explicit snapshot policy and extension resources."""
     resolved_skill_tools = (list_skills, read_skill) if skill_tools is None else skill_tools
@@ -177,21 +198,34 @@ def _build_tools(
         send_task_input,
         interrupt_task,
         cancel_task,
-        _confirmation_tool(exec_command, exec_command_requires_confirmation),
-        _confirmation_tool(process_session, _process_requires_confirmation),
+        _confirmation_tool(
+            exec_command,
+            exec_command_requires_confirmation,
+            tool_execution_context,
+        ),
+        _confirmation_tool(
+            process_session,
+            _process_requires_confirmation,
+            tool_execution_context,
+        ),
         browser,
         check_browser_remote_job_protocol,
         list_browser_remote_jobs,
         list_browser_remote_providers,
         web_search,
         web_fetch,
-        _confirmation_tool(cron, _cron_requires_confirmation),
+        _confirmation_tool(cron, _cron_requires_confirmation, tool_execution_context),
     ]
     if _can_delegate(can_delegate):
-        base_tools.append(LongRunningFunctionTool(func=spawn_subagent))
+        base_tools.append(
+            LongRunningFunctionTool(
+                func=_runtime_callable(spawn_subagent, tool_execution_context)
+            )
+        )
     gui_enabled = _gui_builtin_tools_enabled() if include_gui_tools is None else include_gui_tools
     if gui_enabled:
         base_tools.extend([start_gui_task, computer_task, computer_use])
+    base_tools = [_runtime_tool_entry(item, tool_execution_context) for item in base_tools]
 
     resolved_privilege_level = _agent_privilege_level(privilege_level)
     if resolved_privilege_level == "low":
@@ -212,11 +246,17 @@ def _build_tools(
             "load_artifacts",
         }
         tools = [tool for tool in base_tools if _tool_name(tool) in allowed_names or isinstance(tool, PreloadMemoryTool)]
-        tools.extend(extension_tools or ())
+        tools.extend(
+            _runtime_tool_entry(item, tool_execution_context)
+            for item in (extension_tools or ())
+        )
         return tools
 
     tools = list(base_tools)
-    tools.extend(extension_tools or ())
+    tools.extend(
+        _runtime_tool_entry(item, tool_execution_context)
+        for item in (extension_tools or ())
+    )
     return tools
 
 
@@ -237,6 +277,10 @@ def build_root_agent(
     so it never discovers Provider credentials or MCP configuration itself.
     """
     agent_config = snapshot.agent
+    tool_execution_context = ToolExecutionContext.for_agent(
+        agent_id=agent_config.metadata.name,
+        workspace_root=agent_config.spec.workspace,
+    )
     resolved_skill_snapshot = skill_snapshot or SkillSnapshot.empty()
     delegation_override = agent_config.spec.permission_overrides.can_delegate
     if delegation_override is None:
@@ -271,6 +315,7 @@ def build_root_agent(
             extension_tools=extension_tools,
             skill_tools=_snapshot_skill_tools(resolved_skill_snapshot),
             goal_tools=resolved_goal_tools,
+            tool_execution_context=tool_execution_context,
         ),
     )
 

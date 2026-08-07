@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { ClipboardEvent, DragEvent, KeyboardEvent, RefObject } from "react";
-import type { ProjectedSlashCommand } from "../../types";
+import type { GoalDetail, GoalTransitionOperation, ProjectedSlashCommand } from "../../types";
 import type { PendingAttachment } from "../../hooks/use-desktop-workspace";
 import { ATTACHMENT_ACCEPT } from "../../attachment-policy";
+import { GoalStatusBar } from "./GoalStatusBar";
 
 const RECENT_COMMANDS_KEY = "openppx.desktop.recentSlashCommands.v1";
 
@@ -24,6 +25,9 @@ interface ComposerProps {
   stopping: boolean;
   helperText: string;
   agentName: string;
+  goal: GoalDetail | null;
+  goalMutation: "update" | GoalTransitionOperation | null;
+  goalMutationError: string | null;
   commands: ProjectedSlashCommand[];
   attachments: PendingAttachment[];
   onChange: (value: string) => void;
@@ -32,6 +36,8 @@ interface ComposerProps {
   onStop: () => void;
   onAddAttachments: (files: File[]) => void;
   onRemoveAttachment: (attachmentId: string) => void;
+  onUpdateGoal: (objective: string) => Promise<boolean>;
+  onTransitionGoal: (operation: GoalTransitionOperation) => Promise<boolean>;
 }
 
 /** Focused composer that only exposes controls backed by real behavior. */
@@ -44,6 +50,9 @@ export function Composer({
   stopping,
   helperText,
   agentName,
+  goal,
+  goalMutation,
+  goalMutationError,
   commands,
   attachments,
   onChange,
@@ -52,6 +61,8 @@ export function Composer({
   onStop,
   onAddAttachments,
   onRemoveAttachment,
+  onUpdateGoal,
+  onTransitionGoal,
 }: ComposerProps) {
   const [selectedCommandIndex, setSelectedCommandIndex] = useState(0);
   const [dismissedValue, setDismissedValue] = useState<string | null>(null);
@@ -170,6 +181,15 @@ export function Composer({
       }}
       onDrop={handleDrop}
     >
+      {goal ? (
+        <GoalStatusBar
+          goal={goal}
+          mutation={goalMutation}
+          error={goalMutationError}
+          onUpdate={onUpdateGoal}
+          onTransition={onTransitionGoal}
+        />
+      ) : null}
       {commandMenuOpen ? (
         <div className="command-palette" role="listbox" aria-label="Slash commands">
           <div className="command-palette-heading">

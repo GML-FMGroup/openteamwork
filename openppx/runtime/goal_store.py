@@ -499,6 +499,53 @@ class GoalStore:
             ).fetchone()
         return _goal_from_row(row) if row is not None else None
 
+    def reconcile_runtime(self) -> list[Goal]:
+        """Move orphaned active Goals to a resumable waiting state.
+
+        ADK Runs are process-owned executors. After a Node restart, an active
+        Goal whose TaskFlow has no persisted current Run cannot still be
+        executing. Reconciliation preserves the Goal and all evidence while
+        making that fact explicit instead of leaving a permanently active
+        record that blocks the Session.
+
+        A non-empty ``currentRunId`` is left unchanged because another runtime
+        reconciliation layer may still know how to recover it. This store does
+        not invent Run liveness or completion evidence.
+        """
+        with _connect(self._db_path) as conn:
+            rows = conn.execute(
+                "SELECT * FROM goals WHERE status = 'active' ORDER BY updated_at_ms ASC"
+            ).fetchall()
+        reconciled: list[Goal] = []
+        reason = (
+            "The Node restarted and no active ADK Run remains for this Goal. "
+            "Use /goal resume to continue or /goal cancel before creating another Goal."
+        )
+        for row in rows:
+            goal = _goal_from_row(row)
+            flow = self.flow_for_goal(goal.goal_id)
+            if flow is None:
+                continue
+            current_run_id = str(flow.recovery_state.get("currentRunId") or "").strip()
+            if current_run_id:
+                continue
+            try:
+                reconciled.append(
+                    self.transition_goal(
+                        goal.goal_id,
+                        status="waiting",
+                        expected_revision=goal.revision,
+                        actor_id="system:startup-reconciliation",
+                        reason=reason,
+                        correlation_id=f"goal-reconcile:{goal.goal_id}",
+                    )
+                )
+            except (GoalConflictError, GoalStateError):
+                # A concurrent lifecycle transition won the race; its fact is
+                # authoritative and must not be overwritten by startup repair.
+                continue
+        return reconciled
+
     def list_goals(
         self,
         *,

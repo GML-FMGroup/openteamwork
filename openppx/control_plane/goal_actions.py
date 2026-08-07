@@ -243,6 +243,29 @@ def _create_goal(
         return project_goal_detail(goal, flow)
     except ConfigError as exc:
         raise ActionFailure(ActionError("configuration_not_ready", "The Agent configuration is not ready for a Goal.")) from exc
+    except GoalActiveExistsError as exc:
+        current = store.current_goal(input_data.session_id)
+        if current is None or current.user_id != input_data.user_id:
+            _raise_goal_failure(exc)
+        objective = " ".join(current.objective.split())
+        if len(objective) > 160:
+            objective = f"{objective[:157].rstrip()}..."
+        message = (
+            f'This Session already has an unfinished Goal: "{objective}" ({current.status}). '
+            "Use /goal status, /goal resume, or /goal cancel before creating another Goal, "
+            "or start a new Session."
+        )
+        raise ActionFailure(
+            ActionError(
+                "goal_active_exists",
+                message,
+                details={
+                    "currentGoal": project_goal_summary(current),
+                    "suggestedCommands": ["/goal status", "/goal resume", "/goal cancel"],
+                    "canStartNewSession": True,
+                },
+            )
+        ) from exc
     except GoalStoreError as exc:
         _raise_goal_failure(exc)
 

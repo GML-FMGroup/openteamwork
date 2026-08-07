@@ -56,6 +56,8 @@ import type {
   ExtensionRemoveRequest,
   ExtensionSummary,
   GoalDetail,
+  GoalTransitionOperation,
+  GoalUpdateRequest,
   McpServerResource,
   McpMutationRequest,
   McpOAuthStatus,
@@ -838,6 +840,26 @@ export class OpenPpxLocalAdapter implements Omit<
       return { goal: null };
     }
     return { goal: (await this.goals.read(summary.goalId, LOCAL_USER_ID)).result };
+  }
+
+  /** Update one unfinished Goal without letting the Renderer choose its owner. */
+  public async updateGoal(input: GoalUpdateRequest): Promise<GoalDetail> {
+    await this.ensureClientApiAvailable();
+    return (await this.goals.update({ ...input, userId: LOCAL_USER_ID })).result;
+  }
+
+  /** Apply one explicit Goal lifecycle transition under optimistic concurrency. */
+  public async transitionGoal(
+    operation: GoalTransitionOperation,
+    goalId: string,
+    expectedRevision: number,
+  ): Promise<GoalDetail> {
+    await this.ensureClientApiAvailable();
+    return (await this.goals.transition(operation, {
+      goalId,
+      userId: LOCAL_USER_ID,
+      expectedRevision,
+    })).result;
   }
 
   /** List visible user Automations without exposing internal Cron records. */

@@ -3,6 +3,9 @@ import {
   validateConnectionSettings,
   validateAgentCreateRequest,
   validateExternalUrl,
+  validateGoalRevision,
+  validateGoalTransitionOperation,
+  validateGoalUpdateRequest,
   validateIdentifier,
   validateRuntimeCommand,
   validateProviderId,
@@ -67,6 +70,17 @@ describe("Electron IPC validation", () => {
   it("accepts well-formed renderer requests", () => {
     expect(validateRuntimeCommand("restart")).toBe("restart");
     expect(validateIdentifier("run-1", "Run id")).toBe("run-1");
+    expect(validateGoalUpdateRequest({
+      goalId: "goal-1",
+      expectedRevision: 3,
+      objective: "Ship the Goal controls",
+    })).toEqual({
+      goalId: "goal-1",
+      expectedRevision: 3,
+      objective: "Ship the Goal controls",
+    });
+    expect(validateGoalTransitionOperation("pause")).toBe("pause");
+    expect(validateGoalRevision(3)).toBe(3);
     expect(validateProviderId("openai_codex")).toBe("openai_codex");
     expect(validateModelProfileId("coding-primary")).toBe("coding-primary");
     expect(validateExternalUrl("https://auth.openai.com/codex/device")).toBe("https://auth.openai.com/codex/device");
@@ -301,6 +315,16 @@ describe("Electron IPC validation", () => {
       credentialValues: { token: "write-only-value" },
       expectedRevision: null,
     });
+  });
+
+  it("rejects invalid Goal mutations", () => {
+    expect(() => validateGoalUpdateRequest({
+      goalId: "goal-1",
+      expectedRevision: 0,
+      objective: "",
+    })).toThrow();
+    expect(() => validateGoalTransitionOperation("complete")).toThrow("Goal transition is not supported");
+    expect(() => validateGoalRevision("latest")).toThrow();
   });
 
   it("rejects malformed renderer requests before they reach services", () => {

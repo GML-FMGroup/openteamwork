@@ -10,6 +10,9 @@ import {
   validateAutomationRevision,
   validateAutomationStatuses,
   validateAutomationUpdateInput,
+  validateGoalRevision,
+  validateGoalTransitionOperation,
+  validateGoalUpdateRequest,
   validateAgentCreateRequest,
   validateAgentUpdateInput,
   validateArtifactSummaryInput,
@@ -297,6 +300,16 @@ app.whenReady().then(() => {
   );
   ipcMain.handle("ppx-client:get-current-goal", async (_event, sessionId: unknown) =>
     adapter!.getCurrentGoal(validateIdentifier(sessionId, "Session id")),
+  );
+  ipcMain.handle("ppx-client:update-goal", async (_event, input: unknown) =>
+    adapter!.updateGoal(validateGoalUpdateRequest(input)),
+  );
+  ipcMain.handle("ppx-client:transition-goal", async (_event, operation: unknown, goalId: unknown, expectedRevision: unknown) =>
+    adapter!.transitionGoal(
+      validateGoalTransitionOperation(operation),
+      validateIdentifier(goalId, "Goal id"),
+      validateGoalRevision(expectedRevision),
+    ),
   );
   ipcMain.handle("ppx-client:list-automations", async (_event, statuses: unknown) =>
     adapter!.listAutomations(validateAutomationStatuses(statuses)),

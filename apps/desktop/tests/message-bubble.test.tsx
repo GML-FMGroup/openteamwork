@@ -67,25 +67,24 @@ describe("MessageBubble", () => {
     await waitFor(() => expect(writeText).toHaveBeenCalledWith("Review the latest run"));
   });
 
-  it("renders localized role, step status, and streaming hint", () => {
+  it("renders a compact semantic activity disclosure while streaming", () => {
     const { container } = render(<MessageBubble message={buildMessage()} />);
 
     expect(screen.getAllByText("Agent")).toHaveLength(1);
-    expect(screen.getByText("Running")).toBeInTheDocument();
-    expect(screen.getByText("Preparing the result...")).toBeInTheDocument();
-    const detailBlock = container.querySelector(".step-card-detail");
-    expect(detailBlock?.textContent).toContain("path: README.md");
-    expect(detailBlock?.textContent).toContain("line: 12");
+    expect(screen.getAllByText("Reading a file")).toHaveLength(1);
+    expect(screen.getByText("1 file")).toBeInTheDocument();
+    expect(container.querySelector(".activity-disclosure")).not.toHaveAttribute("open");
+    expect(screen.queryByText("path: README.md")).not.toBeInTheDocument();
   });
 
   it("can hide repeated assistant identity for continued replies", () => {
     render(<MessageBubble message={buildMessage()} showIdentity={false} />);
 
     expect(screen.queryByText("Agent")).not.toBeInTheDocument();
-    expect(screen.getByText("Running")).toBeInTheDocument();
+    expect(screen.getAllByText("Reading a file")).toHaveLength(1);
   });
 
-  it("renders tool result and attachment cards", () => {
+  it("keeps tool results inside technical details and renders attachment cards", () => {
     render(
       <MessageBubble
         message={buildMessage({
@@ -116,13 +115,15 @@ describe("MessageBubble", () => {
       />,
     );
 
-    expect(screen.getByText("inspect_repo")).toBeInTheDocument();
-    expect(screen.getByText("View raw result")).toBeInTheDocument();
+    expect(screen.getByText("Used Inspect repo")).toBeInTheDocument();
+    expect(screen.queryByText("inspect_repo")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByText("Used Inspect repo"));
+    expect(screen.getByText("Technical details")).toBeInTheDocument();
     expect(screen.getByText("client_session_notes.md")).toBeInTheDocument();
     expect(screen.getByText("Open original")).toBeInTheDocument();
   });
 
-  it("renders completed status for finished steps", () => {
+  it("renders semantic completed status for finished steps", () => {
     render(
       <MessageBubble
         message={buildMessage({
@@ -140,11 +141,11 @@ describe("MessageBubble", () => {
       />,
     );
 
-    expect(screen.getByText("Completed")).toBeInTheDocument();
-    expect(screen.queryByText("Preparing the result...")).not.toBeInTheDocument();
+    expect(screen.getAllByText("Ran a local command")).toHaveLength(1);
+    expect(screen.queryByText("exec")).not.toBeInTheDocument();
   });
 
-  it("renders exec detail as one continuous block", () => {
+  it("keeps exec detail behind technical disclosure", () => {
     const { container } = render(
       <MessageBubble
         message={buildMessage({
@@ -162,10 +163,11 @@ describe("MessageBubble", () => {
       />,
     );
 
-    const detailBlocks = container.querySelectorAll(".step-card-detail");
-    expect(detailBlocks).toHaveLength(1);
-    expect(detailBlocks[0]?.textContent).toContain('"command": "ls -la"');
-    expect(detailBlocks[0]?.textContent).toContain('"cwd": "/workspace"');
+    expect(container.textContent).not.toContain('"command": "ls -la"');
+    fireEvent.click(screen.getByText("Ran a local command"));
+    fireEvent.click(screen.getByText("Technical details"));
+    expect(container.textContent).toContain('"command": "ls -la"');
+    expect(container.textContent).toContain('"cwd": "/workspace"');
   });
 
   it("renders explicit failed and cancelled status banners", () => {

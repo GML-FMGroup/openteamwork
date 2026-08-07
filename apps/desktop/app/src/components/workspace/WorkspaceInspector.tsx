@@ -1,10 +1,9 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import {
-  projectActivityItems,
   mergeArtifactResources,
   type ArtifactItem,
 } from "../../lib/workspace-inspector";
-import type { ArtifactSummary, ChatMessage, GoalDetail } from "../../types";
+import type { ArtifactSummary, ChatMessage } from "../../types";
 import { ShellIcon } from "./ContextSidebar";
 
 function formatBytes(value: number | undefined): string {
@@ -87,8 +86,6 @@ function InspectorSection({
 interface WorkspaceInspectorProps {
   sessionId: string;
   messages: ChatMessage[];
-  running: boolean;
-  goal?: GoalDetail | null;
   collapsed: boolean;
   artifacts?: ArtifactSummary[];
   onLoadArtifact?: (artifact: ArtifactSummary) => Promise<string>;
@@ -98,15 +95,12 @@ interface WorkspaceInspectorProps {
 export function WorkspaceInspector({
   sessionId,
   messages,
-  running,
-  goal = null,
   collapsed,
   artifacts: artifactResources = [],
   onLoadArtifact,
 }: WorkspaceInspectorProps) {
-  const [open, setOpen] = useState({ progress: true, artifacts: true });
+  const [artifactsOpen, setArtifactsOpen] = useState(true);
   const [selectedArtifact, setSelectedArtifact] = useState<ArtifactItem | null>(null);
-  const activity = useMemo(() => projectActivityItems(messages), [messages]);
   const artifacts = useMemo(() => mergeArtifactResources(messages, artifactResources), [messages, artifactResources]);
 
   async function openArtifact(artifact: ArtifactItem): Promise<void> {
@@ -175,79 +169,10 @@ export function WorkspaceInspector({
     <aside className="workspace-inspector" aria-label="Task panel">
       <div className="inspector-body rail-sections">
         <InspectorSection
-          title="Progress"
-          open={open.progress}
-          onToggle={() => setOpen((current) => ({ ...current, progress: !current.progress }))}
-        >
-          {goal ? (
-            <div className="goal-summary" data-goal-status={goal.status}>
-              <div className="goal-summary-heading">
-                <span className="goal-state-dot" />
-                <div>
-                  <small>{goal.status === "waiting" ? "WAITING" : goal.status.toUpperCase()}</small>
-                  <strong>{goal.objective}</strong>
-                </div>
-              </div>
-              {goal.flow?.steps.length ? (
-                <ol className="goal-step-list">
-                  {goal.flow.steps.map((step) => (
-                    <li key={step.stepId} data-step-status={step.status}>
-                      <span className="goal-step-marker" />
-                      <span>{step.title}</span>
-                    </li>
-                  ))}
-                </ol>
-              ) : null}
-              {Object.keys(goal.flow?.waitReason ?? {}).length ? (
-                <p className="goal-wait-reason">
-                  {String(goal.flow?.waitReason.message ?? goal.flow?.waitReason.reason ?? "Waiting to continue")}
-                </p>
-              ) : null}
-              {goal.completionCriteria.length ? (
-                <p className="goal-criteria">
-                  {goal.completionCriteria.length} completion {goal.completionCriteria.length === 1 ? "criterion" : "criteria"}
-                </p>
-              ) : null}
-            </div>
-          ) : null}
-          <div className={`run-summary ${running ? "running" : "idle"}`}>
-            <span className="run-orbit" />
-            <div>
-              <small>CURRENT RUN</small>
-              <strong>
-                {running ? "Agent is running" : activity.length ? "Latest run finished" : "Waiting for a task"}
-              </strong>
-            </div>
-          </div>
-          {activity.length ? (
-            <ol className="activity-list">
-              {activity.map((item, index) => (
-                <li key={item.id} className={item.status}>
-                  <button onClick={() => locateMessage(item.messageId)}>
-                    <span className="activity-index">
-                      {String(index + 1).padStart(2, "0")}
-                    </span>
-                    <span className="activity-copy">
-                      <strong>{item.title}</strong>
-                      <small>{item.detail || item.kind}</small>
-                    </span>
-                    <span className={`activity-state ${item.status}`} />
-                  </button>
-                </li>
-              ))}
-            </ol>
-          ) : (
-            <p className="rail-section-empty">
-              Plans and tool activity will appear here.
-            </p>
-          )}
-        </InspectorSection>
-
-        <InspectorSection
           title="Artifacts"
           count={artifacts.length}
-          open={open.artifacts}
-          onToggle={() => setOpen((current) => ({ ...current, artifacts: !current.artifacts }))}
+          open={artifactsOpen}
+          onToggle={() => setArtifactsOpen((current) => !current)}
         >
           {artifacts.length ? (
             <div className="artifact-list">

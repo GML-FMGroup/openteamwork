@@ -31,7 +31,7 @@ export function PreferencesSettings({ preferences, onChange, onRequestNotificati
     : [preferences.timezone, ...COMMON_TIMEZONES];
 
   return (
-    <section className="settings-card settings-card-preferences">
+    <section className="settings-card settings-page-card settings-card-preferences">
       <div className="settings-card-heading">
         <div>
           <h3>Preferences</h3>

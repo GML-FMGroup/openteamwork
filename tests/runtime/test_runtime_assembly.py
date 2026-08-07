@@ -174,6 +174,53 @@ def test_snapshot_builds_real_adk_runner_and_completes_hello_without_env_project
     assert dict(os.environ) == before
 
 
+def test_assembled_runtime_binds_core_tools_to_agent_workspace(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Production Agent assembly must not inherit the Node process directory."""
+    config_service, secrets = _configured(tmp_path)
+    current = config_service.repository.read_agent("low-main")
+    workspace = tmp_path / "selected-workspace"
+    workspace.mkdir()
+    updated = current.document.model_copy(
+        update={
+            "spec": current.document.spec.model_copy(
+                update={
+                    "workspace": str(workspace),
+                    "privilege_level": "medium",
+                }
+            )
+        }
+    )
+    config_service.apply_agent(
+        "low-main",
+        updated,
+        expected_revision=current.revision,
+    )
+    ambient = tmp_path / "ambient"
+    node_cwd = tmp_path / "node-cwd"
+    ambient.mkdir()
+    node_cwd.mkdir()
+    monkeypatch.setenv("OPENPPX_WORKSPACE", str(ambient))
+    monkeypatch.chdir(node_cwd)
+    assembler = RuntimeAssembler(
+        node_root=tmp_path,
+        secret_store=secrets,
+        model_factory=lambda _resolution: _HelloLlm(model="hello-model"),
+    )
+
+    runtime = assembler.assemble(config_service.snapshot("low-main"))
+    write = _tool_function(runtime.agent, "write_file")
+    execute = _tool_function(runtime.agent, "exec")
+
+    assert "Successfully wrote" in write("result.md", "runtime workspace")
+    assert execute("pwd").strip() == str(workspace)
+    assert (workspace / "result.md").read_text(encoding="utf-8") == "runtime workspace"
+    assert not (ambient / "result.md").exists()
+    assert not (node_cwd / "result.md").exists()
+
+
 def test_supervisor_reuses_exact_snapshot_and_refreshes_after_config_change(tmp_path: Path) -> None:
     config_service, secrets = _configured(tmp_path)
     assembler = RuntimeAssembler(

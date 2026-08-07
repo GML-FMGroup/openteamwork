@@ -142,14 +142,8 @@ export function buildMessagePartsFromSessionEvent(event: Record<string, unknown>
       const response = functionResponse.response ?? {};
       const toolName = String(functionResponse.name ?? functionResponse.id ?? "Tool response");
       messageParts.push({
-        type: "step_ref",
-        stepId: String(functionResponse.id ?? toolName),
-        title: toolName,
-        status: "completed",
-        detail: previewValue(response, "Tool returned without a payload"),
-      });
-      messageParts.push({
         type: "tool_result",
+        toolCallId: typeof functionResponse.id === "string" ? functionResponse.id : undefined,
         toolName,
         summary: summarizeToolResponse(toolName, response),
         detail: previewValue(response, "Tool returned without a payload"),
@@ -199,12 +193,15 @@ export function projectRunEventToStepParts(
 
     const functionResponse = asRecord(part.function_response);
     if (functionResponse) {
-      const stepId = String(functionResponse.id ?? crypto.randomUUID());
-      const existing = nextParts.find((item) => item.stepId === stepId);
+      const responseName = String(functionResponse.name ?? "Tool response");
+      const explicitStepId = typeof functionResponse.id === "string" ? functionResponse.id : "";
+      const existing = (explicitStepId ? nextParts.find((item) => item.stepId === explicitStepId) : undefined)
+        ?? [...nextParts].reverse().find((item) => item.title === responseName && item.status === "running");
+      const stepId = existing?.stepId ?? (explicitStepId || crypto.randomUUID());
       nextParts = upsertStepPart(nextParts, {
         type: "step_ref",
         stepId,
-        title: existing?.title ?? String(functionResponse.name ?? "Tool response"),
+        title: existing?.title ?? responseName,
         status: "completed",
         detail: previewValue(functionResponse.response, "Tool returned without a payload"),
       });

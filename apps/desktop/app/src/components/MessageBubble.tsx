@@ -2,6 +2,8 @@ import { useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type { ChatMessage, MessagePart } from "../types";
+import { projectActivityGroups, type ActivityGroup } from "../lib/activity-presentation";
+import { ActivityDisclosure } from "./ActivityDisclosure";
 
 function roleLabel(role: ChatMessage["role"]): string {
   if (role === "user") {
@@ -29,16 +31,6 @@ function copyableMessageText(message: ChatMessage): string {
     })
     .filter(Boolean)
     .join("\n\n");
-}
-
-function stepStatusLabel(status: Extract<MessagePart, { type: "step_ref" }>["status"]): string {
-  if (status === "running") {
-    return "Running";
-  }
-  if (status === "failed") {
-    return "Failed";
-  }
-  return "Completed";
 }
 
 function messageStatusLabel(status: ChatMessage["status"]): string | null {
@@ -134,60 +126,24 @@ function renderPart(part: MessagePart) {
       </div>
     );
   }
-  if (part.type === "tool_result") {
-    return (
-      <div className="tool-result-card">
-        <div className="tool-result-header">
-          <div>
-            <strong>{part.toolName}</strong>
-            <span>Tool result</span>
-          </div>
-          <span className="asset-badge">Completed</span>
-        </div>
-        <p>{part.summary}</p>
-        {part.detail ? <small>{part.detail}</small> : null}
-        {part.rawText ? (
-          <details className="tool-result-raw">
-            <summary>View raw result</summary>
-            <pre>
-              <code>{part.rawText}</code>
-            </pre>
-          </details>
-        ) : null}
-      </div>
-    );
-  }
-  const detailText = part.detail
-    .split("\n")
-    .map((line) => line.trimEnd())
-    .filter((line, index, all) => line || (index > 0 && index < all.length - 1))
-    .join("\n");
-  return (
-    <div className={`step-card ${part.status}`}>
-      <div className="step-card-header">
-        <div className="step-card-title">
-          <span className={`step-status-dot ${part.status}`} />
-          <strong>{part.title}</strong>
-        </div>
-        <span className={`step-status-badge ${part.status}`}>{stepStatusLabel(part.status)}</span>
-      </div>
-      <div className="step-card-body">
-        {part.status === "running" ? (
-          <div className="step-progress-bar" aria-hidden="true">
-            <span />
-          </div>
-        ) : null}
-        {detailText ? <pre className="step-card-detail">{detailText}</pre> : null}
-      </div>
-    </div>
-  );
+  return null;
 }
 
-export function MessageBubble({ message, showIdentity = true }: { message: ChatMessage; showIdentity?: boolean }) {
+export function MessageBubble({
+  message,
+  showIdentity = true,
+  activityGroups: activityGroupsOverride,
+}: {
+  message: ChatMessage;
+  showIdentity?: boolean;
+  activityGroups?: ActivityGroup[];
+}) {
   const [copied, setCopied] = useState(false);
   const statusLabel = messageStatusLabel(message.status);
   const isAssistant = message.role === "assistant";
   const isUser = message.role === "user";
+  const activityGroups = activityGroupsOverride ?? projectActivityGroups([message]);
+  const contentParts = message.parts.filter((part) => part.type !== "step_ref" && part.type !== "tool_result");
   const timestamp = new Date(message.createdAt).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" });
 
   async function copyMessage(): Promise<void> {
@@ -217,10 +173,13 @@ export function MessageBubble({ message, showIdentity = true }: { message: ChatM
         </div>
       ) : null}
       <div className="message-body">
-        {message.parts.map((part, index) => (
+        {activityGroups.length ? (
+          <ActivityDisclosure groups={activityGroups} streaming={message.status === "streaming"} />
+        ) : null}
+        {contentParts.map((part, index) => (
           <div key={`${message.id}-${index}`}>{renderPart(part)}</div>
         ))}
-        {message.status === "streaming" ? <div className="streaming-indicator">Preparing the result...</div> : null}
+        {message.status === "streaming" && !activityGroups.length ? <div className="streaming-indicator">Preparing the result...</div> : null}
         {statusLabel ? <div className={`message-status-banner ${message.status}`}>{statusLabel}</div> : null}
       </div>
       {isUser ? (

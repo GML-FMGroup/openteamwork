@@ -5,6 +5,7 @@ import type {
   BootstrapPayload,
   ClientDiagnostics,
   ExtensionSummary,
+  GoalDetail,
   PpxClientApi,
   ProjectedSlashCommand,
   RunEvent,
@@ -386,6 +387,12 @@ function installClient(overrides: Partial<PpxClientApi> = {}): { client: PpxClie
     deleteSession: async ({ sessionId }) => ({ sessionId, deleted: true }),
     loadSession: async () => ({ messages: [] }),
     getCurrentGoal: async () => ({ goal: null }),
+    updateGoal: async () => {
+      throw new Error("No fixture Goal configured.");
+    },
+    transitionGoal: async () => {
+      throw new Error("No fixture Goal configured.");
+    },
     listAutomations: async () => ({ automations: [] }),
     getAutomation: async () => {
       throw new Error("No fixture Automation configured.");
@@ -1111,6 +1118,66 @@ describe("App sending state", () => {
     await screen.findByRole("button", { name: "Send" });
   });
 
+  it("shows and controls the current Goal from the composer", async () => {
+    let goalState: GoalDetail = {
+      goalId: "goal-1",
+      sessionId: "session-a",
+      agentId: "agent-1",
+      userId: "ppx-client-user",
+      objective: "Research Goal controls",
+      status: "active",
+      revision: 2,
+      activeFlowId: "",
+      completionCriteria: [],
+      budgetState: {},
+      createdAtMs: 1,
+      updatedAtMs: 2,
+      completedAtMs: null,
+      cancelledAtMs: null,
+      workspaceRef: "",
+      constraints: [],
+      budgetPolicy: {},
+      permissionRevision: "",
+      modelProfileRevision: "",
+      extensionSnapshotDigest: "",
+      completionEvidence: [],
+      correlationId: "correlation-1",
+      createdBy: "ppx-client-user",
+      flow: null,
+    };
+    const updateGoal = vi.fn(async (input: Parameters<PpxClientApi["updateGoal"]>[0]) => {
+      goalState = { ...goalState, objective: input.objective, revision: goalState.revision + 1 };
+      return goalState;
+    });
+    const transitionGoal = vi.fn(async (operation: Parameters<PpxClientApi["transitionGoal"]>[0]) => {
+      goalState = { ...goalState, status: operation === "pause" ? "paused" : "active", revision: goalState.revision + 1 };
+      return goalState;
+    });
+    installClient({
+      getCurrentGoal: async () => ({ goal: goalState }),
+      updateGoal,
+      transitionGoal,
+    });
+    render(<App />);
+
+    const status = await screen.findByRole("region", { name: "Current Goal" });
+    expect(within(status).getByText("Pursuing goal")).toBeInTheDocument();
+    fireEvent.click(within(status).getByRole("button", { name: "Edit" }));
+    fireEvent.change(await within(status).findByRole("textbox", { name: "Goal objective" }), {
+      target: { value: "Ship Goal controls" },
+    });
+    fireEvent.click(within(status).getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(updateGoal).toHaveBeenCalledWith({
+      goalId: "goal-1",
+      expectedRevision: 2,
+      objective: "Ship Goal controls",
+    }));
+
+    fireEvent.click(within(status).getByRole("button", { name: "Pause" }));
+    await waitFor(() => expect(transitionGoal).toHaveBeenCalledWith("pause", "goal-1", 3));
+    expect(await within(status).findByText("Goal paused")).toBeInTheDocument();
+  });
+
   it("sends on Enter and keeps Shift+Enter for newline", async () => {
     const sendMessage = vi.fn(async () => ({ runId: "run-1" }));
     installClient({ sendMessage });
@@ -1170,6 +1237,29 @@ describe("App sending state", () => {
       });
     });
     expect(await screen.findByText("Node status: ready · Studio Node")).toBeInTheDocument();
+  });
+
+  it("removes Electron transport wording from slash command errors", async () => {
+    installClient({
+      listSlashCommands: async () => ({ commands: buildSlashCommands() }),
+      invokeSlashCommand: async () => {
+        throw new Error(
+          "Error invoking remote method 'ppx-client:invoke-slash-command': ClientApiRequestError: This Session already has an unfinished Goal. Use /goal status or /goal cancel.",
+        );
+      },
+    });
+    render(<App />);
+
+    const composer = await screen.findByPlaceholderText("Describe the outcome you want...");
+    fireEvent.change(composer, { target: { value: "/goal Start another objective" } });
+    fireEvent.keyDown(composer, { key: "Enter" });
+
+    expect(
+      await screen.findByText(
+        "This Session already has an unfinished Goal. Use /goal status or /goal cancel.",
+      ),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/Error invoking remote method/)).not.toBeInTheDocument();
   });
 
   it("orders recent commands first and explains unavailable commands", async () => {
@@ -1477,7 +1567,7 @@ describe("App sending state", () => {
     expect(within(transcript!).getAllByText("Agent")).toHaveLength(1);
   });
 
-  it("switches transcript, progress, and artifacts together when selecting an Agent", async () => {
+  it("switches transcript and artifacts together when selecting an Agent", async () => {
     const bootstrap = buildBootstrapPayload();
     const secondSession: SessionSummary = {
       id: "session-agent-2",
@@ -1543,7 +1633,8 @@ describe("App sending state", () => {
 
     await screen.findByText("Agent 1 transcript");
     let taskPanel = screen.getByLabelText("Task panel");
-    expect(within(taskPanel).getByText("Agent 1 progress")).toBeInTheDocument();
+    expect(within(taskPanel).queryByText("Activity details")).not.toBeInTheDocument();
+    expect(within(taskPanel).queryByText("Used Agent 1 progress")).not.toBeInTheDocument();
     expect(within(taskPanel).getByText("agent-1.txt")).toBeInTheDocument();
 
     const agentTrigger = screen.getByRole("button", { name: /Agent 1 Local test agent/ });
@@ -1568,7 +1659,8 @@ describe("App sending state", () => {
     expect(screen.queryByRole("heading", { name: "Connection" })).not.toBeInTheDocument();
     taskPanel = screen.getByLabelText("Task panel");
     expect(screen.queryByText("Agent 1 transcript")).not.toBeInTheDocument();
-    expect(within(taskPanel).getByText("Agent 2 progress")).toBeInTheDocument();
+    expect(within(taskPanel).queryByText("Activity details")).not.toBeInTheDocument();
+    expect(within(taskPanel).queryByText("Used Agent 2 progress")).not.toBeInTheDocument();
     expect(within(taskPanel).getByText("agent-2.txt")).toBeInTheDocument();
     expect(within(taskPanel).queryByText("Agent 1 progress")).not.toBeInTheDocument();
     expect(within(taskPanel).queryByText("agent-1.txt")).not.toBeInTheDocument();
@@ -1849,6 +1941,23 @@ describe("App sending state", () => {
     expect(document.querySelectorAll(".settings-column")).toHaveLength(0);
     expect(screen.queryByText("detail")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Refresh" })).toBeInTheDocument();
+  });
+
+  it("spans standalone Agent and Preferences views across the Settings content grid", async () => {
+    installClient();
+
+    render(<App />);
+
+    await screen.findByRole("button", { name: "Send" });
+    await openSettings();
+
+    fireEvent.click(screen.getByRole("button", { name: "Agent" }));
+    const agentHeading = await screen.findByRole("heading", { name: "Agents" });
+    expect(agentHeading.closest(".settings-card")).toHaveClass("settings-page-card", "agent-lifecycle-card");
+
+    fireEvent.click(screen.getByRole("button", { name: "Preferences" }));
+    const preferencesHeading = await screen.findByRole("heading", { name: "Preferences" });
+    expect(preferencesHeading.closest(".settings-card")).toHaveClass("settings-page-card", "settings-card-preferences");
   });
 
   it("groups Node extensions and changes enablement for the selected agent", async () => {

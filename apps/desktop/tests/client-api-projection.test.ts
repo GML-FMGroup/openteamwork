@@ -83,6 +83,7 @@ describe("client api projection helpers", () => {
   it("normalizes tool result parts", () => {
     const part = normalizeClientApiPart({
       type: "tool_result",
+      tool_call_id: "call-1",
       tool_name: "inspect_repo",
       summary: "inspect_repo returned successfully.",
       detail: "2 files changed",
@@ -91,6 +92,7 @@ describe("client api projection helpers", () => {
 
     expect(part).toMatchObject({
       type: "tool_result",
+      toolCallId: "call-1",
       toolName: "inspect_repo",
       summary: "inspect_repo returned successfully.",
       detail: "2 files changed",

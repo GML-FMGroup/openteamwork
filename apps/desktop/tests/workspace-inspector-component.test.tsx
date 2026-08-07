@@ -30,27 +30,26 @@ const messages: ChatMessage[] = [
 ];
 
 describe("WorkspaceInspector", () => {
-  it("renders Progress and Artifacts as independent disclosure sections", () => {
+  it("renders Artifacts without duplicating conversation progress", () => {
     render(
       <WorkspaceInspector
         sessionId="session-1"
         messages={messages}
-        running={false}
         collapsed={false}
       />,
     );
 
     const taskPanel = screen.getByLabelText("Task panel");
-    expect(within(taskPanel).queryByRole("tab")).not.toBeInTheDocument();
-    expect(within(taskPanel).getByText("Inspect repository")).toBeInTheDocument();
+    expect(within(taskPanel).queryByRole("button", { name: "Progress" })).not.toBeInTheDocument();
+    expect(within(taskPanel).queryByText("Activity details")).not.toBeInTheDocument();
+    expect(within(taskPanel).queryByText("Used Inspect repository")).not.toBeInTheDocument();
     expect(within(taskPanel).getByText("notes.md")).toBeInTheDocument();
 
-    const progressToggle = within(taskPanel).getByRole("button", { name: "Progress" });
-    fireEvent.click(progressToggle);
+    const artifactsToggle = within(taskPanel).getByRole("button", { name: "Artifacts (1)" });
+    fireEvent.click(artifactsToggle);
 
-    expect(progressToggle).toHaveAttribute("aria-expanded", "false");
-    expect(within(taskPanel).queryByText("Inspect repository")).not.toBeInTheDocument();
-    expect(within(taskPanel).getByText("notes.md")).toBeInTheDocument();
+    expect(artifactsToggle).toHaveAttribute("aria-expanded", "false");
+    expect(within(taskPanel).queryByText("notes.md")).not.toBeInTheDocument();
   });
 
   it("removes the panel completely when collapsed", () => {
@@ -58,7 +57,6 @@ describe("WorkspaceInspector", () => {
       <WorkspaceInspector
         sessionId="session-1"
         messages={messages}
-        running={false}
         collapsed={false}
       />,
     );
@@ -67,7 +65,6 @@ describe("WorkspaceInspector", () => {
       <WorkspaceInspector
         sessionId="session-1"
         messages={messages}
-        running={false}
         collapsed
       />,
     );
@@ -82,7 +79,6 @@ describe("WorkspaceInspector", () => {
       <WorkspaceInspector
         sessionId="session-1"
         messages={[]}
-        running={false}
         collapsed={false}
         artifacts={[{
           id: "artifact-1",
@@ -141,7 +137,6 @@ describe("WorkspaceInspector", () => {
       <WorkspaceInspector
         sessionId="session-1"
         messages={[]}
-        running={false}
         collapsed={false}
         artifacts={artifacts}
         onLoadArtifact={onLoadArtifact}
@@ -161,7 +156,6 @@ describe("WorkspaceInspector", () => {
       <WorkspaceInspector
         sessionId="session-2"
         messages={[]}
-        running={false}
         collapsed={false}
         artifacts={artifacts}
         onLoadArtifact={onLoadArtifact}

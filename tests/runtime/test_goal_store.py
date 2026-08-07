@@ -280,6 +280,51 @@ def test_runtime_wait_and_pause_leave_goal_resumable_with_reason(tmp_path) -> No
     assert paused_flow.wait_reason == {"kind": "paused", "message": "run stopped"}
 
 
+def test_runtime_reconciliation_moves_orphaned_active_goal_to_waiting(tmp_path) -> None:
+    store = GoalStore(db_path=tmp_path / "goals.db")
+    goal, _flow = store.create_goal(
+        session_id="session-orphaned",
+        agent_id="main",
+        user_id="local:user",
+        objective="Continue after a Node restart",
+        created_by="local:user",
+    )
+    store.record_run_fact(
+        session_id=goal.session_id,
+        run_id="run-finished-before-restart",
+        status="completed",
+    )
+
+    reconciled = store.reconcile_runtime()
+
+    assert [item.goal_id for item in reconciled] == [goal.goal_id]
+    current = store.current_goal(goal.session_id)
+    assert current is not None and current.status == "waiting"
+    flow = store.flow_for_goal(goal.goal_id)
+    assert flow is not None
+    assert flow.status == "waiting"
+    assert "Node restarted" in flow.wait_reason["message"]
+
+
+def test_runtime_reconciliation_preserves_goal_with_persisted_active_run(tmp_path) -> None:
+    store = GoalStore(db_path=tmp_path / "goals.db")
+    goal, _flow = store.create_goal(
+        session_id="session-running",
+        agent_id="main",
+        user_id="local:user",
+        objective="Keep the active Run",
+        created_by="local:user",
+    )
+    store.record_run_fact(
+        session_id=goal.session_id,
+        run_id="run-active",
+        status="running",
+    )
+
+    assert store.reconcile_runtime() == []
+    assert store.get_goal(goal.goal_id).status == "active"  # type: ignore[union-attr]
+
+
 def test_advancing_waiting_flow_restores_active_state(tmp_path) -> None:
     store = GoalStore(db_path=tmp_path / "goals.db")
     _goal, flow = store.create_goal(
