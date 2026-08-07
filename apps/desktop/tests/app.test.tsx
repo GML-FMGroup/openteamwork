@@ -1205,6 +1205,34 @@ describe("App sending state", () => {
     expect(sendMessage).toHaveBeenCalledTimes(1);
   });
 
+  it("sorts mixed timezone timestamps and moves the active Session to the top on send", async () => {
+    const payload = buildBootstrapPayload();
+    payload.sessions = [
+      { ...payload.sessions[0], updatedAt: "2026-08-07T16:00:00+08:00" },
+      { ...payload.sessions[1], updatedAt: "2026-08-07T09:00:00Z" },
+    ];
+    const sendMessage = vi.fn(async () => ({ runId: "run-recency" }));
+    installClient({
+      bootstrap: async () => payload,
+      sendMessage,
+    });
+
+    render(<App />);
+
+    const sessionA = await screen.findByRole("button", { name: /Session A/ });
+    const sessionB = screen.getByRole("button", { name: /Session B/ });
+    expect(sessionB.compareDocumentPosition(sessionA) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+
+    const composer = screen.getByPlaceholderText("Describe the outcome you want...");
+    fireEvent.change(composer, { target: { value: "Make Session A recent" } });
+    fireEvent.keyDown(composer, { key: "Enter", code: "Enter", charCode: 13 });
+
+    await waitFor(() => expect(sendMessage).toHaveBeenCalledTimes(1));
+    await waitFor(() => {
+      expect(sessionA.compareDocumentPosition(sessionB) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    });
+  });
+
   it("navigates the slash command palette and invokes structured commands", async () => {
     const invokeSlashCommand = vi.fn(async () => ({
       command: "/status",

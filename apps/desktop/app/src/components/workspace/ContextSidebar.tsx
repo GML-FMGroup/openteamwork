@@ -14,6 +14,7 @@ import type {
   SessionSummary,
   UserProfile,
 } from "../../types";
+import { sortSessionsByRecency } from "../../lib/session-order";
 
 type ShellIconName = "settings" | "extensions" | "automations" | "expand" | "search" | "plus" | "sidebar" | "sidebar-right" | "more";
 
@@ -223,12 +224,14 @@ export function ContextSidebar({
   const filteredSessions = useMemo(() => {
     const normalized = query.trim().toLowerCase();
     if (!normalized) {
-      return sessions.filter((session) => showArchived || !session.archived);
+      return sortSessionsByRecency(sessions.filter((session) => showArchived || !session.archived));
     }
-    return sessions.filter((session) => (showArchived || !session.archived) && (() => {
-      const preview = visibleSessionPreview(session.lastMessagePreview);
-      return `${session.title} ${preview}`.toLowerCase().includes(normalized);
-    })());
+    return sortSessionsByRecency(
+      sessions.filter((session) => (showArchived || !session.archived) && (() => {
+        const preview = visibleSessionPreview(session.lastMessagePreview);
+        return `${session.title} ${preview}`.toLowerCase().includes(normalized);
+      })()),
+    );
   }, [query, sessions, showArchived]);
   const selectedAgent = useMemo(
     () => agents.find((agent) => agent.id === selectedAgentId) ?? null,

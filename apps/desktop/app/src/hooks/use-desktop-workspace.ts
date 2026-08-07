@@ -33,6 +33,7 @@ import {
   MAX_MESSAGE_ATTACHMENTS,
 } from "../attachment-policy";
 import { normalizeConnectionSettings } from "../lib/connection-profile";
+import { sortSessionsByRecency } from "../lib/session-order";
 import { LOCAL_USER_ID } from "../types";
 import { useActiveRuns } from "./use-active-runs";
 import { useConnectionRecovery } from "./use-connection-recovery";
@@ -531,13 +532,13 @@ export function useDesktopWorkspace() {
       } else if (event.type === "session.updated") {
         if (event.session.agentId === selectedAgentIdRef.current) {
           setSessions((current) =>
-            [
+            sortSessionsByRecency([
               mergeSessionSummary(
                 current.find((item) => item.id === event.session.id),
                 event.session,
               ),
               ...current.filter((item) => item.id !== event.session.id),
-            ].sort((left, right) => right.updatedAt.localeCompare(left.updatedAt)),
+            ]),
           );
         }
       } else if (event.type === "run.finished") {
@@ -1182,16 +1183,20 @@ export function useDesktopWorkspace() {
     return created.session;
   }
 
-  function applyFirstUserTitle(sessionId: string, text: string, timestamp: string): void {
+  function applyUserActivityToSession(sessionId: string, text: string, timestamp: string): void {
     const title = compactSessionTitle(text);
-    if (!title) {
-      return;
-    }
     setSessions((current) =>
-      current.map((session) =>
-        session.id === sessionId && isGenericSessionTitle(session.title)
-          ? { ...session, title, updatedAt: timestamp }
-          : session,
+      sortSessionsByRecency(
+        current.map((session) => {
+          if (session.id !== sessionId) {
+            return session;
+          }
+          return {
+            ...session,
+            ...(title && isGenericSessionTitle(session.title) ? { title } : {}),
+            updatedAt: timestamp,
+          };
+        }),
       ),
     );
   }
@@ -1335,7 +1340,7 @@ export function useDesktopWorkspace() {
       createdAt: new Date().toISOString(),
       parts: [...(text ? [{ type: "markdown" as const, text }] : []), ...attachmentParts],
     };
-    applyFirstUserTitle(
+    applyUserActivityToSession(
       sessionId,
       text || queuedAttachments.map((item) => item.fileName).join(", "),
       optimisticMessage.createdAt,
