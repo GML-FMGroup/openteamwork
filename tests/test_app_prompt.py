@@ -28,6 +28,8 @@ class PromptLayeringTests(unittest.TestCase):
         self.assertIn("check_browser_remote_job_protocol", text)
         self.assertIn("list_skill_api_runners", text)
         self.assertIn("evaluate_staged_summary_quality_cases", text)
+        self.assertIn("publish_artifact(path=...)", text)
+        self.assertIn("Only claim that a file is downloadable after publication succeeds", text)
         self.assertNotIn("Runtime:", text)
         self.assertNotIn("Workspace:", text)
         self.assertNotIn("Available skills:", text)

@@ -78,8 +78,16 @@ class AgentMcpTests(unittest.TestCase):
         names = _tool_names(tools)
         self.assertIn("exec", names)
         self.assertIn("web_search", names)
+        self.assertIn("publish_artifact", names)
         self.assertNotIn("message", names)
         self.assertNotIn("message_file", names)
+
+    def test_build_tools_does_not_publish_artifacts_at_low_privilege(self) -> None:
+        from openppx import agent
+
+        names = _tool_names(agent._build_tools(privilege_level="low", can_delegate=False))
+
+        self.assertNotIn("publish_artifact", names)
 
     def test_build_tools_keeps_high_full_tool_access(self) -> None:
         from openppx import agent

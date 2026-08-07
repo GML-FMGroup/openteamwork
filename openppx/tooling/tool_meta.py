@@ -87,6 +87,7 @@ TOOL_META: dict[str, ToolMeta] = {
     "web_search": ToolMeta(read_only=True, category="web"),
     "web_fetch": ToolMeta(read_only=True, category="web"),
     "write_file": ToolMeta(read_only=False, category="filesystem", risk="medium"),
+    "publish_artifact": ToolMeta(read_only=False, category="filesystem", risk="medium"),
     "edit_file": ToolMeta(read_only=False, category="filesystem", risk="medium"),
     "cron": ToolMeta(read_only=False, category="automation", risk="high"),
     "spawn_subagent": ToolMeta(read_only=False, category="delegation", risk="high"),

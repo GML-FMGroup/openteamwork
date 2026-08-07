@@ -1094,6 +1094,35 @@ describe("App sending state", () => {
     });
   });
 
+  it("refreshes Session artifacts when a Run finishes", async () => {
+    const listArtifacts = vi
+      .fn()
+      .mockResolvedValueOnce({ artifacts: [] })
+      .mockResolvedValue({
+        artifacts: [{
+          id: "artifact-output",
+          key: "outputs/report.docx",
+          fileName: "report.docx",
+          mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+          sizeBytes: 128,
+          version: 0,
+          source: "agent_output",
+          createdAt: "2026-08-07T10:00:00Z",
+        }],
+      });
+    const { emit } = installClient({ listArtifacts });
+
+    render(<App />);
+
+    await waitFor(() => expect(listArtifacts).toHaveBeenCalledWith("agent-1", "session-a"));
+    expect(screen.getByText("No artifacts yet.")).toBeInTheDocument();
+
+    act(() => emit({ type: "run.finished", runId: "run-artifact", sessionId: "session-a" }));
+
+    expect(await screen.findByText("report.docx")).toBeInTheDocument();
+    await waitFor(() => expect(listArtifacts).toHaveBeenCalledTimes(2));
+  });
+
   it("cancels the active Run from the composer", async () => {
     const cancelRun = vi.fn(async (runId: string) => ({ runId, status: "cancelled" as const }));
     const { emit } = installClient({
@@ -1203,6 +1232,31 @@ describe("App sending state", () => {
     fireEvent.keyDown(composer, { key: "Enter", code: "Enter", charCode: 13, shiftKey: true });
 
     expect(sendMessage).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    ["standard composition state", { isComposing: true }],
+    ["legacy IME key code", { keyCode: 229 }],
+  ])("does not send when Enter confirms IME input via %s", async (_caseName, eventState) => {
+    const sendMessage = vi.fn(async () => ({ runId: "run-ime" }));
+    installClient({ sendMessage });
+
+    render(<App />);
+
+    const composer = await screen.findByPlaceholderText("Describe the outcome you want...");
+    fireEvent.change(composer, { target: { value: "openppx" } });
+    fireEvent.keyDown(composer, {
+      key: "Enter",
+      code: "Enter",
+      charCode: 13,
+      ...eventState,
+    });
+
+    expect(sendMessage).not.toHaveBeenCalled();
+    expect(composer).toHaveValue("openppx");
+
+    fireEvent.keyDown(composer, { key: "Enter", code: "Enter", charCode: 13 });
+    await waitFor(() => expect(sendMessage).toHaveBeenCalledTimes(1));
   });
 
   it("sorts mixed timezone timestamps and moves the active Session to the top on send", async () => {

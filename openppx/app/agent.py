@@ -16,6 +16,7 @@ from ..core.mcp_registry import summarize_mcp_toolsets
 from ..extensions import ExtensionError, SkillSnapshot
 from ..runtime.goal_store import GoalStore
 from ..runtime.tool_execution_context import ToolExecutionContext, bind_tool_callable
+from ..tooling.artifact_tools import publish_artifact
 from ..tooling.goal_tools import GoalToolRuntimeSnapshot, build_goal_tools
 from ..tooling.skills_adapter import list_skills, read_skill
 from ..tooling.registry import (
@@ -167,6 +168,7 @@ def _build_tools(
         list_skill_api_runners,
         read_file,
         write_file,
+        publish_artifact,
         edit_file,
         list_dir,
         glob,

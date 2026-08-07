@@ -7,6 +7,11 @@ import { GoalStatusBar } from "./GoalStatusBar";
 
 const RECENT_COMMANDS_KEY = "openppx.desktop.recentSlashCommands.v1";
 
+/** Detect both standards-compliant composition events and the WebKit/IME fallback signal. */
+function isImeCompositionEvent(event: KeyboardEvent<HTMLTextAreaElement>): boolean {
+  return event.nativeEvent.isComposing || event.keyCode === 229;
+}
+
 function readRecentCommands(): string[] {
   try {
     const value = JSON.parse(localStorage.getItem(RECENT_COMMANDS_KEY) ?? "[]");
@@ -119,6 +124,9 @@ export function Composer({
   }
 
   function handleKeyDown(event: KeyboardEvent<HTMLTextAreaElement>): void {
+    if (isImeCompositionEvent(event)) {
+      return;
+    }
     if (commandMenuOpen && event.key === "ArrowDown") {
       event.preventDefault();
       setSelectedCommandIndex((current) => (current + 1) % matchingCommands.length);

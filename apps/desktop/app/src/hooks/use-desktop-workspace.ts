@@ -416,6 +416,26 @@ export function useDesktopWorkspace() {
     }
   }
 
+  async function refreshSessionArtifacts(
+    agentId = selectedAgentIdRef.current,
+    sessionId = selectedSessionIdRef.current,
+  ): Promise<void> {
+    if (!agentId || !sessionId) {
+      setSessionArtifacts([]);
+      return;
+    }
+    try {
+      const { artifacts } = await window.ppxClient.listArtifacts(agentId, sessionId);
+      if (agentId === selectedAgentIdRef.current && sessionId === selectedSessionIdRef.current) {
+        setSessionArtifacts(artifacts);
+      }
+    } catch {
+      if (agentId === selectedAgentIdRef.current && sessionId === selectedSessionIdRef.current) {
+        setSessionArtifacts([]);
+      }
+    }
+  }
+
   /** Persist a new objective while preserving the current Goal identity and policy. */
   async function updateCurrentGoal(objective: string): Promise<boolean> {
     const goal = currentGoal;
@@ -475,15 +495,11 @@ export function useDesktopWorkspace() {
   }
 
   useEffect(() => {
-    let cancelled = false;
     if (!selectedAgentId || !selectedSessionId) {
       setSessionArtifacts([]);
-      return () => { cancelled = true; };
+      return;
     }
-    void window.ppxClient.listArtifacts(selectedAgentId, selectedSessionId)
-      .then(({ artifacts }) => { if (!cancelled) setSessionArtifacts(artifacts); })
-      .catch(() => { if (!cancelled) setSessionArtifacts([]); });
-    return () => { cancelled = true; };
+    void refreshSessionArtifacts(selectedAgentId, selectedSessionId);
   }, [selectedAgentId, selectedSessionId]);
 
   useEffect(() => {
@@ -546,6 +562,7 @@ export function useDesktopWorkspace() {
         setCancellingRunId((current) => (current === event.runId ? null : current));
         if (event.sessionId === selectedSessionIdRef.current) {
           void refreshCurrentGoal(event.sessionId);
+          void refreshSessionArtifacts(selectedAgentIdRef.current, event.sessionId);
         }
       }
     });
