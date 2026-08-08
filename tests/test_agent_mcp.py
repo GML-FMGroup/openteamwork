@@ -71,7 +71,7 @@ class AgentMcpTests(unittest.TestCase):
 
     def test_build_tools_keeps_medium_exec_and_web_without_transport_tools(self) -> None:
         from openppx import agent
-        from openppx.tooling.registry import exec_command, web_search
+        from openppx.tooling.registry import web_search
 
         tools = agent._build_tools(privilege_level="medium", can_delegate=True)
 
@@ -81,6 +81,13 @@ class AgentMcpTests(unittest.TestCase):
         self.assertIn("publish_artifact", names)
         self.assertNotIn("message", names)
         self.assertNotIn("message_file", names)
+
+        exec_tool = next(tool for tool in tools if getattr(tool, "name", "") == "exec")
+        declaration = exec_tool._get_declaration()
+        parameter_names = set((declaration.parameters_json_schema or {}).get("properties", {}))
+        self.assertNotIn("background", parameter_names)
+        self.assertNotIn("yield_ms", parameter_names)
+        self.assertNotIn("pty", parameter_names)
 
     def test_build_tools_does_not_publish_artifacts_at_low_privilege(self) -> None:
         from openppx import agent

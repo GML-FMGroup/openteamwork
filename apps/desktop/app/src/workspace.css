@@ -1273,7 +1273,7 @@
 .activity-disclosure > summary {
   display: grid;
   min-height: 27px;
-  grid-template-columns: 12px minmax(0, 1fr) 12px;
+  grid-template-columns: 12px minmax(0, 1fr);
   align-items: center;
   gap: 7px;
   padding: 2px 1px;
@@ -1323,9 +1323,12 @@
 
 .activity-disclosure-copy {
   display: flex;
+  width: fit-content;
+  max-width: 100%;
   min-width: 0;
   align-items: baseline;
   gap: 8px;
+  justify-self: start;
 }
 
 .activity-disclosure-copy strong {
@@ -1382,7 +1385,14 @@
   color: var(--ink-soft);
 }
 
-.activity-waiting-line strong {
+.activity-waiting-copy {
+  display: inline-flex;
+  width: fit-content;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.activity-waiting-copy strong {
   width: fit-content;
   background: linear-gradient(
     100deg,
@@ -1403,6 +1413,12 @@
   animation: activity-line-shimmer 2.1s linear infinite;
 }
 
+.activity-waiting-copy small {
+  color: var(--ink-faint);
+  font-size: 10.5px;
+  font-variant-numeric: tabular-nums;
+}
+
 .activity-phase {
   margin: 1px 0;
 }
@@ -1410,7 +1426,7 @@
 .activity-phase > summary {
   display: grid;
   min-height: 25px;
-  grid-template-columns: 14px minmax(0, 1fr) 12px;
+  grid-template-columns: 14px minmax(0, 1fr);
   align-items: center;
   gap: 6px;
   padding: 1px 0;
@@ -1452,9 +1468,12 @@
 
 .activity-phase-copy {
   display: flex;
+  width: fit-content;
+  max-width: 100%;
   min-width: 0;
   align-items: baseline;
   gap: 7px;
+  justify-self: start;
 }
 
 .activity-phase-copy strong {
@@ -1531,7 +1550,7 @@
 .activity-action > summary {
   display: grid;
   min-height: 22px;
-  grid-template-columns: 8px minmax(0, 1fr) 12px;
+  grid-template-columns: 8px minmax(0, 1fr);
   align-items: center;
   gap: 7px;
   padding: 1px 2px;
@@ -1621,9 +1640,12 @@
 
 .activity-semantic-copy {
   display: flex;
+  width: fit-content;
+  max-width: 100%;
   min-width: 0;
   align-items: baseline;
   gap: 7px;
+  justify-self: start;
 }
 
 .activity-semantic-copy strong {
@@ -6507,7 +6529,7 @@
 
 @media (prefers-reduced-motion: reduce) {
   .activity-phase.running > summary .activity-phase-copy strong,
-  .activity-waiting-line strong {
+  .activity-waiting-copy strong {
     background: none;
     color: var(--ink-soft);
     -webkit-text-fill-color: currentColor;

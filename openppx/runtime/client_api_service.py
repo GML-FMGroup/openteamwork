@@ -168,6 +168,57 @@ def _preview_value(value: Any, fallback: str) -> str:
     return dumped[:320] + ("..." if len(dumped) > 320 else "")
 
 
+def _function_response_step_status(response: Any) -> str:
+    """Map one ADK FunctionResponse payload to the transport step lifecycle.
+
+    ADK long-running tools may return an initial ``in-progress`` response and
+    later publish another response for the same FunctionCall.  Treating every
+    FunctionResponse as terminal makes the UI disagree with ADK and the actual
+    operation, so the transport preserves that lifecycle explicitly.
+    """
+
+    if isinstance(response, str):
+        stripped = response.strip()
+        if not stripped:
+            return "completed"
+        if stripped.lower().startswith("error:"):
+            return "failed"
+        try:
+            decoded = json.loads(stripped)
+        except (TypeError, ValueError, json.JSONDecodeError):
+            return "completed"
+        return _function_response_step_status(decoded)
+
+    if not isinstance(response, dict):
+        return "completed"
+    if response.get("ok") is False or response.get("error"):
+        return "failed"
+
+    raw_status = str(response.get("status") or "").strip().lower().replace("_", "-")
+    if raw_status in {
+        "in-progress",
+        "running",
+        "pending",
+        "queued",
+        "waiting",
+        "waiting-user",
+        "waiting-approval",
+    }:
+        return "running"
+    if raw_status in {"failed", "failure", "error", "cancelled", "canceled"}:
+        return "failed"
+    if raw_status in {"completed", "complete", "finished", "success", "succeeded", "done"}:
+        return "completed"
+
+    for key in ("result", "response", "data"):
+        nested = response.get(key)
+        if isinstance(nested, (dict, str)):
+            nested_status = _function_response_step_status(nested)
+            if nested_status != "completed" or raw_status:
+                return nested_status
+    return "completed"
+
+
 def _strip_request_time_prefix(text: str) -> str:
     """Remove runtime-injected request-time guidance from persisted user text."""
 
@@ -2442,6 +2493,7 @@ class ClientApiCoordinator:
                 )
             function_response = raw_part.get("function_response")
             if isinstance(function_response, dict):
+                response = function_response.get("response")
                 handle.publish(
                     "step.updated",
                     {
@@ -2452,9 +2504,9 @@ class ClientApiCoordinator:
                         "step": _step_ref_payload(
                             step_id=str(function_response.get("id") or "step"),
                             title=str(function_response.get("name") or "tool"),
-                            status="completed",
+                            status=_function_response_step_status(response),
                             detail=_preview_value(
-                                function_response.get("response"),
+                                response,
                                 "Tool returned without a payload",
                             ),
                         ),

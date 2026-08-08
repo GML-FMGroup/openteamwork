@@ -3316,6 +3316,46 @@ def exec_command(
     return _ret("tool.exec.output", running)
 
 
+def exec_command_foreground(
+    command: str,
+    working_dir: str | None = None,
+    timeout: int = 60,
+    sandbox: str | None = None,
+    tool_context: Any | None = None,
+) -> str:
+    """Run one bounded foreground command for an ADK FunctionTool call.
+
+    This is the model-facing command surface.  It deliberately omits process
+    session controls so a normal ADK FunctionCall always has one matching,
+    terminal FunctionResponse.  Durable work must use an explicit long-running
+    tool instead of silently detaching a foreground command.
+
+    Multiline shell payloads that use heredocs are rejected because they mix
+    file authoring and command execution into an opaque operation.  Agents
+    should create files with ``write_file`` or ``edit_file`` and then execute a
+    short, inspectable command.
+    """
+
+    normalized = str(command or "")
+    if re.search(r"(^|\s)<<-?\s*['\"]?[A-Za-z_][A-Za-z0-9_]*", normalized):
+        return _ret(
+            "tool.exec.output",
+            "Error: heredoc shell payloads are not supported by exec. "
+            "Create the file with write_file or edit_file, then run a bounded command.",
+        )
+    return exec_command(
+        normalized,
+        working_dir=working_dir,
+        timeout=timeout,
+        yield_ms=None,
+        background=False,
+        pty=False,
+        scope=None,
+        sandbox=sandbox,
+        tool_context=tool_context,
+    )
+
+
 def process_session(
     action: str = "list",
     session_id: str | None = None,
@@ -5623,6 +5663,7 @@ def cron(
 
 # Match legacy tool naming where skills refer to `exec`.
 exec_command.__name__ = "exec"
+exec_command_foreground.__name__ = "exec"
 process_session.__name__ = "process"
 glob.__name__ = "glob"
 grep.__name__ = "grep"

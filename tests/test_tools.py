@@ -43,6 +43,7 @@ from openppx.tooling.registry import (
     dispatch_task_action,
     edit_file,
     exec_command,
+    exec_command_foreground,
     finish_task_flow,
     glob,
     grep,
@@ -448,6 +449,29 @@ class ToolsTests(unittest.TestCase):
     def test_exec_tool(self) -> None:
         result = exec_command("echo hello")
         self.assertIn("hello", result)
+
+    def test_adk_exec_tool_never_promotes_foreground_work_to_a_process_session(self) -> None:
+        with patch.object(exec_registry, "exec_command", return_value="ok") as raw_exec:
+            result = exec_command_foreground("echo hello", timeout=12)
+
+        self.assertEqual(result, "ok")
+        raw_exec.assert_called_once_with(
+            "echo hello",
+            working_dir=None,
+            timeout=12,
+            yield_ms=None,
+            background=False,
+            pty=False,
+            scope=None,
+            sandbox=None,
+            tool_context=None,
+        )
+
+    def test_adk_exec_tool_rejects_opaque_heredoc_payloads(self) -> None:
+        result = exec_command_foreground("python <<'PY'\nprint('hello')\nPY")
+
+        self.assertIn("heredoc shell payloads are not supported", result)
+        self.assertIn("write_file", result)
 
     def test_exec_tool_wraps_command_with_sandbox(self) -> None:
         captured: dict[str, object] = {}

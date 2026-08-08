@@ -34,7 +34,7 @@ from ..tooling.registry import (
     cron,
     dispatch_task_action,
     edit_file,
-    exec_command,
+    exec_command_foreground,
     glob,
     grep,
     high_risk_action_requires_confirmation,
@@ -201,7 +201,7 @@ def _build_tools(
         interrupt_task,
         cancel_task,
         _confirmation_tool(
-            exec_command,
+            exec_command_foreground,
             exec_command_requires_confirmation,
             tool_execution_context,
         ),

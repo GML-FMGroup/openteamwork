@@ -83,8 +83,8 @@ function ActivityActionDisclosure({ entry }: { entry: ActivityEntry }) {
         <span className="activity-semantic-copy">
           <strong>{label}</strong>
           {entry.detail ? <small>{entry.detail}</small> : null}
+          <span className="activity-action-chevron" aria-hidden><ShellIcon name="expand" /></span>
         </span>
-        <span className="activity-action-chevron" aria-hidden><ShellIcon name="expand" /></span>
       </summary>
       {open ? (
         <dl className="activity-action-details">
@@ -132,8 +132,8 @@ function ActivityPhaseDisclosure({ groups }: { groups: ActivityGroup[] }) {
         <span className="activity-phase-copy">
           <strong>{phaseTitle(groups)}</strong>
           <small>{summarizeActivityGroups(groups)}</small>
+          <span className="activity-phase-chevron" aria-hidden><ShellIcon name="expand" /></span>
         </span>
-        <span className="activity-phase-chevron" aria-hidden><ShellIcon name="expand" /></span>
       </summary>
       {open ? (
         <div className="activity-semantic-list">
@@ -143,6 +143,28 @@ function ActivityPhaseDisclosure({ groups }: { groups: ActivityGroup[] }) {
         </div>
       ) : null}
     </details>
+  );
+}
+
+function ActivityWaitingLine({ resetKey }: { resetKey: string }) {
+  const [elapsedSeconds, setElapsedSeconds] = useState(0);
+
+  useEffect(() => {
+    setElapsedSeconds(0);
+    const timer = window.setInterval(() => {
+      setElapsedSeconds((current) => current + 1);
+    }, 1_000);
+    return () => window.clearInterval(timer);
+  }, [resetKey]);
+
+  return (
+    <div className="activity-waiting-line" role="status">
+      <span className="activity-semantic-marker running" aria-hidden />
+      <span className="activity-waiting-copy">
+        <strong>Waiting for the model…</strong>
+        {elapsedSeconds > 0 ? <small>{elapsedSeconds}s</small> : null}
+      </span>
+    </div>
   );
 }
 
@@ -192,6 +214,9 @@ export function ActivityDisclosure({
   const hasFailure = allGroups.some((group) => group.status === "failed");
   const hasRunningActivity = allGroups.some((group) => group.status === "running");
   const technical = technicalDetails(allGroups);
+  const waitingResetKey = allGroups
+    .flatMap((group) => group.entries.map((entry) => `${entry.id}:${entry.status}`))
+    .join("|");
   const elapsed = formatElapsedTime(startedAt, observedEndedAt);
   const title = streaming
     ? "Working"
@@ -216,8 +241,8 @@ export function ActivityDisclosure({
         <span className="activity-disclosure-copy">
           <strong aria-live={streaming ? "polite" : undefined}>{title}</strong>
           {!open ? <small>{summary}</small> : null}
+          <span className="activity-disclosure-chevron" aria-hidden><ShellIcon name="expand" /></span>
         </span>
-        <span className="activity-disclosure-chevron" aria-hidden><ShellIcon name="expand" /></span>
       </summary>
       {open ? <div className="activity-disclosure-body">
         <div className="activity-narrative" aria-live={streaming ? "polite" : undefined}>
@@ -229,10 +254,7 @@ export function ActivityDisclosure({
             <ActivityPhaseDisclosure groups={item.groups} key={item.id} />
           ))}
           {streaming && !hasRunningActivity ? (
-            <div className="activity-waiting-line" role="status">
-              <span className="activity-semantic-marker running" aria-hidden />
-              <strong>Preparing the next step…</strong>
-            </div>
+            <ActivityWaitingLine resetKey={waitingResetKey} />
           ) : null}
         </div>
         {technical ? (

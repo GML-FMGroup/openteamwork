@@ -97,8 +97,23 @@ describe("MessageBubble", () => {
       />,
     );
 
-    expect(screen.getByText("Preparing the next step…")).toBeInTheDocument();
+    expect(screen.getByText(/Waiting for the model…/)).toBeInTheDocument();
     expect(container.querySelectorAll(".activity-waiting-line")).toHaveLength(1);
+    expect(container.querySelector(".activity-waiting-copy")).toBeInTheDocument();
+  });
+
+  it("keeps disclosure chevrons immediately after their summary copy", () => {
+    const { container } = render(<MessageBubble message={buildMessage()} />);
+
+    const outerCopy = container.querySelector(".activity-disclosure-copy");
+    expect(outerCopy?.querySelector(":scope > .activity-disclosure-chevron")).toBeInTheDocument();
+
+    const phaseCopy = container.querySelector(".activity-phase-copy");
+    expect(phaseCopy?.querySelector(":scope > .activity-phase-chevron")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /Expand Worked with files/i }));
+    const actionCopy = container.querySelector(".activity-semantic-copy");
+    expect(actionCopy?.querySelector(":scope > .activity-action-chevron")).toBeInTheDocument();
   });
 
   it("keeps action metadata collapsed until the user opens an individual action", () => {

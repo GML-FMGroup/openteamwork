@@ -1034,6 +1034,52 @@ def test_create_run_tolerates_null_long_running_tool_ids(tmp_path: Path, monkeyp
     assert handle.failed is False
 
 
+def test_function_response_status_preserves_adk_long_running_lifecycle() -> None:
+    from openppx.runtime.client_api_service import _function_response_step_status
+
+    assert _function_response_step_status({"status": "in-progress"}) == "running"
+    assert _function_response_step_status({"status": "running"}) == "running"
+    assert _function_response_step_status({"status": "failed", "error": "boom"}) == "failed"
+    assert _function_response_step_status({"error": "boom"}) == "failed"
+    assert _function_response_step_status({"status": "completed"}) == "completed"
+    assert _function_response_step_status({"ok": True}) == "completed"
+
+
+def test_adk_event_projection_preserves_long_running_function_response_status(tmp_path: Path) -> None:
+    """Client events must retain ADK's non-terminal long-running lifecycle."""
+
+    coordinator, _runtime = _coordinator_with_runtime(tmp_path)
+    handle = RunHandle(run_id="run_long_running", agent_id="writer", session_id="session_long_running")
+    coordinator._publish_adk_run_event(
+        handle,
+        SimpleNamespace(
+            model_dump=lambda **_options: {
+                "invocation_id": "invocation-long-running",
+                "content": {
+                    "parts": [
+                        {
+                            "function_response": {
+                                "id": "call_background",
+                                "name": "background_operation",
+                                "response": {"status": "in-progress", "task_id": "task_1"},
+                            }
+                        }
+                    ]
+                },
+            }
+        ),
+    )
+    handle.finish(status="completed")
+
+    subscriber = handle.subscribe()
+    envelope = subscriber.get(timeout=1.0)
+
+    assert envelope is not None
+    assert envelope.event == "step.updated"
+    assert envelope.payload["step"]["step_id"] == "call_background"
+    assert envelope.payload["step"]["status"] == "running"
+
+
 def test_client_api_reads_sessions_directly_without_worker(tmp_path: Path, monkeypatch) -> None:
     (tmp_path / "global_config.json").write_text(
         json.dumps({"agents": [{"name": "writer", "enabled": True}]}),
