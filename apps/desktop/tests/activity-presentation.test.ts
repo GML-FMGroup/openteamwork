@@ -89,7 +89,7 @@ describe("activity presentation", () => {
         { type: "step_ref", stepId: "search-1", title: "web_search", status: "completed", detail: '{"query":"one"}' },
         { type: "step_ref", stepId: "search-2", title: "web_search", status: "completed", detail: '{"query":"two"}' },
         { type: "step_ref", stepId: "search-3", title: "web_search", status: "completed", detail: '{"query":"three"}' },
-        { type: "step_ref", stepId: "exec-1", title: "exec", status: "completed", detail: '{"result":"Error: Command blocked by policy"}' },
+        { type: "step_ref", stepId: "exec-1", title: "exec", status: "failed", detail: '{"result":"Error: Command blocked by policy"}' },
       ]),
     ]);
 
@@ -106,6 +106,71 @@ describe("activity presentation", () => {
       status: "failed",
     });
     expect(summarizeActivityGroups(groups)).toBe("3 searches · 1 command");
+  });
+
+  it("does not infer failure from documentation text in a successful capability response", () => {
+    const skillBody = [
+      "---",
+      "name: xlsx",
+      "description: Create spreadsheets with zero formula errors.",
+      "---",
+      "Example: { error_summary: 'show validation errors without failing the tool' }",
+      "A blocked cell reference may be described in documentation.",
+    ].join("\n");
+    const groups = projectActivityGroups([
+      message([
+        {
+          type: "step_ref",
+          stepId: "read-xlsx",
+          title: "read_skill",
+          status: "completed",
+          detail: '{"name":"xlsx"}',
+        },
+        {
+          type: "tool_result",
+          toolCallId: "read-xlsx",
+          toolName: "read_skill",
+          summary: skillBody,
+          detail: skillBody,
+          rawText: skillBody,
+          status: "completed",
+        },
+      ]),
+    ]);
+
+    expect(groups).toHaveLength(1);
+    expect(groups[0]).toMatchObject({
+      key: "capabilities",
+      label: "Prepared capabilities",
+      status: "completed",
+    });
+    expect(groups[0]?.entries[0]?.status).toBe("completed");
+    expect(groups[0]?.entries[0]?.details).not.toContainEqual(
+      expect.objectContaining({ label: "Error" }),
+    );
+  });
+
+  it("keeps an explicit failed tool-result lifecycle failed", () => {
+    const groups = projectActivityGroups([
+      message([
+        {
+          type: "tool_result",
+          toolCallId: "read-xlsx",
+          toolName: "read_skill",
+          summary: "read_skill reported a failure.",
+          detail: '{"ok":false,"error":"Unknown skill: xlsx"}',
+          status: "failed",
+        },
+      ]),
+    ]);
+
+    expect(groups[0]).toMatchObject({
+      label: "Could not prepare capabilities",
+      status: "failed",
+    });
+    expect(groups[0]?.entries[0]?.details).toContainEqual(
+      expect.objectContaining({ label: "Error", value: "Unknown skill: xlsx" }),
+    );
   });
 
   it("preserves chronology and only merges adjacent repeated operations", () => {

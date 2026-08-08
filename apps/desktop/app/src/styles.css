@@ -38,8 +38,23 @@
   --surface-strong: var(--paper-warm);
   --surface-soft: #f7f8f9;
   --surface-muted: var(--paper-deep);
+  --surface-glass: rgba(248, 249, 250, 0.88);
+  --surface-elevated-glass: rgba(255, 255, 255, 0.96);
+  --surface-overlay-glass: rgba(255, 255, 255, 0.985);
+  --workspace-gradient-start: #f7f8f9;
   --border-soft: var(--hairline);
   --border-strong: var(--hairline-strong);
+  --focus-ring: rgba(23, 25, 28, 0.42);
+  --focus-surface: rgba(23, 25, 28, 0.05);
+  --selection-surface: rgba(23, 25, 28, 0.14);
+  --blockquote-border: rgba(23, 25, 28, 0.34);
+  --link-underline: rgba(23, 25, 28, 0.3);
+  --solid-control-bg: var(--ink);
+  --solid-control-fg: #ffffff;
+  --solid-control-hover: #30343a;
+  --danger-surface: #fff8f8;
+  --danger-surface-hover: #fff1ef;
+  --danger-border: rgba(180, 73, 73, 0.24);
   --text-subtle: var(--ink-faint);
   --text-strong: var(--ink);
   --accent: var(--vermilion);
@@ -77,8 +92,23 @@
   --surface-strong: var(--paper-warm);
   --surface-soft: #24272c;
   --surface-muted: var(--paper-deep);
+  --surface-glass: rgba(19, 21, 24, 0.9);
+  --surface-elevated-glass: rgba(32, 35, 40, 0.96);
+  --surface-overlay-glass: rgba(32, 35, 40, 0.985);
+  --workspace-gradient-start: #1b1e22;
   --border-soft: var(--hairline);
   --border-strong: var(--hairline-strong);
+  --focus-ring: rgba(241, 243, 245, 0.46);
+  --focus-surface: rgba(241, 243, 245, 0.08);
+  --selection-surface: rgba(241, 243, 245, 0.16);
+  --blockquote-border: rgba(241, 243, 245, 0.3);
+  --link-underline: rgba(241, 243, 245, 0.32);
+  --solid-control-bg: var(--ink);
+  --solid-control-fg: var(--canvas-deep);
+  --solid-control-hover: #d8dce0;
+  --danger-surface: #2a2022;
+  --danger-surface-hover: #342326;
+  --danger-border: rgba(227, 124, 124, 0.28);
   --text-subtle: var(--ink-faint);
   --text-strong: var(--ink);
   --accent: var(--vermilion);
@@ -153,12 +183,12 @@ input:focus-visible,
 select:focus-visible,
 textarea:focus-visible,
 [tabindex]:focus-visible {
-  outline: 2px solid rgba(23, 25, 28, 0.42);
+  outline: 2px solid var(--focus-ring);
   outline-offset: 2px;
 }
 
 ::selection {
-  background: rgba(23, 25, 28, 0.14);
+  background: var(--selection-surface);
 }
 
 ::-webkit-scrollbar {
@@ -189,7 +219,7 @@ textarea:focus-visible,
   place-items: center;
   overflow: hidden;
   background:
-    radial-gradient(circle at 50% 42%, rgba(255, 255, 255, 0.96), rgba(244, 245, 246, 0) 34%),
+    radial-gradient(circle at 50% 42%, var(--surface-elevated-glass), transparent 34%),
     var(--canvas);
   color: var(--ink);
 }
@@ -209,8 +239,8 @@ textarea:focus-visible,
   height: 44px;
   place-items: center;
   border-radius: 14px 14px 14px 5px;
-  background: var(--ink);
-  color: #ffffff;
+  background: var(--solid-control-bg);
+  color: var(--solid-control-fg);
   font-family: var(--font-display);
   font-size: 25px;
   font-weight: 700;
@@ -333,7 +363,7 @@ textarea:focus-visible,
 .rich-markdown a,
 .image-card a {
   color: var(--ink);
-  text-decoration-color: rgba(23, 25, 28, 0.3);
+  text-decoration-color: var(--link-underline);
   text-underline-offset: 3px;
 }
 
@@ -616,12 +646,12 @@ textarea:focus-visible,
 }
 
 .error-card {
-  background: #fffafa;
+  background: var(--danger-surface);
 }
 
 .error-card strong {
   display: block;
-  color: #8f3434;
+  color: var(--danger);
   font-size: 13px;
 }
 
@@ -660,8 +690,8 @@ textarea:focus-visible,
 }
 
 .message-status-banner.failed {
-  border-color: rgba(180, 73, 73, 0.24);
-  background: #fff8f8;
+  border-color: var(--danger-border);
+  background: var(--danger-surface);
   color: var(--danger);
 }
 
@@ -691,10 +721,10 @@ textarea:focus-visible,
 .runtime-actions button {
   min-height: 34px;
   padding: 0 13px;
-  border: 1px solid var(--ink);
+  border: 1px solid var(--solid-control-bg);
   border-radius: 9px;
-  background: var(--ink);
-  color: #ffffff;
+  background: var(--solid-control-bg);
+  color: var(--solid-control-fg);
   font-size: 12px;
   font-weight: 600;
   transition:
@@ -704,7 +734,8 @@ textarea:focus-visible,
 }
 
 .runtime-actions button:hover {
-  background: #30343a;
+  border-color: var(--solid-control-hover);
+  background: var(--solid-control-hover);
 }
 
 .runtime-actions button.secondary {
@@ -799,8 +830,8 @@ textarea:focus-visible,
 
 .settings-field input:focus,
 .settings-field select:focus {
-  border-color: rgba(23, 25, 28, 0.42);
-  box-shadow: 0 0 0 3px rgba(23, 25, 28, 0.05);
+  border-color: var(--focus-ring);
+  box-shadow: 0 0 0 3px var(--focus-surface);
 }
 
 .diagnostics-grid,

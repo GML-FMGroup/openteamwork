@@ -65,6 +65,7 @@ export function normalizeClientApiPart(payload: unknown): MessagePart | null {
     };
   }
   if (type === "tool_result") {
+    const rawStatus = asString(part.status);
     return {
       type,
       toolCallId: asString(part.tool_call_id ?? part.toolCallId) || undefined,
@@ -72,6 +73,9 @@ export function normalizeClientApiPart(payload: unknown): MessagePart | null {
       summary: asString(part.summary, "Tool returned without a payload"),
       detail: asString(part.detail) || undefined,
       rawText: asString(part.raw_text ?? part.rawText) || undefined,
+      status: rawStatus === "running" || rawStatus === "failed" || rawStatus === "completed"
+        ? rawStatus
+        : undefined,
     };
   }
   if (type === "step_ref") {

@@ -375,7 +375,7 @@
 }
 
 .session-action-menu button.danger {
-  color: #a63d36;
+  color: var(--danger);
 }
 
 .agent-picker {
@@ -535,7 +535,7 @@
 }
 
 .session-search:focus-within {
-  border-color: rgba(23, 25, 28, 0.32);
+  border-color: var(--focus-ring);
   background: var(--canvas-deep);
 }
 
@@ -743,16 +743,16 @@
 
 .danger-quiet {
   margin-left: auto;
-  color: #a63d36;
+  color: var(--danger);
 }
 
 .danger-quiet:hover:not(:disabled) {
-  background: #fff1ef;
+  background: var(--danger-surface-hover);
 }
 
 .settings-inline-error {
   margin: 12px 0 0;
-  color: #a63d36;
+  color: var(--danger);
   font-size: 12px;
 }
 
@@ -890,6 +890,10 @@
   background: var(--hairline);
 }
 
+.profile-menu-settings-divider {
+  margin-top: 3px;
+}
+
 .profile-menu-item {
   display: flex;
   align-items: center;
@@ -968,7 +972,7 @@
   gap: 16px;
   padding: 11px 20px;
   border-bottom: 1px solid var(--hairline);
-  background: rgba(248, 249, 250, 0.88);
+  background: var(--surface-glass);
   backdrop-filter: blur(14px);
 }
 
@@ -1050,7 +1054,7 @@
 .workspace-frame {
   min-height: 0;
   padding: 0;
-  background: linear-gradient(180deg, #f7f8f9 0%, var(--canvas) 68%);
+  background: linear-gradient(180deg, var(--workspace-gradient-start) 0%, var(--canvas) 68%);
 }
 
 .workspace {
@@ -1142,7 +1146,7 @@
 }
 
 .operator-empty .suggestion-card:hover {
-  border-color: rgba(23, 25, 28, 0.24);
+  border-color: var(--border-strong);
   background: var(--surface-soft);
   color: var(--ink);
 }
@@ -1266,7 +1270,7 @@
   margin: 1px 0 7px;
 }
 
-.activity-disclosure.running {
+.activity-disclosure.streaming {
   color: var(--ink-soft);
 }
 
@@ -1321,6 +1325,12 @@
   background: var(--danger, #b64a46);
 }
 
+.activity-disclosure-marker.cancelled,
+.activity-semantic-marker.cancelled {
+  border: 1px solid var(--ink-faint);
+  background: transparent;
+}
+
 .activity-disclosure-copy {
   display: flex;
   width: fit-content;
@@ -1373,50 +1383,6 @@
 .activity-narrative {
   display: grid;
   gap: 2px;
-}
-
-.activity-waiting-line {
-  display: grid;
-  min-height: 24px;
-  grid-template-columns: 8px minmax(0, 1fr);
-  align-items: center;
-  gap: 7px;
-  padding: 1px 2px;
-  color: var(--ink-soft);
-}
-
-.activity-waiting-copy {
-  display: inline-flex;
-  width: fit-content;
-  align-items: baseline;
-  gap: 6px;
-}
-
-.activity-waiting-copy strong {
-  width: fit-content;
-  background: linear-gradient(
-    100deg,
-    var(--ink-soft) 0%,
-    var(--ink-soft) 42%,
-    var(--ink) 50%,
-    var(--ink-soft) 58%,
-    var(--ink-soft) 100%
-  );
-  background-clip: text;
-  background-size: 220% 100%;
-  color: transparent;
-  font-size: 11.75px;
-  font-weight: 480;
-  line-height: 1.4;
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  animation: activity-line-shimmer 2.1s linear infinite;
-}
-
-.activity-waiting-copy small {
-  color: var(--ink-faint);
-  font-size: 10.5px;
-  font-variant-numeric: tabular-nums;
 }
 
 .activity-phase {
@@ -1486,21 +1452,25 @@
   white-space: nowrap;
 }
 
-.activity-phase.running > summary .activity-phase-copy strong {
+.activity-disclosure.awaiting-next-step > summary .activity-disclosure-copy > strong,
+.activity-action.running > summary .activity-semantic-copy > strong,
+.activity-semantic-row.running .activity-semantic-copy > strong {
   background: linear-gradient(
     100deg,
     var(--ink-soft) 0%,
-    var(--ink-soft) 42%,
-    var(--ink) 50%,
-    var(--ink-soft) 58%,
+    var(--ink-soft) 25%,
+    var(--ink) 43%,
+    color-mix(in srgb, var(--ink) 88%, white) 50%,
+    var(--ink) 57%,
+    var(--ink-soft) 75%,
     var(--ink-soft) 100%
   );
   background-clip: text;
-  background-size: 220% 100%;
+  background-size: 250% 100%;
   color: transparent;
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
-  animation: activity-line-shimmer 2.1s linear infinite;
+  animation: activity-line-shimmer 1.25s linear infinite;
 }
 
 .activity-phase-copy small {
@@ -1715,7 +1685,7 @@
 .rich-markdown blockquote {
   margin-left: 0;
   padding-left: 14px;
-  border-left: 2px solid rgba(23, 25, 28, 0.34);
+  border-left: 2px solid var(--blockquote-border);
   color: var(--ink-soft);
 }
 
@@ -1759,7 +1729,7 @@
   padding: 7px 11px;
   border: 1px solid var(--hairline-strong);
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.94);
+  background: var(--surface-elevated-glass);
   color: var(--ink-soft);
   font-size: 10px;
   box-shadow: 0 8px 20px rgba(23, 25, 28, 0.1);
@@ -1777,22 +1747,22 @@
   padding: 12px 14px 10px;
   border: 1px solid var(--hairline-strong);
   border-radius: 16px;
-  background: rgba(255, 255, 255, 0.96);
+  background: var(--surface-elevated-glass);
   box-shadow: var(--shadow-composer);
   transition: border-color var(--motion-fast) ease, box-shadow var(--motion-base) ease;
 }
 
 .composer-shell:focus-within {
-  border-color: rgba(23, 25, 28, 0.3);
+  border-color: var(--focus-ring);
   box-shadow:
     var(--shadow-composer),
-    0 0 0 2px rgba(23, 25, 28, 0.05);
+    0 0 0 2px var(--focus-surface);
 }
 
 .composer-shell.dragging-files {
   border-color: var(--ink-soft);
   background: var(--paper);
-  box-shadow: var(--shadow-composer), 0 0 0 3px rgba(23, 25, 28, 0.08);
+  box-shadow: var(--shadow-composer), 0 0 0 3px var(--focus-surface);
 }
 
 .goal-status-bar {
@@ -1921,9 +1891,9 @@
 }
 
 .goal-status-editor input:focus {
-  border-color: rgba(23, 25, 28, 0.32);
+  border-color: var(--focus-ring);
   outline: none;
-  box-shadow: 0 0 0 2px rgba(23, 25, 28, 0.05);
+  box-shadow: 0 0 0 2px var(--focus-surface);
 }
 
 .goal-text-action {
@@ -1987,7 +1957,7 @@
   overflow: hidden;
   border: 1px solid var(--hairline-strong);
   border-radius: 14px;
-  background: rgba(255, 255, 255, 0.985);
+  background: var(--surface-overlay-glass);
   box-shadow: 0 18px 50px rgba(23, 25, 28, 0.16);
   backdrop-filter: blur(18px);
 }
@@ -2569,8 +2539,8 @@
 }
 
 @keyframes activity-line-shimmer {
-  0%, 18% { background-position: 100% 50%; }
-  82%, 100% { background-position: -100% 50%; }
+  0% { background-position: 115% 50%; }
+  100% { background-position: -115% 50%; }
 }
 
 .activity-list::before {
@@ -3131,8 +3101,8 @@
 }
 
 .automation-editor textarea:focus {
-  border-color: var(--ink-faint);
-  box-shadow: 0 0 0 3px rgba(23, 25, 28, 0.05);
+  border-color: var(--focus-ring);
+  box-shadow: 0 0 0 3px var(--focus-surface);
 }
 
 .automation-check-row {
@@ -3699,8 +3669,8 @@
 
 .onboarding-field-grid input:focus,
 .onboarding-field-grid select:focus {
-  border-color: var(--ink-faint);
-  box-shadow: 0 0 0 3px rgba(23, 25, 28, 0.05);
+  border-color: var(--focus-ring);
+  box-shadow: 0 0 0 3px var(--focus-surface);
 }
 
 .onboarding-field-grid .full-row {
@@ -4637,8 +4607,8 @@
 
 .extension-dialog textarea:focus,
 .extension-advanced-body textarea:focus {
-  border-color: var(--ink-faint);
-  box-shadow: 0 0 0 3px rgba(23, 25, 28, 0.05);
+  border-color: var(--focus-ring);
+  box-shadow: 0 0 0 3px var(--focus-surface);
 }
 
 .extension-advanced {
@@ -5785,8 +5755,8 @@
 
 .agent-dialog-fields input:focus,
 .agent-dialog-fields select:focus {
-  border-color: var(--ink-faint);
-  box-shadow: 0 0 0 3px rgba(23, 25, 28, 0.05);
+  border-color: var(--focus-ring);
+  box-shadow: 0 0 0 3px var(--focus-surface);
 }
 
 .agent-dialog-fields small {
@@ -6528,8 +6498,9 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .activity-phase.running > summary .activity-phase-copy strong,
-  .activity-waiting-copy strong {
+  .activity-disclosure.awaiting-next-step > summary .activity-disclosure-copy > strong,
+  .activity-action.running > summary .activity-semantic-copy > strong,
+  .activity-semantic-row.running .activity-semantic-copy > strong {
     background: none;
     color: var(--ink-soft);
     -webkit-text-fill-color: currentColor;

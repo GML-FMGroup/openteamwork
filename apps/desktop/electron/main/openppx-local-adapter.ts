@@ -168,16 +168,7 @@ function appendCommentaryPart(parts: MessagePart[], nextPart: Extract<MessagePar
 }
 
 function ensureRenderableAssistantParts(parts: MessagePart[]): MessagePart[] {
-  if (parts.length) {
-    return parts;
-  }
-  return [{
-    type: "step_ref",
-    stepId: `step-${crypto.randomUUID()}`,
-    title: "Waiting for assistant output",
-    status: "running",
-    detail: "The Node run is active, but no renderable event has arrived yet.",
-  }];
+  return parts;
 }
 
 function latestMarkdownText(parts: MessagePart[]): string {
@@ -1673,19 +1664,20 @@ export class OpenPpxLocalAdapter implements Omit<
           status: "cancelled",
         });
       } else if (eventName === "run.finished") {
+        const status = isTerminalRunStatus(data.status) ? data.status : "completed";
         terminal = true;
         session.updatedAt = now();
         session.lastMessagePreview = finalText || input.text;
         this.emit({ type: "session.updated", runId, session });
-        this.emit({ type: "run.finished", runId, sessionId: input.sessionId });
+        this.emit({ type: "run.finished", runId, sessionId: input.sessionId, status });
         clientDebugLog("send.client-api.finished", {
           runId,
-          status: "completed",
+          status,
           finalTextLength: finalText.length,
         });
       } else if (eventName === "run.cancelled") {
         terminal = true;
-        this.emit({ type: "run.finished", runId, sessionId: input.sessionId });
+        this.emit({ type: "run.finished", runId, sessionId: input.sessionId, status: "cancelled" });
       }
     };
     const reconcilePersistedTerminalState = async (): Promise<boolean> => {
@@ -1727,7 +1719,7 @@ export class OpenPpxLocalAdapter implements Omit<
       session.updatedAt = now();
       session.lastMessagePreview = finalText || input.text;
       this.emit({ type: "session.updated", runId, session });
-      this.emit({ type: "run.finished", runId, sessionId: input.sessionId });
+      this.emit({ type: "run.finished", runId, sessionId: input.sessionId, status: authoritativeStatus });
       clientDebugLog("send.client-api.stream-reconciled", {
         runId,
         messageId: terminalMessage?.id ?? null,
@@ -1810,7 +1802,7 @@ export class OpenPpxLocalAdapter implements Omit<
           };
           this.emit({ type: "message.created", runId, sessionId: input.sessionId, message: failedMessage });
         }
-        this.emit({ type: "run.finished", runId, sessionId: input.sessionId });
+        this.emit({ type: "run.finished", runId, sessionId: input.sessionId, status: "failed" });
       })
       .finally(() => {
         streamController.abort();

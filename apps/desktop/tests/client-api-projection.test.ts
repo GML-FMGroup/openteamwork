@@ -90,6 +90,7 @@ describe("client api projection helpers", () => {
       summary: "inspect_repo returned successfully.",
       detail: "2 files changed",
       raw_text: "{\n  \"ok\": true\n}",
+      status: "completed",
     });
 
     expect(part).toMatchObject({
@@ -99,6 +100,7 @@ describe("client api projection helpers", () => {
       summary: "inspect_repo returned successfully.",
       detail: "2 files changed",
       rawText: "{\n  \"ok\": true\n}",
+      status: "completed",
     });
   });
 

@@ -9,7 +9,16 @@ export type MessagePart =
   | { type: "file"; text: string; fileName: string; sizeBytes?: number; mimeType?: string }
   | { type: "image"; text: string; url: string; mimeType?: string }
   | { type: "error"; text: string; errorCode?: string }
-  | { type: "tool_result"; toolCallId?: string; toolName: string; summary: string; detail?: string; rawText?: string }
+  | {
+      type: "tool_result";
+      toolCallId?: string;
+      toolName: string;
+      summary: string;
+      detail?: string;
+      rawText?: string;
+      /** Lifecycle projected from the ADK FunctionResponse, never inferred from display text. */
+      status?: "running" | "completed" | "failed";
+    }
   | { type: "step_ref"; stepId: string; title: string; status: "running" | "completed" | "failed"; detail: string };
 
 export interface AgentProfile {
@@ -66,6 +75,7 @@ export type RunEvent =
       type: "run.finished";
       runId: string;
       sessionId: string;
+      status: Exclude<MessageStatus, "streaming">;
     };
 
 export interface SendMessageInput {

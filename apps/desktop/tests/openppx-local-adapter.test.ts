@@ -110,6 +110,7 @@ describe("openppx local adapter projections", () => {
       type: "tool_result",
       toolCallId: "call-1",
       toolName: "inspect_workspace",
+      status: "completed",
     });
     expect(parts).toHaveLength(3);
   });
@@ -165,6 +166,44 @@ describe("openppx local adapter projections", () => {
       title: "background_fetch",
       status: "completed",
     });
+  });
+
+  it("projects structured FunctionResponse failures without scanning response prose", () => {
+    const documentedErrors = projectRunEventToStepParts(
+      {
+        content: {
+          parts: [
+            {
+              function_response: {
+                id: "skill-1",
+                name: "read_skill",
+                response: { result: "Zero formula errors. Explain blocked cells and failed validation examples." },
+              },
+            },
+          ],
+        },
+      },
+      [],
+    );
+    const explicitFailure = projectRunEventToStepParts(
+      {
+        content: {
+          parts: [
+            {
+              function_response: {
+                id: "skill-2",
+                name: "read_skill",
+                response: { ok: false, error: "Unknown skill" },
+              },
+            },
+          ],
+        },
+      },
+      [],
+    );
+
+    expect(documentedErrors[0]).toMatchObject({ status: "completed" });
+    expect(explicitFailure[0]).toMatchObject({ status: "failed" });
   });
 
   it("strips request-time guidance from reloaded user history", () => {

@@ -80,7 +80,7 @@ describe("MessageBubble", () => {
     expect(screen.getByText("Reading a file")).toBeInTheDocument();
   });
 
-  it("shows one compact animated waiting line while the model is silent", () => {
+  it("does not invent a model-waiting action while the Run is between ADK events", () => {
     const { container } = render(
       <MessageBubble
         message={buildMessage({
@@ -97,9 +97,33 @@ describe("MessageBubble", () => {
       />,
     );
 
-    expect(screen.getByText(/Waiting for the model…/)).toBeInTheDocument();
-    expect(container.querySelectorAll(".activity-waiting-line")).toHaveLength(1);
-    expect(container.querySelector(".activity-waiting-copy")).toBeInTheDocument();
+    expect(screen.queryByText(/Waiting for the model/i)).not.toBeInTheDocument();
+    expect(container.querySelector(".activity-disclosure.awaiting-next-step")).toBeInTheDocument();
+    expect(container.querySelector(".activity-waiting-line")).not.toBeInTheDocument();
+  });
+
+  it("uses the authoritative outer Run status instead of an intermediate action failure", () => {
+    const { container } = render(
+      <MessageBubble
+        message={buildMessage({
+          status: "completed",
+          parts: [{
+            type: "step_ref",
+            stepId: "step-failed",
+            title: "exec",
+            status: "failed",
+            detail: "Command blocked by security policy",
+          }],
+        })}
+      />,
+    );
+
+    expect(screen.getByText("Work completed")).toBeInTheDocument();
+    expect(container.querySelector(".activity-disclosure.completed")).toBeInTheDocument();
+    expect(container.querySelector(".activity-disclosure-marker.completed")).toBeInTheDocument();
+    expect(container.querySelector(".activity-disclosure-marker.failed")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByText("Work completed"));
+    expect(container.querySelector(".activity-phase.failed")).toBeInTheDocument();
   });
 
   it("keeps disclosure chevrons immediately after their summary copy", () => {

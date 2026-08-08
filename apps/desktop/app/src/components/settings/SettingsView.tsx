@@ -18,7 +18,7 @@ import type { DesktopPreferenceChanges, DesktopPreferences } from "../../lib/des
 export type SettingsSection = "general" | "models" | "operations" | "agent" | "preferences";
 type ControlPanelArea = "settings" | "extensions";
 
-const SETTINGS_SECTIONS: SettingsSection[] = ["general", "models", "operations", "agent", "preferences"];
+const SETTINGS_SECTIONS: SettingsSection[] = ["general", "models", "agent", "operations", "preferences"];
 const EXTENSION_SECTIONS: ExtensionSummary["kind"][] = ["plugin", "app", "mcp", "skill"];
 
 interface SettingsViewProps {

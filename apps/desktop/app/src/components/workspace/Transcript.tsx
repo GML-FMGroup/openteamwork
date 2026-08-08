@@ -26,16 +26,12 @@ interface TranscriptRow {
 }
 
 function mergedAssistantStatus(messages: ChatMessage[]): ChatMessage["status"] {
-  if (messages.some((message) => message.status === "failed")) {
-    return "failed";
-  }
-  if (messages.some((message) => message.status === "cancelled")) {
-    return "cancelled";
-  }
   if (messages.some((message) => message.status === "streaming")) {
     return "streaming";
   }
-  return "completed";
+  return [...messages]
+    .reverse()
+    .find((message) => message.role === "assistant")?.status ?? "completed";
 }
 
 function normalizedRunId(message: ChatMessage): string {

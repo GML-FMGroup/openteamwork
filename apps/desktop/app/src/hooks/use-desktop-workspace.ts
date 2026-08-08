@@ -579,6 +579,13 @@ export function useDesktopWorkspace() {
           );
         }
       } else if (event.type === "run.finished") {
+        if (event.sessionId === selectedSessionIdRef.current) {
+          setMessages((current) => current.map((message) => (
+            message.role === "assistant" && message.runId === event.runId
+              ? { ...message, status: event.status }
+              : message
+          )));
+        }
         activeRuns.finish(event.sessionId);
         setCancellingRunId((current) => (current === event.runId ? null : current));
         if (event.sessionId === selectedSessionIdRef.current) {

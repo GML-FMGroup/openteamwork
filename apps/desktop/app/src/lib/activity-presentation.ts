@@ -190,10 +190,6 @@ function looksLikeResponse(detail: string): boolean {
   return keys.some((key) => RESPONSE_KEYS.has(key)) && !keys.some((key) => INPUT_KEYS.has(key));
 }
 
-function hasFailure(value: string): boolean {
-  return /\b(error|failed|failure|blocked|denied|forbidden|not allowed)\b/i.test(value);
-}
-
 function mergedStatus(current: ActivityStatus, incoming: ActivityStatus): ActivityStatus {
   if (incoming === "running") return "running";
   if (incoming === "failed" || current === "failed") return "failed";
@@ -308,11 +304,11 @@ function targetDetail(entry: PendingEntry, presentation: ToolPresentation): Acti
   return null;
 }
 
-function outcomeDetail(entry: PendingEntry): ActivityDetailItem | null {
+function outcomeDetail(entry: PendingEntry, status: ActivityStatus): ActivityDetailItem | null {
   const source = entry.outputDetail || entry.rawOutput;
   if (!source.trim()) return null;
   const parsed = parseDetail(source);
-  const failure = hasFailure(source);
+  const failure = status === "failed";
   const keys = failure
     ? ["error", "message", "summary", "result", "output", "status"]
     : ["summary", "message", "status", "result", "output"];
@@ -340,7 +336,7 @@ function activityDetails(
   status: ActivityStatus,
 ): ActivityDetailItem[] {
   const target = targetDetail(entry, presentation);
-  const outcome = outcomeDetail(entry);
+  const outcome = outcomeDetail(entry, status);
   if (!target && !outcome) return [];
   return [
     ...(target ? [target] : []),
@@ -355,7 +351,7 @@ function activityDetails(
 
 function entryStatus(part: StepPart, messageStatus: MessageStatus): ActivityStatus {
   if (part.status === "running") return "running";
-  if (part.status === "failed" || messageStatus === "failed" || hasFailure(part.detail)) return "failed";
+  if (part.status === "failed" || messageStatus === "failed") return "failed";
   return "completed";
 }
 
@@ -367,11 +363,10 @@ function findLatestByTool(entries: PendingEntry[], toolName: string): PendingEnt
 function attachResult(entry: PendingEntry, part: ToolResultPart, messageStatus: MessageStatus): void {
   entry.outputDetail = part.detail ?? part.summary;
   entry.rawOutput = part.rawText ?? part.detail ?? part.summary;
-  if (messageStatus === "failed" || hasFailure(`${part.summary}\n${part.detail ?? ""}\n${part.rawText ?? ""}`)) {
-    entry.status = "failed";
-  } else if (entry.status === "running") {
-    entry.status = "completed";
-  }
+  const resultStatus: ActivityStatus = messageStatus === "failed"
+    ? "failed"
+    : part.status ?? "completed";
+  entry.status = mergedStatus(entry.status, resultStatus);
 }
 
 function collectEntries(messages: ChatMessage[]): PendingEntry[] {
@@ -425,7 +420,7 @@ function collectEntries(messages: ChatMessage[]): PendingEntry[] {
         const entry: PendingEntry = {
           id: part.toolCallId ?? `tool:${message.id}:${index}`,
           toolName: part.toolName,
-          status: message.status === "failed" || hasFailure(`${part.summary}\n${part.detail ?? ""}`) ? "failed" : "completed",
+          status: message.status === "failed" ? "failed" : part.status ?? "completed",
           inputDetail: "",
           outputDetail: part.detail ?? part.summary,
           rawOutput: part.rawText ?? part.detail ?? part.summary,
@@ -456,8 +451,7 @@ export function projectActivityGroups(messages: ChatMessage[]): ActivityGroup[] 
 
   for (const pending of collectEntries(messages)) {
     const presentation = toolPresentation(pending.toolName);
-    const failureText = `${pending.inputDetail}\n${pending.outputDetail}\n${pending.rawOutput}`;
-    const status = hasFailure(failureText) ? "failed" : pending.status;
+    const status = pending.status;
     const entry: ActivityEntry = {
       id: pending.id,
       toolName: pending.toolName,

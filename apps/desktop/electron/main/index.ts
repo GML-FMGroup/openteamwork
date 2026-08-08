@@ -111,7 +111,11 @@ function createWindow(): void {
     ) {
       new Notification({
         title: "OpenPPX",
-        body: "Agent run finished.",
+        body: event.status === "failed"
+          ? "Agent run failed."
+          : event.status === "cancelled"
+            ? "Agent run was cancelled."
+            : "Agent run finished.",
         silent: !hostPreferences.notificationSound,
       }).show();
     }

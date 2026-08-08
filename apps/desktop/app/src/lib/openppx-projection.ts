@@ -71,6 +71,44 @@ function summarizeToolResponse(toolName: string, response: unknown): string {
   return `${toolName} returned a result.`;
 }
 
+/** Preserve ADK FunctionResponse lifecycle without interpreting arbitrary result text. */
+function functionResponseStatus(response: unknown): StepPart["status"] {
+  if (typeof response === "string") {
+    const stripped = response.trim();
+    if (!stripped) return "completed";
+    if (stripped.toLowerCase().startsWith("error:")) return "failed";
+    try {
+      return functionResponseStatus(JSON.parse(stripped));
+    } catch {
+      return "completed";
+    }
+  }
+
+  const record = asRecord(response);
+  if (!record) return "completed";
+  if (record.ok === false || Boolean(record.error)) return "failed";
+
+  const rawStatus = String(record.status ?? "").trim().toLowerCase().replaceAll("_", "-");
+  if (["in-progress", "running", "pending", "queued", "waiting", "waiting-user", "waiting-approval"].includes(rawStatus)) {
+    return "running";
+  }
+  if (["failed", "failure", "error", "cancelled", "canceled"].includes(rawStatus)) {
+    return "failed";
+  }
+  if (["completed", "complete", "finished", "success", "succeeded", "done"].includes(rawStatus)) {
+    return "completed";
+  }
+
+  for (const key of ["result", "response", "data"] as const) {
+    const nested = record[key];
+    if (typeof nested === "string" || asRecord(nested)) {
+      const nestedStatus = functionResponseStatus(nested);
+      if (nestedStatus !== "completed" || rawStatus) return nestedStatus;
+    }
+  }
+  return "completed";
+}
+
 function upsertStepPart(parts: StepPart[], nextPart: StepPart): StepPart[] {
   const existingIndex = parts.findIndex((part) => part.stepId === nextPart.stepId);
   if (existingIndex === -1) {
@@ -97,18 +135,7 @@ export function mergeAssistantParts(stepParts: StepPart[], text: string): Messag
   if (text.trim()) {
     parts.push({ type: "markdown", text });
   }
-  if (parts.length) {
-    return parts;
-  }
-  return [
-    {
-      type: "step_ref",
-      stepId: `step-${crypto.randomUUID()}`,
-      title: "Waiting for assistant output",
-      status: "running",
-      detail: "The Node run is active, but no renderable event has arrived yet.",
-    },
-  ];
+  return parts;
 }
 
 export function buildMessagePartsFromSessionEvent(event: Record<string, unknown>): MessagePart[] {
@@ -149,6 +176,7 @@ export function buildMessagePartsFromSessionEvent(event: Record<string, unknown>
         summary: summarizeToolResponse(toolName, response),
         detail: previewValue(response, "Tool returned without a payload"),
         rawText: stringifyDetail(response),
+        status: functionResponseStatus(response),
       });
     }
   }
@@ -203,7 +231,7 @@ export function projectRunEventToStepParts(
         type: "step_ref",
         stepId,
         title: existing?.title ?? responseName,
-        status: "completed",
+        status: functionResponseStatus(functionResponse.response),
         detail: previewValue(functionResponse.response, "Tool returned without a payload"),
       });
     }

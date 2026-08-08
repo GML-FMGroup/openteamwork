@@ -532,18 +532,6 @@ export function ContextSidebar({
                 <span>Automations</span>
               </button>
               <button
-                className={view === "settings" && controlArea === "settings" ? "profile-menu-item active" : "profile-menu-item"}
-                type="button"
-                role="menuitem"
-                onClick={() => {
-                  setProfileMenuOpen(false);
-                  onOpenSettings();
-                }}
-              >
-                <ShellIcon name="settings" />
-                <span>Settings</span>
-              </button>
-              <button
                 className={view === "settings" && controlArea === "extensions" ? "profile-menu-item active" : "profile-menu-item"}
                 type="button"
                 role="menuitem"
@@ -554,6 +542,19 @@ export function ContextSidebar({
               >
                 <ShellIcon name="extensions" />
                 <span>Extensions</span>
+              </button>
+              <div className="profile-menu-divider profile-menu-settings-divider" role="separator" />
+              <button
+                className={view === "settings" && controlArea === "settings" ? "profile-menu-item active" : "profile-menu-item"}
+                type="button"
+                role="menuitem"
+                onClick={() => {
+                  setProfileMenuOpen(false);
+                  onOpenSettings();
+                }}
+              >
+                <ShellIcon name="settings" />
+                <span>Settings</span>
               </button>
             </div>
           ) : null}

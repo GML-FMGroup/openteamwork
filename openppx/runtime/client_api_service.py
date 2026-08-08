@@ -287,9 +287,10 @@ def _tool_result_payload(
     summary: str,
     detail: str,
     raw_text: str,
+    status: str,
     tool_call_id: str | None = None,
 ) -> dict[str, Any]:
-    """Build one client-facing tool result part payload."""
+    """Build one client-facing tool result with its ADK-derived lifecycle."""
 
     payload = {
         "type": "tool_result",
@@ -297,6 +298,7 @@ def _tool_result_payload(
         "summary": summary,
         "detail": detail,
         "raw_text": raw_text,
+        "status": status,
     }
     if tool_call_id:
         payload["tool_call_id"] = tool_call_id
@@ -453,6 +455,7 @@ def project_session_event(event: dict[str, Any], session_id: str) -> dict[str, A
                     summary=_tool_result_summary(tool_name, response),
                     detail=_preview_value(response, "Tool returned without a payload"),
                     raw_text=json.dumps(response, ensure_ascii=False, indent=2),
+                    status=_function_response_step_status(response),
                     tool_call_id=step_id,
                 )
             )

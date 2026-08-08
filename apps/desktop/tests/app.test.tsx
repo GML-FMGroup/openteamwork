@@ -1094,7 +1094,7 @@ describe("App sending state", () => {
 
     await waitFor(() => expect(screen.getByRole("button", { name: "Running" })).toBeDisabled());
 
-    act(() => emit({ type: "run.finished", runId: "run-1", sessionId: "session-a" }));
+    act(() => emit({ type: "run.finished", runId: "run-1", sessionId: "session-a", status: "completed" }));
 
     await waitFor(() => expect(screen.getByRole("button", { name: "Send" })).toBeEnabled());
   });
@@ -1122,7 +1122,12 @@ describe("App sending state", () => {
     await waitFor(() => expect(listArtifacts).toHaveBeenCalledWith("agent-1", "session-a"));
     expect(screen.getByText("No artifacts yet.")).toBeInTheDocument();
 
-    act(() => emit({ type: "run.finished", runId: "run-artifact", sessionId: "session-a" }));
+    act(() => emit({
+      type: "run.finished",
+      runId: "run-artifact",
+      sessionId: "session-a",
+      status: "completed",
+    }));
 
     expect(await screen.findByText("report.docx")).toBeInTheDocument();
     await waitFor(() => expect(listArtifacts).toHaveBeenCalledTimes(2));
@@ -1150,7 +1155,12 @@ describe("App sending state", () => {
     await waitFor(() => expect(cancelRun).toHaveBeenCalledWith("run-stop"));
     expect(screen.getByRole("button", { name: "Stopping" })).toBeDisabled();
 
-    act(() => emit({ type: "run.finished", runId: "run-stop", sessionId: "session-a" }));
+    act(() => emit({
+      type: "run.finished",
+      runId: "run-stop",
+      sessionId: "session-a",
+      status: "cancelled",
+    }));
     await screen.findByRole("button", { name: "Send" });
   });
 
@@ -1945,10 +1955,22 @@ describe("App sending state", () => {
     const menu = await screen.findByRole("menu", { name: "User menu" });
     expect(within(menu).getByText("Wenhao Jiang")).toBeInTheDocument();
     expect(within(menu).getByText("Local account")).toBeInTheDocument();
+    expect(within(menu).getAllByRole("menuitem").map((item) => item.textContent)).toEqual([
+      "Automations",
+      "Extensions",
+      "Settings",
+    ]);
     fireEvent.click(within(menu).getByRole("menuitem", { name: "Settings" }));
 
     expect(await screen.findByRole("heading", { name: "Connection" })).toBeInTheDocument();
     const settingsNav = screen.getByRole("navigation", { name: "Settings sections" });
+    expect(within(settingsNav).getAllByRole("button").map((item) => item.textContent)).toEqual([
+      "General",
+      "Models",
+      "Agent",
+      "Operations",
+      "Preferences",
+    ]);
     expect(within(settingsNav).queryByRole("button", { name: "Extensions" })).not.toBeInTheDocument();
     expect(screen.queryByRole("menu", { name: "User menu" })).not.toBeInTheDocument();
   });

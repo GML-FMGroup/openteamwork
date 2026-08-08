@@ -6,6 +6,7 @@ import {
   type ActivityEntry,
   type ActivityGroup,
 } from "../lib/activity-presentation";
+import type { MessageStatus } from "../types";
 import { ShellIcon } from "./workspace/ContextSidebar";
 
 export type ActivityNarrativeItem =
@@ -146,42 +147,21 @@ function ActivityPhaseDisclosure({ groups }: { groups: ActivityGroup[] }) {
   );
 }
 
-function ActivityWaitingLine({ resetKey }: { resetKey: string }) {
-  const [elapsedSeconds, setElapsedSeconds] = useState(0);
-
-  useEffect(() => {
-    setElapsedSeconds(0);
-    const timer = window.setInterval(() => {
-      setElapsedSeconds((current) => current + 1);
-    }, 1_000);
-    return () => window.clearInterval(timer);
-  }, [resetKey]);
-
-  return (
-    <div className="activity-waiting-line" role="status">
-      <span className="activity-semantic-marker running" aria-hidden />
-      <span className="activity-waiting-copy">
-        <strong>Waiting for the model…</strong>
-        {elapsedSeconds > 0 ? <small>{elapsedSeconds}s</small> : null}
-      </span>
-    </div>
-  );
-}
-
 /** Compact, progressively disclosed presentation for one Agent work turn. */
 export function ActivityDisclosure({
   groups,
   narrative,
-  streaming,
+  status,
   startedAt,
   endedAt,
 }: {
   groups: ActivityGroup[];
   narrative?: ActivityNarrativeItem[];
-  streaming: boolean;
+  status: MessageStatus;
   startedAt?: string;
   endedAt?: string;
 }) {
+  const streaming = status === "streaming";
   const [open, setOpen] = useState(streaming);
   const [technicalOpen, setTechnicalOpen] = useState(false);
   const [observedEndedAt, setObservedEndedAt] = useState(endedAt);
@@ -209,27 +189,39 @@ export function ActivityDisclosure({
     : [{ id: "activity", kind: "activity" as const, groups }];
   const allGroups = narrativeItems.flatMap((item) => item.kind === "activity" ? item.groups : []);
   if (!allGroups.length) return null;
+  const hasRunningEntry = allGroups.some((group) =>
+    group.entries.some((entry) => entry.status === "running"),
+  );
   const count = totalActivityCount(allGroups);
   const summary = summarizeActivityGroups(allGroups);
-  const hasFailure = allGroups.some((group) => group.status === "failed");
-  const hasRunningActivity = allGroups.some((group) => group.status === "running");
   const technical = technicalDetails(allGroups);
-  const waitingResetKey = allGroups
-    .flatMap((group) => group.entries.map((entry) => `${entry.id}:${entry.status}`))
-    .join("|");
   const elapsed = formatElapsedTime(startedAt, observedEndedAt);
   const title = streaming
     ? "Working"
-    : elapsed
-      ? `Worked for ${elapsed}`
-      : hasFailure
-        ? "Work completed with issues"
-        : "Work completed";
+    : status === "failed"
+      ? "Work failed"
+      : status === "cancelled"
+        ? "Work cancelled"
+        : elapsed
+          ? `Worked for ${elapsed}`
+          : "Work completed";
+  const lifecycleLabel = streaming
+    ? "Running"
+    : status === "failed"
+      ? "Failed"
+      : status === "cancelled"
+        ? "Cancelled"
+        : "Completed";
+  const markerStatus = streaming ? "running" : status;
+  const waitingForNextStep = streaming && !hasRunningEntry;
 
   return (
-    <details className={`activity-disclosure ${streaming ? "running" : "complete"}`} open={open}>
+    <details
+      className={`activity-disclosure ${status}${waitingForNextStep ? " awaiting-next-step" : ""}`}
+      open={open}
+    >
       <summary
-        aria-label={`${streaming ? "Running" : "Completed"} ${count} ${count === 1 ? "action" : "actions"}`}
+        aria-label={`${lifecycleLabel} ${count} ${count === 1 ? "action" : "actions"}`}
         aria-expanded={open}
         role="button"
         onClick={(event) => {
@@ -237,7 +229,7 @@ export function ActivityDisclosure({
           setOpen((current) => !current);
         }}
       >
-        <span className={`activity-disclosure-marker ${hasFailure ? "failed" : streaming ? "running" : "completed"}`} />
+        <span className={`activity-disclosure-marker ${markerStatus}`} />
         <span className="activity-disclosure-copy">
           <strong aria-live={streaming ? "polite" : undefined}>{title}</strong>
           {!open ? <small>{summary}</small> : null}
@@ -253,9 +245,6 @@ export function ActivityDisclosure({
           ) : (
             <ActivityPhaseDisclosure groups={item.groups} key={item.id} />
           ))}
-          {streaming && !hasRunningActivity ? (
-            <ActivityWaitingLine resetKey={waitingResetKey} />
-          ) : null}
         </div>
         {technical ? (
           <details className="activity-technical" open={technicalOpen}>

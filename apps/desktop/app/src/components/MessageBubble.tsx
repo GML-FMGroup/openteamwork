@@ -201,6 +201,11 @@ export function MessageBubble({
   ));
   const hasCommentary = message.parts.some((part) => part.type === "commentary");
   const narrative = hasActivity && hasCommentary ? activityNarrative(message) : undefined;
+  const activityStatus = activityStreaming === true
+    ? "streaming"
+    : activityStreaming === false && message.status === "streaming"
+      ? "completed"
+      : message.status;
   const timestamp = new Date(message.createdAt).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" });
 
   async function copyMessage(): Promise<void> {
@@ -234,7 +239,7 @@ export function MessageBubble({
           <ActivityDisclosure
             groups={activityGroups}
             narrative={narrative}
-            streaming={activityStreaming ?? message.status === "streaming"}
+            status={activityStatus}
             startedAt={activityStartedAt ?? message.createdAt}
             endedAt={activityEndedAt}
           />

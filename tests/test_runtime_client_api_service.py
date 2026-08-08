@@ -308,6 +308,7 @@ def test_project_session_event_builds_structured_parts() -> None:
     assert message["parts"][1]["type"] == "step_ref"
     assert message["parts"][2]["type"] == "tool_result"
     assert message["parts"][2]["tool_call_id"] == "call_1"
+    assert message["parts"][2]["status"] == "completed"
     assert len(message["parts"]) == 3
 
 
@@ -1043,6 +1044,17 @@ def test_function_response_status_preserves_adk_long_running_lifecycle() -> None
     assert _function_response_step_status({"error": "boom"}) == "failed"
     assert _function_response_step_status({"status": "completed"}) == "completed"
     assert _function_response_step_status({"ok": True}) == "completed"
+    assert (
+        _function_response_step_status(
+            {
+                "result": (
+                    "Use this skill to produce zero formula errors. "
+                    "Its documentation describes failed validation and blocked cells."
+                )
+            }
+        )
+        == "completed"
+    )
 
 
 def test_adk_event_projection_preserves_long_running_function_response_status(tmp_path: Path) -> None:
