@@ -200,6 +200,7 @@ def _message_payload(
     *,
     message_id: str,
     session_id: str,
+    run_id: str,
     role: str,
     parts: list[dict[str, Any]],
     status: str,
@@ -209,6 +210,7 @@ def _message_payload(
     return {
         "id": message_id,
         "session_id": session_id,
+        "run_id": run_id,
         "role": role,
         "parts": parts,
         "status": status,
@@ -336,6 +338,10 @@ def project_session_event(event: dict[str, Any], session_id: str) -> dict[str, A
 
     content = event.get("content") if isinstance(event.get("content"), dict) else {}
     raw_parts = content.get("parts") if isinstance(content, dict) and isinstance(content.get("parts"), list) else []
+    has_function_call = any(
+        isinstance(raw_part, dict) and isinstance(raw_part.get("function_call"), dict)
+        for raw_part in raw_parts
+    )
     parts: list[dict[str, Any]] = []
     for raw_part in raw_parts:
         if not isinstance(raw_part, dict):
@@ -346,7 +352,8 @@ def project_session_event(event: dict[str, Any], session_id: str) -> dict[str, A
         if isinstance(text, str) and text.strip():
             normalized_text = _strip_request_time_prefix(text)
             if normalized_text.strip():
-                parts.append({"type": "markdown", "text": normalized_text})
+                part_type = "commentary" if role == "assistant" and has_function_call else "markdown"
+                parts.append({"type": part_type, "text": normalized_text})
         inline_data = raw_part.get("inline_data")
         if isinstance(inline_data, dict):
             encoded_data = str(inline_data.get("data") or "")
@@ -399,9 +406,11 @@ def project_session_event(event: dict[str, Any], session_id: str) -> dict[str, A
             )
     if not parts:
         return None
+    invocation_id = str(event.get("invocation_id") or "").strip()
     return {
         "id": str(event.get("id") or f"msg_{session_id}"),
         "session_id": session_id,
+        "run_id": invocation_id or None,
         "role": role,
         "parts": parts,
         "status": "completed",
@@ -2072,6 +2081,7 @@ class ClientApiCoordinator:
                 "message": _message_payload(
                     message_id=handle.assistant_message_id,
                     session_id=session_id,
+                    run_id=run_id,
                     role="assistant",
                     parts=[],
                     status="streaming",
@@ -2338,11 +2348,31 @@ class ClientApiCoordinator:
                 )
         content = payload.get("content") if isinstance(payload.get("content"), dict) else {}
         raw_parts = content.get("parts") if isinstance(content.get("parts"), list) else []
+        has_function_call = any(
+            isinstance(raw_part, dict) and isinstance(raw_part.get("function_call"), dict)
+            for raw_part in raw_parts
+        )
         raw_long_running_ids = payload.get("long_running_tool_ids") or []
         long_running_ids = {str(item) for item in raw_long_running_ids if item is not None}
         for raw_part in raw_parts:
             if not isinstance(raw_part, dict):
                 continue
+            if not bool(raw_part.get("thought")) and has_function_call:
+                text = raw_part.get("text")
+                if isinstance(text, str):
+                    normalized_text = _strip_request_time_prefix(text).strip()
+                    if normalized_text:
+                        handle.publish(
+                            "message.delta",
+                            {
+                                "run_id": handle.run_id,
+                                "agent_id": handle.agent_id,
+                                "session_id": handle.session_id,
+                                "message_id": handle.assistant_message_id,
+                                "status": "streaming",
+                                "part": {"type": "commentary", "text": normalized_text},
+                            },
+                        )
             function_call = raw_part.get("function_call")
             if isinstance(function_call, dict):
                 step_id = str(function_call.get("id") or "step")
@@ -2415,6 +2445,7 @@ class ClientApiCoordinator:
                 "message": _message_payload(
                     message_id=handle.assistant_message_id,
                     session_id=handle.session_id,
+                    run_id=handle.run_id,
                     role="assistant",
                     parts=[{"type": "markdown", "text": final_text}],
                     status="completed",

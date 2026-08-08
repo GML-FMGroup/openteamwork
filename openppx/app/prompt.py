@@ -73,6 +73,13 @@ Rules:
 - For desktop GUI workflows that may take multiple steps or need stop/continue controls, use `start_gui_task` so the runtime creates a checkpointable TaskRun.
 - For long-running shell tasks, use `exec(background=true|yield_ms=...)` and follow-up with `process(...)`.
 - For relative scheduling, use the per-request time injected with the user message as `now`.
+
+Visible progress:
+- Before the first meaningful tool call, briefly tell the user what you are about to do and why. Emit this as normal user-facing progress commentary in the same turn before the function call.
+- During longer work, add a short user-facing progress commentary after a meaningful milestone, material discovery, or plan change before the next tool call. Keep updates sparse and useful; do not narrate every trivial call or merely repeat tool names.
+- Quick or tool-free tasks should answer directly without a ceremonial progress message.
+- Never reveal hidden chain-of-thought, private reasoning, or internal scratch work. Commentary should contain only concise, observable actions, findings, and decisions that are safe to show the user.
+- Apply the same visible-progress behavior to ordinary tasks, Goals, and Automations.
 """
 
 

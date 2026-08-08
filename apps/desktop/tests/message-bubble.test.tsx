@@ -71,17 +71,34 @@ describe("MessageBubble", () => {
     const { container } = render(<MessageBubble message={buildMessage()} />);
 
     expect(screen.getAllByText("Agent")).toHaveLength(1);
-    expect(screen.getAllByText("Reading a file")).toHaveLength(1);
+    expect(screen.getByText("Working")).toBeInTheDocument();
     expect(screen.getByText("1 file")).toBeInTheDocument();
-    expect(container.querySelector(".activity-disclosure")).not.toHaveAttribute("open");
-    expect(screen.queryByText("path: README.md")).not.toBeInTheDocument();
+    expect(container.querySelector(".activity-disclosure")).toHaveAttribute("open");
+    expect(screen.queryByText("Reading a file")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /Expand Worked with files/i }));
+    expect(screen.getByText("Reading a file")).toBeInTheDocument();
+  });
+
+  it("keeps action metadata collapsed until the user opens an individual action", () => {
+    render(<MessageBubble message={buildMessage()} />);
+
+    fireEvent.click(screen.getByRole("button", { name: /Expand Worked with files/i }));
+    const action = screen.getByRole("button", { name: /Expand Reading a file/i });
+    expect(action).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByText("Status")).not.toBeInTheDocument();
+
+    fireEvent.click(action);
+    expect(screen.getByRole("button", { name: /Collapse Reading a file/i })).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByText("File")).toBeInTheDocument();
+    expect(screen.getAllByText("README.md")).toHaveLength(2);
+    expect(screen.getByText("Running")).toBeInTheDocument();
   });
 
   it("can hide repeated assistant identity for continued replies", () => {
     render(<MessageBubble message={buildMessage()} showIdentity={false} />);
 
     expect(screen.queryByText("Agent")).not.toBeInTheDocument();
-    expect(screen.getAllByText("Reading a file")).toHaveLength(1);
+    expect(screen.getByRole("button", { name: /Expand Worked with files/i })).toBeInTheDocument();
   });
 
   it("keeps tool results inside technical details and renders attachment cards", () => {
@@ -115,6 +132,8 @@ describe("MessageBubble", () => {
       />,
     );
 
+    fireEvent.click(screen.getByText("Work completed"));
+    fireEvent.click(screen.getByRole("button", { name: /Expand Used connected tools/i }));
     expect(screen.getByText("Used Inspect repo")).toBeInTheDocument();
     expect(screen.queryByText("inspect_repo")).not.toBeInTheDocument();
     fireEvent.click(screen.getByText("Used Inspect repo"));
@@ -141,8 +160,119 @@ describe("MessageBubble", () => {
       />,
     );
 
+    fireEvent.click(screen.getByText("Work completed"));
+    fireEvent.click(screen.getByRole("button", { name: /Expand Ran commands/i }));
     expect(screen.getAllByText("Ran a local command")).toHaveLength(1);
     expect(screen.queryByText("exec")).not.toBeInTheDocument();
+  });
+
+  it("renders commentary, tool activity, and the final answer in chronological order", () => {
+    const { container } = render(
+      <MessageBubble
+        message={buildMessage({
+          status: "completed",
+          parts: [
+            { type: "commentary", text: "I will inspect the repository first." },
+            {
+              type: "step_ref",
+              stepId: "step-ordered",
+              title: "inspect_repo",
+              status: "completed",
+              detail: '{"path":"."}',
+            },
+            { type: "commentary", text: "The structure is clear; I will verify the tests next." },
+            {
+              type: "step_ref",
+              stepId: "step-tests",
+              title: "exec",
+              status: "completed",
+              detail: '{"command":"pytest"}',
+            },
+            { type: "markdown", text: "The repository is healthy." },
+          ],
+        })}
+      />,
+    );
+
+    expect(container.querySelectorAll(".activity-disclosure")).toHaveLength(1);
+    expect(screen.getAllByText("Work completed")).toHaveLength(1);
+    fireEvent.click(screen.getByText("Work completed"));
+    fireEvent.click(screen.getByRole("button", { name: /Expand Used connected tools/i }));
+    fireEvent.click(screen.getByRole("button", { name: /Expand Ran commands/i }));
+    const text = container.textContent ?? "";
+    expect(text.indexOf("I will inspect the repository first.")).toBeLessThan(text.indexOf("Used Inspect repo"));
+    expect(text.indexOf("Used Inspect repo")).toBeLessThan(text.indexOf("The structure is clear"));
+    expect(text.indexOf("The structure is clear")).toBeLessThan(text.indexOf("Ran a local command"));
+    expect(text.indexOf("Ran a local command")).toBeLessThan(text.indexOf("The repository is healthy."));
+    expect(container.querySelectorAll(".run-commentary")).toHaveLength(2);
+    expect(screen.getAllByText("Technical details")).toHaveLength(1);
+  });
+
+  it("supports independent Run and execution-phase disclosure layers", () => {
+    const { container } = render(
+      <MessageBubble
+        message={buildMessage({
+          status: "completed",
+          parts: [
+            { type: "commentary", text: "I will inspect the repository first." },
+            {
+              type: "step_ref",
+              stepId: "phase-read",
+              title: "read_file",
+              status: "completed",
+              detail: '{"path":"README.md"}',
+            },
+            {
+              type: "step_ref",
+              stepId: "phase-exec",
+              title: "exec",
+              status: "completed",
+              detail: '{"command":"pnpm test"}',
+            },
+            { type: "markdown", text: "Verification complete." },
+          ],
+        })}
+      />,
+    );
+
+    fireEvent.click(screen.getByText("Work completed"));
+    expect(container.querySelectorAll(".activity-disclosure")).toHaveLength(1);
+    expect(container.querySelectorAll(".activity-phase")).toHaveLength(1);
+    expect(screen.queryByText("Read a file")).not.toBeInTheDocument();
+    expect(screen.queryByText("Ran a local command")).not.toBeInTheDocument();
+    const phaseToggle = screen.getByRole("button", { name: /Expand Worked with files, Ran commands/i });
+    expect(phaseToggle).toHaveAttribute("aria-expanded", "false");
+
+    fireEvent.click(phaseToggle);
+    expect(screen.getByText("Read a file")).toBeInTheDocument();
+    expect(screen.getByText("Ran a local command")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Collapse Worked with files, Ran commands/i })).toHaveAttribute(
+      "aria-expanded",
+      "true",
+    );
+    expect(screen.getByText("Verification complete.")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByText("Work completed"));
+    expect(screen.queryByText("I will inspect the repository first.")).not.toBeInTheDocument();
+    expect(screen.getByText("Verification complete.")).toBeInTheDocument();
+  });
+
+  it("keeps commentary visible without progress chrome when no tool runs", () => {
+    const { container } = render(
+      <MessageBubble
+        message={buildMessage({
+          status: "completed",
+          parts: [
+            { type: "commentary", text: "I can answer this directly." },
+            { type: "markdown", text: "Here is the answer." },
+          ],
+        })}
+      />,
+    );
+
+    expect(screen.getByText("I can answer this directly.")).toBeInTheDocument();
+    expect(screen.getByText("Here is the answer.")).toBeInTheDocument();
+    expect(container.querySelector(".activity-disclosure")).not.toBeInTheDocument();
   });
 
   it("keeps exec detail behind technical disclosure", () => {
@@ -164,7 +294,7 @@ describe("MessageBubble", () => {
     );
 
     expect(container.textContent).not.toContain('"command": "ls -la"');
-    fireEvent.click(screen.getByText("Ran a local command"));
+    fireEvent.click(screen.getByText("Work completed"));
     fireEvent.click(screen.getByText("Technical details"));
     expect(container.textContent).toContain('"command": "ls -la"');
     expect(container.textContent).toContain('"cwd": "/workspace"');
@@ -221,5 +351,20 @@ describe("MessageBubble", () => {
 
     expect(screen.getByText("Model provider configuration error")).toBeInTheDocument();
     expect(screen.getByText("The provider name, model name, or corresponding credential may not match.")).toBeInTheDocument();
+  });
+
+  it("collapses a live timeline and records observed elapsed time when work completes", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-04-02T12:00:00.000Z"));
+    const liveMessage = buildMessage({ createdAt: "2026-04-02T12:00:00.000Z" });
+    const { container, rerender } = render(<MessageBubble message={liveMessage} />);
+
+    expect(container.querySelector(".activity-disclosure")).toHaveAttribute("open");
+    vi.setSystemTime(new Date("2026-04-02T12:00:03.000Z"));
+    rerender(<MessageBubble message={{ ...liveMessage, status: "completed" }} />);
+
+    expect(screen.getByText("Worked for 3s")).toBeInTheDocument();
+    expect(container.querySelector(".activity-disclosure")).not.toHaveAttribute("open");
+    vi.useRealTimers();
   });
 });

@@ -50,6 +50,7 @@ describe("client api projection helpers", () => {
     const message = normalizeClientApiMessage({
       id: "msg_1",
       session_id: "session_1",
+      run_id: "run_1",
       role: "assistant",
       status: "streaming",
       created_at: "2026-04-02T12:00:00+08:00",
@@ -74,6 +75,7 @@ describe("client api projection helpers", () => {
     expect(message).toMatchObject({
       id: "msg_1",
       sessionId: "session_1",
+      runId: "run_1",
       role: "assistant",
       status: "streaming",
     });
@@ -97,6 +99,18 @@ describe("client api projection helpers", () => {
       summary: "inspect_repo returned successfully.",
       detail: "2 files changed",
       rawText: "{\n  \"ok\": true\n}",
+    });
+  });
+
+  it("normalizes visible progress commentary without treating it as a final answer", () => {
+    const part = normalizeClientApiPart({
+      type: "commentary",
+      text: "I will inspect the repository first.",
+    });
+
+    expect(part).toEqual({
+      type: "commentary",
+      text: "I will inspect the repository first.",
     });
   });
 });

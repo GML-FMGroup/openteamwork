@@ -108,6 +108,21 @@ describe("activity presentation", () => {
     expect(summarizeActivityGroups(groups)).toBe("3 searches · 1 command");
   });
 
+  it("preserves chronology and only merges adjacent repeated operations", () => {
+    const groups = projectActivityGroups([
+      message([
+        { type: "step_ref", stepId: "search-1", title: "web_search", status: "completed", detail: '{"query":"first"}' },
+        { type: "step_ref", stepId: "search-2", title: "web_search", status: "completed", detail: '{"query":"second"}' },
+        { type: "step_ref", stepId: "read-1", title: "web_fetch", status: "completed", detail: '{"url":"https://example.com"}' },
+        { type: "step_ref", stepId: "search-3", title: "web_search", status: "completed", detail: '{"query":"third"}' },
+      ]),
+    ]);
+
+    expect(groups.map((group) => group.key)).toEqual(["web-search", "web-read", "web-search"]);
+    expect(groups.map((group) => group.count)).toEqual([2, 1, 1]);
+    expect(summarizeActivityGroups(groups)).toBe("3 searches · 1 source");
+  });
+
   it("redacts credential-like values from technical details", () => {
     const groups = projectActivityGroups([
       message([
@@ -123,5 +138,54 @@ describe("activity presentation", () => {
 
     expect(groups[0]?.entries[0]?.rawDetail).toContain("[redacted]");
     expect(groups[0]?.entries[0]?.rawDetail).not.toContain("secret-value");
+  });
+
+  it("projects search, URL, file, and command targets into safe action details", () => {
+    const groups = projectActivityGroups([
+      message([
+        { type: "step_ref", stepId: "search", title: "web_search", status: "completed", detail: '{"query":"OpenPPX architecture"}' },
+        { type: "step_ref", stepId: "source", title: "web_fetch", status: "completed", detail: '{"url":"https://docs.example.com/guide"}' },
+        { type: "step_ref", stepId: "file", title: "read_file", status: "completed", detail: "path: docs/design.md\nline: 12" },
+        { type: "step_ref", stepId: "command", title: "exec", status: "completed", detail: '{"command":"pnpm test"}' },
+      ]),
+    ]);
+
+    const entries = groups.flatMap((group) => group.entries);
+    expect(entries[0]).toMatchObject({
+      detail: "OpenPPX architecture",
+      details: [
+        { label: "Query", value: "OpenPPX architecture", kind: "query" },
+        { label: "Status", value: "Completed", kind: "status" },
+      ],
+    });
+    expect(entries[1]?.detail).toBe("docs.example.com");
+    expect(entries[1]?.details[0]).toMatchObject({
+      label: "Source",
+      value: "https://docs.example.com/guide",
+      kind: "url",
+      href: "https://docs.example.com/guide",
+    });
+    expect(entries[2]?.details[0]).toMatchObject({ label: "File", value: "docs/design.md", kind: "file" });
+    expect(entries[3]?.details[0]).toMatchObject({ label: "Command", value: "pnpm test", kind: "command" });
+  });
+
+  it("uses a generic MCP target without exposing credentials", () => {
+    const groups = projectActivityGroups([
+      message([
+        {
+          type: "step_ref",
+          stepId: "mcp-call",
+          title: "functions.custom_mcp/read_resource",
+          status: "completed",
+          detail: '{"resource":"project://roadmap","api_key":"secret-value"}',
+        },
+      ]),
+    ]);
+
+    const entry = groups[0]?.entries[0];
+    expect(entry?.detail).toBe("project://roadmap");
+    expect(entry?.details[0]).toMatchObject({ label: "Resource", value: "project://roadmap" });
+    expect(JSON.stringify(entry?.details)).not.toContain("secret-value");
+    expect(entry?.rawDetail).not.toContain("secret-value");
   });
 });

@@ -1,6 +1,5 @@
 import type { RefObject } from "react";
 import type { ChatMessage } from "../../types";
-import { projectActivityGroups, type ActivityGroup } from "../../lib/activity-presentation";
 import { MessageBubble } from "../MessageBubble";
 
 interface TranscriptProps {
@@ -19,41 +18,101 @@ const suggestions = [
   "Prepare a project brief that is ready to share",
 ];
 
-/** Group consecutive Agent messages into one progressively disclosed work summary. */
-function projectTurnActivity(messages: ChatMessage[]): Map<number, ActivityGroup[]> {
-  const activityByMessageIndex = new Map<number, ActivityGroup[]>();
+interface TranscriptRow {
+  message: ChatMessage;
+  startedAt: string;
+  endedAt?: string;
+}
+
+function mergedAssistantStatus(messages: ChatMessage[]): ChatMessage["status"] {
+  if (messages.some((message) => message.status === "failed")) {
+    return "failed";
+  }
+  if (messages.some((message) => message.status === "cancelled")) {
+    return "cancelled";
+  }
+  if (messages.some((message) => message.status === "streaming")) {
+    return "streaming";
+  }
+  return "completed";
+}
+
+function normalizedRunId(message: ChatMessage): string {
+  return message.runId?.trim() ?? "";
+}
+
+function mergedRunRow(messages: ChatMessage[]): TranscriptRow {
+  const first = messages[0]!;
+  const representative = messages.find((message) => message.role === "assistant") ?? first;
+  const startedAt = first.createdAt;
+  const latestCreatedAt = messages.at(-1)?.createdAt;
+  const status = mergedAssistantStatus(messages);
+  return {
+    message: {
+      ...representative,
+      runId: normalizedRunId(first) || normalizedRunId(representative) || null,
+      role: "assistant",
+      status,
+      parts: messages.flatMap((message) => message.parts),
+    },
+    startedAt,
+    endedAt: status !== "streaming" && latestCreatedAt && Date.parse(latestCreatedAt) > Date.parse(startedAt)
+      ? latestCreatedAt
+      : undefined,
+  };
+}
+
+/** Coalesce one Client Run or replayed ADK Invocation while preserving event order. */
+export function projectTranscriptRows(messages: ChatMessage[]): TranscriptRow[] {
+  const rows: TranscriptRow[] = [];
   let index = 0;
 
   while (index < messages.length) {
-    if (messages[index]?.role !== "assistant") {
+    const current = messages[index];
+    if (!current) {
+      index += 1;
+      continue;
+    }
+    if (current.role === "user") {
+      rows.push({ message: current, startedAt: current.createdAt });
       index += 1;
       continue;
     }
 
-    const turnStart = index;
+    const runId = normalizedRunId(current);
+    if (runId) {
+      const runMessages: ChatMessage[] = [];
+      while (
+        index < messages.length
+        && messages[index]?.role !== "user"
+        && normalizedRunId(messages[index]!) === runId
+      ) {
+        runMessages.push(messages[index]!);
+        index += 1;
+      }
+      rows.push(mergedRunRow(runMessages));
+      continue;
+    }
+
+    if (current.role !== "assistant") {
+      rows.push({ message: current, startedAt: current.createdAt });
+      index += 1;
+      continue;
+    }
+
     const turnMessages: ChatMessage[] = [];
-    while (index < messages.length && messages[index]?.role === "assistant") {
+    while (
+      index < messages.length
+      && messages[index]?.role === "assistant"
+      && !normalizedRunId(messages[index]!)
+    ) {
       turnMessages.push(messages[index]!);
       index += 1;
     }
-    activityByMessageIndex.set(turnStart, projectActivityGroups(turnMessages));
-    for (let hiddenIndex = turnStart + 1; hiddenIndex < index; hiddenIndex += 1) {
-      activityByMessageIndex.set(hiddenIndex, []);
-    }
+    rows.push(mergedRunRow(turnMessages));
   }
 
-  return activityByMessageIndex;
-}
-
-/** Keep meaningful messages while omitting completed tool-only shells already represented by the turn summary. */
-function shouldRenderMessage(message: ChatMessage, activityGroups: ActivityGroup[] | undefined): boolean {
-  if (message.role !== "assistant" || message.status !== "completed") {
-    return true;
-  }
-  if (activityGroups?.length) {
-    return true;
-  }
-  return message.parts.some((part) => part.type !== "step_ref" && part.type !== "tool_result");
+  return rows;
 }
 
 /** Central task transcript with a stable empty state and jump-to-latest affordance. */
@@ -66,7 +125,7 @@ export function Transcript({
   onJumpToLatest,
   onUseSuggestion,
 }: TranscriptProps) {
-  const turnActivity = projectTurnActivity(messages);
+  const rows = projectTranscriptRows(messages);
   return (
     <div className="transcript-wrap">
       <section ref={streamRef} className="message-stream" onScroll={onScroll}>
@@ -90,19 +149,18 @@ export function Transcript({
           </div>
         ) : (
           <div className="transcript-column">
-            {messages.map((message, index) => {
-              const previousMessage = index > 0 ? messages[index - 1] : null;
+            {rows.map((row, index) => {
+              const message = row.message;
+              const previousMessage = index > 0 ? rows[index - 1]?.message : null;
               const showIdentity = !(message.role === "assistant" && previousMessage?.role === "assistant");
-              const activityGroups = turnActivity.get(index);
-              if (!shouldRenderMessage(message, activityGroups)) {
-                return null;
-              }
               return (
                 <MessageBubble
                   key={message.id}
                   message={message}
                   showIdentity={showIdentity}
-                  activityGroups={activityGroups}
+                  activityStreaming={message.status === "streaming"}
+                  activityStartedAt={row.startedAt}
+                  activityEndedAt={row.endedAt}
                 />
               );
             })}

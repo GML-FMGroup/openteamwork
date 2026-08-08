@@ -4,6 +4,7 @@ export type MessageStatus = "streaming" | "completed" | "failed" | "cancelled";
 
 export type MessagePart =
   | { type: "markdown"; text: string }
+  | { type: "commentary"; text: string }
   | { type: "code"; text: string; language?: string }
   | { type: "file"; text: string; fileName: string; sizeBytes?: number; mimeType?: string }
   | { type: "image"; text: string; url: string; mimeType?: string }
@@ -32,6 +33,8 @@ export interface SessionSummary {
 export interface ChatMessage {
   id: string;
   sessionId: string;
+  /** Stable identity of the Client Run or replayed ADK Invocation that produced this message. */
+  runId?: string | null;
   role: MessageRole;
   status: MessageStatus;
   createdAt: string;

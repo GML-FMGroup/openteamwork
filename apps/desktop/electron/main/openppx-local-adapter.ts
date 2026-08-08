@@ -23,7 +23,6 @@ import {
 } from "@openppx/client";
 import { normalizeClientApiRuntime } from "../../app/src/lib/client-api-projection";
 import { isLoopbackClientApiHostname } from "../../app/src/lib/connection-profile";
-import { mergeAssistantParts } from "../../app/src/lib/openppx-projection";
 import type {
   AgentProfile,
   AgentCreateRequest,
@@ -113,6 +112,77 @@ type StepPart = Extract<MessagePart, { type: "step_ref" }>;
 
 function now(): string {
   return new Date().toISOString();
+}
+
+/** Replace a streamed step without changing the chronological order in which it first appeared. */
+function upsertStepPart(parts: StepPart[], nextPart: StepPart): StepPart[] {
+  const existingIndex = parts.findIndex((part) => part.stepId === nextPart.stepId);
+  if (existingIndex < 0) {
+    return [...parts, nextPart];
+  }
+  return parts.map((part, index) => (index === existingIndex ? nextPart : part));
+}
+
+/** Replace a streamed step in-place while retaining surrounding commentary. */
+function upsertOrderedStepPart(parts: MessagePart[], nextPart: StepPart): MessagePart[] {
+  const existingIndex = parts.findIndex(
+    (part) => part.type === "step_ref" && part.stepId === nextPart.stepId,
+  );
+  if (existingIndex < 0) {
+    return [...parts, nextPart];
+  }
+  return parts.map((part, index) => (index === existingIndex ? nextPart : part));
+}
+
+/** Maintain one terminal markdown snapshot without moving earlier run events. */
+function upsertFinalMarkdownPart(parts: MessagePart[], text: string): MessagePart[] {
+  if (!text.trim()) {
+    return parts;
+  }
+  let existingIndex = -1;
+  for (let index = parts.length - 1; index >= 0; index -= 1) {
+    if (parts[index]?.type === "markdown") {
+      existingIndex = index;
+      break;
+    }
+  }
+  const nextPart: MessagePart = { type: "markdown", text };
+  if (existingIndex < 0) {
+    return [...parts, nextPart];
+  }
+  return parts.map((part, index) => (index === existingIndex ? nextPart : part));
+}
+
+/** Avoid duplicate commentary snapshots while preserving distinct milestones. */
+function appendCommentaryPart(parts: MessagePart[], nextPart: Extract<MessagePart, { type: "commentary" }>): MessagePart[] {
+  const previous = parts.at(-1);
+  if (previous?.type === "commentary" && previous.text === nextPart.text) {
+    return parts;
+  }
+  return [...parts, nextPart];
+}
+
+function ensureRenderableAssistantParts(parts: MessagePart[]): MessagePart[] {
+  if (parts.length) {
+    return parts;
+  }
+  return [{
+    type: "step_ref",
+    stepId: `step-${crypto.randomUUID()}`,
+    title: "Waiting for assistant output",
+    status: "running",
+    detail: "The Node run is active, but no renderable event has arrived yet.",
+  }];
+}
+
+function latestMarkdownText(parts: MessagePart[]): string {
+  for (let index = parts.length - 1; index >= 0; index -= 1) {
+    const part = parts[index];
+    if (part?.type === "markdown") {
+      return part.text;
+    }
+  }
+  return "";
 }
 
 function appCredentialRefName(connectionId: string, slot: string): string {
@@ -1503,14 +1573,14 @@ export class OpenPpxLocalAdapter implements Omit<
     });
     let assistantMessage: ChatMessage | null = null;
     let finalText = "";
-    let stepParts: StepPart[] = [];
+    let orderedParts: MessagePart[] = [];
     let terminal = false;
     const syncAssistant = (status: ChatMessage["status"]): void => {
       if (!assistantMessage) {
         return;
       }
       assistantMessage.status = status;
-      assistantMessage.parts = mergeAssistantParts(stepParts, finalText);
+      assistantMessage.parts = ensureRenderableAssistantParts(orderedParts);
       this.emit({
         type: "message.updated",
         runId,
@@ -1528,24 +1598,33 @@ export class OpenPpxLocalAdapter implements Omit<
           return;
         }
         assistantMessage = message;
-        stepParts = message.parts.filter((part): part is StepPart => part.type === "step_ref");
+        orderedParts = [...message.parts];
+        finalText = latestMarkdownText(message.parts);
         this.emit({ type: "message.created", runId, sessionId: message.sessionId, message });
       } else if (eventName === "step.updated" && assistantMessage) {
         const stepPart = normalizeClientApiPart(data.step);
         if (stepPart?.type === "step_ref") {
-          stepParts = [...stepParts.filter((part) => part.stepId !== stepPart.stepId), stepPart];
+          orderedParts = upsertOrderedStepPart(orderedParts, stepPart);
           syncAssistant("streaming");
         }
       } else if (eventName === "message.delta" && assistantMessage) {
         const part = normalizeClientApiPart(data.part);
-        if (part?.type === "markdown") {
+        if (part?.type === "commentary") {
+          orderedParts = appendCommentaryPart(orderedParts, part);
+          syncAssistant("streaming");
+        } else if (part?.type === "markdown") {
           finalText = part.text;
+          orderedParts = upsertFinalMarkdownPart(orderedParts, finalText);
           syncAssistant("streaming");
         }
       } else if (eventName === "message.completed" && assistantMessage) {
         const message = normalizeClientApiMessage(data.message);
-        finalText = message?.parts.find((part) => part.type === "markdown")?.text ?? finalText;
-        stepParts = stepParts.map((part) => (part.status === "running" ? { ...part, status: "completed" } : part));
+        finalText = message ? latestMarkdownText(message.parts) || finalText : finalText;
+        orderedParts = upsertFinalMarkdownPart(orderedParts, finalText).map((part) => (
+          part.type === "step_ref" && part.status === "running"
+            ? { ...part, status: "completed" }
+            : part
+        ));
         syncAssistant("completed");
       } else if (eventName === "message.failed" && assistantMessage) {
         const errorPart = normalizeClientApiPart(data.error);
@@ -1565,10 +1644,11 @@ export class OpenPpxLocalAdapter implements Omit<
           runId,
           sessionId: assistantMessage.sessionId,
           messageId: assistantMessage.id,
-          replaceParts: mergeAssistantParts(
-            stepParts.map((part) => (part.status === "running" ? { ...part, status: "failed" } : part)),
-            finalText,
-          ),
+          replaceParts: ensureRenderableAssistantParts(orderedParts.map((part) => (
+            part.type === "step_ref" && part.status === "running"
+              ? { ...part, status: "failed" }
+              : part
+          ))),
           status: "cancelled",
         });
       } else if (eventName === "run.finished") {
@@ -1620,6 +1700,7 @@ export class OpenPpxLocalAdapter implements Omit<
           const failedMessage: ChatMessage = {
             id: `assistant-${runId}`,
             sessionId: input.sessionId,
+            runId,
             role: "assistant",
             status: "failed",
             createdAt: now(),

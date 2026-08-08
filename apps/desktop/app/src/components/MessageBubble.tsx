@@ -3,7 +3,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type { ChatMessage, MessagePart } from "../types";
 import { projectActivityGroups, type ActivityGroup } from "../lib/activity-presentation";
-import { ActivityDisclosure } from "./ActivityDisclosure";
+import { ActivityDisclosure, type ActivityNarrativeItem } from "./ActivityDisclosure";
 
 function roleLabel(role: ChatMessage["role"]): string {
   if (role === "user") {
@@ -69,6 +69,13 @@ function explainError(errorCode: string | undefined, text: string): { title: str
 }
 
 function renderPart(part: MessagePart) {
+  if (part.type === "commentary") {
+    return (
+      <div className="run-commentary">
+        <ReactMarkdown remarkPlugins={[remarkGfm]}>{part.text}</ReactMarkdown>
+      </div>
+    );
+  }
   if (part.type === "markdown") {
     return (
       <div className="rich-markdown">
@@ -129,21 +136,71 @@ function renderPart(part: MessagePart) {
   return null;
 }
 
+type ActivityPart = Extract<MessagePart, { type: "step_ref" | "tool_result" }>;
+/** Build one turn-level progress narrative without losing commentary/tool chronology. */
+function activityNarrative(message: ChatMessage): ActivityNarrativeItem[] {
+  const items: ActivityNarrativeItem[] = [];
+  let activityParts: ActivityPart[] = [];
+  const flushActivity = (): void => {
+    if (activityParts.length) {
+      const groups = projectActivityGroups([{ ...message, parts: activityParts }]);
+      if (groups.length) {
+        items.push({
+          id: `activity-${items.length}-${groups[0]?.entries[0]?.id ?? groups[0]?.key ?? "segment"}`,
+          kind: "activity",
+          groups,
+        });
+      }
+      activityParts = [];
+    }
+  };
+
+  for (const part of message.parts) {
+    if (part.type === "step_ref" || part.type === "tool_result") {
+      activityParts.push(part);
+      continue;
+    }
+    flushActivity();
+    if (part.type === "commentary" && part.text.trim()) {
+      items.push({
+        id: `commentary-${items.length}`,
+        kind: "commentary",
+        text: part.text,
+      });
+    }
+  }
+  flushActivity();
+  return items;
+}
+
 export function MessageBubble({
   message,
   showIdentity = true,
   activityGroups: activityGroupsOverride,
+  activityStreaming,
+  activityStartedAt,
+  activityEndedAt,
 }: {
   message: ChatMessage;
   showIdentity?: boolean;
   activityGroups?: ActivityGroup[];
+  activityStreaming?: boolean;
+  activityStartedAt?: string;
+  activityEndedAt?: string;
 }) {
   const [copied, setCopied] = useState(false);
   const statusLabel = messageStatusLabel(message.status);
   const isAssistant = message.role === "assistant";
   const isUser = message.role === "user";
   const activityGroups = activityGroupsOverride ?? projectActivityGroups([message]);
-  const contentParts = message.parts.filter((part) => part.type !== "step_ref" && part.type !== "tool_result");
+  const hasActivity = activityGroups.length > 0;
+  const contentParts = message.parts.filter((part) => (
+    part.type !== "step_ref"
+    && part.type !== "tool_result"
+    && (!hasActivity || part.type !== "commentary")
+  ));
+  const hasCommentary = message.parts.some((part) => part.type === "commentary");
+  const narrative = hasActivity && hasCommentary ? activityNarrative(message) : undefined;
   const timestamp = new Date(message.createdAt).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" });
 
   async function copyMessage(): Promise<void> {
@@ -174,7 +231,13 @@ export function MessageBubble({
       ) : null}
       <div className="message-body">
         {activityGroups.length ? (
-          <ActivityDisclosure groups={activityGroups} streaming={message.status === "streaming"} />
+          <ActivityDisclosure
+            groups={activityGroups}
+            narrative={narrative}
+            streaming={activityStreaming ?? message.status === "streaming"}
+            startedAt={activityStartedAt ?? message.createdAt}
+            endedAt={activityEndedAt}
+          />
         ) : null}
         {contentParts.map((part, index) => (
           <div key={`${message.id}-${index}`}>{renderPart(part)}</div>

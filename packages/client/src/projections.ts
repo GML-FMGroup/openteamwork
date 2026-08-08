@@ -34,7 +34,7 @@ export function normalizeClientApiPart(payload: unknown): MessagePart | null {
     return null;
   }
   const type = asString(part.type);
-  if (type === "markdown") {
+  if (type === "markdown" || type === "commentary") {
     return { type, text: asString(part.text) };
   }
   if (type === "code") {
@@ -93,10 +93,19 @@ export function normalizeClientApiMessage(payload: unknown): ChatMessage | null 
   if (!message) {
     return null;
   }
+  const metadata = asRecord(message.metadata);
   const rawParts = Array.isArray(message.parts) ? message.parts : [];
   return {
     id: asString(message.id),
     sessionId: asString(message.session_id ?? message.sessionId),
+    runId: asString(
+      message.run_id
+      ?? message.runId
+      ?? metadata?.run_id
+      ?? metadata?.runId
+      ?? metadata?.invocation_id
+      ?? metadata?.invocationId,
+    ) || null,
     role: normalizeRole(message.role),
     status: normalizeStatus(message.status, "completed"),
     createdAt: asString(message.created_at ?? message.createdAt, new Date().toISOString()),

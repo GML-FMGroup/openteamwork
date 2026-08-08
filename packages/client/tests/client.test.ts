@@ -134,11 +134,12 @@ describe("OpenPPX Client public contract", () => {
       normalizeClientApiMessage({
         id: "message_1",
         session_id: "session_1",
+        run_id: "run_1",
         role: "assistant",
         status: "completed",
         parts: [{ type: "markdown", text: "Hello" }],
       }),
-    ).toMatchObject({ id: "message_1", sessionId: "session_1", role: "assistant" });
+    ).toMatchObject({ id: "message_1", sessionId: "session_1", runId: "run_1", role: "assistant" });
   });
 
   it("normalizes URLs and authenticated headers in the HTTP transport", async () => {

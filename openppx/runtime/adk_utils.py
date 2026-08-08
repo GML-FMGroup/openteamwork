@@ -23,6 +23,13 @@ def extract_text(content: types.Content | None) -> str:
     )
 
 
+def event_has_function_calls(event: Any) -> bool:
+    """Return whether an ADK event contains at least one function call part."""
+    content = getattr(event, "content", None)
+    parts = getattr(content, "parts", None) or []
+    return any(getattr(part, "function_call", None) is not None for part in parts)
+
+
 def _longest_suffix_prefix_overlap(current: str, candidate: str) -> int:
     """Return longest overlap where current suffix equals candidate prefix."""
     max_overlap = min(len(current), len(candidate))
@@ -94,6 +101,10 @@ async def run_text_async(
         if error_text:
             raise RuntimeError(error_text)
         text = extract_text(getattr(event, "content", None))
+        # Visible text emitted alongside a function call is user-facing progress
+        # commentary. It belongs in the event stream, not in the terminal answer.
+        if event_has_function_calls(event):
+            continue
         merged = merge_text_stream(final, text)
         if merged and merged != final and on_text_update is not None:
             delta = merged[len(final):] if final and merged.startswith(final) else merged

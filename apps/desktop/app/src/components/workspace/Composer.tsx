@@ -74,7 +74,9 @@ export function Composer({
   const [draggingFiles, setDraggingFiles] = useState(false);
   const [recentCommands, setRecentCommands] = useState<string[]>(readRecentCommands);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
-  const commandToken = value.trimStart().split(/\s/, 1)[0]?.toLowerCase() ?? "";
+  const commandInput = value.trimStart();
+  const commandToken = commandInput.split(/\s/, 1)[0]?.toLowerCase() ?? "";
+  const commandArgumentsStarted = /^\S+\s/.test(commandInput);
   const matchingCommands = useMemo(
     () =>
       commandToken.startsWith("/")
@@ -93,7 +95,10 @@ export function Composer({
         : [],
     [commandToken, commands, recentCommands],
   );
-  const commandMenuOpen = matchingCommands.length > 0 && dismissedValue !== value;
+  const commandMenuOpen =
+    !commandArgumentsStarted
+    && matchingCommands.length > 0
+    && dismissedValue !== value;
 
   useEffect(() => {
     setSelectedCommandIndex(0);
@@ -278,9 +283,12 @@ export function Composer({
           aria-label={actionLabel}
           title={busy ? (canStop ? "Stop the current Run" : "The current Agent is starting") : "Send"}
         >
-          <span>{actionLabel}</span>
           <svg viewBox="0 0 20 20" aria-hidden="true">
-            <path d="M3.5 10.8 15.6 4.9c.8-.4 1.5.3 1.1 1.1l-5.9 12.1c-.4.9-1.7.8-2-.1L7.2 12.6a1 1 0 0 0-.6-.6L3.6 10.3c-.9-.3-.9-1.6-.1-2Z" />
+            {busy ? (
+              <rect x="5.5" y="5.5" width="9" height="9" rx="1.8" />
+            ) : (
+              <path d="M3.5 10.8 15.6 4.9c.8-.4 1.5.3 1.1 1.1l-5.9 12.1c-.4.9-1.7.8-2-.1L7.2 12.6a1 1 0 0 0-.6-.6L3.6 10.3c-.9-.3-.9-1.6-.1-2Z" />
+            )}
           </svg>
         </button>
       </div>

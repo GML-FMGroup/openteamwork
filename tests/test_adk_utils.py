@@ -91,6 +91,45 @@ class AdkUtilsTests(unittest.TestCase):
         self.assertEqual(runner.kwargs["user_id"], "u1")
         self.assertEqual(runner.kwargs["session_id"], "s1")
 
+    def test_run_text_async_keeps_tool_preamble_out_of_final_answer(self) -> None:
+        events = [
+            pytypes.SimpleNamespace(
+                content=pytypes.SimpleNamespace(
+                    parts=[
+                        pytypes.SimpleNamespace(
+                            text="I will inspect the repository first.",
+                            function_call=None,
+                        ),
+                        pytypes.SimpleNamespace(
+                            text=None,
+                            function_call=pytypes.SimpleNamespace(name="inspect_repo"),
+                        ),
+                    ]
+                )
+            ),
+            pytypes.SimpleNamespace(
+                content=pytypes.SimpleNamespace(
+                    parts=[pytypes.SimpleNamespace(text="The repository is healthy.", function_call=None)]
+                )
+            ),
+        ]
+        updates: list[tuple[str, str]] = []
+
+        class _FakeRunner:
+            async def run_async(self, **kwargs):
+                for event in events:
+                    yield event
+
+        final = asyncio.run(
+            run_text_async(
+                _FakeRunner(),
+                on_text_update=lambda merged, delta: updates.append((merged, delta)),
+            )
+        )
+
+        self.assertEqual(final, "The repository is healthy.")
+        self.assertEqual(updates, [("The repository is healthy.", "The repository is healthy.")])
+
     def test_run_text_async_returns_default_when_empty(self) -> None:
         class _FakeRunner:
             async def run_async(self, **kwargs):

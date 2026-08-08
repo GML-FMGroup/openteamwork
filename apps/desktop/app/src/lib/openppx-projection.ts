@@ -115,12 +115,13 @@ export function buildMessagePartsFromSessionEvent(event: Record<string, unknown>
   const content = asRecord(event.content);
   const parts = asRecordList(content?.parts);
   const messageParts: MessagePart[] = [];
+  const hasFunctionCall = parts.some((part) => asRecord(part.function_call) !== null);
 
   for (const part of parts) {
     if (typeof part.text === "string" && part.text.trim()) {
       const normalizedText = stripRequestTimePrefix(part.text);
       if (normalizedText.trim()) {
-        messageParts.push({ type: "markdown", text: normalizedText });
+        messageParts.push({ type: hasFunctionCall ? "commentary" : "markdown", text: normalizedText });
       }
     }
 

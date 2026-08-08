@@ -5,6 +5,15 @@ type ToolResultPart = Extract<MessagePart, { type: "tool_result" }>;
 
 export type ActivityStatus = "running" | "completed" | "failed";
 
+export type ActivityDetailKind = "text" | "query" | "url" | "file" | "command" | "status" | "result";
+
+export interface ActivityDetailItem {
+  label: string;
+  value: string;
+  kind: ActivityDetailKind;
+  href?: string;
+}
+
 export interface ActivityEntry {
   id: string;
   toolName: string;
@@ -12,6 +21,7 @@ export interface ActivityEntry {
   runningLabel: string;
   status: ActivityStatus;
   detail: string;
+  details: ActivityDetailItem[];
   rawDetail: string;
   messageId: string;
 }
@@ -63,14 +73,35 @@ const INPUT_KEYS = new Set([
   "action",
   "command",
   "file_path",
+  "goal",
   "name",
   "path",
   "pattern",
   "prompt",
   "query",
+  "resource",
+  "server",
   "task",
   "url",
 ]);
+
+const TARGET_KEYS = [
+  "query",
+  "q",
+  "pattern",
+  "url",
+  "path",
+  "file_path",
+  "command",
+  "name",
+  "goal",
+  "objective",
+  "task",
+  "resource",
+  "server",
+  "action",
+  "prompt",
+];
 
 function normalizeToolName(value: string): string {
   return value.trim().replace(/^functions[.:/]/i, "").toLowerCase();
@@ -101,6 +132,17 @@ function parseDetail(value: string): Record<string, unknown> | null {
   }
 }
 
+function parseInputDetail(value: string): Record<string, unknown> | null {
+  const parsed = parseDetail(value);
+  if (parsed) return parsed;
+  const entries = value
+    .split("\n")
+    .map((line) => line.match(/^\s*([a-zA-Z][\w-]*)\s*:\s*(.+?)\s*$/))
+    .filter((match): match is RegExpMatchArray => Boolean(match))
+    .map((match) => [match[1], match[2]] as const);
+  return entries.length ? Object.fromEntries(entries) : null;
+}
+
 function stringValue(record: Record<string, unknown> | null, keys: string[]): string {
   if (!record) return "";
   for (const key of keys) {
@@ -115,6 +157,20 @@ function compactText(value: string, limit = 88): string {
   const compact = value.replace(/\s+/g, " ").trim();
   if (compact.length <= limit) return compact;
   return `${compact.slice(0, Math.max(0, limit - 1))}…`;
+}
+
+function scalarText(value: unknown): string {
+  if (typeof value === "string") return value.trim();
+  if (typeof value === "number" || typeof value === "boolean") return String(value);
+  if (Array.isArray(value)) return value.length ? `${value.length} items` : "";
+  if (value && typeof value === "object") {
+    try {
+      return JSON.stringify(value);
+    } catch {
+      return "";
+    }
+  }
+  return "";
 }
 
 /** Remove credential-shaped values before activity details are placed in the DOM. */
@@ -191,9 +247,9 @@ function toolPresentation(toolName: string): ToolPresentation {
 }
 
 function activityDetail(entry: PendingEntry, presentation: ToolPresentation): string {
-  if (!presentation.detailKeys?.length) return "";
-  const parsed = parseDetail(entry.inputDetail);
-  let detail = stringValue(parsed, presentation.detailKeys);
+  const parsed = parseInputDetail(entry.inputDetail);
+  const keys = presentation.detailKeys?.length ? presentation.detailKeys : TARGET_KEYS;
+  let detail = stringValue(parsed, keys);
   if (presentation.key === "web-read" && detail) {
     try {
       detail = new URL(detail).hostname || detail;
@@ -202,6 +258,99 @@ function activityDetail(entry: PendingEntry, presentation: ToolPresentation): st
     }
   }
   return compactText(redactActivityText(detail));
+}
+
+function detailKindForKey(key: string, presentation: ToolPresentation): ActivityDetailKind {
+  if (key === "query" || key === "q" || key === "pattern") return "query";
+  if (key === "url" || presentation.key === "web-read") return "url";
+  if (key === "path" || key === "file_path" || presentation.key === "file-read" || presentation.key === "file-change") return "file";
+  if (key === "command" || presentation.key === "command") return "command";
+  return "text";
+}
+
+function detailLabel(key: string, kind: ActivityDetailKind): string {
+  if (kind === "query") return "Query";
+  if (kind === "url") return "Source";
+  if (kind === "file") return "File";
+  if (kind === "command") return "Command";
+  const labels: Record<string, string> = {
+    action: "Action",
+    goal: "Goal",
+    name: "Capability",
+    objective: "Objective",
+    prompt: "Prompt",
+    resource: "Resource",
+    server: "Server",
+    task: "Task",
+  };
+  return labels[key] ?? humanizeIdentifier(key);
+}
+
+function targetDetail(entry: PendingEntry, presentation: ToolPresentation): ActivityDetailItem | null {
+  const parsed = parseInputDetail(entry.inputDetail);
+  if (!parsed) return null;
+  const keys = presentation.detailKeys?.length
+    ? [...presentation.detailKeys, ...TARGET_KEYS]
+    : TARGET_KEYS;
+  for (const key of keys) {
+    const raw = scalarText(parsed[key]);
+    if (!raw) continue;
+    const value = compactText(redactActivityText(raw), 220);
+    if (!value) continue;
+    const kind = detailKindForKey(key, presentation);
+    return {
+      label: detailLabel(key, kind),
+      value,
+      kind,
+      href: kind === "url" && /^https?:\/\//i.test(value) ? value : undefined,
+    };
+  }
+  return null;
+}
+
+function outcomeDetail(entry: PendingEntry): ActivityDetailItem | null {
+  const source = entry.outputDetail || entry.rawOutput;
+  if (!source.trim()) return null;
+  const parsed = parseDetail(source);
+  const failure = hasFailure(source);
+  const keys = failure
+    ? ["error", "message", "summary", "result", "output", "status"]
+    : ["summary", "message", "status", "result", "output"];
+  let value = "";
+  if (parsed) {
+    for (const key of keys) {
+      value = scalarText(parsed[key]);
+      if (value) break;
+    }
+  } else if (source !== entry.inputDetail) {
+    value = source;
+  }
+  value = compactText(redactActivityText(value), 220);
+  if (!value || /returned\s+\d+\s+fields?\.?$/i.test(value)) return null;
+  return {
+    label: failure ? "Error" : "Result",
+    value,
+    kind: "result",
+  };
+}
+
+function activityDetails(
+  entry: PendingEntry,
+  presentation: ToolPresentation,
+  status: ActivityStatus,
+): ActivityDetailItem[] {
+  const target = targetDetail(entry, presentation);
+  const outcome = outcomeDetail(entry);
+  if (!target && !outcome) return [];
+  return [
+    ...(target ? [target] : []),
+    {
+      label: "Status",
+      value: status === "running" ? "Running" : status === "failed" ? "Failed" : "Completed",
+      kind: "status" as const,
+    },
+    ...(outcome ? [outcome] : []),
+  ];
 }
 
 function entryStatus(part: StepPart, messageStatus: MessageStatus): ActivityStatus {
@@ -304,7 +453,6 @@ function countLabel(presentation: ToolPresentation, count: number): string {
 /** Project raw Tool lifecycle parts into grouped, user-facing activity. */
 export function projectActivityGroups(messages: ChatMessage[]): ActivityGroup[] {
   const groups: ActivityGroup[] = [];
-  const byKey = new Map<string, ActivityGroup>();
 
   for (const pending of collectEntries(messages)) {
     const presentation = toolPresentation(pending.toolName);
@@ -317,6 +465,7 @@ export function projectActivityGroups(messages: ChatMessage[]): ActivityGroup[] 
       runningLabel: presentation.running,
       status,
       detail: activityDetail(pending, presentation),
+      details: activityDetails(pending, presentation, status),
       rawDetail: redactActivityText(
         [pending.toolName, pending.inputDetail, pending.rawOutput || pending.outputDetail]
           .filter(Boolean)
@@ -325,8 +474,8 @@ export function projectActivityGroups(messages: ChatMessage[]): ActivityGroup[] 
       messageId: pending.messageId,
     };
 
-    const existing = byKey.get(presentation.key);
-    if (existing) {
+    const existing = groups.at(-1);
+    if (existing?.key === presentation.key && existing.status === status) {
       existing.entries.push(entry);
       existing.count += 1;
       existing.status = mergedStatus(existing.status, status);
@@ -347,7 +496,6 @@ export function projectActivityGroups(messages: ChatMessage[]): ActivityGroup[] 
       entries: [entry],
     };
     groups.push(group);
-    byKey.set(group.key, group);
   }
 
   return groups;
@@ -355,14 +503,19 @@ export function projectActivityGroups(messages: ChatMessage[]): ActivityGroup[] 
 
 /** Summarize a turn without exposing raw Tool identifiers. */
 export function summarizeActivityGroups(groups: ActivityGroup[]): string {
-  return groups.map((group) => group.countLabel).join(" · ");
-}
-
-/** Return the most useful live line for the compact transcript header. */
-export function currentActivityLabel(groups: ActivityGroup[], streaming: boolean): string {
-  const running = [...groups].reverse().find((group) => group.status === "running");
-  if (running) return running.runningLabel;
-  if (streaming) return "Preparing the result";
-  if (groups.length === 1) return groups[0]?.label ?? "Work completed";
-  return groups.some((group) => group.status === "failed") ? "Work completed with issues" : "Work completed";
+  const totals = new Map<string, { toolName: string; count: number }>();
+  for (const group of groups) {
+    const current = totals.get(group.key);
+    if (current) {
+      current.count += group.count;
+    } else {
+      totals.set(group.key, {
+        toolName: group.entries[0]?.toolName ?? group.key,
+        count: group.count,
+      });
+    }
+  }
+  return [...totals.values()]
+    .map(({ toolName, count }) => countLabel(toolPresentation(toolName), count))
+    .join(" · ");
 }

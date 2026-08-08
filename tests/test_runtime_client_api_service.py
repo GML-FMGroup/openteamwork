@@ -75,6 +75,7 @@ class _FakeRuntimeSupervisor:
             "long_running_tool_ids": None,
             "content": {
                 "parts": [
+                    {"text": "I will inspect the repository first."},
                     {"function_call": {"id": "call_1", "name": "inspect_repo", "args": {"path": "."}}},
                     {"function_response": {"id": "call_1", "name": "inspect_repo", "response": {"ok": True}}},
                 ]
@@ -263,6 +264,7 @@ def test_project_session_event_builds_structured_parts() -> None:
     message = project_session_event(
         {
             "id": "evt_1",
+            "invocation_id": "invocation_1",
             "author": "assistant",
             "timestamp": 1_717_171_717,
             "content": {
@@ -277,11 +279,27 @@ def test_project_session_event_builds_structured_parts() -> None:
     )
 
     assert message["role"] == "assistant"
-    assert message["parts"][0]["type"] == "markdown"
+    assert message["run_id"] == "invocation_1"
+    assert message["parts"][0]["type"] == "commentary"
     assert message["parts"][1]["type"] == "step_ref"
     assert message["parts"][2]["type"] == "tool_result"
     assert message["parts"][2]["tool_call_id"] == "call_1"
     assert len(message["parts"]) == 3
+
+
+def test_project_session_event_keeps_terminal_text_as_markdown() -> None:
+    message = project_session_event(
+        {
+            "id": "evt_final",
+            "author": "assistant",
+            "timestamp": 1_717_171_717,
+            "content": {"parts": [{"text": "The repository is healthy."}]},
+        },
+        "session_final",
+    )
+
+    assert message is not None
+    assert message["parts"] == [{"type": "markdown", "text": "The repository is healthy."}]
 
 
 def test_project_session_event_skips_thought_text() -> None:
@@ -441,6 +459,36 @@ def test_create_run_streams_replayable_events(tmp_path: Path, monkeypatch) -> No
     assert "message.delta" in events
     assert "message.completed" in events
     assert "run.finished" in events
+
+
+def test_create_run_orders_commentary_before_tools_and_final_text(tmp_path: Path) -> None:
+    coordinator, runtime = _coordinator_with_runtime(tmp_path)
+    runtime.create_session_sync("writer", user_id="owner", session_id="session_ordered")
+    payload = coordinator.create_run("writer", "session_ordered", "hi", user_id="owner")
+    run_id = payload["data"]["run"]["id"]
+    handle = coordinator._runs[run_id]
+    assert handle.done.wait(timeout=1.0)
+
+    subscriber = coordinator.stream_run_events(run_id)
+    assert subscriber is not None
+    events = []
+    while True:
+        item = subscriber.get(timeout=1.0)
+        if item is None:
+            break
+        events.append((item.event, item.payload))
+
+    meaningful = [
+        (name, payload.get("part", {}).get("type"))
+        for name, payload in events
+        if name in {"message.delta", "step.updated"}
+    ]
+    assert meaningful == [
+        ("message.delta", "commentary"),
+        ("step.updated", None),
+        ("step.updated", None),
+        ("message.delta", "markdown"),
+    ]
 
 
 def test_create_run_passes_persisted_session_model_override_to_runtime(tmp_path: Path) -> None:
@@ -756,9 +804,11 @@ def test_create_run_emits_normalized_event_context(tmp_path: Path, monkeypatch) 
     assert by_event["message.created"]["agent_id"] == "writer"
     assert by_event["message.created"]["session_id"] == "session_ctx"
     assert by_event["message.created"]["message_id"] == handle.assistant_message_id
+    assert by_event["message.created"]["message"]["run_id"] == run_id
     assert by_event["step.updated"]["step"]["type"] == "step_ref"
     assert by_event["message.delta"]["status"] == "streaming"
     assert by_event["message.completed"]["status"] == "completed"
+    assert by_event["message.completed"]["message"]["run_id"] == run_id
     assert by_event["run.finished"]["message_id"] == handle.assistant_message_id
 
 

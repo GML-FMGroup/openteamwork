@@ -1139,6 +1139,8 @@ describe("App sending state", () => {
 
     const stop = await screen.findByRole("button", { name: "Stop" });
     expect(stop).toBeEnabled();
+    expect(stop.querySelector("rect")).not.toBeNull();
+    expect(stop.querySelector("span")).toBeNull();
     fireEvent.click(stop);
     await waitFor(() => expect(cancelRun).toHaveBeenCalledWith("run-stop"));
     expect(screen.getByRole("button", { name: "Stopping" })).toBeDisabled();
@@ -1319,6 +1321,40 @@ describe("App sending state", () => {
       });
     });
     expect(await screen.findByText("Node status: ready · Studio Node")).toBeInTheDocument();
+  });
+
+  it("closes the slash command palette when argument entry begins", async () => {
+    const goalCommand: ProjectedSlashCommand = {
+      command: "/goal",
+      title: "Manage goal",
+      description: "Create or manage the current Goal.",
+      icon: "target",
+      argHint: "[objective|status|pause|resume|cancel]",
+      lifecycle: "side_channel",
+      acceptsArgs: true,
+      arguments: [],
+      noArgsBehavior: "show_usage",
+      usage: "/goal [objective|status|pause|resume|cancel]",
+      order: 20,
+      actionId: "goal.manage",
+      available: true,
+      availabilityReason: null,
+    };
+    installClient({ listSlashCommands: async () => ({ commands: [goalCommand] }) });
+    render(<App />);
+
+    const composer = await screen.findByPlaceholderText("Describe the outcome you want...");
+    fireEvent.change(composer, { target: { value: "/g" } });
+    expect(await screen.findByRole("listbox", { name: "Slash commands" })).toBeInTheDocument();
+
+    fireEvent.change(composer, { target: { value: "/goal" } });
+    expect(screen.getByRole("listbox", { name: "Slash commands" })).toBeInTheDocument();
+
+    fireEvent.change(composer, { target: { value: "/goal Research current policy" } });
+    expect(screen.queryByRole("listbox", { name: "Slash commands" })).not.toBeInTheDocument();
+
+    fireEvent.change(composer, { target: { value: "/unknown" } });
+    expect(screen.queryByRole("listbox", { name: "Slash commands" })).not.toBeInTheDocument();
   });
 
   it("removes Electron transport wording from slash command errors", async () => {
@@ -1511,6 +1547,8 @@ describe("App sending state", () => {
 
     const sendButton = screen.getByRole("button", { name: "Send" });
     expect(sendButton).toBeDisabled();
+    expect(sendButton.querySelector("path")).not.toBeNull();
+    expect(sendButton.querySelector("span")).toBeNull();
 
     fireEvent.change(screen.getByPlaceholderText("Describe the outcome you want..."), {
       target: { value: "hello world" },

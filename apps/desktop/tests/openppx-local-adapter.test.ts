@@ -27,7 +27,7 @@ describe("openppx local adapter projections", () => {
       },
     });
 
-    expect(parts[0]).toMatchObject({ type: "markdown", text: "I will inspect the workspace." });
+    expect(parts[0]).toMatchObject({ type: "commentary", text: "I will inspect the workspace." });
     expect(parts[1]).toMatchObject({
       type: "step_ref",
       stepId: "call-1",
