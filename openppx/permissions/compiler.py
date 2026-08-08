@@ -12,7 +12,6 @@ from typing import TYPE_CHECKING, Literal, Mapping
 from .models import (
     AgentWorkspaceBoundary,
     ExternalPathSelector,
-    NetworkConstraints,
     PermissionChange,
     PermissionRule,
     PermissionSource,
@@ -23,7 +22,6 @@ from .models import (
     ResolvedPermissionRollout,
     ResolvedPermissionSnapshot,
     TemplatePermissionRule,
-    ToolConstraints,
     allowed_actions_for,
 )
 
@@ -154,20 +152,6 @@ def _node_safe_root_rules(node: NodeConfig, *, preset: str) -> tuple[PermissionR
     return tuple(rules)
 
 
-def _legacy_override_fields(agent: AgentConfig) -> tuple[str, ...]:
-    """Return legacy coarse overrides that still need an explicit migration."""
-
-    values = agent.spec.permission_overrides.model_dump(exclude_none=True)
-    execution_fields = {
-        "workspace_scope",
-        "filesystem_access",
-        "shell_exec",
-        "network_access",
-        "tool_access",
-    }
-    return tuple(sorted(execution_fields.intersection(values)))
-
-
 def _permission_sources(
     node: NodeConfig,
     agent: AgentConfig,
@@ -257,33 +241,16 @@ def _compile_rules(
 
 def _blocking_gates(
     node: NodeConfig,
-    agent: AgentConfig,
     template: PermissionTemplate,
-    legacy_fields: tuple[str, ...],
 ) -> tuple[str, ...]:
-    """Return unresolved design or migration Gates that prohibit enforcement."""
+    """Return unresolved deployment Gates that prohibit enforcement."""
 
     gates = set(template.pending_gates)
     if node.spec.permissions.code_egress_proxy is not None:
         gates.discard("medium-code-egress-proxy")
         gates.discard("high-code-egress-proxy")
-    if legacy_fields:
-        gates.add("legacy-permission-overrides-migration")
     if template.template_id == "high" and not node.spec.permissions.high_protected_write_roots:
         gates.add("high-protected-write-roots")
-    configured_rules = (*template.rules, *node.spec.permissions.hard_rules, *agent.spec.permissions.rules)
-    if any(
-        isinstance(rule.constraints, NetworkConstraints)
-        and rule.constraints.max_response_bytes is not None
-        for rule in configured_rules
-    ):
-        gates.add("network-runtime-constraint")
-    if any(
-        isinstance(rule.constraints, ToolConstraints)
-        and rule.constraints.parameter_profile is not None
-        for rule in configured_rules
-    ):
-        gates.add("tool-runtime-constraint")
     return tuple(sorted(gates))
 
 
@@ -294,7 +261,6 @@ def _semantic_payload(
     defaults: tuple[ResolvedPermissionDefault, ...],
     rules: tuple[ResolvedPermissionRule, ...],
     blocking_gates: tuple[str, ...],
-    legacy_fields: tuple[str, ...],
     rollout_modes: tuple[ResolvedPermissionRollout, ...],
     code_egress_proxy: object,
 ) -> dict[str, object]:
@@ -325,7 +291,6 @@ def _semantic_payload(
             for item in rules
         ],
         "blockingGates": list(blocking_gates),
-        "legacyOverrideFields": list(legacy_fields),
         "rolloutModes": [item.model_dump(mode="json", by_alias=True) for item in rollout_modes],
         "codeEgressProxy": (
             code_egress_proxy.model_dump(mode="json", by_alias=True)
@@ -358,8 +323,8 @@ def compile_permission_snapshot(
 ) -> ResolvedPermissionSnapshot:
     """Compile Node ceilings, one preset, and one Agent overlay deterministically.
 
-    The returned snapshot is marked ``observe``. The ADK authorization Plugin
-    records decisions without changing legacy Runtime behavior.
+    The returned snapshot defaults to ``observe``. The ADK authorization Plugin
+    records decisions without enforcing them until an object enters ``enforce``.
     """
 
     revisions = source_revisions or {}
@@ -382,8 +347,7 @@ def compile_permission_snapshot(
         preset_source=preset_source,
         agent_source=agent_source,
     )
-    legacy_fields = _legacy_override_fields(agent)
-    blocking_gates = _blocking_gates(node, agent, template, legacy_fields)
+    blocking_gates = _blocking_gates(node, template)
     rollout_modes = _compile_rollout_modes(node, agent)
     code_egress_proxy = node.spec.permissions.code_egress_proxy
     semantic_payload = _semantic_payload(
@@ -393,7 +357,6 @@ def compile_permission_snapshot(
         defaults,
         rules,
         blocking_gates,
-        legacy_fields,
         rollout_modes,
         code_egress_proxy,
     )
@@ -410,7 +373,6 @@ def compile_permission_snapshot(
         rollout_modes=rollout_modes,
         code_egress_proxy=code_egress_proxy,
         blocking_gates=blocking_gates,
-        legacy_override_fields=legacy_fields,
     )
 
 

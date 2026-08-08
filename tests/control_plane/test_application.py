@@ -9,6 +9,7 @@ from openppx.actions import ActionContext
 from openppx.config import InMemorySecretStore, SecretRef, SecretValue
 from openppx.control_plane import build_control_plane
 from openppx.modeling import ModelCatalog, ModelProfile, ProviderAccessService
+from openppx.permissions import PermissionRequest, evaluate_permission
 
 
 class FakeProviderAccess(ProviderAccessService):
@@ -56,7 +57,7 @@ def agent_payload() -> dict[str, object]:
             "workspace": "workspace/low-main",
             "ownerPrincipalId": "local:owner",
             "privilegeLevel": "low",
-            "permissionOverrides": {},
+            "controls": {},
             "modelPolicy": {"defaultProfile": "primary", "roleProfiles": {}},
         },
     }
@@ -377,6 +378,54 @@ def configured_application(tmp_path: Path):
     )
     assert node.ok and agent.ok
     return application
+
+
+def test_permission_audit_action_returns_only_redacted_decision_facts(tmp_path: Path) -> None:
+    application = configured_application(tmp_path)
+    snapshot = application.config_service.snapshot("low-main").permissions
+    request = PermissionRequest.model_validate(
+        {
+            "requestId": "permission-action-test",
+            "permissionRevision": snapshot.revision,
+            "subject": {"agentId": "low-main", "runId": "run-1"},
+            "object": "workspace",
+            "action": "read",
+            "resource": {"kind": "workspace_path", "path": "private/customer.txt"},
+        }
+    )
+    application.permission_audit.record(
+        request,
+        evaluate_permission(snapshot, request),
+        rollout_mode="observe",
+    )
+    audit_context = ActionContext(
+        request_id="req_permission_audit",
+        correlation_id="corr_permission_audit",
+        actor_id="local:test",
+        capabilities=frozenset({"audit.read"}),
+        permissions=frozenset({"audit.read"}),
+    )
+
+    outcome = application.invoke(
+        "permissions.audit.list",
+        {"agentId": "low-main", "object": "workspace", "limit": 10},
+        audit_context,
+    )
+
+    assert outcome.ok is True
+    assert outcome.data is not None
+    assert outcome.data["count"] == 1
+    assert outcome.data["items"][0]["enforced"] is False
+    assert "customer.txt" not in str(outcome.data)
+
+    denied = application.invoke(
+        "permissions.audit.list",
+        {"limit": 10},
+        context(request_id="req_permission_audit_denied"),
+    )
+    assert denied.ok is False
+    assert denied.error is not None
+    assert denied.error.code == "capability_required"
 
 
 def test_system_status_is_transport_independent_and_reports_readiness(tmp_path: Path) -> None:

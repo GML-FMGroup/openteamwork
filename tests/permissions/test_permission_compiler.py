@@ -113,7 +113,7 @@ def test_snapshot_expands_the_reviewed_matrix_defaults(
 ) -> None:
     snapshot = _compile(preset=preset)
 
-    assert snapshot.activation == "observe"
+    assert snapshot.rollout_for("workspace") == "observe"
     assert snapshot.default_for("workspace", "read") == workspace_read
     assert snapshot.default_for("workspace", "write") == workspace_write
     assert snapshot.default_for("external_path", "read") == external_read
@@ -325,44 +325,22 @@ def test_action_intersection_uses_the_minimum_permission() -> None:
     assert combined.reason_code == "intersection_denied"
 
 
-def test_legacy_and_fine_grained_permissions_cannot_be_mixed() -> None:
-    raw = agent_document(preset="high")
-    raw["spec"]["permissionOverrides"] = {"filesystemAccess": "read_only"}  # type: ignore[index]
-    raw["spec"]["permissions"] = {"objectDefaults": {"tool": "deny"}}  # type: ignore[index]
-
-    with pytest.raises(ValidationError, match="cannot both contain values"):
-        AgentConfig.model_validate(raw)
-
-
-def test_legacy_override_is_preserved_as_an_enforcement_gate() -> None:
-    raw = agent_document(preset="high")
-    raw["spec"]["permissionOverrides"] = {"filesystemAccess": "read_only"}  # type: ignore[index]
-
-    snapshot = _compile(agent_raw=raw, preset="high")
-
-    assert snapshot.legacy_override_fields == ("filesystem_access",)
-    assert "legacy-permission-overrides-migration" in snapshot.blocking_gates
-
-
 @pytest.mark.parametrize(
-    ("object_kind", "constraints", "expected_gate"),
+    ("object_kind", "constraints"),
     [
         (
             "network",
             {"kind": "network", "maxResponseBytes": 1024},
-            "network-runtime-constraint",
         ),
         (
             "tool",
             {"kind": "tool", "parameterProfile": "reviewed-input-v1"},
-            "tool-runtime-constraint",
         ),
     ],
 )
-def test_unimplemented_runtime_constraints_block_enforcement(
+def test_unimplemented_runtime_constraints_are_rejected_by_schema(
     object_kind: str,
     constraints: dict[str, object],
-    expected_gate: str,
 ) -> None:
     raw = agent_document(preset="medium")
     raw["spec"]["permissions"] = {  # type: ignore[index]
@@ -382,11 +360,8 @@ def test_unimplemented_runtime_constraints_block_enforcement(
             }
         ],
     }
-    snapshot = _compile(agent_raw=raw, preset="medium")
-
-    assert expected_gate in snapshot.blocking_gates
-    with pytest.raises(PermissionError, match=expected_gate):
-        snapshot.assert_enforce_ready(object_kind)  # type: ignore[arg-type]
+    with pytest.raises(ValidationError):
+        AgentConfig.model_validate(raw)
 
 
 def test_deny_rule_cannot_declare_allow_execution_constraints() -> None:

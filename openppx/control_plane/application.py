@@ -11,6 +11,7 @@ from openppx.config import ConfigService, FilesystemConfigRepository
 from openppx.modeling import ModelProfileLifecycleService, ModelProfileRepository, ModelProfileSelector, ProviderAccessService
 from openppx.setup import SetupService
 from openppx.governance import ActionAuditStore, ActionPolicy
+from openppx.permissions import PermissionAuditStore
 from openppx.runtime.session_metadata_store import SessionMetadataStore
 from openppx.runtime.goal_store import GoalStore
 from openppx.extensions import default_extension_starter_catalog
@@ -22,6 +23,7 @@ from .extension_actions import register_extension_actions
 from .model_actions import register_model_actions
 from .goal_actions import register_goal_actions
 from .operations_actions import register_operations_actions
+from .permission_actions import register_permission_actions
 from .runtime_actions import register_runtime_actions
 from .system_actions import register_system_actions
 from .setup_actions import register_setup_actions, register_setup_runtime_actions
@@ -54,6 +56,9 @@ class ControlPlaneApplication:
         self.agent_lifecycle = agent_lifecycle
         self.setup_service = setup_service
         self.audit_store = audit_store
+        self.permission_audit = PermissionAuditStore(
+            config_repository.paths.node_root / "database" / "permission_audit.db"
+        )
         self.product_version = product_version
         self.runtime_supervisor = None
         self.extension_registry = None
@@ -69,6 +74,7 @@ class ControlPlaneApplication:
         registry = ActionRegistry()
         executor = ActionExecutor(registry, policy=ActionPolicy(), audit=audit_store)
         register_config_actions(registry, config_repository, config_service)
+        register_permission_actions(registry, self.permission_audit)
         register_agent_actions(registry, agent_lifecycle)
         register_model_actions(
             registry,

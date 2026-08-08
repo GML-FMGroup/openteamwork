@@ -56,8 +56,7 @@ PermissionAction: TypeAlias = Literal[
     "invoke",
 ]
 PermissionPreset: TypeAlias = Literal["low", "medium", "high", "root"]
-PermissionRolloutMode: TypeAlias = Literal["legacy", "observe", "enforce"]
-PermissionActivation: TypeAlias = Literal["observe"]
+PermissionRolloutMode: TypeAlias = Literal["observe", "enforce"]
 
 
 _ALLOWED_ACTIONS: dict[str, tuple[str, ...]] = {
@@ -84,7 +83,7 @@ _CONSTRAINT_KINDS: dict[str, frozenset[str]] = {
     "command": frozenset({"none", "command"}),
     "process": frozenset({"none", "process"}),
     "network": frozenset({"none", "network"}),
-    "tool": frozenset({"none", "tool"}),
+    "tool": frozenset({"none"}),
 }
 
 _RULE_ID_PATTERN = re.compile(r"^[a-z0-9](?:[a-z0-9._:-]{0,126}[a-z0-9])?$")
@@ -405,18 +404,10 @@ class NetworkConstraints(PermissionConfigModel):
     kind: Literal["network"] = "network"
     managed_web_only: StrictBool = False
     read_only: StrictBool = False
-    max_response_bytes: StrictInt | None = Field(default=None, ge=1)
-
-
-class ToolConstraints(PermissionConfigModel):
-    """Reference a trusted argument-validation profile for a Tool operation."""
-
-    kind: Literal["tool"] = "tool"
-    parameter_profile: Annotated[str, StringConstraints(min_length=1, max_length=128)] | None = None
 
 
 PermissionConstraints: TypeAlias = Annotated[
-    NoConstraints | PathConstraints | CommandConstraints | ProcessConstraints | NetworkConstraints | ToolConstraints,
+    NoConstraints | PathConstraints | CommandConstraints | ProcessConstraints | NetworkConstraints,
     Field(discriminator="kind"),
 ]
 
@@ -671,7 +662,6 @@ class ResolvedPermissionSnapshot(FrozenPermissionModel):
     workspace: Annotated[str, StringConstraints(min_length=1, max_length=4096)]
     preset: PermissionPreset
     revision: Annotated[str, StringConstraints(pattern=r"^sha256:[0-9a-f]{64}$")]
-    activation: PermissionActivation = "observe"
     sources: tuple[PermissionSource, ...]
     agent_workspaces: tuple[AgentWorkspaceBoundary, ...] = ()
     defaults: tuple[ResolvedPermissionDefault, ...]
@@ -679,7 +669,6 @@ class ResolvedPermissionSnapshot(FrozenPermissionModel):
     rollout_modes: tuple[ResolvedPermissionRollout, ...]
     code_egress_proxy: CodeEgressProxySpec | None = None
     blocking_gates: tuple[str, ...] = ()
-    legacy_override_fields: tuple[str, ...] = ()
 
     def default_for(self, object_kind: PermissionObject, action: PermissionAction) -> PermissionEffect:
         """Return the explicit default for one valid object/action pair."""
@@ -702,12 +691,11 @@ class ResolvedPermissionSnapshot(FrozenPermissionModel):
 
         if self.rollout_for(object_kind) != "enforce":
             return
-        relevant = {"legacy-permission-overrides-migration"}
+        relevant: set[str] = set()
         if object_kind in {"external_path", "command"}:
             relevant.add("high-protected-write-roots")
         if object_kind == "command":
             relevant.update({"medium-code-egress-proxy", "high-code-egress-proxy"})
-        relevant.add(f"{object_kind.replace('_', '-')}-runtime-constraint")
         blocked = sorted(set(self.blocking_gates) & relevant)
         if blocked:
             raise PermissionError(

@@ -27,7 +27,11 @@ from openppx.extensions import (
 )
 from openppx.modeling import ModelResolution
 from openppx.core.mcp_registry import ManagedMcpToolset, summarize_mcp_toolsets
-from openppx.permissions import PermissionAuditStore
+from openppx.permissions import (
+    PermissionAuditStore,
+    PermissionSnapshotAuthority,
+    ResolvedPermissionSnapshot,
+)
 
 from .adk_utils import run_text_async
 from .authorization_plugin import OpenPpxAuthorizationPlugin
@@ -158,7 +162,11 @@ class RuntimeExtensionSnapshot:
 
 @dataclass(frozen=True, slots=True)
 class AssembledRuntime:
-    """Runnable ADK objects pinned to one immutable product snapshot."""
+    """Runnable ADK objects pinned to one product identity and content snapshot.
+
+    Static permissions may refresh inside that identity boundary before a new
+    Tool Action; Model and extension catalog expansion requires reassembly.
+    """
 
     snapshot: ConfigSnapshot
     metadata: RuntimeMetadata
@@ -246,6 +254,7 @@ class AssembledRuntime:
 ModelFactory = Callable[[ModelResolution], Any]
 AgentFactory = Callable[..., Any]
 RunnerFactory = Callable[..., tuple[Any, Any]]
+CurrentPermissionProvider = Callable[[str], ResolvedPermissionSnapshot]
 
 
 class RuntimeAssembler:
@@ -265,6 +274,7 @@ class RuntimeAssembler:
         app_manager: AppManager | None = None,
         plugin_manager: PluginManager | None = None,
         mcp_adapter: McpRuntimeAdapter | None = None,
+        permission_snapshot_provider: CurrentPermissionProvider | None = None,
     ) -> None:
         self.node_root = node_root.expanduser().resolve(strict=False)
         self.secret_store = secret_store
@@ -278,6 +288,7 @@ class RuntimeAssembler:
         self._app_manager = app_manager
         self._plugin_manager = plugin_manager
         self._mcp_adapter = mcp_adapter or McpRuntimeAdapter(secret_store)
+        self._permission_snapshot_provider = permission_snapshot_provider
 
     def skill_snapshot_for_agent(self, agent_id: str) -> SkillSnapshot:
         """Capture the immutable Skill set used to key and assemble a Runtime."""
@@ -318,6 +329,14 @@ class RuntimeAssembler:
         resolved_extensions = extension_snapshot or self.extension_snapshot_for_agent(
             snapshot.agent.metadata.name
         )
+        permission_authority = PermissionSnapshotAuthority(
+            baseline=snapshot.permissions,
+            provider=(
+                None
+                if self._permission_snapshot_provider is None
+                else lambda: self._permission_snapshot_provider(snapshot.agent.metadata.name)
+            ),
+        )
         proxy = snapshot.permissions.code_egress_proxy
         if (
             proxy is not None
@@ -349,6 +368,7 @@ class RuntimeAssembler:
             mcp_summaries=summarize_mcp_toolsets(list(mcp_build.toolsets)),
             goal_store=self.services.goal_store,
             permission_audit=self.services.permission_audit,
+            permission_authority=permission_authority,
             extension_snapshot_digest=resolved_extensions.revision,
         )
         runner, session_service = self._runner_factory(
@@ -365,6 +385,8 @@ class RuntimeAssembler:
                 OpenPpxAuthorizationPlugin(
                     snapshot.permissions,
                     audit=self.services.permission_audit,
+                    authority=permission_authority,
+                    fixed_network_origins=dict(mcp_build.network_origins),
                 ),
                 *(
                     ()

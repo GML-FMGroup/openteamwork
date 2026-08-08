@@ -105,7 +105,7 @@ Minimal example:
     "workspace": "/path/to/workspace",
     "ownerPrincipalId": "ppx-client-user",
     "privilegeLevel": "medium",
-    "permissionOverrides": {},
+    "controls": {},
     "modelPolicy": {
       "defaultProfile": "primary",
       "roleProfiles": {
@@ -117,7 +117,7 @@ Minimal example:
 }
 ```
 
-The supported privilege levels are `low`, `medium`, `high`, and `root`. `permissionOverrides` is the legacy coarse control surface. New execution policy belongs in `permissions`; the five legacy execution fields must be migrated before an execution object can enter enforce mode.
+The supported privilege levels are `low`, `medium`, `high`, and `root`. Static execution policy has one source of truth: `permissions`. The separate `controls` object contains only non-execution controls for secret access, delegation, privilege-approval authority, and high-risk Actions. Removed execution-override fields are rejected rather than translated or silently ignored.
 
 Agent-owned static rules and canary rollout settings are declared explicitly:
 
@@ -178,9 +178,9 @@ Node-owned ceilings, shared roots, and arbitrary-code egress are configured in `
 }
 ```
 
-Rollout defaults to `observe`. Agent rollout values override the Node default for that Agent. Enforce mode fails closed when a required protected root, migration, Docker backend, proxy policy, or internal network is unavailable. The policy directory must be Node-owned, mode `0700`, and outside every Agent Workspace.
+Rollout defaults to `observe`. Agent rollout values override the Node default for that Agent. Enforce mode fails closed when a required protected root, Docker backend, proxy policy, or internal network is unavailable. The policy directory must be Node-owned, mode `0700`, and outside every Agent Workspace.
 
-See [PERMISSIONS.md](./PERMISSIONS.md) for the preset matrix, selectors, precedence, migration, and recommended rollout order.
+See [PERMISSIONS.md](./PERMISSIONS.md) for the preset matrix, selectors, precedence, clean-rebuild requirement, and recommended rollout order.
 
 ## ModelProfile
 
@@ -229,7 +229,7 @@ ppx config preview candidate-node.json --expected-revision <revision>
 ppx config apply candidate-node.json --expected-revision <revision>
 ```
 
-For an Agent resource, add `--agent <agent-id>`. Preview returns a redacted structural diff and lifecycle effects. Apply revalidates the candidate and expected revision, performs an atomic replace, and reports whether future Runs, a reload, or a Node restart is required.
+For an Agent resource, add `--agent <agent-id>`. Preview returns a redacted structural diff and lifecycle effects. Apply revalidates the candidate and expected revision, performs an atomic replace, and reports whether future Runs, a reload, or a Node restart is required. A permission change still reports `next_run` when a fresh Runtime is needed to finish catalog or identity changes; compatible permission tightening is additionally rechecked by an existing Runtime before its next Tool Action.
 
 ## Model commands
 
@@ -253,4 +253,4 @@ Window layout, panel widths, and saved connection targets belong to the current 
 - A stale or missing `expectedRevision` rejects mutation; there is no last-writer-wins fallback.
 - Atomic write failure leaves the previous valid resource in place.
 - Missing credentials affect readiness without leaking which value was expected.
-- A Run pins an immutable Config, Model, and Extension snapshot; updates affect later Runtime instances.
+- A Run pins Config identity, Model, and Extension snapshots. Compatible permission-only updates are rechecked before every new Tool Action and side effect; identity, Workspace, Model, and extension-catalog changes require a later Runtime instance.

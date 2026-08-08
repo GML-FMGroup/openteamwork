@@ -12,7 +12,12 @@ from .models import PolicyContext, PolicyDecision
 
 
 class ActionPolicy:
-    """Evaluate capability, permission, scope, and confirmation in one order."""
+    """Authorize user-facing Actions independently of Agent execution presets.
+
+    This policy evaluates authenticated caller capabilities, permissions, scope,
+    and confirmation. Agent static permissions apply later when an Agent invokes
+    a Tool or a Tool reaches a protected resource.
+    """
 
     def evaluate(
         self,

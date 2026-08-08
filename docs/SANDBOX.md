@@ -86,6 +86,8 @@ When static Command permissions are enforced, `low`, `medium`, and `high` cannot
 - the proxy loads a revision-addressed, network-only policy and verifies a high-entropy credential for that exact revision;
 - the task container receives its own proxy credential but cannot read the policy directory or select another revision without that revision's credential.
 
+The Runtime publishes the current compatible permission revision immediately before each new proxy-backed command. A permission update therefore cannot reuse an older, wider egress policy for a later command.
+
 Provisioning is an operator action. OpenPPX verifies the network but never creates or weakens it during an Agent call:
 
 ```bash

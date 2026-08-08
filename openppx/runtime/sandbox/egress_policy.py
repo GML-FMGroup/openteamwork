@@ -239,11 +239,13 @@ def _proxy_constraints_match(raw_constraints: object, *, action: str) -> bool:
         return True
     if raw_constraints.get("kind") != "network":
         return False
+    if set(raw_constraints).difference({"kind", "managedWebOnly", "readOnly"}):
+        return False
     if raw_constraints.get("managedWebOnly") is True:
         return False
     if raw_constraints.get("readOnly") is True and action in {"write", "upload"}:
         return False
-    return raw_constraints.get("maxResponseBytes") is None
+    return True
 
 
 def classify_proxy_visibility(host: str, resolved_ips: tuple[str, ...]) -> str:

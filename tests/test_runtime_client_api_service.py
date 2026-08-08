@@ -207,7 +207,7 @@ def _strict_control_plane_resources(request: pytest.FixtureRequest) -> None:
                     "workspace": "workspace/writer",
                     "ownerPrincipalId": "owner",
                     "privilegeLevel": "low",
-                    "permissionOverrides": {},
+                    "controls": {},
                     "modelPolicy": {"defaultProfile": None, "roleProfiles": {}},
                 },
             }

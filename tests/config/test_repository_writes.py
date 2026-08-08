@@ -51,7 +51,7 @@ def agent_document(*, name: str = "low-main") -> dict[str, object]:
             "workspace": "workspace/low-main",
             "ownerPrincipalId": "local:owner",
             "privilegeLevel": "low",
-            "permissionOverrides": {},
+            "controls": {},
         },
     }
 

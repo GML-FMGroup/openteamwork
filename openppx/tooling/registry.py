@@ -72,6 +72,7 @@ from ..runtime.sandbox import (
     resolve_backend,
 )
 from ..runtime.step_events import build_step_metadata, normalize_outbound_metadata
+from ..runtime.sandbox.egress_policy import write_egress_proxy_policy
 from ..runtime.sync_tool_proxy import SyncCancellationToken
 from ..runtime.sync_tool_proxy import run_sync_callable_with_proxy
 from ..runtime.task_execution import (
@@ -3318,12 +3319,27 @@ def exec_command(
         if _should_use_shell(argv):
             command_argv = ["/bin/sh", "-lc", effective_command]
         try:
+            permission_snapshot = (
+                runtime_context.permission_snapshot if runtime_context is not None else None
+            )
+            if (
+                permission_snapshot is not None
+                and permission_snapshot.preset in {"medium", "high"}
+                and permission_snapshot.rollout_for("command") == "enforce"
+                and permission_snapshot.code_egress_proxy is not None
+            ):
+                write_egress_proxy_policy(
+                    permission_snapshot,
+                    policy_directory=Path(
+                        permission_snapshot.code_egress_proxy.policy_directory
+                    ),
+                )
             permission_profile = (
                 derive_sandbox_permission_profile(
-                    runtime_context.permission_snapshot,
+                    permission_snapshot,
                     workspace_root=runtime_context.workspace_root,
                 )
-                if runtime_context is not None and runtime_context.permission_snapshot is not None
+                if runtime_context is not None and permission_snapshot is not None
                 else None
             )
             docker_sandbox = build_workspace_docker_sandbox(
