@@ -107,7 +107,8 @@ import { ClientApiSessionCache } from "./client-api-session-cache";
 import { LocalNodeSupervisor } from "./local-node-supervisor";
 import { resolveLocalUserProfile } from "./local-user-profile";
 import {
-  findPersistedTerminalRunMessage,
+  findLatestPersistedRunMessage,
+  isTerminalRunStatus,
   monitorPersistedTerminalRun,
 } from "./run-terminal-reconciliation";
 
@@ -1688,31 +1689,40 @@ export class OpenPpxLocalAdapter implements Omit<
       }
     };
     const reconcilePersistedTerminalState = async (): Promise<boolean> => {
-      this.sessionCache.invalidate(input.agentId, input.sessionId);
-      const persisted = findPersistedTerminalRunMessage(
-        (await this.loadSession(input.sessionId)).messages,
-        runId,
-      );
-      if (!persisted) {
+      const statusPayload = await this.fetchClientApiJson(`/api/v1/runs/${encodeURIComponent(runId)}`);
+      const runState = ((statusPayload.data as Record<string, unknown> | undefined)?.run ?? {}) as Record<string, unknown>;
+      const authoritativeStatus = runState.status;
+      if (!isTerminalRunStatus(authoritativeStatus)) {
         return false;
       }
 
+      this.sessionCache.invalidate(input.agentId, input.sessionId);
+      const persisted = findLatestPersistedRunMessage(
+        (await this.loadSession(input.sessionId)).messages,
+        runId,
+      );
+      const terminalMessage = persisted
+        ? { ...persisted, status: authoritativeStatus }
+        : null;
+
       const liveAssistantMessageId = assistantMessage?.id ?? null;
-      assistantMessage = persisted;
-      orderedParts = [...persisted.parts];
-      finalText = latestMarkdownText(persisted.parts) || finalText;
+      if (terminalMessage) {
+        assistantMessage = terminalMessage;
+        orderedParts = [...terminalMessage.parts];
+        finalText = latestMarkdownText(terminalMessage.parts) || finalText;
+      }
       terminal = true;
-      if (liveAssistantMessageId) {
+      if (liveAssistantMessageId && assistantMessage) {
         this.emit({
           type: "message.updated",
           runId,
           sessionId: input.sessionId,
           messageId: liveAssistantMessageId,
-          replaceParts: persisted.parts,
-          status: persisted.status,
+          replaceParts: ensureRenderableAssistantParts(orderedParts),
+          status: authoritativeStatus,
         });
-      } else {
-        this.emit({ type: "message.created", runId, sessionId: input.sessionId, message: persisted });
+      } else if (terminalMessage) {
+        this.emit({ type: "message.created", runId, sessionId: input.sessionId, message: terminalMessage });
       }
       session.updatedAt = now();
       session.lastMessagePreview = finalText || input.text;
@@ -1720,8 +1730,8 @@ export class OpenPpxLocalAdapter implements Omit<
       this.emit({ type: "run.finished", runId, sessionId: input.sessionId });
       clientDebugLog("send.client-api.stream-reconciled", {
         runId,
-        messageId: persisted.id,
-        status: persisted.status,
+        messageId: terminalMessage?.id ?? null,
+        status: authoritativeStatus,
       });
       return true;
     };

@@ -4,6 +4,7 @@ import { MessageBubble } from "../MessageBubble";
 
 interface TranscriptProps {
   messages: ChatMessage[];
+  activeRunId?: string | null;
   agentName: string;
   streamRef: RefObject<HTMLElement | null>;
   showJumpToLatest: boolean;
@@ -41,16 +42,19 @@ function normalizedRunId(message: ChatMessage): string {
   return message.runId?.trim() ?? "";
 }
 
-function mergedRunRow(messages: ChatMessage[]): TranscriptRow {
+function mergedRunRow(messages: ChatMessage[], activeRunId?: string | null): TranscriptRow {
   const first = messages[0]!;
   const representative = messages.find((message) => message.role === "assistant") ?? first;
   const startedAt = first.createdAt;
   const latestCreatedAt = messages.at(-1)?.createdAt;
-  const status = mergedAssistantStatus(messages);
+  const runId = normalizedRunId(first) || normalizedRunId(representative) || null;
+  const status = runId && runId === activeRunId
+    ? "streaming"
+    : mergedAssistantStatus(messages);
   return {
     message: {
       ...representative,
-      runId: normalizedRunId(first) || normalizedRunId(representative) || null,
+      runId,
       role: "assistant",
       status,
       parts: messages.flatMap((message) => message.parts),
@@ -63,7 +67,10 @@ function mergedRunRow(messages: ChatMessage[]): TranscriptRow {
 }
 
 /** Coalesce one Client Run or replayed ADK Invocation while preserving event order. */
-export function projectTranscriptRows(messages: ChatMessage[]): TranscriptRow[] {
+export function projectTranscriptRows(
+  messages: ChatMessage[],
+  activeRunId?: string | null,
+): TranscriptRow[] {
   const rows: TranscriptRow[] = [];
   let index = 0;
 
@@ -90,7 +97,7 @@ export function projectTranscriptRows(messages: ChatMessage[]): TranscriptRow[] 
         runMessages.push(messages[index]!);
         index += 1;
       }
-      rows.push(mergedRunRow(runMessages));
+      rows.push(mergedRunRow(runMessages, activeRunId));
       continue;
     }
 
@@ -109,7 +116,7 @@ export function projectTranscriptRows(messages: ChatMessage[]): TranscriptRow[] 
       turnMessages.push(messages[index]!);
       index += 1;
     }
-    rows.push(mergedRunRow(turnMessages));
+    rows.push(mergedRunRow(turnMessages, activeRunId));
   }
 
   return rows;
@@ -118,6 +125,7 @@ export function projectTranscriptRows(messages: ChatMessage[]): TranscriptRow[] 
 /** Central task transcript with a stable empty state and jump-to-latest affordance. */
 export function Transcript({
   messages,
+  activeRunId,
   agentName,
   streamRef,
   showJumpToLatest,
@@ -125,7 +133,7 @@ export function Transcript({
   onJumpToLatest,
   onUseSuggestion,
 }: TranscriptProps) {
-  const rows = projectTranscriptRows(messages);
+  const rows = projectTranscriptRows(messages, activeRunId);
   return (
     <div className="transcript-wrap">
       <section ref={streamRef} className="message-stream" onScroll={onScroll}>

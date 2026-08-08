@@ -26,13 +26,19 @@ function waitForDelay(delayMs: number, signal?: AbortSignal): Promise<void> {
   });
 }
 
-/** Return the persisted terminal assistant message for a specific Run, if present. */
-export function findPersistedTerminalRunMessage(messages: ChatMessage[], runId: string): ChatMessage | null {
-  return messages.find((message) => (
+export type AuthoritativeRunStatus = "running" | "completed" | "failed" | "cancelled";
+
+/** Return whether the Node-owned outer Run has reached a terminal lifecycle state. */
+export function isTerminalRunStatus(value: unknown): value is Exclude<AuthoritativeRunStatus, "running"> {
+  return value === "completed" || value === "failed" || value === "cancelled";
+}
+
+/** Return the latest durable assistant subturn for a specific outer Run. */
+export function findLatestPersistedRunMessage(messages: ChatMessage[], runId: string): ChatMessage | null {
+  return messages.filter((message) => (
     message.role === "assistant"
     && message.runId === runId
-    && ["completed", "failed", "cancelled"].includes(message.status)
-  )) ?? null;
+  )).at(-1) ?? null;
 }
 
 /** Reconcile an active SSE Run against durable Session history until it reaches a terminal state. */

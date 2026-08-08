@@ -1063,7 +1063,7 @@ describe("App sending state", () => {
     });
   });
 
-  it("clears the current session sending state after a completed message event", async () => {
+  it("keeps the current session running until the outer Run finishes", async () => {
     const { emit } = installClient();
 
     render(<App />);
@@ -1092,9 +1092,11 @@ describe("App sending state", () => {
       target: { value: "second try" },
     });
 
-    await waitFor(() => {
-      expect(screen.getByRole("button", { name: "Send" })).toBeEnabled();
-    });
+    await waitFor(() => expect(screen.getByRole("button", { name: "Running" })).toBeDisabled());
+
+    act(() => emit({ type: "run.finished", runId: "run-1", sessionId: "session-a" }));
+
+    await waitFor(() => expect(screen.getByRole("button", { name: "Send" })).toBeEnabled());
   });
 
   it("refreshes Session artifacts when a Run finishes", async () => {

@@ -307,6 +307,7 @@ export function App() {
               <main className="workspace">
                 <Transcript
                   messages={workspace.messages}
+                  activeRunId={workspace.activeRunId}
                   agentName={workspaceAgentName}
                   streamRef={transcript.streamRef}
                   showJumpToLatest={!transcript.followingLatest}

@@ -2,14 +2,16 @@ import {
   buildMessagePartsFromSessionEvent,
   projectRunEventToStepParts,
 } from "../app/src/lib/openppx-projection";
+import type { ChatMessage } from "../app/src/types";
 import {
-  findPersistedTerminalRunMessage,
+  findLatestPersistedRunMessage,
+  isTerminalRunStatus,
   monitorPersistedTerminalRun,
 } from "../electron/main/run-terminal-reconciliation";
 
 describe("openppx local adapter projections", () => {
-  it("reconciles only a persisted terminal assistant message for the interrupted run", () => {
-    const persisted = findPersistedTerminalRunMessage([
+  it("uses persisted messages only after the outer Run is authoritatively terminal", () => {
+    const messages: ChatMessage[] = [
       {
         id: "message-running",
         sessionId: "session-1",
@@ -28,9 +30,36 @@ describe("openppx local adapter projections", () => {
         createdAt: "2026-08-08T12:00:01.000Z",
         parts: [{ type: "markdown", text: "Done" }],
       },
+    ];
+
+    expect(isTerminalRunStatus("running")).toBe(false);
+    expect(isTerminalRunStatus("completed")).toBe(true);
+    expect(findLatestPersistedRunMessage(messages, "run-1")?.id).toBe("message-complete");
+  });
+
+  it("selects the latest durable subturn after terminality is proven", () => {
+    const persisted = findLatestPersistedRunMessage([
+      {
+        id: "message-first-subturn",
+        sessionId: "session-1",
+        runId: "run-1",
+        role: "assistant",
+        status: "completed",
+        createdAt: "2026-08-08T12:00:01.000Z",
+        parts: [{ type: "commentary", text: "I will inspect this." }],
+      },
+      {
+        id: "message-final-subturn",
+        sessionId: "session-1",
+        runId: "run-1",
+        role: "assistant",
+        status: "completed",
+        createdAt: "2026-08-08T12:00:05.000Z",
+        parts: [{ type: "markdown", text: "Final answer" }],
+      },
     ], "run-1");
 
-    expect(persisted?.id).toBe("message-complete");
+    expect(persisted?.id).toBe("message-final-subturn");
   });
 
   it("periodically reconciles an active stream until the persisted terminal message appears", async () => {

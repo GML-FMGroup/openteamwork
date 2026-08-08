@@ -499,6 +499,7 @@ class RunHandle:
         self.done = threading.Event()
         self.failed = False
         self.invocation_id = ""
+        self.status = "running"
 
     def observe_invocation(self, invocation_id: str) -> None:
         """Remember the ADK invocation that produced this client Run."""
@@ -523,10 +524,28 @@ class RunHandle:
         for subscriber in subscribers:
             subscriber.put(envelope)
 
-    def finish(self) -> None:
-        """Mark the run as completed and close subscribers."""
+    def snapshot(self) -> dict[str, str]:
+        """Return the authoritative lifecycle state for this outer client Run."""
 
         with self._lock:
+            return {
+                "id": self.run_id,
+                "agent_id": self.agent_id,
+                "session_id": self.session_id,
+                "message_id": self.assistant_message_id,
+                "invocation_id": self.invocation_id,
+                "status": self.status,
+            }
+
+    def finish(self, *, status: str = "completed") -> None:
+        """Commit one terminal Run status and close all SSE subscribers."""
+
+        if status not in {"completed", "failed", "cancelled"}:
+            raise ValueError(f"Unsupported terminal Run status: {status}")
+
+        with self._lock:
+            self.status = status
+            self.failed = status == "failed"
             self.done.set()
             subscribers = list(self._subscribers)
             self._subscribers.clear()
@@ -2550,12 +2569,22 @@ class ClientApiCoordinator:
                 "status": status,
             },
         )
-        handle.finish()
+        handle.finish(status=status)
+
+    def get_run(self, run_id: str) -> dict[str, Any]:
+        """Return the Node-owned lifecycle state for one outer client Run."""
+
+        with self._lock:
+            handle = self._runs.get(run_id)
+        if handle is None:
+            return _error("RUN_NOT_FOUND", f"Run '{run_id}' was not found.")
+        return _ok({"run": handle.snapshot()})
 
     def cancel_run(self, run_id: str) -> dict[str, Any]:
         """Cancel one active Run through the shared Control Plane Action."""
 
-        handle = self._runs.get(run_id)
+        with self._lock:
+            handle = self._runs.get(run_id)
         if handle is None:
             return _error("RUN_NOT_FOUND", f"Run '{run_id}' was not found.")
         outcome = self._invoke_control("run.stop", {"runId": run_id})
@@ -2572,7 +2601,8 @@ class ClientApiCoordinator:
     def stream_run_events(self, run_id: str, *, last_event_id: str | None = None) -> queue.Queue[RunEnvelope | None] | None:
         """Return one subscriber queue for SSE streaming."""
 
-        handle = self._runs.get(run_id)
+        with self._lock:
+            handle = self._runs.get(run_id)
         if handle is None:
             return None
         return handle.subscribe(last_event_id=last_event_id)
@@ -2796,6 +2826,10 @@ class _ClientApiHandler(BaseHTTPRequestHandler):
                 self._send_json(400, _error("INVALID_REQUEST", "Query parameter 'limit' must be an integer."))
                 return
             payload = self.coordinator.get_memory_audit(segments[3], user_id=user_id, limit=limit)
+            self._send_json(200 if payload.get("ok") else 404, payload)
+            return
+        if len(segments) == 4 and segments[:3] == ["api", "v1", "runs"]:
+            payload = self.coordinator.get_run(segments[3])
             self._send_json(200 if payload.get("ok") else 404, payload)
             return
         if len(segments) == 5 and segments[:3] == ["api", "v1", "runs"] and segments[4] == "events":

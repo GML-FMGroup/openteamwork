@@ -15,10 +15,11 @@ function assistantMessage(id: string, parts: ChatMessage["parts"], runId?: strin
   };
 }
 
-function renderTranscript(messages: ChatMessage[]) {
+function renderTranscript(messages: ChatMessage[], activeRunId?: string | null) {
   return render(
     <Transcript
       messages={messages}
+      activeRunId={activeRunId}
       agentName="Main"
       streamRef={createRef<HTMLElement>()}
       showJumpToLatest={false}
@@ -153,6 +154,28 @@ describe("Transcript activity turns", () => {
     expect(container.querySelectorAll(".message-bubble.assistant")).toHaveLength(1);
     expect(container.querySelectorAll(".activity-disclosure")).toHaveLength(1);
     expect(screen.getByText("Worked for 4s")).toBeInTheDocument();
+  });
+
+  it("keeps completed ADK subturns visibly running while their outer Run is active", () => {
+    const messages: ChatMessage[] = [
+      assistantMessage("first-subturn", [{
+        type: "step_ref",
+        stepId: "search-1",
+        title: "web_search",
+        status: "completed",
+        detail: '{"query":"OpenPPX"}',
+      }], "run-active"),
+      {
+        ...assistantMessage("second-subturn", [{ type: "commentary", text: "I will inspect another source." }], "run-active"),
+        createdAt: "2026-08-07T00:00:04Z",
+      },
+    ];
+
+    const { container } = renderTranscript(messages, "run-active");
+
+    expect(screen.getByText("Working")).toBeInTheDocument();
+    expect(screen.queryByText("Worked for 4s")).not.toBeInTheDocument();
+    expect(container.querySelector(".activity-disclosure")).toHaveAttribute("open");
   });
 
   it("keeps separate Runs separate and treats a user message as a hard boundary", () => {

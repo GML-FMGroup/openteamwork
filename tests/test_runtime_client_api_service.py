@@ -506,6 +506,40 @@ def test_create_run_streams_replayable_events(tmp_path: Path, monkeypatch) -> No
     assert "run.finished" in events
 
 
+def test_run_status_is_owned_by_the_outer_client_run(tmp_path: Path) -> None:
+    """Persisted ADK subturns must not decide the outer Client Run status."""
+
+    coordinator, _runtime = _coordinator_with_runtime(tmp_path)
+    handle = RunHandle(run_id="run_status", agent_id="writer", session_id="session_status")
+    coordinator._runs[handle.run_id] = handle
+
+    running = coordinator.get_run(handle.run_id)
+    assert running["ok"] is True
+    assert running["data"]["run"] == {
+        "id": "run_status",
+        "agent_id": "writer",
+        "session_id": "session_status",
+        "message_id": handle.assistant_message_id,
+        "invocation_id": "",
+        "status": "running",
+    }
+
+    handle.finish(status="completed")
+
+    completed = coordinator.get_run(handle.run_id)
+    assert completed["ok"] is True
+    assert completed["data"]["run"]["status"] == "completed"
+
+
+def test_run_status_returns_not_found_for_unknown_run(tmp_path: Path) -> None:
+    coordinator, _runtime = _coordinator_with_runtime(tmp_path)
+
+    payload = coordinator.get_run("run_missing")
+
+    assert payload["ok"] is False
+    assert payload["error"]["code"] == "RUN_NOT_FOUND"
+
+
 def test_create_run_orders_commentary_before_tools_and_final_text(tmp_path: Path) -> None:
     coordinator, runtime = _coordinator_with_runtime(tmp_path)
     runtime.create_session_sync("writer", user_id="owner", session_id="session_ordered")

@@ -566,10 +566,6 @@ export function useDesktopWorkspace() {
             })),
           );
         }
-        if (event.status === "completed" || event.status === "failed" || event.status === "cancelled") {
-          activeRuns.finish(event.sessionId);
-          setCancellingRunId((current) => (current === event.runId ? null : current));
-        }
       } else if (event.type === "session.updated") {
         if (event.session.agentId === selectedAgentIdRef.current) {
           setSessions((current) =>
