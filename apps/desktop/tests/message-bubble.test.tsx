@@ -74,10 +74,46 @@ describe("MessageBubble", () => {
     expect(screen.getByText("Working")).toBeInTheDocument();
     expect(screen.getByText("1 file")).toBeInTheDocument();
     expect(container.querySelector(".activity-disclosure")).toHaveAttribute("open");
-    expect(screen.queryByText("Reading a file")).not.toBeInTheDocument();
     expect(container.querySelector(".activity-phase.running")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: /Expand Worked with files/i }));
-    expect(screen.getByText("Reading a file")).toBeInTheDocument();
+    const phaseToggle = screen.getByRole("button", { name: /Expand Reading a file/i });
+    expect(phaseToggle).toHaveTextContent("Reading a file");
+    fireEvent.click(phaseToggle);
+    expect(screen.getAllByText("Reading a file")).toHaveLength(2);
+  });
+
+  it("replaces the active phase label with its terminal summary when work completes", () => {
+    const runningMessage = buildMessage();
+    const { container, rerender } = render(
+      <MessageBubble
+        activityStartedAt="2026-04-02T12:00:00.000Z"
+        message={runningMessage}
+      />,
+    );
+
+    expect(screen.getByRole("button", { name: /Expand Reading a file/i })).toBeInTheDocument();
+    expect(container.querySelector(".activity-phase.running")).toBeInTheDocument();
+
+    rerender(
+      <MessageBubble
+        activityEndedAt="2026-04-02T12:00:05.000Z"
+        activityStartedAt="2026-04-02T12:00:00.000Z"
+        message={{
+          ...runningMessage,
+          status: "completed",
+          parts: [{
+            type: "step_ref",
+            stepId: "step-1",
+            title: "read_file",
+            status: "completed",
+            detail: "path: README.md\nline: 12",
+          }],
+        }}
+      />,
+    );
+
+    fireEvent.click(screen.getByText("Worked for 5s"));
+    expect(screen.getByRole("button", { name: /Expand Worked with files/i })).toBeInTheDocument();
+    expect(container.querySelector(".activity-phase.completed")).toBeInTheDocument();
   });
 
   it("does not invent a model-waiting action while the Run is between ADK events", () => {
@@ -135,21 +171,23 @@ describe("MessageBubble", () => {
     const phaseCopy = container.querySelector(".activity-phase-copy");
     expect(phaseCopy?.querySelector(":scope > .activity-phase-chevron")).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: /Expand Worked with files/i }));
+    fireEvent.click(screen.getByRole("button", { name: /Expand Reading a file/i }));
     const actionCopy = container.querySelector(".activity-semantic-copy");
     expect(actionCopy?.querySelector(":scope > .activity-action-chevron")).toBeInTheDocument();
   });
 
   it("keeps action metadata collapsed until the user opens an individual action", () => {
-    render(<MessageBubble message={buildMessage()} />);
+    const { container } = render(<MessageBubble message={buildMessage()} />);
 
-    fireEvent.click(screen.getByRole("button", { name: /Expand Worked with files/i }));
-    const action = screen.getByRole("button", { name: /Expand Reading a file/i });
+    fireEvent.click(screen.getByRole("button", { name: /Expand Reading a file/i }));
+    const action = container.querySelector(".activity-action > summary");
+    expect(action).toHaveAttribute("aria-label", "Expand Reading a file");
     expect(action).toHaveAttribute("aria-expanded", "false");
     expect(screen.queryByText("Status")).not.toBeInTheDocument();
 
-    fireEvent.click(action);
-    expect(screen.getByRole("button", { name: /Collapse Reading a file/i })).toHaveAttribute("aria-expanded", "true");
+    fireEvent.click(action!);
+    expect(action).toHaveAttribute("aria-label", "Collapse Reading a file");
+    expect(action).toHaveAttribute("aria-expanded", "true");
     expect(screen.getByText("File")).toBeInTheDocument();
     expect(screen.getAllByText("README.md")).toHaveLength(2);
     expect(screen.getByText("Running")).toBeInTheDocument();
@@ -159,7 +197,7 @@ describe("MessageBubble", () => {
     render(<MessageBubble message={buildMessage()} showIdentity={false} />);
 
     expect(screen.queryByText("Agent")).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /Expand Worked with files/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Expand Reading a file/i })).toBeInTheDocument();
   });
 
   it("keeps tool results inside technical details and renders attachment cards", () => {

@@ -1452,9 +1452,7 @@
   white-space: nowrap;
 }
 
-.activity-disclosure.awaiting-next-step > summary .activity-disclosure-copy > strong,
-.activity-action.running > summary .activity-semantic-copy > strong,
-.activity-semantic-row.running .activity-semantic-copy > strong {
+.activity-phase.running > summary .activity-phase-copy > strong {
   background: linear-gradient(
     100deg,
     var(--ink-soft) 0%,
@@ -6498,9 +6496,7 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .activity-disclosure.awaiting-next-step > summary .activity-disclosure-copy > strong,
-  .activity-action.running > summary .activity-semantic-copy > strong,
-  .activity-semantic-row.running .activity-semantic-copy > strong {
+  .activity-phase.running > summary .activity-phase-copy > strong {
     background: none;
     color: var(--ink-soft);
     -webkit-text-fill-color: currentColor;

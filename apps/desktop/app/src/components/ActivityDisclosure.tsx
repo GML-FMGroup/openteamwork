@@ -41,6 +41,24 @@ function phaseTitle(groups: ActivityGroup[]): string {
     : visible.join(", ");
 }
 
+/** Derive one phase row from the ADK-backed activity lifecycle. */
+function phasePresentation(groups: ActivityGroup[]): {
+  status: ActivityGroup["status"];
+  title: string;
+} {
+  const runningGroup = [...groups].reverse().find((group) => group.status === "running");
+  if (runningGroup) {
+    return {
+      status: "running",
+      title: runningGroup.runningLabel,
+    };
+  }
+  return {
+    status: groups.some((group) => group.status === "failed") ? "failed" : "completed",
+    title: phaseTitle(groups),
+  };
+}
+
 function formatElapsedTime(startedAt?: string, endedAt?: string): string | null {
   if (!startedAt || !endedAt) return null;
   const startedAtMs = Date.parse(startedAt);
@@ -111,15 +129,14 @@ function ActivityActionDisclosure({ entry }: { entry: ActivityEntry }) {
 
 function ActivityPhaseDisclosure({ groups }: { groups: ActivityGroup[] }) {
   const [open, setOpen] = useState(false);
-  const hasFailure = groups.some((group) => group.status === "failed");
-  const hasRunning = groups.some((group) => group.status === "running");
+  const presentation = phasePresentation(groups);
   return (
     <details
-      className={`activity-phase ${hasFailure ? "failed" : hasRunning ? "running" : "completed"}`}
+      className={`activity-phase ${presentation.status}`}
       open={open}
     >
       <summary
-        aria-label={`${open ? "Collapse" : "Expand"} ${phaseTitle(groups)}`}
+        aria-label={`${open ? "Collapse" : "Expand"} ${presentation.title}`}
         aria-expanded={open}
         role="button"
         onClick={(event) => {
@@ -127,11 +144,11 @@ function ActivityPhaseDisclosure({ groups }: { groups: ActivityGroup[] }) {
           setOpen((current) => !current);
         }}
       >
-        <span className={`activity-phase-icon ${hasFailure ? "failed" : hasRunning ? "running" : "completed"}`} aria-hidden>
+        <span className={`activity-phase-icon ${presentation.status}`} aria-hidden>
           <ShellIcon name="settings" />
         </span>
         <span className="activity-phase-copy">
-          <strong>{phaseTitle(groups)}</strong>
+          <strong>{presentation.title}</strong>
           <small>{summarizeActivityGroups(groups)}</small>
           <span className="activity-phase-chevron" aria-hidden><ShellIcon name="expand" /></span>
         </span>

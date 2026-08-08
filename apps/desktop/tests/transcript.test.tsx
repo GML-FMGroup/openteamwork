@@ -245,7 +245,7 @@ describe("Transcript activity turns", () => {
 
     expect(container.querySelector(".activity-disclosure")).toHaveAttribute("open");
     expect(container.querySelectorAll(".activity-semantic-list .activity-semantic-copy > strong")).toHaveLength(0);
-    fireEvent.click(screen.getByRole("button", { name: /Expand Researched the web/i }));
+    fireEvent.click(screen.getByRole("button", { name: /Expand Reading sources/i }));
     const rows = Array.from(container.querySelectorAll(
       ".activity-semantic-list .activity-semantic-copy > strong",
     ))
