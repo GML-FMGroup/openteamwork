@@ -122,6 +122,67 @@ def test_snapshot_expands_the_reviewed_matrix_defaults(
     assert len(snapshot.defaults) == 33
 
 
+@pytest.mark.parametrize("mode", ["observe", "enforce"])
+def test_agent_global_rollout_mode_overrides_every_object(mode: str) -> None:
+    node_raw = node_document()
+    node_raw["spec"]["permissions"] = {  # type: ignore[index]
+        "rolloutModes": {"workspace": "enforce", "tool": "enforce"},
+    }
+    agent_raw = agent_document()
+    agent_raw["spec"]["permissions"] = {  # type: ignore[index]
+        "rolloutMode": mode,
+        "rolloutModes": {"network": "enforce" if mode == "observe" else "observe"},
+    }
+
+    snapshot = _compile(node_raw=node_raw, agent_raw=agent_raw)
+
+    assert {
+        item.object: item.mode for item in snapshot.rollout_modes
+    } == {
+        "workspace": mode,
+        "external_path": mode,
+        "command": mode,
+        "process": mode,
+        "network": mode,
+        "tool": mode,
+    }
+
+
+def test_unset_agent_global_rollout_mode_preserves_per_object_precedence() -> None:
+    node_raw = node_document()
+    node_raw["spec"]["permissions"] = {  # type: ignore[index]
+        "rolloutModes": {"network": "enforce", "tool": "enforce"},
+    }
+    agent_raw = agent_document()
+    agent_raw["spec"]["permissions"] = {  # type: ignore[index]
+        "rolloutModes": {"network": "observe"},
+    }
+
+    snapshot = _compile(node_raw=node_raw, agent_raw=agent_raw)
+
+    assert snapshot.rollout_for("network") == "observe"
+    assert snapshot.rollout_for("tool") == "enforce"
+    assert snapshot.rollout_for("workspace") == "observe"
+
+
+def test_global_and_equivalent_per_object_rollout_have_same_revision() -> None:
+    global_raw = agent_document()
+    global_raw["spec"]["permissions"] = {"rolloutMode": "enforce"}  # type: ignore[index]
+    per_object_raw = agent_document()
+    per_object_raw["spec"]["permissions"] = {  # type: ignore[index]
+        "rolloutModes": {
+            "workspace": "enforce",
+            "external_path": "enforce",
+            "command": "enforce",
+            "process": "enforce",
+            "network": "enforce",
+            "tool": "enforce",
+        }
+    }
+
+    assert _compile(agent_raw=global_raw).revision == _compile(agent_raw=per_object_raw).revision
+
+
 def test_revision_depends_on_effective_permissions_not_source_revision_or_display_name() -> None:
     node = NodeConfig.model_validate(node_document())
     agent_raw = agent_document(preset="medium")

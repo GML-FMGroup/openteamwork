@@ -119,7 +119,21 @@ Minimal example:
 
 The supported privilege levels are `low`, `medium`, `high`, and `root`. Static execution policy has one source of truth: `permissions`. The separate `controls` object contains only non-execution controls for secret access, delegation, privilege-approval authority, and high-risk Actions. Removed execution-override fields are rejected rather than translated or silently ignored.
 
-Agent-owned static rules and canary rollout settings are declared explicitly:
+Agent-owned static rules and canary rollout settings are declared explicitly. An
+optional Agent-wide `rolloutMode` applies one mode to every permission object:
+
+```json
+{
+  "spec": {
+    "privilegeLevel": "low",
+    "permissions": {
+      "rolloutMode": "enforce"
+    }
+  }
+}
+```
+
+Omit `rolloutMode` to configure objects independently:
 
 ```json
 {
@@ -178,7 +192,7 @@ Node-owned ceilings, shared roots, and arbitrary-code egress are configured in `
 }
 ```
 
-Rollout defaults to `observe`. Agent rollout values override the Node default for that Agent. Enforce mode fails closed when a required protected root, Docker backend, proxy policy, or internal network is unavailable. The policy directory must be Node-owned, mode `0700`, and outside every Agent Workspace.
+The effective precedence is Agent-wide `rolloutMode`, then Agent `rolloutModes[object]`, then Node `rolloutModes[object]`, then `observe`. When `rolloutMode` is present, it overrides all six objects without deleting the stored per-object settings; removing it restores the per-object inheritance chain. Enforce mode fails closed when a required protected root, Docker backend, proxy policy, or internal network is unavailable. The policy directory must be Node-owned, mode `0700`, and outside every Agent Workspace.
 
 See [PERMISSIONS.md](./PERMISSIONS.md) for the preset matrix, selectors, precedence, clean-rebuild requirement, and recommended rollout order.
 

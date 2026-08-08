@@ -92,6 +92,29 @@ def test_agent_config_parses_minimal_resource() -> None:
     assert resource.spec.privilege_level == "low"
 
 
+def test_agent_permissions_accept_optional_global_rollout_mode() -> None:
+    document = deepcopy(agent_document())
+    document["spec"]["permissions"] = {  # type: ignore[index]
+        "rolloutMode": "enforce",
+        "rolloutModes": {"network": "observe"},
+    }
+
+    resource = AgentConfig.model_validate(document)
+    serialized = resource.model_dump(mode="json", by_alias=True)
+
+    assert resource.spec.permissions.rollout_mode == "enforce"
+    assert resource.spec.permissions.rollout_modes == {"network": "observe"}
+    assert serialized["spec"]["permissions"]["rolloutMode"] == "enforce"
+
+
+def test_agent_permissions_reject_invalid_global_rollout_mode() -> None:
+    document = deepcopy(agent_document())
+    document["spec"]["permissions"] = {"rolloutMode": False}  # type: ignore[index]
+
+    with pytest.raises(ValidationError):
+        AgentConfig.model_validate(document)
+
+
 @pytest.mark.parametrize(
     ("document", "location"),
     [

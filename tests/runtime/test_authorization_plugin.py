@@ -22,6 +22,7 @@ def _snapshot(
     *,
     preset: str = "low",
     tool_rollout: str | None = None,
+    agent_rollout: str | None = None,
     denied_network_origin: str | None = None,
 ):
     node = NodeConfig.model_validate(
@@ -43,6 +44,7 @@ def _snapshot(
                 "ownerPrincipalId": "local:owner",
                 "privilegeLevel": preset,
                 "permissions": {
+                    **({"rolloutMode": agent_rollout} if agent_rollout is not None else {}),
                     "rolloutModes": {
                         **({"tool": tool_rollout} if tool_rollout is not None else {}),
                         **({"network": "enforce"} if denied_network_origin is not None else {}),
@@ -113,6 +115,20 @@ def test_enforce_mode_returns_an_adk_short_circuit_result_for_denied_tool() -> N
         plugin.before_tool_callback(tool=external_tool, tool_args={}, tool_context=_context())
     )
 
+    assert result is not None
+    assert result["ok"] is False
+    assert result["error"]["code"] == "permission_denied"
+
+
+def test_agent_global_enforce_blocks_a_denied_tool_without_plugin_override() -> None:
+    snapshot = _snapshot(agent_rollout="enforce")
+    plugin = OpenPpxAuthorizationPlugin(snapshot, audit=_RecordingAudit())
+
+    result = asyncio.run(
+        plugin.before_tool_callback(tool=external_tool, tool_args={}, tool_context=_context())
+    )
+
+    assert snapshot.rollout_for("tool") == "enforce"
     assert result is not None
     assert result["ok"] is False
     assert result["error"]["code"] == "permission_denied"
