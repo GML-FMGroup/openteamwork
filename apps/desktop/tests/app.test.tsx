@@ -393,6 +393,9 @@ function installClient(overrides: Partial<PpxClientApi> = {}): { client: PpxClie
     transitionGoal: async () => {
       throw new Error("No fixture Goal configured.");
     },
+    retryGoalStep: async () => {
+      throw new Error("No fixture Goal configured.");
+    },
     listAutomations: async () => ({ automations: [] }),
     getAutomation: async () => {
       throw new Error("No fixture Automation configured.");

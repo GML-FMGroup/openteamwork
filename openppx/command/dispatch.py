@@ -134,6 +134,17 @@ def _dispatch_goal(args: Any) -> int:
                 "reason": args.reason,
             },
         )
+    if command == "retry":
+        return invoke_action(
+            args,
+            "goal.retry_step",
+            {
+                "goalId": args.goal_id,
+                "userId": args.user_id,
+                "expectedRevision": args.expected_revision,
+                "stepId": args.step_id,
+            },
+        )
     if command == "complete":
         return invoke_action(
             args,

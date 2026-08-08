@@ -1,12 +1,13 @@
 import { useEffect, useRef, useState } from "react";
-import type { GoalDetail, GoalTransitionOperation } from "../../types";
+import type { GoalDetail, GoalMutationOperation, GoalTransitionOperation } from "../../types";
 
 interface GoalStatusBarProps {
   goal: GoalDetail;
-  mutation: "update" | GoalTransitionOperation | null;
+  mutation: GoalMutationOperation | null;
   error: string | null;
   onUpdate: (objective: string) => Promise<boolean>;
   onTransition: (operation: GoalTransitionOperation) => Promise<boolean>;
+  onRetry: () => Promise<boolean>;
 }
 
 const STATUS_COPY = {
@@ -22,26 +23,29 @@ function goalStatusCopy(status: GoalDetail["status"]): string {
     : "Goal finished";
 }
 
-function GoalIcon({ name }: { name: "goal" | "edit" | "pause" | "resume" | "cancel" }) {
+function GoalIcon({ name }: { name: "goal" | "edit" | "pause" | "resume" | "retry" | "cancel" }) {
   const paths = {
     goal: <><circle cx="12" cy="12" r="7" /><circle cx="12" cy="12" r="2.5" /><path d="M12 2v3M22 12h-3" /></>,
     edit: <><path d="m4 20 4.1-1 10.7-10.7a2.1 2.1 0 0 0-3-3L5.1 16 4 20Z" /><path d="m14.7 6.3 3 3" /></>,
     pause: <><rect x="6" y="5" width="4" height="14" rx="1" /><rect x="14" y="5" width="4" height="14" rx="1" /></>,
     resume: <path d="m8 5 10 7-10 7V5Z" />,
+    retry: <><path d="M20 7v5h-5" /><path d="M19 12a7 7 0 1 1-2-5" /></>,
     cancel: <><path d="M5 5l14 14M19 5 5 19" /><circle cx="12" cy="12" r="10" /></>,
   } as const;
   return <svg viewBox="0 0 24 24" aria-hidden="true">{paths[name]}</svg>;
 }
 
 /** Compact, durable Goal status and controls integrated with the chat composer. */
-export function GoalStatusBar({ goal, mutation, error, onUpdate, onTransition }: GoalStatusBarProps) {
+export function GoalStatusBar({ goal, mutation, error, onUpdate, onTransition, onRetry }: GoalStatusBarProps) {
   const [editing, setEditing] = useState(false);
   const [confirmingCancel, setConfirmingCancel] = useState(false);
   const [objective, setObjective] = useState(goal.objective);
   const inputRef = useRef<HTMLInputElement | null>(null);
   const busy = mutation !== null;
   const canPause = goal.status === "active";
-  const canResume = goal.status === "waiting" || goal.status === "paused" || goal.status === "blocked";
+  const canResume = goal.status === "waiting" || goal.status === "paused";
+  const canRetry = goal.status === "blocked" && goal.flow?.waitReason.canRetry !== false;
+  const waitMessage = typeof goal.flow?.waitReason.message === "string" ? goal.flow.waitReason.message : "";
 
   useEffect(() => {
     setObjective(goal.objective);
@@ -94,6 +98,7 @@ export function GoalStatusBar({ goal, mutation, error, onUpdate, onTransition }:
             <span className="goal-status-symbol"><GoalIcon name="goal" /></span>
             <strong>{goalStatusCopy(goal.status)}</strong>
             <span className="goal-status-objective" title={goal.objective}>{goal.objective}</span>
+            {waitMessage ? <small className="goal-status-reason" title={waitMessage}>{waitMessage}</small> : null}
           </div>
           <div className="goal-status-actions">
             <button type="button" disabled={busy} onClick={() => setEditing(true)} title="Edit Goal">
@@ -107,6 +112,11 @@ export function GoalStatusBar({ goal, mutation, error, onUpdate, onTransition }:
             {canResume ? (
               <button type="button" disabled={busy} onClick={() => void onTransition("resume")} title="Resume Goal">
                 <GoalIcon name="resume" /><span>{mutation === "resume" ? "Resuming…" : "Resume"}</span>
+              </button>
+            ) : null}
+            {canRetry ? (
+              <button type="button" disabled={busy} onClick={() => void onRetry()} title="Retry blocked step">
+                <GoalIcon name="retry" /><span>{mutation === "retry" ? "Retrying…" : "Retry"}</span>
               </button>
             ) : null}
             <button type="button" disabled={busy} onClick={() => setConfirmingCancel(true)} title="Cancel Goal">

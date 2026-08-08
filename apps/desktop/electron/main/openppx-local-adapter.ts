@@ -932,6 +932,21 @@ export class OpenPpxLocalAdapter implements Omit<
     })).result;
   }
 
+  /** Retry the recoverable blocked TaskFlow step selected by the Node supervisor. */
+  public async retryGoalStep(
+    goalId: string,
+    expectedRevision: number,
+    stepId: string | null = null,
+  ): Promise<GoalDetail> {
+    await this.ensureClientApiAvailable();
+    return (await this.goals.retryStep({
+      goalId,
+      userId: LOCAL_USER_ID,
+      expectedRevision,
+      stepId,
+    })).result;
+  }
+
   /** List visible user Automations without exposing internal Cron records. */
   public async listAutomations(statuses: AutomationStatus[] = []): Promise<{ automations: AutomationSummary[] }> {
     await this.ensureClientApiAvailable();

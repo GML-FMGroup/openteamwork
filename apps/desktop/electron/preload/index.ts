@@ -69,6 +69,8 @@ const api: PpxClientApi = {
   updateGoal: (input: GoalUpdateRequest) => ipcRenderer.invoke("ppx-client:update-goal", input),
   transitionGoal: (operation: GoalTransitionOperation, goalId: string, expectedRevision: number) =>
     ipcRenderer.invoke("ppx-client:transition-goal", operation, goalId, expectedRevision),
+  retryGoalStep: (goalId: string, expectedRevision: number, stepId?: string | null) =>
+    ipcRenderer.invoke("ppx-client:retry-goal-step", goalId, expectedRevision, stepId ?? null),
   listAutomations: (statuses?: AutomationStatus[]) => ipcRenderer.invoke("ppx-client:list-automations", statuses ?? []),
   getAutomation: (automationId: string) => ipcRenderer.invoke("ppx-client:get-automation", automationId),
   createAutomation: (input: AutomationCreateInput) => ipcRenderer.invoke("ppx-client:create-automation", input),

@@ -151,7 +151,19 @@ def test_goal_actions_persist_plan_and_require_completion_evidence(tmp_path: Pat
             "userId": "local:test",
             "expectedRevision": created.data["revision"],
             "completionEvidence": [
-                {"type": "artifact", "ref": "release.zip", "label": "Release artifact", "version": 0}
+                {
+                    "type": "artifact",
+                    "ref": "release.zip",
+                    "label": "Release artifact",
+                    "version": 0,
+                    "criteria": ["Artifact exists"],
+                },
+                {
+                    "type": "task_run",
+                    "ref": "tests-1",
+                    "label": "Tests passed",
+                    "criteria": ["Tests pass"],
+                },
             ],
         },
         context(),
@@ -197,6 +209,23 @@ def test_goal_slash_command_creates_goal_and_requests_one_normal_agent_turn(tmp_
     assert status.data["lifecycle"] == "side_channel"
     assert status.data["result"]["current"]["goalId"] == result["goalId"]
 
+    history = application.invoke(
+        "system.command.invoke",
+        {
+            "rawCommand": "/goal history",
+            "userId": "local:test",
+            "agentId": "low-main",
+            "sessionId": "session-slash-goal",
+        },
+        context(),
+    )
+    assert history.ok is True
+    assert history.data["lifecycle"] == "side_channel"
+    history_result = history.data["result"]
+    assert history_result["items"][0]["goalId"] == result["goalId"]
+    assert history_result["selected"]["goalId"] == result["goalId"]
+    assert history_result["events"][0]["goalId"] == result["goalId"]
+
 
 def test_goal_conflict_explains_how_to_continue_or_cancel_current_goal(tmp_path: Path) -> None:
     application = configured_application(tmp_path)
@@ -236,6 +265,99 @@ def test_goal_conflict_explains_how_to_continue_or_cancel_current_goal(tmp_path:
         "/goal resume",
         "/goal cancel",
     ]
+
+
+def test_goal_retry_action_and_slash_command_reactivate_blocked_step(tmp_path: Path) -> None:
+    application = configured_application(tmp_path)
+    created = application.invoke(
+        "goal.create",
+        {
+            "userId": "local:test",
+            "agentId": "low-main",
+            "sessionId": "session-goal-retry",
+            "objective": "Recover a blocked research run",
+        },
+        context(request_id="req_goal_retry_create"),
+    )
+    goal_id = created.data["goalId"]
+    flow = application.goal_store.flow_for_goal(goal_id)
+    assert flow is not None
+    running = application.goal_store.advance_flow_step(
+        flow.flow_id,
+        step_id="goal-execution",
+        status="running",
+        expected_revision=flow.revision,
+        actor_id="system:supervisor",
+    )
+    application.goal_store.advance_flow_step(
+        running.flow_id,
+        step_id="goal-execution",
+        status="blocked",
+        expected_revision=running.revision,
+        actor_id="system:supervisor",
+    )
+    original = application.goal_store.get_goal(goal_id)
+    assert original is not None
+    application.goal_store.transition_goal(
+        goal_id,
+        status="blocked",
+        expected_revision=original.revision,
+        actor_id="system:supervisor",
+        reason="The same search repeated without progress.",
+    )
+    blocked = application.goal_store.get_goal(goal_id)
+    assert blocked is not None
+
+    formal = application.invoke(
+        "goal.retry_step",
+        {
+            "goalId": goal_id,
+            "userId": "local:test",
+            "expectedRevision": blocked.revision,
+        },
+        context(request_id="req_goal_retry_formal"),
+    )
+
+    assert formal.ok is True
+    assert formal.data["status"] == "active"
+    assert formal.data["flow"]["waitReason"] == {}
+
+    active_flow = application.goal_store.flow_for_goal(goal_id)
+    assert active_flow is not None
+    application.goal_store.advance_flow_step(
+        active_flow.flow_id,
+        step_id="goal-execution",
+        status="blocked",
+        expected_revision=active_flow.revision,
+        actor_id="system:supervisor",
+    )
+    active = application.goal_store.get_goal(goal_id)
+    assert active is not None
+    application.goal_store.transition_goal(
+        goal_id,
+        status="blocked",
+        expected_revision=active.revision,
+        actor_id="system:supervisor",
+        reason="No durable progress was observed.",
+    )
+    slash = application.invoke(
+        "system.command.invoke",
+        {
+            "rawCommand": "/goal retry",
+            "userId": "local:test",
+            "agentId": "low-main",
+            "sessionId": "session-goal-retry",
+        },
+        context(request_id="req_goal_retry_slash"),
+    )
+
+    assert slash.ok is True
+    assert slash.data["lifecycle"] == "agent_turn"
+    assert slash.data["result"]["status"] == "active"
+    assert slash.data["result"]["startAgentTurn"] == {
+        "text": "Retry the blocked Goal step and continue working toward: Recover a blocked research run",
+        "goalId": goal_id,
+    }
 
 
 def configured_application(tmp_path: Path):

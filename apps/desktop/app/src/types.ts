@@ -365,6 +365,7 @@ export interface GoalUpdateRequest {
 }
 
 export type GoalTransitionOperation = "pause" | "resume" | "cancel";
+export type GoalMutationOperation = "update" | "retry" | GoalTransitionOperation;
 
 export interface DesktopHostPreferences {
   backgroundBehavior: "keep-running" | "confirm-before-close";
@@ -400,6 +401,7 @@ export interface PpxClientApi {
   getCurrentGoal(sessionId: string): Promise<{ goal: GoalDetail | null }>;
   updateGoal(input: GoalUpdateRequest): Promise<GoalDetail>;
   transitionGoal(operation: GoalTransitionOperation, goalId: string, expectedRevision: number): Promise<GoalDetail>;
+  retryGoalStep(goalId: string, expectedRevision: number, stepId?: string | null): Promise<GoalDetail>;
   listAutomations(statuses?: AutomationStatus[]): Promise<{ automations: AutomationSummary[] }>;
   getAutomation(automationId: string): Promise<AutomationDetail>;
   createAutomation(input: AutomationCreateInput): Promise<AutomationDetail>;

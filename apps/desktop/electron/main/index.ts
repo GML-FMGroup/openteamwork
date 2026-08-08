@@ -311,6 +311,13 @@ app.whenReady().then(() => {
       validateGoalRevision(expectedRevision),
     ),
   );
+  ipcMain.handle("ppx-client:retry-goal-step", async (_event, goalId: unknown, expectedRevision: unknown, stepId: unknown) =>
+    adapter!.retryGoalStep(
+      validateIdentifier(goalId, "Goal id"),
+      validateGoalRevision(expectedRevision),
+      stepId === null || stepId === undefined ? null : validateIdentifier(stepId, "Goal step id"),
+    ),
+  );
   ipcMain.handle("ppx-client:list-automations", async (_event, statuses: unknown) =>
     adapter!.listAutomations(validateAutomationStatuses(statuses)),
   );

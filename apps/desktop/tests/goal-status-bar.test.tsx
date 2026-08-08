@@ -42,6 +42,7 @@ describe("GoalStatusBar", () => {
         error={null}
         onUpdate={onUpdate}
         onTransition={vi.fn(async () => true)}
+        onRetry={vi.fn(async () => true)}
       />,
     );
 
@@ -58,13 +59,13 @@ describe("GoalStatusBar", () => {
   it("pauses active Goals and resumes paused Goals", () => {
     const onTransition = vi.fn(async () => true);
     const view = render(
-      <GoalStatusBar goal={goal()} mutation={null} error={null} onUpdate={vi.fn(async () => true)} onTransition={onTransition} />,
+      <GoalStatusBar goal={goal()} mutation={null} error={null} onUpdate={vi.fn(async () => true)} onTransition={onTransition} onRetry={vi.fn(async () => true)} />,
     );
     fireEvent.click(screen.getByRole("button", { name: "Pause" }));
     expect(onTransition).toHaveBeenCalledWith("pause");
 
     view.rerender(
-      <GoalStatusBar goal={goal("paused")} mutation={null} error={null} onUpdate={vi.fn(async () => true)} onTransition={onTransition} />,
+      <GoalStatusBar goal={goal("paused")} mutation={null} error={null} onUpdate={vi.fn(async () => true)} onTransition={onTransition} onRetry={vi.fn(async () => true)} />,
     );
     fireEvent.click(screen.getByRole("button", { name: "Resume" }));
     expect(onTransition).toHaveBeenCalledWith("resume");
@@ -73,7 +74,7 @@ describe("GoalStatusBar", () => {
   it("requires confirmation before cancelling a Goal", () => {
     const onTransition = vi.fn(async () => true);
     render(
-      <GoalStatusBar goal={goal()} mutation={null} error={null} onUpdate={vi.fn(async () => true)} onTransition={onTransition} />,
+      <GoalStatusBar goal={goal()} mutation={null} error={null} onUpdate={vi.fn(async () => true)} onTransition={onTransition} onRetry={vi.fn(async () => true)} />,
     );
 
     fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
@@ -81,5 +82,45 @@ describe("GoalStatusBar", () => {
     expect(screen.getByRole("alertdialog", { name: "Cancel this Goal?" })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Cancel Goal" }));
     expect(onTransition).toHaveBeenCalledWith("cancel");
+  });
+
+  it("retries a blocked Goal instead of presenting a generic resume action", () => {
+    const onRetry = vi.fn(async () => true);
+    const blocked = goal("blocked");
+    blocked.flow = {
+      flowId: "flow-1",
+      goalId: blocked.goalId,
+      status: "blocked",
+      revision: 4,
+      steps: [],
+      taskRunRefs: [],
+      artifactRefs: [],
+      waitReason: {
+        kind: "repeated_action",
+        message: "The same search repeated without progress.",
+        stepId: "goal-execution",
+        canRetry: true,
+      },
+      recoveryState: {},
+      lastEvent: "goal.progress.blocked",
+      createdAtMs: 1,
+      updatedAtMs: 2,
+    };
+
+    render(
+      <GoalStatusBar
+        goal={blocked}
+        mutation={null}
+        error={null}
+        onUpdate={vi.fn(async () => true)}
+        onTransition={vi.fn(async () => true)}
+        onRetry={onRetry}
+      />,
+    );
+
+    expect(screen.getByText("The same search repeated without progress.")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Resume" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+    expect(onRetry).toHaveBeenCalledTimes(1);
   });
 });

@@ -41,7 +41,8 @@ def test_create_goal_is_atomic_idempotent_and_session_unique(tmp_path) -> None:
     assert goal.goal_id.startswith("goal_")
     assert flow.flow_id == goal.active_flow_id
     assert flow.goal_id == goal.goal_id
-    assert flow.steps == []
+    assert flow.steps[0]["managedBy"] == "runtime"
+    assert flow.steps[0]["status"] == "pending"
     assert replayed_goal.goal_id == goal.goal_id
     assert replayed_flow.flow_id == flow.flow_id
     assert [event.event_type for event in store.list_events(goal.goal_id)] == ["goal.created"]
@@ -98,6 +99,7 @@ def test_goal_updates_are_revision_safe_and_completion_requires_evidence(tmp_pat
                 "type": "artifact",
                 "ref": "report.pdf@2",
                 "label": "Verified report",
+                "criteria": ["report.pdf is attached"],
             }
         ],
         expected_revision=updated.revision,
@@ -306,7 +308,7 @@ def test_runtime_reconciliation_moves_orphaned_active_goal_to_waiting(tmp_path) 
     assert "Node restarted" in flow.wait_reason["message"]
 
 
-def test_runtime_reconciliation_preserves_goal_with_persisted_active_run(tmp_path) -> None:
+def test_runtime_reconciliation_moves_persisted_process_owned_run_to_waiting(tmp_path) -> None:
     store = GoalStore(db_path=tmp_path / "goals.db")
     goal, _flow = store.create_goal(
         session_id="session-running",
@@ -321,8 +323,183 @@ def test_runtime_reconciliation_preserves_goal_with_persisted_active_run(tmp_pat
         status="running",
     )
 
-    assert store.reconcile_runtime() == []
-    assert store.get_goal(goal.goal_id).status == "active"  # type: ignore[union-attr]
+    reconciled = store.reconcile_runtime()
+
+    assert [item.goal_id for item in reconciled] == [goal.goal_id]
+    restored = store.get_goal(goal.goal_id)
+    assert restored is not None and restored.status == "waiting"
+    flow = store.flow_for_goal(goal.goal_id)
+    assert flow is not None
+    assert flow.recovery_state["orphanedRunId"] == "run-active"
+    assert flow.recovery_state["currentRunId"] == ""
+
+
+def test_goal_creation_owns_one_runtime_managed_execution_step(tmp_path) -> None:
+    store = GoalStore(db_path=tmp_path / "goals.db")
+
+    goal, flow = store.create_goal(
+        session_id="session-managed",
+        agent_id="main",
+        user_id="local:user",
+        objective="Produce a verified report",
+        completion_criteria=["Final report exists"],
+        created_by="local:user",
+    )
+
+    assert flow.steps == [
+        {
+            "stepId": "goal-execution",
+            "title": "Produce a verified report",
+            "status": "pending",
+            "dependsOn": [],
+            "expectedOutcome": "Produce a verified report",
+            "completionCriteria": ["Final report exists"],
+            "managedBy": "runtime",
+        }
+    ]
+    assert store.get_goal(goal.goal_id) is not None
+
+
+def test_retry_blocked_step_resets_supervisor_and_restores_active_goal(tmp_path) -> None:
+    store = GoalStore(db_path=tmp_path / "goals.db")
+    goal, flow = store.create_goal(
+        session_id="session-retry",
+        agent_id="main",
+        user_id="local:user",
+        objective="Finish reliable work",
+        created_by="local:user",
+    )
+    running = store.advance_flow_step(
+        flow.flow_id,
+        step_id="goal-execution",
+        status="running",
+        expected_revision=flow.revision,
+        actor_id="system:test",
+    )
+    blocked_flow = store.advance_flow_step(
+        running.flow_id,
+        step_id="goal-execution",
+        status="blocked",
+        expected_revision=running.revision,
+        actor_id="system:test",
+    )
+    blocked_goal = store.transition_goal(
+        goal.goal_id,
+        status="blocked",
+        expected_revision=goal.revision,
+        actor_id="system:test",
+        reason="Repeated the same action without progress.",
+    )
+
+    retried = store.retry_blocked_step(
+        goal.goal_id,
+        step_id="goal-execution",
+        expected_revision=blocked_goal.revision,
+        actor_id="local:user",
+    )
+
+    assert retried.status == "active"
+    retried_flow = store.get_flow(blocked_flow.flow_id)
+    assert retried_flow is not None
+    assert retried_flow.status == "active"
+    assert retried_flow.steps[0]["status"] == "running"
+    assert retried_flow.wait_reason == {}
+    assert retried_flow.recovery_state["supervisor"]["noProgressCount"] == 0
+    assert store.list_events(goal.goal_id)[-1].event_type == "goal.step.retry_requested"
+
+
+def test_repeated_goal_actions_are_blocked_with_retryable_reason(tmp_path) -> None:
+    """Consecutive identical ADK action slices must not spin forever."""
+    store = GoalStore(db_path=tmp_path / "goals.db")
+    goal, _flow = store.create_goal(
+        session_id="session-loop",
+        agent_id="main",
+        user_id="local:user",
+        objective="Research and write a report",
+        budget_policy={"maxRepeatedActionContinuations": 2},
+        created_by="local:user",
+    )
+    before = store.progress_signature(goal.goal_id)
+
+    first = store.record_progress_observation(
+        session_id=goal.session_id,
+        run_id="run-loop",
+        continuation_index=0,
+        before_signature=before,
+        action_fingerprint="same-search",
+        action_names=["web_search"],
+        max_no_progress=3,
+        max_repeated_actions=2,
+    )
+    second_before = store.progress_signature(goal.goal_id)
+    second = store.record_progress_observation(
+        session_id=goal.session_id,
+        run_id="run-loop",
+        continuation_index=1,
+        before_signature=second_before,
+        action_fingerprint="same-search",
+        action_names=["web_search"],
+        max_no_progress=3,
+        max_repeated_actions=2,
+    )
+
+    assert first is not None and first.status == "active"
+    assert second is not None and second.status == "blocked"
+    blocked_flow = store.flow_for_goal(goal.goal_id)
+    assert blocked_flow is not None and blocked_flow.status == "blocked"
+    assert blocked_flow.wait_reason == {
+        "kind": "repeated_actions",
+        "message": "The Goal repeated the same actions without durable progress.",
+        "stepId": "goal-execution",
+        "actions": ["web_search"],
+        "canRetry": True,
+    }
+    assert blocked_flow.steps[0]["status"] == "blocked"
+    supervisor = blocked_flow.recovery_state["supervisor"]
+    assert supervisor["repeatedActionCount"] == 2
+    assert supervisor["noProgressCount"] == 2
+    assert store.list_events(goal.goal_id)[-1].event_type == "goal.progress.blocked"
+
+
+def test_new_goal_action_resets_repetition_counter(tmp_path) -> None:
+    """A changed ADK action signature is evidence that the loop evolved."""
+    store = GoalStore(db_path=tmp_path / "goals.db")
+    goal, _flow = store.create_goal(
+        session_id="session-evolving",
+        agent_id="main",
+        user_id="local:user",
+        objective="Research and write a report",
+        created_by="local:user",
+    )
+
+    before = store.progress_signature(goal.goal_id)
+    store.record_progress_observation(
+        session_id=goal.session_id,
+        run_id="run-evolving",
+        continuation_index=0,
+        before_signature=before,
+        action_fingerprint="search-a",
+        action_names=["web_search"],
+        max_no_progress=2,
+        max_repeated_actions=2,
+    )
+    before = store.progress_signature(goal.goal_id)
+    current = store.record_progress_observation(
+        session_id=goal.session_id,
+        run_id="run-evolving",
+        continuation_index=1,
+        before_signature=before,
+        action_fingerprint="fetch-b",
+        action_names=["web_fetch"],
+        max_no_progress=2,
+        max_repeated_actions=2,
+    )
+
+    assert current is not None and current.status == "active"
+    flow = store.flow_for_goal(goal.goal_id)
+    assert flow is not None
+    assert flow.recovery_state["supervisor"]["repeatedActionCount"] == 1
+    assert flow.recovery_state["supervisor"]["noProgressCount"] == 1
 
 
 def test_advancing_waiting_flow_restores_active_state(tmp_path) -> None:
@@ -455,6 +632,59 @@ def test_explicit_completion_request_is_reconciled_by_matching_invocation_only(t
         invocation_id="invocation-target",
     )
     assert store.get_goal(goal.goal_id).status == "completed"  # type: ignore[union-attr]
+
+
+def test_completion_criteria_require_exact_evidence_coverage(tmp_path) -> None:
+    store = GoalStore(db_path=tmp_path / "goals.db")
+    goal, _flow = store.create_goal(
+        session_id="session-criteria",
+        agent_id="main",
+        user_id="local:user",
+        objective="Ship a verified artifact",
+        completion_criteria=["Tests pass", "Artifact exists"],
+        created_by="local:user",
+    )
+
+    with pytest.raises(GoalStateError, match="missing completion evidence"):
+        store.request_completion(
+            goal.goal_id,
+            expected_revision=goal.revision,
+            actor_id="local:user",
+            invocation_id="invocation-missing",
+            completion_evidence=[
+                {
+                    "type": "task_run",
+                    "ref": "tests-1",
+                    "label": "Tests passed",
+                    "criteria": ["Tests pass"],
+                }
+            ],
+        )
+
+    pending = store.request_completion(
+        goal.goal_id,
+        expected_revision=goal.revision,
+        actor_id="local:user",
+        invocation_id="invocation-complete",
+        completion_evidence=[
+            {
+                "type": "task_run",
+                "ref": "tests-1",
+                "label": "Tests passed",
+                "criteria": ["Tests pass"],
+            },
+            {
+                "type": "artifact",
+                "ref": "release.zip",
+                "label": "Release artifact",
+                "criteria": ["Artifact exists"],
+            },
+        ],
+    )
+
+    assessment = pending.recovery_state["completionAssessment"]
+    assert assessment["satisfiedCriteria"] == ["Tests pass", "Artifact exists"]
+    assert assessment["missingCriteria"] == []
 
 
 def test_goal_continuation_facts_accumulate_budget_and_recovery_state(tmp_path) -> None:

@@ -2,6 +2,15 @@
 
 This directory contains the minimal ADK eval baseline for openppx.
 
+`../runtime/test_goal_nanobot_parity.py` is the provider-independent regression gate for
+nanobot Goal parity. It covers durable Session ownership, bounded/recoverable
+execution, restart reconciliation, repeated-action blocking and retry, plus
+evidence-bound completion:
+
+```bash
+pytest -q tests/runtime/test_goal_nanobot_parity.py
+```
+
 `adk eval` loads an agent directory by importing its `__init__.py` as module
 `agent`, then reads `agent.root_agent`. It also infers `app_name` from the
 agent directory basename. For that reason, the eval entry directory is named

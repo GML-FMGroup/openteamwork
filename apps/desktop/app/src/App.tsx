@@ -339,6 +339,7 @@ export function App() {
                   onRemoveAttachment={workspace.removeAttachment}
                   onUpdateGoal={workspace.updateCurrentGoal}
                   onTransitionGoal={workspace.transitionCurrentGoal}
+                  onRetryGoal={workspace.retryCurrentGoal}
                 />
               </main>
             </div>

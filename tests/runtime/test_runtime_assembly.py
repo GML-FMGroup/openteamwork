@@ -1153,3 +1153,273 @@ def test_active_goal_enters_waiting_when_continuation_budget_is_exhausted(tmp_pa
     flow = goal_store.flow_for_goal(goal.goal_id)
     assert flow is not None
     assert "continuation budget" in flow.wait_reason["message"]
+
+
+def test_active_goal_blocks_repeated_adk_actions_before_budget_exhaustion(tmp_path: Path) -> None:
+    """The native ADK continuation loop stops repeated action slices early."""
+    goal_store = GoalStore(db_path=tmp_path / "goals.db")
+    goal, _flow = goal_store.create_goal(
+        session_id="session-loop",
+        agent_id="main",
+        user_id="local:user",
+        objective="Research without looping",
+        budget_policy={
+            "maxContinuations": 6,
+            "maxNoProgressContinuations": 3,
+            "maxRepeatedActionContinuations": 2,
+        },
+        created_by="local:user",
+    )
+
+    class _Runtime:
+        metadata = SimpleNamespace(
+            snapshot_revision="snapshot-r1",
+            model_profile_id="primary",
+            model_profile_revision="model-r1",
+            provider="test",
+            model="test/model",
+        )
+
+        def __init__(self) -> None:
+            self.continuation_calls = 0
+
+        async def _slice(self, callback, invocation_id: str) -> str:
+            event = SimpleNamespace(
+                model_dump=lambda **_kwargs: {
+                    "invocation_id": invocation_id,
+                    "content": {
+                        "parts": [
+                            {
+                                "function_call": {
+                                    "id": invocation_id,
+                                    "name": "web_search",
+                                    "args": {"query": "same query"},
+                                }
+                            }
+                        ]
+                    },
+                }
+            )
+            observed = callback(event)
+            if asyncio.iscoroutine(observed):
+                await observed
+            return "bounded slice"
+
+        async def run_message(self, _message, **kwargs):
+            return await self._slice(kwargs["on_event"], "inv-1")
+
+        async def continue_message(self, **kwargs):
+            self.continuation_calls += 1
+            return await self._slice(kwargs["on_event"], f"inv-{self.continuation_calls + 1}")
+
+    runtime = _Runtime()
+
+    class _Config:
+        @staticmethod
+        def snapshot(_agent_id, **_kwargs):
+            return SimpleNamespace(revision="config-r1")
+
+    class _Assembler:
+        services = SimpleNamespace(goal_store=goal_store)
+
+        @staticmethod
+        def extension_snapshot_for_agent(_agent_id):
+            return SimpleNamespace(revision="extensions-r1")
+
+        @staticmethod
+        def assemble(_snapshot, *, extension_snapshot):
+            del extension_snapshot
+            return runtime
+
+    supervisor = NodeRuntimeSupervisor(config_service=_Config(), assembler=_Assembler())  # type: ignore[arg-type]
+    completed = threading.Event()
+    replies: list[str] = []
+    supervisor.start_run(
+        run_id="run-loop",
+        agent_id="main",
+        session_id=goal.session_id,
+        user_id="local:user",
+        text="research",
+        on_complete=lambda text: (replies.append(text), completed.set()),
+    )
+
+    assert completed.wait(timeout=5)
+    assert replies == ["bounded slice"]
+    assert runtime.continuation_calls == 1
+    blocked = goal_store.get_goal(goal.goal_id)
+    assert blocked is not None and blocked.status == "blocked"
+    flow = goal_store.flow_for_goal(goal.goal_id)
+    assert flow is not None and flow.wait_reason["kind"] == "repeated_actions"
+
+
+def test_goal_loop_block_without_model_text_finishes_as_retryable_pause(tmp_path: Path) -> None:
+    """A controlled loop stop must not turn an already-blocked Goal into a failed Run."""
+    goal_store = GoalStore(db_path=tmp_path / "goals.db")
+    goal, _flow = goal_store.create_goal(
+        session_id="session-loop-no-text",
+        agent_id="main",
+        user_id="local:user",
+        objective="Research without looping",
+        budget_policy={
+            "maxContinuations": 6,
+            "maxRepeatedActionContinuations": 2,
+        },
+        created_by="local:user",
+    )
+
+    class _Runtime:
+        metadata = SimpleNamespace(
+            snapshot_revision="snapshot-r1",
+            model_profile_id="primary",
+            model_profile_revision="model-r1",
+            provider="test",
+            model="test/model",
+        )
+
+        async def _slice(self, callback, invocation_id: str) -> None:
+            event = SimpleNamespace(
+                model_dump=lambda **_kwargs: {
+                    "invocation_id": invocation_id,
+                    "content": {
+                        "parts": [
+                            {
+                                "function_call": {
+                                    "id": invocation_id,
+                                    "name": "web_search",
+                                    "args": {"query": "same query"},
+                                }
+                            }
+                        ]
+                    },
+                }
+            )
+            observed = callback(event)
+            if asyncio.iscoroutine(observed):
+                await observed
+            raise LlmCallsLimitExceededError()
+
+        async def run_message(self, _message, **kwargs):
+            await self._slice(kwargs["on_event"], "invocation-1")
+
+        async def continue_message(self, **kwargs):
+            await self._slice(kwargs["on_event"], "invocation-2")
+
+    runtime = _Runtime()
+
+    class _Config:
+        @staticmethod
+        def snapshot(_agent_id, **_kwargs):
+            return SimpleNamespace(revision="config-r1")
+
+    class _Assembler:
+        services = SimpleNamespace(goal_store=goal_store)
+
+        @staticmethod
+        def extension_snapshot_for_agent(_agent_id):
+            return SimpleNamespace(revision="extensions-r1")
+
+        @staticmethod
+        def assemble(_snapshot, *, extension_snapshot):
+            del extension_snapshot
+            return runtime
+
+    supervisor = NodeRuntimeSupervisor(config_service=_Config(), assembler=_Assembler())  # type: ignore[arg-type]
+    completed = threading.Event()
+    replies: list[str] = []
+    errors: list[BaseException] = []
+    supervisor.start_run(
+        run_id="run-loop-no-text",
+        agent_id="main",
+        session_id=goal.session_id,
+        user_id="local:user",
+        text="continue until blocked",
+        on_complete=lambda text: (replies.append(text), completed.set()),
+        on_error=lambda exc: (errors.append(exc), completed.set()),
+    )
+
+    assert completed.wait(timeout=5)
+    assert errors == []
+    assert replies == [
+        "Goal paused: The Goal repeated the same actions without durable progress."
+    ]
+    assert supervisor.run_status("run-loop-no-text").state == "completed"
+    blocked = goal_store.get_goal(goal.goal_id)
+    assert blocked is not None and blocked.status == "blocked"
+
+
+def test_node_runtime_reconciles_explicit_goal_completion_by_adk_invocation(tmp_path: Path) -> None:
+    """Goal completion is owned by Runtime facts, not the HTTP presentation layer."""
+    goal_store = GoalStore(db_path=tmp_path / "goals.db")
+    goal, _flow = goal_store.create_goal(
+        session_id="session-complete",
+        agent_id="main",
+        user_id="local:user",
+        objective="Finish one verified run",
+        created_by="local:user",
+    )
+
+    class _Runtime:
+        metadata = SimpleNamespace(
+            snapshot_revision="snapshot-r1",
+            model_profile_id="primary",
+            model_profile_revision="model-r1",
+            provider="test",
+            model="test/model",
+        )
+
+        async def run_message(self, _message, **kwargs):
+            event = SimpleNamespace(
+                model_dump=lambda **_kwargs: {
+                    "invocation_id": "inv-complete",
+                    "content": {"parts": []},
+                }
+            )
+            observed = kwargs["on_event"](event)
+            if asyncio.iscoroutine(observed):
+                await observed
+            current = goal_store.get_goal(goal.goal_id)
+            assert current is not None
+            goal_store.request_completion(
+                current.goal_id,
+                expected_revision=current.revision,
+                actor_id="agent:main",
+                invocation_id="inv-complete",
+            )
+            return "verified result"
+
+        async def continue_message(self, **_kwargs):
+            raise AssertionError("completion should stop continuations")
+
+    runtime = _Runtime()
+
+    class _Config:
+        @staticmethod
+        def snapshot(_agent_id, **_kwargs):
+            return SimpleNamespace(revision="config-r1")
+
+    class _Assembler:
+        services = SimpleNamespace(goal_store=goal_store)
+
+        @staticmethod
+        def extension_snapshot_for_agent(_agent_id):
+            return SimpleNamespace(revision="extensions-r1")
+
+        @staticmethod
+        def assemble(_snapshot, *, extension_snapshot):
+            del extension_snapshot
+            return runtime
+
+    supervisor = NodeRuntimeSupervisor(config_service=_Config(), assembler=_Assembler())  # type: ignore[arg-type]
+    completed = threading.Event()
+    supervisor.start_run(
+        run_id="run-complete",
+        agent_id="main",
+        session_id=goal.session_id,
+        user_id="local:user",
+        text="finish",
+        on_complete=lambda _text: completed.set(),
+    )
+
+    assert completed.wait(timeout=5)
+    completed_goal = goal_store.get_goal(goal.goal_id)
+    assert completed_goal is not None and completed_goal.status == "completed"

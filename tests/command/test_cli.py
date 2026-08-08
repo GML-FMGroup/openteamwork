@@ -106,6 +106,29 @@ def test_goal_complete_requires_json_array_evidence(capsys) -> None:
     assert "must contain one JSON array" in capsys.readouterr().out
 
 
+def test_goal_retry_routes_to_formal_goal_action() -> None:
+    args = build_parser().parse_args([
+        "goal",
+        "retry",
+        "goal-1",
+        "7",
+        "--step",
+        "goal-execution",
+    ])
+    with patch("openppx.command.dispatch.invoke_action", return_value=0) as invoke:
+        assert dispatch(args) == 0
+    invoke.assert_called_once_with(
+        args,
+        "goal.retry_step",
+        {
+            "goalId": "goal-1",
+            "userId": "ppx-client-user",
+            "expectedRevision": 7,
+            "stepId": "goal-execution",
+        },
+    )
+
+
 def test_node_run_passes_explicit_root_and_transport() -> None:
     args = Namespace(
         command="node",

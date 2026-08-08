@@ -2090,7 +2090,7 @@ class ClientApiCoordinator:
         )
         try:
             session_metadata = self._session_metadata.get(session_id)
-            run_snapshot = self._runtime_supervisor.start_run(
+            self._runtime_supervisor.start_run(
                 run_id=run_id,
                 agent_id=agent_id,
                 session_id=session_id,
@@ -2107,20 +2107,6 @@ class ClientApiCoordinator:
                 on_complete=lambda final_text: self._complete_node_run(handle, final_text),
                 on_error=lambda error: self._fail_node_run(handle, error),
                 on_cancelled=lambda: self._cancel_node_run(handle),
-            )
-            self._record_goal_fact(
-                "record_run_fact",
-                session_id=session_id,
-                run_id=run_id,
-                status="running",
-                correlation_id=run_id,
-                snapshot={
-                    "snapshotRevision": run_snapshot.snapshot_revision,
-                    "modelProfileId": run_snapshot.model_profile_id,
-                    "modelProfileRevision": run_snapshot.model_profile_revision,
-                    "provider": run_snapshot.provider,
-                    "model": run_snapshot.model,
-                },
             )
         except Exception as exc:
             self._record_goal_fact(
@@ -2513,14 +2499,6 @@ class ClientApiCoordinator:
 
     def _finish_node_run(self, handle: RunHandle, *, status: str) -> None:
         """Close one Run stream after publishing its common terminal event."""
-        self._record_goal_fact(
-            "record_run_fact",
-            session_id=handle.session_id,
-            run_id=handle.run_id,
-            status=status,
-            correlation_id=handle.run_id,
-            invocation_id=handle.invocation_id,
-        )
         handle.publish(
             "run.finished",
             {

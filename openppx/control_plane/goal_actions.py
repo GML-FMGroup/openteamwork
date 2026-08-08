@@ -39,6 +39,7 @@ from .input_models import (
     GoalHistoryInput,
     GoalIdentityInput,
     GoalListInput,
+    GoalRetryStepInput,
     GoalTransitionInput,
     GoalUpdateInput,
     TaskFlowAdvanceInput,
@@ -103,6 +104,18 @@ def register_goal_actions(
         lambda context, input_data: _complete_goal(store, context, cast(GoalCompleteInput, input_data)),
     )
     registry.register(
+        _spec(
+            "goal.retry_step",
+            "Retry Goal step",
+            "Retry the recoverable blocked step of one Goal.",
+            GoalRetryStepInput,
+            "goal.write",
+            "goal",
+            mutation=True,
+        ),
+        lambda context, input_data: _retry_goal_step(store, context, cast(GoalRetryStepInput, input_data)),
+    )
+    registry.register(
         _spec("goal.history", "Goal history", "Read append-only events for one visible Goal.", GoalHistoryInput, "goal.read", "goal"),
         lambda _context, input_data: _goal_history(store, cast(GoalHistoryInput, input_data)),
     )
@@ -124,9 +137,9 @@ def register_goal_actions(
                 SlashCommandSpec(
                     command="/goal",
                     title="Goal",
-                    description="Create, inspect, update, pause, resume, complete, cancel, or review a Goal.",
+                    description="Create, inspect, update, pause, resume, retry, complete, cancel, or review a Goal.",
                     icon="target",
-                    arg_hint="[objective|status|update ...|pause|resume|complete|cancel|history]",
+                    arg_hint="[objective|status|update ...|pause|resume|retry [step-id]|complete|cancel|history]",
                     arguments=(
                         SlashCommandArgumentSpec(
                             name="request",
@@ -349,9 +362,57 @@ def _complete_goal(store: GoalStore, context: ActionContext, input_data: GoalCom
         _raise_goal_failure(exc)
 
 
+def _retry_goal_step(store: GoalStore, context: ActionContext, input_data: GoalRetryStepInput) -> dict[str, object]:
+    """Retry the explicit or supervisor-selected recoverable TaskFlow step."""
+    goal = _owned_goal(store, input_data.goal_id, input_data.user_id)
+    flow = store.flow_for_goal(goal.goal_id)
+    if flow is None:
+        raise ActionFailure(ActionError("flow_not_found", "This Goal has no active TaskFlow."))
+    step_id = input_data.step_id or str(flow.wait_reason.get("stepId") or "").strip()
+    if not step_id:
+        step_id = next(
+            (
+                str(step.get("stepId") or "").strip()
+                for step in flow.steps
+                if step.get("status") in {"blocked", "failed", "waiting"}
+            ),
+            "",
+        )
+    if not step_id:
+        raise ActionFailure(ActionError("goal_step_not_retryable", "This Goal has no recoverable blocked step."))
+    try:
+        retried = store.retry_blocked_step(
+            goal.goal_id,
+            step_id=step_id,
+            expected_revision=input_data.expected_revision,
+            actor_id=context.actor_id,
+            correlation_id=context.correlation_id,
+        )
+        return project_goal_detail(retried, store.flow_for_goal(retried.goal_id))
+    except GoalStoreError as exc:
+        _raise_goal_failure(exc)
+
+
 def _goal_history(store: GoalStore, input_data: GoalHistoryInput) -> dict[str, object]:
     _owned_goal(store, input_data.goal_id, input_data.user_id)
     return {"items": [project_goal_event(event) for event in store.list_events(input_data.goal_id, limit=input_data.limit)]}
+
+
+def _session_goal_history(store: GoalStore, *, session_id: str, user_id: str, limit: int = 20) -> dict[str, object]:
+    """Return recent Session Goals plus durable events for the latest Goal."""
+    try:
+        goals = store.list_goals(session_id=session_id, user_id=user_id, limit=limit)
+    except GoalStoreError as exc:
+        _raise_goal_failure(exc)
+    summaries = [project_goal_summary(goal) for goal in goals]
+    if not goals:
+        return {"items": [], "selected": None, "events": []}
+    selected = goals[0]
+    return {
+        "items": summaries,
+        "selected": project_goal_detail(selected, store.flow_for_goal(selected.goal_id)),
+        "events": [project_goal_event(event) for event in store.list_events(selected.goal_id, limit=100)],
+    }
 
 
 def _read_flow(store: GoalStore, input_data: TaskFlowIdentityInput) -> dict[str, object]:
@@ -442,6 +503,8 @@ def _goal_command_slash_input(
             if separator and remainder.strip():
                 raise ActionFailure(ActionError("command_arguments_invalid", f"/goal {head} does not accept more text."))
             operation, text = head, ""
+        elif head == "retry":
+            operation, text = "retry", remainder.strip() if separator else ""
         elif head == "update":
             if not separator or not remainder.strip():
                 raise ActionFailure(ActionError("command_usage_required", "Usage: /goal update <text>"))
@@ -486,9 +549,11 @@ def _goal_command(
         )
         return {**created, "startAgentTurn": {"text": input_data.text, "goalId": created["goalId"]}}
     if input_data.operation == "history":
-        return _list_goals(
+        return _session_goal_history(
             store,
-            GoalListInput(userId=input_data.user_id, sessionId=input_data.session_id, limit=20),
+            session_id=input_data.session_id,
+            user_id=input_data.user_id,
+            limit=20,
         )
     current = store.current_goal(input_data.session_id)
     if current is None or current.user_id != input_data.user_id:
@@ -519,6 +584,22 @@ def _goal_command(
                 userConfirmed=True,
             ),
         )
+    if input_data.operation == "retry":
+        result = _retry_goal_step(
+            store,
+            context,
+            GoalRetryStepInput(
+                goalId=current.goal_id,
+                userId=input_data.user_id,
+                expectedRevision=current.revision,
+                stepId=input_data.text or None,
+            ),
+        )
+        result["startAgentTurn"] = {
+            "text": f"Retry the blocked Goal step and continue working toward: {current.objective}",
+            "goalId": current.goal_id,
+        }
+        return result
     target = {"pause": "paused", "resume": "active", "cancel": "cancelled"}[input_data.operation]
     result = _transition_goal(
         store,

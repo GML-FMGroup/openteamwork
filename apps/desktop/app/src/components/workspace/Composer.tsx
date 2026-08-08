@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { ClipboardEvent, DragEvent, KeyboardEvent, RefObject } from "react";
-import type { GoalDetail, GoalTransitionOperation, ProjectedSlashCommand } from "../../types";
+import type { GoalDetail, GoalMutationOperation, GoalTransitionOperation, ProjectedSlashCommand } from "../../types";
 import type { PendingAttachment } from "../../hooks/use-desktop-workspace";
 import { ATTACHMENT_ACCEPT } from "../../attachment-policy";
 import { GoalStatusBar } from "./GoalStatusBar";
@@ -31,7 +31,7 @@ interface ComposerProps {
   helperText: string;
   agentName: string;
   goal: GoalDetail | null;
-  goalMutation: "update" | GoalTransitionOperation | null;
+  goalMutation: GoalMutationOperation | null;
   goalMutationError: string | null;
   commands: ProjectedSlashCommand[];
   attachments: PendingAttachment[];
@@ -43,6 +43,7 @@ interface ComposerProps {
   onRemoveAttachment: (attachmentId: string) => void;
   onUpdateGoal: (objective: string) => Promise<boolean>;
   onTransitionGoal: (operation: GoalTransitionOperation) => Promise<boolean>;
+  onRetryGoal: () => Promise<boolean>;
 }
 
 /** Focused composer that only exposes controls backed by real behavior. */
@@ -68,6 +69,7 @@ export function Composer({
   onRemoveAttachment,
   onUpdateGoal,
   onTransitionGoal,
+  onRetryGoal,
 }: ComposerProps) {
   const [selectedCommandIndex, setSelectedCommandIndex] = useState(0);
   const [dismissedValue, setDismissedValue] = useState<string | null>(null);
@@ -201,6 +203,7 @@ export function Composer({
           error={goalMutationError}
           onUpdate={onUpdateGoal}
           onTransition={onTransitionGoal}
+          onRetry={onRetryGoal}
         />
       ) : null}
       {commandMenuOpen ? (

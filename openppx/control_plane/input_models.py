@@ -145,6 +145,11 @@ class CompletionEvidenceInput(ActionInput):
     run_id: RunId | None = None
     mime_type: Annotated[str, StringConstraints(min_length=1, max_length=128)] | None = None
     version: StrictInt | None = Field(default=None, ge=0)
+    criteria: list[Annotated[str, StringConstraints(min_length=1, max_length=2_048)]] = Field(
+        default_factory=list,
+        max_length=50,
+    )
+    criterion_indexes: list[StrictInt] = Field(default_factory=list, max_length=50)
 
 
 class GoalTransitionInput(GoalIdentityInput):
@@ -152,6 +157,13 @@ class GoalTransitionInput(GoalIdentityInput):
 
     expected_revision: StrictInt = Field(ge=1)
     reason: Annotated[str, StringConstraints(max_length=2_048)] = ""
+
+
+class GoalRetryStepInput(GoalIdentityInput):
+    """Retry one recoverable TaskFlow step under optimistic concurrency."""
+
+    expected_revision: StrictInt = Field(ge=1)
+    step_id: ResourceId | None = None
 
 
 class GoalCompleteInput(GoalTransitionInput):
@@ -173,7 +185,7 @@ class GoalCommandInput(ActionInput):
     user_id: PrincipalId
     agent_id: ResourceId
     session_id: RunId
-    operation: Literal["status", "create", "update", "pause", "resume", "complete", "cancel", "history"]
+    operation: Literal["status", "create", "update", "pause", "resume", "retry", "complete", "cancel", "history"]
     text: Annotated[str, StringConstraints(max_length=16_384)] = ""
 
 

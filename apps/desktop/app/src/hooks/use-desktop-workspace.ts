@@ -9,6 +9,7 @@ import type {
   ConnectionSettings,
   ExtensionSummary,
   GoalDetail,
+  GoalMutationOperation,
   GoalTransitionOperation,
   ModelProfileSummary,
   ModelProfileResourceResult,
@@ -361,7 +362,7 @@ export function useDesktopWorkspace() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [sessionArtifacts, setSessionArtifacts] = useState<ArtifactSummary[]>([]);
   const [currentGoal, setCurrentGoal] = useState<GoalDetail | null>(null);
-  const [goalMutation, setGoalMutation] = useState<"update" | GoalTransitionOperation | null>(null);
+  const [goalMutation, setGoalMutation] = useState<GoalMutationOperation | null>(null);
   const [goalMutationError, setGoalMutationError] = useState<string | null>(null);
   const [selectedAgentId, setSelectedAgentId] = useState("");
   const [selectedSessionId, setSelectedSessionId] = useState("");
@@ -483,6 +484,30 @@ export function useDesktopWorkspace() {
       }
       if (operation === "resume" && sessionId === selectedSessionIdRef.current) {
         await sendMessage(`Resume the active Goal and continue working toward: ${updated.objective}`);
+      }
+      return true;
+    } catch (error) {
+      setGoalMutationError(clientErrorMessage(error));
+      await refreshCurrentGoal(sessionId);
+      return false;
+    } finally {
+      setGoalMutation(null);
+    }
+  }
+
+  /** Retry the supervisor-selected blocked step and resume execution in one user action. */
+  async function retryCurrentGoal(): Promise<boolean> {
+    const goal = currentGoal;
+    if (!goal || goal.status !== "blocked" || goalMutation) return false;
+    const sessionId = selectedSessionIdRef.current;
+    const stepId = typeof goal.flow?.waitReason.stepId === "string" ? goal.flow.waitReason.stepId : null;
+    setGoalMutation("retry");
+    setGoalMutationError(null);
+    try {
+      const updated = await window.ppxClient.retryGoalStep(goal.goalId, goal.revision, stepId);
+      if (sessionId === selectedSessionIdRef.current) setCurrentGoal(updated);
+      if (sessionId === selectedSessionIdRef.current) {
+        await sendMessage(`Retry the blocked Goal step and continue working toward: ${updated.objective}`);
       }
       return true;
     } catch (error) {
@@ -1535,5 +1560,6 @@ export function useDesktopWorkspace() {
     cancelCurrentRun,
     updateCurrentGoal,
     transitionCurrentGoal,
+    retryCurrentGoal,
   };
 }

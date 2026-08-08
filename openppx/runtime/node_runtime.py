@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 import threading
 import time
 import uuid
@@ -16,6 +17,7 @@ from google.adk.agents.invocation_context import LlmCallsLimitExceededError
 from openppx.config import ConfigService
 
 from .assembly import AssembledRuntime, RuntimeAssembler
+from .goal_supervisor import GoalSliceObserver
 from .message_time import inject_request_time
 from .run_config import build_run_config
 from .session_history import project_visible_history
@@ -515,7 +517,25 @@ class NodeRuntimeSupervisor:
         )
 
         def _worker() -> None:
+            goal_store = self.assembler.services.goal_store
+            observer = GoalSliceObserver()
+            tracks_goal = False
+            last_invocation_id = ""
+
+            def _record_terminal_goal_fact(status: TerminalRunState) -> None:
+                """Persist the terminal Run fact before presentation callbacks fire."""
+                if not tracks_goal:
+                    return
+                goal_store.record_run_fact(
+                    session_id=session_id,
+                    run_id=run_id,
+                    status=status,
+                    correlation_id=run_id,
+                    invocation_id=last_invocation_id,
+                )
+
             async def _execute() -> str:
+                nonlocal last_invocation_id, tracks_goal
                 loop = asyncio.get_running_loop()
                 task = asyncio.current_task()
                 if task is None:  # pragma: no cover - asyncio always supplies it
@@ -527,7 +547,22 @@ class NodeRuntimeSupervisor:
                     ),
                     *artifact_parts,
                 ])
-                goal = self.assembler.services.goal_store.current_goal(session_id)
+                goal = goal_store.current_goal(session_id)
+                tracks_goal = goal is not None
+                if goal is not None:
+                    goal_store.record_run_fact(
+                        session_id=session_id,
+                        run_id=run_id,
+                        status="running",
+                        correlation_id=run_id,
+                        snapshot={
+                            "snapshotRevision": snapshot.snapshot_revision,
+                            "modelProfileId": snapshot.model_profile_id,
+                            "modelProfileRevision": snapshot.model_profile_revision,
+                            "provider": snapshot.provider,
+                            "model": snapshot.model,
+                        },
+                    )
                 budget = goal.budget_policy if goal is not None else {}
                 calls_per_invocation = _bounded_policy_int(
                     budget,
@@ -548,6 +583,22 @@ class NodeRuntimeSupervisor:
                 auto_continue = bool(
                     budget.get("autoContinue", budget.get("auto_continue", True))
                 )
+                max_no_progress = _bounded_policy_int(
+                    budget,
+                    "maxNoProgressContinuations",
+                    "max_no_progress_continuations",
+                    default=3,
+                    minimum=1,
+                    maximum=20,
+                )
+                max_repeated_actions = _bounded_policy_int(
+                    budget,
+                    "maxRepeatedActionContinuations",
+                    "max_repeated_action_continuations",
+                    default=2,
+                    minimum=1,
+                    maximum=20,
+                )
                 run_config = (
                     build_run_config(
                         profile="full",
@@ -559,14 +610,65 @@ class NodeRuntimeSupervisor:
                 )
                 continuation_index = 0
                 final_text = ""
+
+                async def _observe_event(event: Any) -> None:
+                    """Observe native ADK events and forward them to the caller."""
+                    observer.observe(event)
+                    if on_event is None:
+                        return
+                    forwarded = on_event(event)
+                    if inspect.isawaitable(forwarded):
+                        await forwarded
+
+                def _record_slice_progress(before_signature: str) -> object | None:
+                    """Persist one bounded slice and return the current Goal."""
+                    nonlocal last_invocation_id
+                    observation = observer.snapshot()
+                    if observation.invocation_id:
+                        last_invocation_id = observation.invocation_id
+                    if goal is None:
+                        return None
+                    return goal_store.record_progress_observation(
+                        session_id=session_id,
+                        run_id=run_id,
+                        continuation_index=continuation_index,
+                        before_signature=before_signature,
+                        action_fingerprint=observation.action_fingerprint,
+                        action_names=observation.action_names,
+                        max_no_progress=max_no_progress,
+                        max_repeated_actions=max_repeated_actions,
+                        correlation_id=run_id,
+                    )
+
+                def _controlled_goal_halt_reply() -> str:
+                    """Return a stable reply when the durable Goal intentionally stops."""
+                    if goal is None:
+                        return ""
+                    halted = goal_store.current_goal(session_id)
+                    if halted is None or halted.status not in {"blocked", "paused", "waiting"}:
+                        return ""
+                    flow = goal_store.flow_for_goal(halted.goal_id)
+                    reason = (
+                        str((flow.wait_reason if flow is not None else {}).get("message") or "")
+                        .strip()
+                    )
+                    return f"Goal paused: {reason}" if reason else "Goal paused."
+
                 while True:
+                    observer.reset()
+                    current_goal = goal_store.current_goal(session_id) if goal is not None else None
+                    before_signature = (
+                        goal_store.progress_signature(current_goal.goal_id)
+                        if current_goal is not None and current_goal.status == "active"
+                        else ""
+                    )
                     try:
                         if continuation_index == 0:
                             final_text = await runtime.run_message(
                                 request,
                                 user_id=user_id,
                                 session_id=session_id,
-                                on_event=on_event,
+                                on_event=_observe_event,
                                 on_text_update=on_text_update,
                                 run_config=run_config,
                             )
@@ -574,22 +676,25 @@ class NodeRuntimeSupervisor:
                             final_text = await runtime.continue_message(
                                 user_id=user_id,
                                 session_id=session_id,
-                                on_event=on_event,
+                                on_event=_observe_event,
                                 on_text_update=on_text_update,
                                 run_config=run_config,
                             )
+                        observed_goal = _record_slice_progress(before_signature)
                         if goal is None:
                             break
+                        if getattr(observed_goal, "status", "") == "blocked":
+                            break
                         if not auto_continue:
-                            self.assembler.services.goal_store.wait_current_goal(
+                            goal_store.wait_current_goal(
                                 session_id,
                                 reason="Automatic Goal continuation is disabled by its budget policy.",
                                 correlation_id=run_id,
                             )
                             break
-                        refreshed = self.assembler.services.goal_store.current_goal(session_id)
+                        refreshed = goal_store.current_goal(session_id)
                         flow = (
-                            self.assembler.services.goal_store.flow_for_goal(refreshed.goal_id)
+                            goal_store.flow_for_goal(refreshed.goal_id)
                             if refreshed is not None
                             else None
                         )
@@ -599,7 +704,7 @@ class NodeRuntimeSupervisor:
                         if refreshed is None or refreshed.status != "active" or completion_pending:
                             break
                         if continuation_index >= max_continuations:
-                            self.assembler.services.goal_store.record_continuation_fact(
+                            goal_store.record_continuation_fact(
                                 session_id=session_id,
                                 run_id=run_id,
                                 continuation_index=continuation_index,
@@ -607,14 +712,14 @@ class NodeRuntimeSupervisor:
                                 max_llm_calls_per_invocation=calls_per_invocation,
                                 exhausted=True,
                             )
-                            self.assembler.services.goal_store.wait_current_goal(
+                            goal_store.wait_current_goal(
                                 session_id,
                                 reason="The Goal continuation budget was exhausted. Resume it to start another bounded Run.",
                                 correlation_id=run_id,
                             )
                             break
                         continuation_index += 1
-                        self.assembler.services.goal_store.record_continuation_fact(
+                        goal_store.record_continuation_fact(
                             session_id=session_id,
                             run_id=run_id,
                             continuation_index=continuation_index,
@@ -622,9 +727,12 @@ class NodeRuntimeSupervisor:
                             max_llm_calls_per_invocation=calls_per_invocation,
                         )
                     except LlmCallsLimitExceededError:
+                        observed_goal = _record_slice_progress(before_signature)
+                        if getattr(observed_goal, "status", "") == "blocked":
+                            break
                         if goal is None or continuation_index >= max_continuations:
                             if goal is not None:
-                                self.assembler.services.goal_store.record_continuation_fact(
+                                goal_store.record_continuation_fact(
                                     session_id=session_id,
                                     run_id=run_id,
                                     continuation_index=continuation_index,
@@ -633,20 +741,21 @@ class NodeRuntimeSupervisor:
                                     exhausted=True,
                                 )
                                 if final_text.strip():
-                                    self.assembler.services.goal_store.wait_current_goal(
+                                    goal_store.wait_current_goal(
                                         session_id,
                                         reason="The Goal LLM-call budget was exhausted. Resume it to continue.",
                                         correlation_id=run_id,
                                     )
                                     break
-                                self.assembler.services.goal_store.block_current_goal(
+                                goal_store.block_current_goal(
                                     session_id,
                                     reason="The Goal exhausted its LLM-call budget before producing a result.",
                                     correlation_id=run_id,
                                 )
+                                break
                             raise
                         continuation_index += 1
-                        self.assembler.services.goal_store.record_continuation_fact(
+                        goal_store.record_continuation_fact(
                             session_id=session_id,
                             run_id=run_id,
                             continuation_index=continuation_index,
@@ -654,16 +763,21 @@ class NodeRuntimeSupervisor:
                             max_llm_calls_per_invocation=calls_per_invocation,
                         )
                 if not final_text.strip():
+                    final_text = _controlled_goal_halt_reply()
+                if not final_text.strip():
                     raise RuntimeError("Run finished without returning a final reply.")
+                _record_terminal_goal_fact("completed")
                 return final_text
 
             try:
                 final_text = asyncio.run(_execute())
             except asyncio.CancelledError:
+                _record_terminal_goal_fact("cancelled")
                 self.complete_run(run_id, state="cancelled")
                 if on_cancelled is not None:
                     on_cancelled()
             except BaseException as exc:  # pragma: no cover - verified through callback tests
+                _record_terminal_goal_fact("failed")
                 self.complete_run(run_id, state="failed")
                 if on_error is not None:
                     on_error(exc)

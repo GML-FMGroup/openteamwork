@@ -1091,6 +1091,15 @@ export class GoalClient {
     return this.actions.invoke(`goal.${operation}`, { ...input, reason: input.reason ?? "" });
   }
 
+  public retryStep(input: {
+    goalId: string;
+    userId: string;
+    expectedRevision: number;
+    stepId?: string | null;
+  }): Promise<ActionEnvelope<GoalDetail>> {
+    return this.actions.invoke("goal.retry_step", { ...input, stepId: input.stepId ?? null });
+  }
+
   public complete(input: Record<string, unknown>): Promise<ActionEnvelope<GoalDetail>> {
     return this.actions.invoke("goal.complete", input);
   }

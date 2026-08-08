@@ -321,7 +321,8 @@ def build_goal_tools(
             normalized_evidence = [dict(item) for item in evidence or () if isinstance(item, dict)]
             if flow is None:
                 raise GoalStateError("Goal is missing its TaskFlow")
-            if flow.steps and any(step.get("status") != "completed" for step in flow.steps):
+            declared_steps = [step for step in flow.steps if step.get("managedBy") != "runtime"]
+            if declared_steps and any(step.get("status") != "completed" for step in declared_steps):
                 raise GoalStateError("Goal completion requires every declared TaskFlow step to be completed")
             if not normalized_evidence:
                 pending_flow = store.request_completion(
