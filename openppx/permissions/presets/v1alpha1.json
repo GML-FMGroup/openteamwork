@@ -1,0 +1,236 @@
+{
+  "schemaVersion": "openppx.permissions/v1alpha1",
+  "templates": [
+    {
+      "schemaVersion": "openppx.permissions/v1alpha1",
+      "templateId": "low",
+      "objectDefaults": {
+        "workspace": "deny",
+        "external_path": "deny",
+        "command": "deny",
+        "process": "deny",
+        "network": "deny",
+        "tool": "deny"
+      },
+      "defaults": {
+        "workspace": {
+          "list": "allow",
+          "read": "allow",
+          "search": "allow"
+        }
+      },
+      "rules": [
+        {
+          "ruleId": "allow-workspace-readonly-search-commands",
+          "effect": "allow",
+          "object": "command",
+          "actions": ["execute"],
+          "selector": {
+            "kind": "command",
+            "executables": ["grep", "rg"],
+            "executionProfiles": ["low-workspace-readonly"],
+            "shell": false
+          },
+          "constraints": {
+            "kind": "command",
+            "executionProfile": "low-workspace-readonly",
+            "allowShell": false,
+            "allowBackground": false,
+            "allowPty": false,
+            "timeoutSeconds": 30,
+            "maxOutputBytes": 1048576
+          },
+          "description": "Low Agents may run audited grep/rg read-only searches inside their Workspace."
+        },
+        {
+          "ruleId": "allow-safe-read-tools",
+          "effect": "allow",
+          "object": "tool",
+          "actions": ["invoke"],
+          "selector": {
+            "kind": "tool",
+            "toolIds": [
+              "openppx.builtin.preload_memory",
+              "openppx.builtin.load_artifacts",
+              "openppx.builtin.list_skills",
+              "openppx.builtin.read_skill",
+              "openppx.builtin.list_skill_api_runners",
+              "openppx.builtin.read_file",
+              "openppx.builtin.list_dir",
+              "openppx.builtin.glob",
+              "openppx.builtin.grep",
+              "openppx.builtin.get_goal",
+              "openppx.builtin.list_tasks",
+              "openppx.builtin.show_task",
+              "openppx.builtin.task_control_snapshot",
+              "openppx.builtin.task_output",
+              "openppx.builtin.resume_task",
+              "openppx.builtin.exec"
+            ]
+          },
+          "description": "Low Agents receive only the reviewed read-oriented Tool catalog."
+        },
+        {
+          "ruleId": "allow-readonly-command-spawn",
+          "effect": "allow",
+          "object": "process",
+          "actions": ["spawn"],
+          "selector": {
+            "kind": "process",
+            "createdBy": ["allowed_command"]
+          },
+          "description": "Low Agents may spawn only a foreground process already accepted by the read-only Command profile."
+        }
+      ],
+      "pendingGates": []
+    },
+    {
+      "schemaVersion": "openppx.permissions/v1alpha1",
+      "templateId": "medium",
+      "objectDefaults": {
+        "workspace": "allow",
+        "external_path": "deny",
+        "command": "allow",
+        "process": "deny",
+        "network": "allow",
+        "tool": "allow"
+      },
+      "defaults": {
+        "network": {
+          "private_access": "deny",
+          "listen": "deny"
+        }
+      },
+      "rules": [
+        {
+          "ruleId": "allow-current-task-command-spawn",
+          "effect": "allow",
+          "object": "process",
+          "actions": ["spawn"],
+          "selector": {
+            "kind": "process",
+            "createdBy": ["allowed_command", "current_task"]
+          },
+          "constraints": {
+            "kind": "process",
+            "currentTaskOnly": true
+          },
+          "description": "Medium Agents may spawn commands authorized for the current task."
+        },
+        {
+          "ruleId": "deny-high-root-workspace-read",
+          "effect": "deny",
+          "object": "external_path",
+          "actions": ["list", "read", "search"],
+          "selector": {
+            "kind": "agent_workspace",
+            "privilegeLevels": ["high", "root"]
+          },
+          "description": "Medium Agents cannot read high or root Agent Workspaces.",
+          "locked": true
+        },
+        {
+          "ruleId": "allow-current-task-process-management",
+          "effect": "allow",
+          "object": "process",
+          "actions": ["view", "wait", "input", "stop", "cleanup"],
+          "selector": {
+            "kind": "process",
+            "createdBy": ["current_task"]
+          },
+          "constraints": {
+            "kind": "process",
+            "currentTaskOnly": true
+          },
+          "description": "Medium Agents may manage only processes created by the current task."
+        },
+        {
+          "ruleId": "deny-node-maintenance-tools",
+          "effect": "deny",
+          "object": "tool",
+          "actions": ["invoke"],
+          "selector": {
+            "kind": "tool",
+            "toolIds": [
+              "openppx.builtin.remediate_stuck_tasks",
+              "openppx.builtin.cleanup_terminal_tasks",
+              "openppx.builtin.cleanup_orphan_runtime_facts",
+              "openppx.builtin.cleanup_checkpoint_retention"
+            ]
+          },
+          "description": "Medium Agents cannot invoke Node-wide maintenance actions."
+        }
+      ],
+      "pendingGates": [
+        "medium-code-egress-proxy"
+      ]
+    },
+    {
+      "schemaVersion": "openppx.permissions/v1alpha1",
+      "templateId": "high",
+      "objectDefaults": {
+        "workspace": "allow",
+        "external_path": "deny",
+        "command": "allow",
+        "process": "allow",
+        "network": "allow",
+        "tool": "allow"
+      },
+      "defaults": {
+        "external_path": {
+          "list": "allow",
+          "read": "allow",
+          "search": "allow"
+        },
+        "network": {
+          "private_access": "deny",
+          "listen": "deny"
+        }
+      },
+      "rules": [
+        {
+          "ruleId": "deny-protected-system-processes",
+          "effect": "deny",
+          "object": "process",
+          "actions": ["view", "wait", "input", "stop", "cleanup"],
+          "selector": {
+            "kind": "process",
+            "protected": true
+          },
+          "description": "High Agents cannot manage OpenPPX or OS protected processes.",
+          "locked": true
+        },
+        {
+          "ruleId": "deny-system-processes",
+          "effect": "deny",
+          "object": "process",
+          "actions": ["view", "wait", "input", "stop", "cleanup"],
+          "selector": {
+            "kind": "process",
+            "systemProcess": true
+          },
+          "description": "High Agents cannot manage operating-system processes.",
+          "locked": true
+        }
+      ],
+      "pendingGates": [
+        "high-code-egress-proxy"
+      ]
+    },
+    {
+      "schemaVersion": "openppx.permissions/v1alpha1",
+      "templateId": "root",
+      "objectDefaults": {
+        "workspace": "allow",
+        "external_path": "allow",
+        "command": "allow",
+        "process": "allow",
+        "network": "allow",
+        "tool": "allow"
+      },
+      "defaults": {},
+      "rules": [],
+      "pendingGates": []
+    }
+  ]
+}

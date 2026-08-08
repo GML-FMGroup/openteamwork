@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import datetime as dt
 import hashlib
+import os
 from pathlib import Path
 from typing import Any
 
 from google.genai import types
 
+from openppx.permissions import AuthorizedPath, authorize_path
 from openppx.runtime.attachment_service import (
     AttachmentValidationError,
     prepare_attachment,
@@ -16,7 +18,7 @@ from openppx.runtime.attachment_service import (
 from openppx.runtime.tool_execution_context import current_tool_execution_context
 
 
-def _workspace_file(path: str) -> tuple[Path, Path]:
+def _workspace_file(path: str) -> tuple[Path, Path, AuthorizedPath | None]:
     """Resolve one existing regular file inside the active Agent Workspace.
 
     Artifact publication always enforces this boundary, even when broader file
@@ -27,6 +29,15 @@ def _workspace_file(path: str) -> tuple[Path, Path]:
     if context is None:
         raise PermissionError("Artifact publication requires an Agent-scoped runtime context.")
     workspace = context.workspace_root.expanduser().resolve(strict=False)
+    authorized: AuthorizedPath | None = None
+    if context.permission_snapshot is not None:
+        authorized = authorize_path(
+            context.permission_snapshot,
+            workspace_root=workspace,
+            raw_path=path,
+            action="read",
+            audit=context.permission_audit,
+        )
     candidate = Path(path).expanduser()
     if not candidate.is_absolute():
         candidate = workspace / candidate
@@ -37,7 +48,9 @@ def _workspace_file(path: str) -> tuple[Path, Path]:
         raise PermissionError("Only files inside the Agent Workspace can be published.") from exc
     if not resolved.is_file():
         raise ValueError("Only regular files can be published as Artifacts.")
-    return resolved, relative
+    if authorized is not None and authorized.path != resolved:
+        raise PermissionError("Artifact path changed after authorization.")
+    return resolved, relative, authorized
 
 
 async def publish_artifact(
@@ -65,9 +78,15 @@ async def publish_artifact(
     try:
         if tool_context is None or not callable(getattr(tool_context, "save_artifact", None)):
             raise ValueError("Artifact storage is unavailable for this Run.")
-        source, _relative = _workspace_file(path)
+        source, _relative, authorized = _workspace_file(path)
         resolved_name = str(artifact_name or source.name).strip()
-        data = source.read_bytes()
+        fd = (
+            authorized.open_fd(os.O_RDONLY)
+            if authorized is not None
+            else os.open(source, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
+        )
+        with os.fdopen(fd, "rb") as handle:
+            data = handle.read()
         prepared = prepare_attachment(
             file_name=resolved_name,
             mime_type="application/octet-stream",

@@ -203,7 +203,7 @@ Cron and Heartbeat are owned by the long-lived Node process. Their actions, fail
 - Extensions are staged and validated before activation; declarative Product Plugins cannot execute arbitrary host initialization code.
 - Docker sandbox support is available for dangerous local execution, but access to the Docker daemon remains host-powerful.
 
-See [docs/MCP_SECURITY.md](./docs/MCP_SECURITY.md) and [docs/SANDBOX.md](./docs/SANDBOX.md).
+See [docs/PERMISSIONS.md](./docs/PERMISSIONS.md), [docs/MCP_SECURITY.md](./docs/MCP_SECURITY.md), and [docs/SANDBOX.md](./docs/SANDBOX.md).
 
 ## Repository layout
 
@@ -236,6 +236,7 @@ Use `--list`, `--skip-python`, or `--skip-build` only for diagnostics; the full 
 
 - [Project architecture](./docs/PROJECT_OVERVIEW.md)
 - [Configuration and models](./docs/CONFIGURATION.md)
+- [Static execution permissions](./docs/PERMISSIONS.md)
 - [Operations](./docs/OPERATIONS.md)
 - [Sessions, attachments, and artifacts](./docs/ARTIFACTS.md)
 - [Client API contract](./contracts/client-api/README.md)

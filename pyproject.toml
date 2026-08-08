@@ -27,6 +27,7 @@ eval = [
 
 [project.scripts]
 ppx = "openppx.cli:main"
+ppx-egress-proxy = "openppx.runtime.sandbox.egress_proxy:main"
 
 [build-system]
 requires = ["hatchling"]
@@ -40,5 +41,6 @@ include = [
     "docker/**",
     "openppx/**/*.py",
     "openppx/extensions/data/**",
+    "openppx/permissions/presets/**",
     "openppx/skills/**",
 ]

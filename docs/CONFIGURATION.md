@@ -117,7 +117,70 @@ Minimal example:
 }
 ```
 
-The supported privilege levels are `low`, `medium`, `high`, and `root`. Permission overrides can only narrow the selected base profile; they cannot silently grant broader access.
+The supported privilege levels are `low`, `medium`, `high`, and `root`. `permissionOverrides` is the legacy coarse control surface. New execution policy belongs in `permissions`; the five legacy execution fields must be migrated before an execution object can enter enforce mode.
+
+Agent-owned static rules and canary rollout settings are declared explicitly:
+
+```json
+{
+  "spec": {
+    "privilegeLevel": "low",
+    "permissions": {
+      "rolloutModes": {
+        "workspace": "enforce",
+        "external_path": "observe",
+        "command": "observe",
+        "process": "observe",
+        "network": "observe",
+        "tool": "enforce"
+      },
+      "rules": [
+        {
+          "ruleId": "allow-customer-note-drafts",
+          "effect": "allow",
+          "object": "workspace",
+          "actions": ["create", "write", "edit"],
+          "selector": {
+            "kind": "workspace_path",
+            "patterns": ["notes/**"]
+          }
+        }
+      ]
+    }
+  }
+}
+```
+
+Node-owned ceilings, shared roots, and arbitrary-code egress are configured in `NodeConfig.spec.permissions`:
+
+```json
+{
+  "spec": {
+    "permissions": {
+      "safeExternalReadRoots": ["/srv/openppx/reference"],
+      "highProtectedWriteRoots": ["/etc", "/srv/openppx/node-config"],
+      "rolloutModes": {
+        "workspace": "observe",
+        "external_path": "observe",
+        "command": "observe",
+        "process": "observe",
+        "network": "observe",
+        "tool": "observe"
+      },
+      "codeEgressProxy": {
+        "url": "http://openppx-egress-proxy:3128",
+        "dockerNetwork": "openppx-egress-internal",
+        "policyDirectory": "/srv/openppx/egress-policies"
+      },
+      "hardRules": []
+    }
+  }
+}
+```
+
+Rollout defaults to `observe`. Agent rollout values override the Node default for that Agent. Enforce mode fails closed when a required protected root, migration, Docker backend, proxy policy, or internal network is unavailable. The policy directory must be Node-owned, mode `0700`, and outside every Agent Workspace.
+
+See [PERMISSIONS.md](./PERMISSIONS.md) for the preset matrix, selectors, precedence, migration, and recommended rollout order.
 
 ## ModelProfile
 

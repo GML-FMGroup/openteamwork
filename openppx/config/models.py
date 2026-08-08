@@ -19,6 +19,8 @@ from pydantic import (
 )
 from pydantic.alias_generators import to_camel
 
+from openppx.permissions.models import AgentPermissionSpec, NodePermissionSpec
+
 
 ResourceName: TypeAlias = Annotated[
     str,
@@ -185,6 +187,7 @@ class NodeSpec(StrictConfigModel):
     enabled_agents: list[ResourceName] = Field(default_factory=list)
     client_api: NodeClientApiSpec = Field(default_factory=NodeClientApiSpec)
     operations: NodeOperationsSpec = Field(default_factory=NodeOperationsSpec)
+    permissions: NodePermissionSpec = Field(default_factory=NodePermissionSpec)
 
     @field_validator("enabled_agents")
     @classmethod
@@ -216,7 +219,7 @@ ModelRole: TypeAlias = Literal["fast", "reasoning", "vision"]
 
 
 class PermissionOverrides(StrictConfigModel):
-    """Typed partial permission profile that may only narrow a base profile."""
+    """Legacy coarse profile override retained until explicit permission migration."""
 
     workspace_scope: WorkspaceScope | None = None
     filesystem_access: FilesystemAccess | None = None
@@ -306,6 +309,7 @@ class AgentSpec(StrictConfigModel):
     owner_principal_id: Annotated[str, StringConstraints(min_length=1, max_length=128)]
     privilege_level: PrivilegeLevel = "low"
     permission_overrides: PermissionOverrides = Field(default_factory=PermissionOverrides)
+    permissions: AgentPermissionSpec = Field(default_factory=AgentPermissionSpec)
     model_policy: AgentModelPolicy = Field(default_factory=AgentModelPolicy)
 
     @field_validator("workspace", "owner_principal_id")
@@ -324,9 +328,18 @@ class AgentSpec(StrictConfigModel):
 
     @model_validator(mode="after")
     def permission_overrides_must_only_narrow(self) -> "AgentSpec":
-        """Reject overrides that grant more authority than the selected profile."""
+        """Reject legacy elevation and ambiguous legacy/new permission sources."""
         base = _PERMISSION_PROFILES[self.privilege_level]
         provided = self.permission_overrides.model_dump(exclude_none=True)
+        execution_fields = {
+            "workspace_scope",
+            "filesystem_access",
+            "shell_exec",
+            "network_access",
+            "tool_access",
+        }
+        if execution_fields.intersection(provided) and not self.permissions.is_empty():
+            raise ValueError("permissionOverrides and permissions cannot both contain values")
         for field_name, requested in provided.items():
             allowed = base[field_name]
             if isinstance(requested, bool):

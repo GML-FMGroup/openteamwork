@@ -187,6 +187,39 @@ def test_agent_effect_is_live_for_display_and_next_run_for_runtime_fields(tmp_pa
     ).effect == ConfigEffect.NEXT_RUN
 
 
+def test_agent_permission_preview_reports_redacted_semantic_changes(tmp_path: Path) -> None:
+    _, _, config_service = service(tmp_path)
+    config_service.apply_node(NodeConfig.model_validate(node_payload()), expected_revision=None)
+    created = config_service.apply_agent(
+        "low-main",
+        AgentConfig.model_validate(agent_payload()),
+        expected_revision=None,
+    )
+    candidate_payload = deepcopy(agent_payload())
+    candidate_payload["spec"]["permissions"] = {  # type: ignore[index]
+        "objectDefaults": {"workspace": "deny"}
+    }
+
+    preview = config_service.preview_agent(
+        "low-main",
+        AgentConfig.model_validate(candidate_payload),
+        expected_revision=created.resource.revision,
+    )
+
+    assert preview.effect == ConfigEffect.NEXT_RUN
+    assert preview.candidate_permission_revision is not None
+    assert {
+        (change.object, change.action)
+        for change in preview.permission_changes
+        if change.change_kind == "default_changed"
+    } == {
+        ("workspace", "list"),
+        ("workspace", "read"),
+        ("workspace", "search"),
+    }
+    assert "workspace/low-main" not in str(preview.permission_changes)
+
+
 def test_apply_rejects_stale_revision_without_changing_resource(tmp_path: Path) -> None:
     repository, _, config_service = service(tmp_path)
     created = config_service.apply_node(NodeConfig.model_validate(node_payload()), expected_revision=None)
@@ -236,6 +269,9 @@ def test_snapshot_is_deterministic_and_changes_with_agent_revision(tmp_path: Pat
     first = config_service.snapshot("low-main")
     second = config_service.snapshot("low-main")
     assert first.revision == second.revision
+    assert first.permissions.revision == second.permissions.revision
+    assert first.permissions.activation == "observe"
+    assert first.permissions.agent_id == "low-main"
     assert first.model.profile_id == "primary"
     assert {origin.resource_id for origin in first.origins} == {
         "node/local-node",
@@ -250,4 +286,38 @@ def test_snapshot_is_deterministic_and_changes_with_agent_revision(tmp_path: Pat
         AgentConfig.model_validate(updated_payload),
         expected_revision=agent_result.resource.revision,
     )
-    assert config_service.snapshot("low-main").revision != first.revision
+    updated = config_service.snapshot("low-main")
+    assert updated.revision != first.revision
+    assert updated.permissions.revision == first.permissions.revision
+
+
+def test_snapshot_permission_revision_tracks_other_agent_workspace_boundaries(tmp_path: Path) -> None:
+    _, profiles, config_service = service(tmp_path)
+    config_service.apply_node(NodeConfig.model_validate(node_payload()), expected_revision=None)
+    config_service.apply_agent(
+        "low-main",
+        AgentConfig.model_validate(agent_payload()),
+        expected_revision=None,
+    )
+    high_payload = deepcopy(agent_payload(workspace="workspace/high-operator"))
+    high_payload["metadata"] = {"name": "high-operator"}
+    high_payload["spec"]["displayName"] = "High Operator"  # type: ignore[index]
+    high_payload["spec"]["privilegeLevel"] = "high"  # type: ignore[index]
+    high_created = config_service.apply_agent(
+        "high-operator",
+        AgentConfig.model_validate(high_payload),
+        expected_revision=None,
+    )
+    profiles.write_profile("primary", model_profile(), expected_revision=None)
+    before = config_service.snapshot("low-main")
+
+    high_payload["spec"]["workspace"] = "workspace/high-operator-moved"  # type: ignore[index]
+    config_service.apply_agent(
+        "high-operator",
+        AgentConfig.model_validate(high_payload),
+        expected_revision=high_created.resource.revision,
+    )
+    after = config_service.snapshot("low-main")
+
+    assert before.permissions.revision != after.permissions.revision
+    assert before.revision != after.revision

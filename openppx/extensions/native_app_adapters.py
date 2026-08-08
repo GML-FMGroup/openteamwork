@@ -28,6 +28,13 @@ from .app_models import AppToolSpec
 
 _DEFAULT_TIMEOUT_SECONDS = 30.0
 _MAX_RESPONSE_BYTES = 512 * 1024
+_NATIVE_ADAPTER_ORIGINS = {
+    "telegram-bot-api": "https://api.telegram.org",
+    "slack-web-api": "https://slack.com",
+    "gmail-rest": "https://gmail.googleapis.com",
+    "google-calendar-rest": "https://www.googleapis.com",
+    "microsoft-graph-rest": "https://graph.microsoft.com",
+}
 
 
 class NativeAppHttpTransport(Protocol):
@@ -129,6 +136,7 @@ class NativeAppTool(BaseTool):
                     "adapter": adapter_id,
                     "access": spec.access,
                     "risk": spec.risk,
+                    "networkOrigin": _NATIVE_ADAPTER_ORIGINS.get(adapter_id),
                 }
             },
         )

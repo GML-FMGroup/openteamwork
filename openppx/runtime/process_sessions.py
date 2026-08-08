@@ -49,6 +49,14 @@ class SessionSnapshot:
     exit_signal: int | None
     tail: str
     truncated: bool
+    created_by_agent_id: str | None
+    created_by_task_id: str | None
+    created_by_run_id: str | None
+    permission_revision_at_start: str | None
+    execution_profile: str | None
+    created_by_allowed_command: bool
+    protected: bool
+    system_process: bool
 
 
 @dataclass(slots=True)
@@ -84,6 +92,14 @@ class ProcessSession:
     empty_poll_count: int = 0
     output_event: threading.Event = field(default_factory=threading.Event)
     lock: threading.Lock = field(default_factory=threading.Lock)
+    created_by_agent_id: str | None = None
+    created_by_task_id: str | None = None
+    created_by_run_id: str | None = None
+    permission_revision_at_start: str | None = None
+    execution_profile: str | None = None
+    created_by_allowed_command: bool = False
+    protected: bool = False
+    system_process: bool = False
 
 
 class ProcessSessionManager:
@@ -121,6 +137,14 @@ class ProcessSessionManager:
         use_pty: bool,
         scope_key: str | None,
         terminate_callback: Callable[[], None] | None = None,
+        created_by_agent_id: str | None = None,
+        created_by_task_id: str | None = None,
+        created_by_run_id: str | None = None,
+        permission_revision_at_start: str | None = None,
+        execution_profile: str | None = None,
+        created_by_allowed_command: bool = False,
+        protected: bool = False,
+        system_process: bool = False,
     ) -> tuple[ProcessSession, list[str]]:
         """Spawn a new command session.
 
@@ -153,6 +177,14 @@ class ProcessSessionManager:
             cleanup_mode=cleanup_mode,
             terminate_callback=terminate_callback,
             pty_master_fd=pty_master_fd,
+            created_by_agent_id=created_by_agent_id,
+            created_by_task_id=created_by_task_id,
+            created_by_run_id=created_by_run_id,
+            permission_revision_at_start=permission_revision_at_start,
+            execution_profile=execution_profile,
+            created_by_allowed_command=created_by_allowed_command,
+            protected=protected,
+            system_process=system_process,
         )
 
         with self._lock:
@@ -205,11 +237,55 @@ class ProcessSessionManager:
                         exit_signal=session.exit_signal,
                         tail=session.tail,
                         truncated=session.truncated,
+                        created_by_agent_id=session.created_by_agent_id,
+                        created_by_task_id=session.created_by_task_id,
+                        created_by_run_id=session.created_by_run_id,
+                        permission_revision_at_start=session.permission_revision_at_start,
+                        execution_profile=session.execution_profile,
+                        created_by_allowed_command=session.created_by_allowed_command,
+                        protected=session.protected,
+                        system_process=session.system_process,
                     )
                 )
 
         snapshots.sort(key=lambda item: item.started_at, reverse=True)
         return snapshots
+
+    def describe_session(
+        self,
+        session_id: str,
+        *,
+        scope_key: str | None = None,
+    ) -> SessionSnapshot | None:
+        """Return trusted provenance and state for one visible session."""
+
+        session = self._lookup(session_id, scope_key=scope_key)
+        if session is None:
+            return None
+        with session.lock:
+            return SessionSnapshot(
+                session_id=session.session_id,
+                command=session.command,
+                cwd=session.cwd,
+                scope_key=session.scope_key,
+                started_at=session.started_at,
+                status=self._status_for_session(session),
+                pid=session.process.pid,
+                backgrounded=session.backgrounded,
+                exited=session.exited,
+                exit_code=session.exit_code,
+                exit_signal=session.exit_signal,
+                tail=session.tail,
+                truncated=session.truncated,
+                created_by_agent_id=session.created_by_agent_id,
+                created_by_task_id=session.created_by_task_id,
+                created_by_run_id=session.created_by_run_id,
+                permission_revision_at_start=session.permission_revision_at_start,
+                execution_profile=session.execution_profile,
+                created_by_allowed_command=session.created_by_allowed_command,
+                protected=session.protected,
+                system_process=session.system_process,
+            )
 
     def poll_session(
         self,

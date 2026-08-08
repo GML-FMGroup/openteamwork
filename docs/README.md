@@ -2,6 +2,7 @@
 
 - [PROJECT_OVERVIEW.md](./PROJECT_OVERVIEW.md): Node-centered product architecture and dependency direction
 - [CONFIGURATION.md](./CONFIGURATION.md): strict Node, Agent, Model Profile, Secret, revision, and apply semantics
+- [PERMISSIONS.md](./PERMISSIONS.md): static execution matrix, enforcement boundaries, rollout, and migration
 - [OPERATIONS.md](./OPERATIONS.md): Node lifecycle, Tasks, Cron, Heartbeat, usage, audit, and troubleshooting
 - [ARTIFACTS.md](./ARTIFACTS.md): Session lifecycle, attachment upload, Artifact references, preview, download, and security limits
 - [MCP_SECURITY.md](./MCP_SECURITY.md): Plugin/App/MCP/Skill lifecycle and security boundaries

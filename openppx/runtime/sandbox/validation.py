@@ -66,10 +66,10 @@ def resolve_network_mode(
     if lock_mode == NetworkMode.DISABLED:
         return NetworkMode.DISABLED
     requested = requested_mode or default_mode
+    if lock_mode == NetworkMode.PROXY_ONLY and requested == NetworkMode.ENABLED:
+        raise SandboxValidationError("proxy-only network lock cannot be weakened to direct networking")
     if default_mode == NetworkMode.DISABLED and requested == NetworkMode.ENABLED and not approved:
         raise SandboxValidationError("network enablement requires approval")
-    if requested == NetworkMode.PROXY_ONLY:
-        raise SandboxValidationError("proxy_only network mode is reserved for a later phase")
     return requested
 
 
@@ -143,7 +143,17 @@ def _validate_cwd(plan: SandboxExecutionPlan) -> None:
 def _validate_network(plan: SandboxExecutionPlan) -> None:
     policy = plan.profile.network
     if policy.mode == NetworkMode.PROXY_ONLY:
-        raise SandboxValidationError("proxy_only network mode is reserved for a later phase")
+        if not policy.proxy_url or not policy.docker_network or not policy.permission_revision:
+            raise SandboxValidationError(
+                "proxy_only requires Node codeEgressProxy url/network and permission revision"
+            )
+        if not policy.proxy_credential:
+            raise SandboxValidationError("proxy_only requires a revision credential")
+        if not policy.proxy_url.startswith("http://"):
+            raise SandboxValidationError("proxy_only proxy URL must use http inside the isolated network")
+        if any(character in policy.docker_network for character in " ,:/"):
+            raise SandboxValidationError("proxy_only Docker network name is invalid")
+        return
     if policy.lock == NetworkMode.DISABLED:
         return
     if (

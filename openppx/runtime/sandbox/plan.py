@@ -83,6 +83,10 @@ class NetworkPolicy:
 
     mode: NetworkMode = NetworkMode.DISABLED
     lock: NetworkMode | None = None
+    proxy_url: str | None = None
+    docker_network: str | None = None
+    permission_revision: str | None = None
+    proxy_credential: str | None = field(default=None, repr=False)
 
 
 @dataclass(frozen=True, slots=True)
