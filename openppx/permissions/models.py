@@ -485,6 +485,10 @@ class AgentPermissionSpec(PermissionConfigModel):
     object_defaults: dict[PermissionObject, PermissionEffect] = Field(default_factory=dict)
     defaults: PermissionDefaults = Field(default_factory=dict)
     rules: Annotated[tuple[PermissionRule, ...], _LIST_TO_TUPLE] = ()
+    rollout_mode: PermissionRolloutMode | None = Field(
+        default=None,
+        description="Optional Agent-wide override for every permission-object rollout mode.",
+    )
     rollout_modes: dict[PermissionObject, PermissionRolloutMode] = Field(default_factory=dict)
 
     @model_validator(mode="after")
@@ -499,7 +503,13 @@ class AgentPermissionSpec(PermissionConfigModel):
     def is_empty(self) -> bool:
         """Return whether the overlay leaves the selected preset unchanged."""
 
-        return not self.object_defaults and not self.defaults and not self.rules and not self.rollout_modes
+        return (
+            not self.object_defaults
+            and not self.defaults
+            and not self.rules
+            and self.rollout_mode is None
+            and not self.rollout_modes
+        )
 
 
 class CodeEgressProxySpec(PermissionConfigModel):

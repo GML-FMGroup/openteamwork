@@ -36,7 +36,9 @@ Each object rolls out independently:
 - `observe`: evaluate and record the matrix decision without making that decision authoritative;
 - `enforce`: make the new decision authoritative and fail closed if its required boundary is unavailable.
 
-The default is `observe`. Node rollout settings provide the fleet default and an Agent setting may select a canary mode for that Agent. Move one object at a time from `observe` to `enforce`, inspect permission audit results, then continue. Switching the object back to `observe` is the immediate policy rollback and is rechecked by long-lived compatible Runtimes before their next Tool Action.
+An Agent may also set `spec.permissions.rolloutMode` to `observe` or `enforce` as a total override for all six permission objects. When this field is absent, rollout resolves per object in this order: Agent `rolloutModes`, Node `rolloutModes`, then the default `observe`. A configured total override wins over both per-object maps but does not erase them, so removing the override restores the previous fine-grained policy.
+
+Use the Agent-wide override when one Agent is ready to move entirely into observation or enforcement. Use per-object modes for staged calibration. Move one object at a time from `observe` to `enforce`, inspect permission audit results, then continue. Switching an object or the Agent-wide override back to `observe` is the immediate policy rollback and is rechecked by long-lived compatible Runtimes before their next Tool Action.
 
 Permission decisions are stored in `<node-root>/database/permission_audit.db`. The records contain decision facts and rule/revision identifiers but omit Tool arguments and raw path or URL values. During a canary rollout, inspect recent results with:
 

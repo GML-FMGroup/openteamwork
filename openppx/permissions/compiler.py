@@ -301,13 +301,20 @@ def _semantic_payload(
 
 
 def _compile_rollout_modes(node: NodeConfig, agent: AgentConfig) -> tuple[ResolvedPermissionRollout, ...]:
-    """Resolve per-object rollout with Agent canary settings overriding Node defaults."""
+    """Resolve rollout with an optional Agent-wide override over per-object settings."""
 
     modes = {object_kind: "observe" for object_kind in (
         "workspace", "external_path", "command", "process", "network", "tool"
     )}
     modes.update(node.spec.permissions.rollout_modes)
-    modes.update(agent.spec.permissions.rollout_modes)
+    agent_permissions = agent.spec.permissions
+    if agent_permissions.rollout_mode is None:
+        modes.update(agent_permissions.rollout_modes)
+    else:
+        modes = {
+            object_kind: agent_permissions.rollout_mode
+            for object_kind in modes
+        }
     return tuple(
         ResolvedPermissionRollout(object=object_kind, mode=mode)
         for object_kind, mode in sorted(modes.items())
