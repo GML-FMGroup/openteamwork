@@ -142,6 +142,23 @@ describe("OpenPPX Client public contract", () => {
     ).toMatchObject({ id: "message_1", sessionId: "session_1", runId: "run_1", role: "assistant" });
   });
 
+  it("prefers the stable Client Run id over an ADK invocation id", () => {
+    expect(
+      normalizeClientApiMessage({
+        id: "message_1",
+        session_id: "session_1",
+        run_id: "invocation_1",
+        role: "assistant",
+        status: "completed",
+        metadata: {
+          client_run_id: "run_1",
+          invocation_id: "invocation_1",
+        },
+        parts: [{ type: "markdown", text: "Done" }],
+      }),
+    ).toMatchObject({ runId: "run_1" });
+  });
+
   it("normalizes URLs and authenticated headers in the HTTP transport", async () => {
     const fetchMock = vi.fn(async () =>
       new Response(JSON.stringify({ ok: true, data: { items: [] } }), {

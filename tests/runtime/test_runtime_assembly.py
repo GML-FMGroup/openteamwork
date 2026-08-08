@@ -920,6 +920,70 @@ def test_supervisor_executes_background_run_on_the_snapshot_runtime(tmp_path: Pa
     assert completed.wait(timeout=5)
     assert replies == ["Hello from immutable snapshot"]
     assert supervisor.run_status("run-background").state == "completed"
+    persisted = supervisor.get_session_sync(
+        "low-main",
+        user_id="local:test",
+        session_id=session.id,
+    )
+    assert persisted is not None
+    assert any(
+        (event.custom_metadata or {}).get("clientRunId") == "run-background"
+        for event in persisted.events
+    )
+
+
+def test_supervisor_persists_client_run_identity_for_ordinary_runs(tmp_path: Path) -> None:
+    """Every ADK event can be correlated back to its stable Client Run."""
+
+    class _Runtime:
+        metadata = SimpleNamespace(
+            snapshot_revision="snapshot-r1",
+            model_profile_id="primary",
+            model_profile_revision="model-r1",
+            provider="test",
+            model="test/model",
+        )
+
+        def __init__(self) -> None:
+            self.run_configs = []
+
+        async def run_message(self, _message, **kwargs):
+            self.run_configs.append(kwargs["run_config"])
+            return "done"
+
+    runtime = _Runtime()
+    goal_store = GoalStore(db_path=tmp_path / "goals.db")
+
+    class _Config:
+        @staticmethod
+        def snapshot(_agent_id, **_kwargs):
+            return SimpleNamespace(revision="config-r1")
+
+    class _Assembler:
+        services = SimpleNamespace(goal_store=goal_store)
+
+        @staticmethod
+        def extension_snapshot_for_agent(_agent_id):
+            return SimpleNamespace(revision="extensions-r1")
+
+        @staticmethod
+        def assemble(_snapshot, *, extension_snapshot):
+            del extension_snapshot
+            return runtime
+
+    supervisor = NodeRuntimeSupervisor(config_service=_Config(), assembler=_Assembler())  # type: ignore[arg-type]
+    completed = threading.Event()
+    supervisor.start_run(
+        run_id="run-ordinary",
+        agent_id="main",
+        session_id="session-ordinary",
+        user_id="local:user",
+        text="do work",
+        on_complete=lambda _text: completed.set(),
+    )
+
+    assert completed.wait(timeout=5)
+    assert runtime.run_configs[0].custom_metadata["clientRunId"] == "run-ordinary"
 
 
 def test_goal_run_continues_in_fresh_adk_invocation_after_slice_limit(tmp_path: Path) -> None:

@@ -1372,6 +1372,37 @@
   gap: 2px;
 }
 
+.activity-waiting-line {
+  display: grid;
+  min-height: 24px;
+  grid-template-columns: 8px minmax(0, 1fr);
+  align-items: center;
+  gap: 7px;
+  padding: 1px 2px;
+  color: var(--ink-soft);
+}
+
+.activity-waiting-line strong {
+  width: fit-content;
+  background: linear-gradient(
+    100deg,
+    var(--ink-soft) 0%,
+    var(--ink-soft) 42%,
+    var(--ink) 50%,
+    var(--ink-soft) 58%,
+    var(--ink-soft) 100%
+  );
+  background-clip: text;
+  background-size: 220% 100%;
+  color: transparent;
+  font-size: 11.75px;
+  font-weight: 480;
+  line-height: 1.4;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: activity-line-shimmer 2.1s linear infinite;
+}
+
 .activity-phase {
   margin: 1px 0;
 }
@@ -1434,6 +1465,23 @@
   line-height: 1.4;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.activity-phase.running > summary .activity-phase-copy strong {
+  background: linear-gradient(
+    100deg,
+    var(--ink-soft) 0%,
+    var(--ink-soft) 42%,
+    var(--ink) 50%,
+    var(--ink-soft) 58%,
+    var(--ink-soft) 100%
+  );
+  background-clip: text;
+  background-size: 220% 100%;
+  color: transparent;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: activity-line-shimmer 2.1s linear infinite;
 }
 
 .activity-phase-copy small {
@@ -2496,6 +2544,11 @@
 @keyframes activity-pulse {
   0%, 100% { opacity: 0.55; }
   50% { opacity: 1; }
+}
+
+@keyframes activity-line-shimmer {
+  0%, 18% { background-position: 100% 50%; }
+  82%, 100% { background-position: -100% 50%; }
 }
 
 .activity-list::before {
@@ -6453,6 +6506,13 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .activity-phase.running > summary .activity-phase-copy strong,
+  .activity-waiting-line strong {
+    background: none;
+    color: var(--ink-soft);
+    -webkit-text-fill-color: currentColor;
+  }
+
   *,
   *::before,
   *::after {

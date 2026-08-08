@@ -599,14 +599,13 @@ class NodeRuntimeSupervisor:
                     minimum=1,
                     maximum=20,
                 )
-                run_config = (
-                    build_run_config(
-                        profile="full",
-                        max_llm_calls=calls_per_invocation,
-                        custom_metadata={"goalId": goal.goal_id, "clientRunId": run_id},
-                    )
-                    if goal is not None
-                    else None
+                run_metadata = {"clientRunId": run_id}
+                if goal is not None:
+                    run_metadata["goalId"] = goal.goal_id
+                run_config = build_run_config(
+                    profile="full",
+                    max_llm_calls=calls_per_invocation if goal is not None else None,
+                    custom_metadata=run_metadata,
                 )
                 continuation_index = 0
                 final_text = ""

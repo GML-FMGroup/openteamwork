@@ -13,6 +13,7 @@ export interface ClientApiRunStreamOptions {
   request: (pathname: string, init?: RequestInit) => Promise<Response>;
   maxReconnectAttempts?: number;
   reconnectDelayMs?: number;
+  maxReconnectDelayMs?: number;
   wait?: (delayMs: number) => Promise<void>;
 }
 
@@ -60,6 +61,17 @@ class RunStreamHttpError extends Error {
   }
 }
 
+export class RunStreamInterruptedError extends Error {
+  public constructor(runId: string) {
+    super(`Run event stream for ${runId} closed before a terminal event was received.`);
+    this.name = "RunStreamInterruptedError";
+  }
+}
+
+function isTerminalRunEvent(event: string): boolean {
+  return event === "run.finished" || event === "run.cancelled";
+}
+
 function shouldReconnect(error: unknown, signal?: AbortSignal): boolean {
   if (signal?.aborted) {
     return false;
@@ -78,12 +90,15 @@ export class ClientApiRunStream {
 
   private readonly reconnectDelayMs: number;
 
+  private readonly maxReconnectDelayMs: number;
+
   private readonly wait: (delayMs: number) => Promise<void>;
 
   public constructor(options: ClientApiRunStreamOptions) {
     this.request = options.request;
-    this.maxReconnectAttempts = Math.max(0, options.maxReconnectAttempts ?? 3);
+    this.maxReconnectAttempts = Math.max(0, options.maxReconnectAttempts ?? Number.POSITIVE_INFINITY);
     this.reconnectDelayMs = Math.max(0, options.reconnectDelayMs ?? 250);
+    this.maxReconnectDelayMs = Math.max(this.reconnectDelayMs, options.maxReconnectDelayMs ?? 5_000);
     this.wait = options.wait ?? ((delayMs) => new Promise((resolve) => setTimeout(resolve, delayMs)));
   }
 
@@ -96,6 +111,7 @@ export class ClientApiRunStream {
     let eventCount = 0;
     const deliveredEventIds = new Set<string>();
     let reconnectAttempts = 0;
+    let terminalReceived = false;
 
     while (true) {
       try {
@@ -130,6 +146,9 @@ export class ClientApiRunStream {
             deliveredEventIds.add(parsed.id);
           }
           eventCount += 1;
+          if (isTerminalRunEvent(parsed.event)) {
+            terminalReceived = true;
+          }
           onEvent(parsed);
         };
 
@@ -147,13 +166,16 @@ export class ClientApiRunStream {
         if (buffer.trim()) {
           deliver(buffer);
         }
-        return { lastEventId, eventCount };
+        if (terminalReceived) {
+          return { lastEventId, eventCount };
+        }
+        throw new RunStreamInterruptedError(runId);
       } catch (error) {
         if (reconnectAttempts >= this.maxReconnectAttempts || !shouldReconnect(error, options.signal)) {
           throw error;
         }
         reconnectAttempts += 1;
-        await this.wait(this.reconnectDelayMs * reconnectAttempts);
+        await this.wait(Math.min(this.reconnectDelayMs * reconnectAttempts, this.maxReconnectDelayMs));
       }
     }
   }

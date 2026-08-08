@@ -106,6 +106,10 @@ import { ClientApiRunStream } from "./client-api-run-stream";
 import { ClientApiSessionCache } from "./client-api-session-cache";
 import { LocalNodeSupervisor } from "./local-node-supervisor";
 import { resolveLocalUserProfile } from "./local-user-profile";
+import {
+  findPersistedTerminalRunMessage,
+  monitorPersistedTerminalRun,
+} from "./run-terminal-reconciliation";
 
 type EventSink = (event: RunEvent) => void;
 type StepPart = Extract<MessagePart, { type: "step_ref" }>;
@@ -394,6 +398,7 @@ export class OpenPpxLocalAdapter implements Omit<
     });
     this.runStream = new ClientApiRunStream({
       request: (pathname, init) => this.connection.request(pathname, init),
+      maxReconnectAttempts: 12,
     });
     this.actions = new ActionClient(this.connection);
     this.extensions = new ExtensionClient(this.actions);
@@ -1682,13 +1687,72 @@ export class OpenPpxLocalAdapter implements Omit<
         this.emit({ type: "run.finished", runId, sessionId: input.sessionId });
       }
     };
+    const reconcilePersistedTerminalState = async (): Promise<boolean> => {
+      this.sessionCache.invalidate(input.agentId, input.sessionId);
+      const persisted = findPersistedTerminalRunMessage(
+        (await this.loadSession(input.sessionId)).messages,
+        runId,
+      );
+      if (!persisted) {
+        return false;
+      }
+
+      const liveAssistantMessageId = assistantMessage?.id ?? null;
+      assistantMessage = persisted;
+      orderedParts = [...persisted.parts];
+      finalText = latestMarkdownText(persisted.parts) || finalText;
+      terminal = true;
+      if (liveAssistantMessageId) {
+        this.emit({
+          type: "message.updated",
+          runId,
+          sessionId: input.sessionId,
+          messageId: liveAssistantMessageId,
+          replaceParts: persisted.parts,
+          status: persisted.status,
+        });
+      } else {
+        this.emit({ type: "message.created", runId, sessionId: input.sessionId, message: persisted });
+      }
+      session.updatedAt = now();
+      session.lastMessagePreview = finalText || input.text;
+      this.emit({ type: "session.updated", runId, session });
+      this.emit({ type: "run.finished", runId, sessionId: input.sessionId });
+      clientDebugLog("send.client-api.stream-reconciled", {
+        runId,
+        messageId: persisted.id,
+        status: persisted.status,
+      });
+      return true;
+    };
     const streamController = new AbortController();
     this.activeRunStreams.set(runId, streamController);
+    void monitorPersistedTerminalRun({
+      signal: streamController.signal,
+      intervalMs: 3_000,
+      reconcile: async () => {
+        if (terminal) {
+          return true;
+        }
+        try {
+          const reconciled = await reconcilePersistedTerminalState();
+          if (reconciled) {
+            streamController.abort();
+          }
+          return reconciled;
+        } catch (error) {
+          clientDebugLog("send.client-api.stream-reconcile-failed", {
+            runId,
+            error: error instanceof Error ? error.message : String(error),
+          });
+          return false;
+        }
+      },
+    });
     void this.runStream
       .consume(runId, ({ event, data }) => handleClientApiEvent(event, data), { signal: streamController.signal })
       .then(() => clientDebugLog("send.client-api.stream-closed", { runId }))
-      .catch((error: unknown) => {
-        this.rememberClientApiError(error);
+      .catch(async (error: unknown) => {
         clientDebugLog("send.client-api.stream-error", {
           runId,
           error: error instanceof Error ? error.message : String(error),
@@ -1696,6 +1760,19 @@ export class OpenPpxLocalAdapter implements Omit<
         if (terminal) {
           return;
         }
+        try {
+          if (await reconcilePersistedTerminalState()) {
+            return;
+          }
+        } catch (reconciliationError) {
+          clientDebugLog("send.client-api.stream-reconcile-failed", {
+            runId,
+            error: reconciliationError instanceof Error
+              ? reconciliationError.message
+              : String(reconciliationError),
+          });
+        }
+        this.rememberClientApiError(error);
         terminal = true;
         const errorPart: MessagePart = {
           type: "error",
@@ -1726,6 +1803,7 @@ export class OpenPpxLocalAdapter implements Omit<
         this.emit({ type: "run.finished", runId, sessionId: input.sessionId });
       })
       .finally(() => {
+        streamController.abort();
         if (this.activeRunStreams.get(runId) === streamController) {
           this.activeRunStreams.delete(runId);
         }

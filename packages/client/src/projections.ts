@@ -99,7 +99,11 @@ export function normalizeClientApiMessage(payload: unknown): ChatMessage | null 
     id: asString(message.id),
     sessionId: asString(message.session_id ?? message.sessionId),
     runId: asString(
-      message.run_id
+      message.client_run_id
+      ?? message.clientRunId
+      ?? metadata?.client_run_id
+      ?? metadata?.clientRunId
+      ?? message.run_id
       ?? message.runId
       ?? metadata?.run_id
       ?? metadata?.runId

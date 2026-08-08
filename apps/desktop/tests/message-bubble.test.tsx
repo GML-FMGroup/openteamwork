@@ -75,8 +75,30 @@ describe("MessageBubble", () => {
     expect(screen.getByText("1 file")).toBeInTheDocument();
     expect(container.querySelector(".activity-disclosure")).toHaveAttribute("open");
     expect(screen.queryByText("Reading a file")).not.toBeInTheDocument();
+    expect(container.querySelector(".activity-phase.running")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: /Expand Worked with files/i }));
     expect(screen.getByText("Reading a file")).toBeInTheDocument();
+  });
+
+  it("shows one compact animated waiting line while the model is silent", () => {
+    const { container } = render(
+      <MessageBubble
+        message={buildMessage({
+          parts: [
+            {
+              type: "step_ref",
+              stepId: "step-complete",
+              title: "list_skills",
+              status: "completed",
+              detail: "2 capabilities",
+            },
+          ],
+        })}
+      />,
+    );
+
+    expect(screen.getByText("Preparing the next step…")).toBeInTheDocument();
+    expect(container.querySelectorAll(".activity-waiting-line")).toHaveLength(1);
   });
 
   it("keeps action metadata collapsed until the user opens an individual action", () => {
@@ -143,7 +165,7 @@ describe("MessageBubble", () => {
   });
 
   it("renders semantic completed status for finished steps", () => {
-    render(
+    const { container } = render(
       <MessageBubble
         message={buildMessage({
           status: "completed",
@@ -161,6 +183,8 @@ describe("MessageBubble", () => {
     );
 
     fireEvent.click(screen.getByText("Work completed"));
+    expect(container.querySelector(".activity-phase.completed")).toBeInTheDocument();
+    expect(container.querySelector(".activity-phase.running")).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: /Expand Ran commands/i }));
     expect(screen.getAllByText("Ran a local command")).toHaveLength(1);
     expect(screen.queryByText("exec")).not.toBeInTheDocument();

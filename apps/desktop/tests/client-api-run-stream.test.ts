@@ -101,4 +101,32 @@ describe("ClientApiRunStream", () => {
     expect(events.map((event) => event.id)).toEqual(["run-1:1", "run-1:2"]);
     expect(result).toEqual({ lastEventId: "run-1:2", eventCount: 2 });
   });
+
+  it("treats a clean EOF before a terminal event as an interrupted stream and resumes", async () => {
+    const request = vi
+      .fn()
+      .mockResolvedValueOnce(
+        streamResponse([
+          'id: run-2:1\nevent: message.delta\ndata: {"part":{"type":"markdown","text":"working"}}\n\n',
+        ]),
+      )
+      .mockResolvedValueOnce(
+        streamResponse([
+          'id: run-2:2\nevent: run.finished\ndata: {"status":"completed"}\n\n',
+        ]),
+      );
+    const wait = vi.fn(async () => undefined);
+    const stream = new ClientApiRunStream({ request, maxReconnectAttempts: 2, reconnectDelayMs: 25, wait });
+    const events: ClientApiSseEvent[] = [];
+
+    const result = await stream.consume("run-2", (event) => events.push(event));
+
+    expect(request).toHaveBeenNthCalledWith(2, "/api/v1/runs/run-2/events", {
+      headers: { Accept: "text/event-stream", "Last-Event-ID": "run-2:1" },
+      signal: undefined,
+    });
+    expect(wait).toHaveBeenCalledWith(25);
+    expect(events.map((event) => event.id)).toEqual(["run-2:1", "run-2:2"]);
+    expect(result).toEqual({ lastEventId: "run-2:2", eventCount: 2 });
+  });
 });

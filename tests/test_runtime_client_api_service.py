@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import asyncio
+import io
 import json
+import queue
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -18,6 +20,7 @@ from openppx.runtime.client_api_service import (
     ClientApiCoordinator,
     RunHandle,
     _ClientApiHandler,
+    _write_run_event_stream,
     project_session_event,
 )
 from openppx.runtime.identity_models import ResolvedPrincipal
@@ -27,6 +30,27 @@ from openppx.runtime.session_service import SessionConfig, create_session_servic
 from openppx.runtime.sqlite_memory_service import SQLiteMemoryService
 from openppx.control_plane import build_control_plane
 from openppx.runtime.node_runtime import ManagedRunSnapshot, RunNotActiveError, RunNotFoundError
+
+
+def test_run_event_stream_emits_a_heartbeat_while_waiting() -> None:
+    """A quiet model turn must keep the HTTP event stream visibly alive."""
+
+    class _Subscriber:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def get(self, *, timeout: float):
+            self.calls += 1
+            assert timeout == 0.01
+            if self.calls == 1:
+                raise queue.Empty
+            return None
+
+    output = io.BytesIO()
+
+    _write_run_event_stream(_Subscriber(), output, heartbeat_interval_seconds=0.01)
+
+    assert output.getvalue() == b": heartbeat\n\n"
 
 
 class _FakeRuntimeSupervisor:
@@ -285,6 +309,27 @@ def test_project_session_event_builds_structured_parts() -> None:
     assert message["parts"][2]["type"] == "tool_result"
     assert message["parts"][2]["tool_call_id"] == "call_1"
     assert len(message["parts"]) == 3
+
+
+def test_project_session_event_prefers_persisted_client_run_identity() -> None:
+    message = project_session_event(
+        {
+            "id": "evt_client_run",
+            "invocation_id": "invocation_1",
+            "custom_metadata": {"clientRunId": "run_1"},
+            "author": "assistant",
+            "timestamp": 1_717_171_717,
+            "content": {"parts": [{"text": "Done"}]},
+        },
+        "session_1",
+    )
+
+    assert message is not None
+    assert message["run_id"] == "run_1"
+    assert message["metadata"] == {
+        "client_run_id": "run_1",
+        "invocation_id": "invocation_1",
+    }
 
 
 def test_project_session_event_keeps_terminal_text_as_markdown() -> None:

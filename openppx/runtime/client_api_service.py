@@ -54,6 +54,7 @@ from .session_metadata_store import SessionMetadataStore
 
 
 _MAX_JSON_BODY_BYTES = 30 * 1024 * 1024
+_RUN_EVENT_HEARTBEAT_INTERVAL_SECONDS = 15.0
 
 
 def _safe_artifact_name(value: object) -> str:
@@ -407,15 +408,28 @@ def project_session_event(event: dict[str, Any], session_id: str) -> dict[str, A
     if not parts:
         return None
     invocation_id = str(event.get("invocation_id") or "").strip()
+    custom_metadata = event.get("custom_metadata")
+    if not isinstance(custom_metadata, dict):
+        custom_metadata = {}
+    client_run_id = str(
+        custom_metadata.get("clientRunId")
+        or custom_metadata.get("client_run_id")
+        or ""
+    ).strip()
+    metadata: dict[str, Any] = {}
+    if client_run_id:
+        metadata["client_run_id"] = client_run_id
+    if invocation_id:
+        metadata["invocation_id"] = invocation_id
     return {
         "id": str(event.get("id") or f"msg_{session_id}"),
         "session_id": session_id,
-        "run_id": invocation_id or None,
+        "run_id": client_run_id or invocation_id or None,
         "role": role,
         "parts": parts,
         "status": "completed",
         "created_at": created_at,
-        "metadata": {},
+        "metadata": metadata,
     }
 
 
@@ -427,6 +441,33 @@ class RunEnvelope:
     seq: int
     event: str
     payload: dict[str, Any]
+
+
+def _write_run_event_stream(
+    subscriber: queue.Queue[RunEnvelope | None],
+    output: Any,
+    *,
+    heartbeat_interval_seconds: float = _RUN_EVENT_HEARTBEAT_INTERVAL_SECONDS,
+) -> None:
+    """Write replayable Run events and periodic SSE heartbeats until completion.
+
+    Heartbeats are SSE comments, so clients and intermediaries observe traffic
+    during quiet model turns without creating synthetic Run events.
+    """
+
+    while True:
+        try:
+            item = subscriber.get(timeout=heartbeat_interval_seconds)
+        except queue.Empty:
+            output.write(b": heartbeat\n\n")
+            output.flush()
+            continue
+        if item is None:
+            return
+        output.write(f"id: {item.event_id}\n".encode("utf-8"))
+        output.write(f"event: {item.event}\n".encode("utf-8"))
+        output.write(f"data: {json.dumps(item.payload, ensure_ascii=False)}\n\n".encode("utf-8"))
+        output.flush()
 
 
 @dataclass(slots=True)
@@ -2768,14 +2809,11 @@ class _ClientApiHandler(BaseHTTPRequestHandler):
             self.send_header("Cache-Control", "no-cache")
             self.send_header("Connection", "keep-alive")
             self.end_headers()
-            while True:
-                item = subscriber.get()
-                if item is None:
-                    break
-                self.wfile.write(f"id: {item.event_id}\n".encode("utf-8"))
-                self.wfile.write(f"event: {item.event}\n".encode("utf-8"))
-                self.wfile.write(f"data: {json.dumps(item.payload, ensure_ascii=False)}\n\n".encode("utf-8"))
-                self.wfile.flush()
+            try:
+                _write_run_event_stream(subscriber, self.wfile)
+            except (BrokenPipeError, ConnectionResetError):
+                # The Run remains replayable. A reconnect resumes from Last-Event-ID.
+                pass
             return
         self._send_json(404, _error("NOT_FOUND", f"Unknown path: {path}"))
 

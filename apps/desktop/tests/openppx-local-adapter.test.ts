@@ -2,8 +2,51 @@ import {
   buildMessagePartsFromSessionEvent,
   projectRunEventToStepParts,
 } from "../app/src/lib/openppx-projection";
+import {
+  findPersistedTerminalRunMessage,
+  monitorPersistedTerminalRun,
+} from "../electron/main/run-terminal-reconciliation";
 
 describe("openppx local adapter projections", () => {
+  it("reconciles only a persisted terminal assistant message for the interrupted run", () => {
+    const persisted = findPersistedTerminalRunMessage([
+      {
+        id: "message-running",
+        sessionId: "session-1",
+        runId: "run-1",
+        role: "assistant",
+        status: "streaming",
+        createdAt: "2026-08-08T12:00:00.000Z",
+        parts: [],
+      },
+      {
+        id: "message-complete",
+        sessionId: "session-1",
+        runId: "run-1",
+        role: "assistant",
+        status: "completed",
+        createdAt: "2026-08-08T12:00:01.000Z",
+        parts: [{ type: "markdown", text: "Done" }],
+      },
+    ], "run-1");
+
+    expect(persisted?.id).toBe("message-complete");
+  });
+
+  it("periodically reconciles an active stream until the persisted terminal message appears", async () => {
+    const reconcile = vi
+      .fn<() => Promise<boolean>>()
+      .mockResolvedValueOnce(false)
+      .mockResolvedValueOnce(true);
+    const wait = vi.fn(async () => undefined);
+
+    await expect(monitorPersistedTerminalRun({ reconcile, wait, intervalMs: 2_000 })).resolves.toBe(true);
+
+    expect(wait).toHaveBeenCalledTimes(2);
+    expect(wait).toHaveBeenNthCalledWith(1, 2_000, undefined);
+    expect(reconcile).toHaveBeenCalledTimes(2);
+  });
+
   it("renders history tool calls and responses into structured parts", () => {
     const parts = buildMessagePartsFromSessionEvent({
       content: {

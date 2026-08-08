@@ -113,7 +113,10 @@ function ActivityPhaseDisclosure({ groups }: { groups: ActivityGroup[] }) {
   const hasFailure = groups.some((group) => group.status === "failed");
   const hasRunning = groups.some((group) => group.status === "running");
   return (
-    <details className="activity-phase" open={open}>
+    <details
+      className={`activity-phase ${hasFailure ? "failed" : hasRunning ? "running" : "completed"}`}
+      open={open}
+    >
       <summary
         aria-label={`${open ? "Collapse" : "Expand"} ${phaseTitle(groups)}`}
         aria-expanded={open}
@@ -187,6 +190,7 @@ export function ActivityDisclosure({
   const count = totalActivityCount(allGroups);
   const summary = summarizeActivityGroups(allGroups);
   const hasFailure = allGroups.some((group) => group.status === "failed");
+  const hasRunningActivity = allGroups.some((group) => group.status === "running");
   const technical = technicalDetails(allGroups);
   const elapsed = formatElapsedTime(startedAt, observedEndedAt);
   const title = streaming
@@ -224,6 +228,12 @@ export function ActivityDisclosure({
           ) : (
             <ActivityPhaseDisclosure groups={item.groups} key={item.id} />
           ))}
+          {streaming && !hasRunningActivity ? (
+            <div className="activity-waiting-line" role="status">
+              <span className="activity-semantic-marker running" aria-hidden />
+              <strong>Preparing the next step…</strong>
+            </div>
+          ) : null}
         </div>
         {technical ? (
           <details className="activity-technical" open={technicalOpen}>
