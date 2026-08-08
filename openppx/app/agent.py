@@ -15,6 +15,7 @@ from ..config import normalize_agent_privilege_level
 from ..core.mcp_registry import summarize_mcp_toolsets
 from ..extensions import ExtensionError, SkillSnapshot
 from ..permissions.tooling import filter_authorized_tools
+from ..permissions import PermissionSnapshotAuthority
 from ..runtime.goal_store import GoalStore
 from ..runtime.tool_execution_context import ToolExecutionContext, bind_tool_callable
 from ..tooling.artifact_tools import publish_artifact
@@ -281,6 +282,7 @@ def build_root_agent(
     mcp_summaries: list[dict[str, str]] | None = None,
     goal_store: GoalStore | None = None,
     permission_audit: Any | None = None,
+    permission_authority: PermissionSnapshotAuthority | None = None,
     extension_snapshot_digest: str = "",
 ) -> LlmAgent:
     """Build one ADK Agent from an immutable Config snapshot.
@@ -293,10 +295,11 @@ def build_root_agent(
         agent_id=agent_config.metadata.name,
         workspace_root=agent_config.spec.workspace,
         permission_snapshot=snapshot.permissions,
+        permission_authority=permission_authority,
         permission_audit=permission_audit,
     )
     resolved_skill_snapshot = skill_snapshot or SkillSnapshot.empty()
-    delegation_override = agent_config.spec.permission_overrides.can_delegate
+    delegation_override = agent_config.spec.controls.can_delegate
     if delegation_override is None:
         delegation_override = agent_config.spec.privilege_level in {"medium", "high", "root"}
     resolved_goal_tools = ()

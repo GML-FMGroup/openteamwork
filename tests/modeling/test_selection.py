@@ -35,7 +35,7 @@ def agent_config(
                 "workspace": "workspace/low-main",
                 "ownerPrincipalId": "local:owner",
                 "privilegeLevel": "low",
-                "permissionOverrides": {},
+                "controls": {},
                 "modelPolicy": {
                     "defaultProfile": default_profile,
                     "roleProfiles": role_profiles or {},

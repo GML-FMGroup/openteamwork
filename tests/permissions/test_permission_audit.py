@@ -62,8 +62,7 @@ def test_permission_audit_records_decision_without_resource_values(tmp_path: Pat
 
     assert len(rows) == 1
     assert rows[0]["outcome"] == "allow"
-    assert rows[0]["legacyOutcome"] == "allow"
-    assert rows[0]["shadowMismatch"] is False
+    assert rows[0]["enforced"] is False
     assert rows[0]["permissionRevision"] == snapshot.revision
     assert "customer-record" not in str(rows[0])
 

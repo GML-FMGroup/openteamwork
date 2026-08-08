@@ -7,12 +7,12 @@ from .audit import (
     PermissionAuditStore,
     record_permission_audit,
 )
+from .authority import PermissionSnapshotAuthority, PermissionSnapshotProvider
 from .command_gate import AuthorizedCommand, authorize_command
 from .compiler import compile_permission_snapshot, diff_permission_snapshots, load_permission_templates
 from .evaluator import combine_permission_decisions, evaluate_permission
 from .path_gate import AuthorizedPath, authorize_path
 from .network_gate import AuthorizedNetworkTarget, authorize_network_url
-from .migration import migrate_legacy_execution_permissions
 from .process_gate import ProcessFacts, authorize_process
 from .models import (
     AgentWorkspaceBoundary,
@@ -45,7 +45,6 @@ from .models import (
     ResolvedPermissionRollout,
     ResolvedPermissionSnapshot,
     TemplatePermissionRule,
-    ToolConstraints,
     ToolResource,
     ToolSelector,
     WorkspacePathResource,
@@ -78,6 +77,8 @@ __all__ = [
     "PermissionAuditQuery",
     "PermissionAuditSink",
     "PermissionAuditStore",
+    "PermissionSnapshotAuthority",
+    "PermissionSnapshotProvider",
     "record_permission_audit",
     "PermissionDecision",
     "PermissionRequest",
@@ -95,7 +96,6 @@ __all__ = [
     "ResolvedPermissionRollout",
     "ResolvedPermissionSnapshot",
     "TemplatePermissionRule",
-    "ToolConstraints",
     "ToolSource",
     "ToolResource",
     "ToolSelector",
@@ -112,5 +112,4 @@ __all__ = [
     "diff_permission_snapshots",
     "evaluate_permission",
     "load_permission_templates",
-    "migrate_legacy_execution_permissions",
 ]

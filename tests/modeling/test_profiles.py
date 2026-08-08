@@ -46,7 +46,7 @@ def agent_document() -> dict[str, object]:
             "workspace": "workspace/low-main",
             "ownerPrincipalId": "local:owner",
             "privilegeLevel": "low",
-            "permissionOverrides": {},
+            "controls": {},
             "modelPolicy": {
                 "defaultProfile": "general-primary",
                 "roleProfiles": {"fast": "fast-primary", "vision": "vision-primary"},

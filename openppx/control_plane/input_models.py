@@ -969,6 +969,19 @@ class OperationsAuditListInput(ActionInput):
     outcome: Annotated[str, StringConstraints(min_length=1, max_length=80)] | None = None
 
 
+class PermissionAuditListInput(ActionInput):
+    """Read bounded redacted Agent permission decisions."""
+
+    limit: StrictInt = Field(default=50, ge=1, le=200)
+    agent_id: ResourceId | None = None
+    object: Literal["workspace", "external_path", "command", "process", "network", "tool"] | None = None
+    outcome: Literal["allow", "deny", "requires_approval"] | None = None
+    permission_revision: Annotated[
+        str,
+        StringConstraints(pattern=r"^sha256:[0-9a-f]{64}$"),
+    ] | None = None
+
+
 ExtensionKind = Literal["plugin", "app", "mcp", "skill"]
 InstallableExtensionKind = Literal["plugin", "skill"]
 AgentEnablementKind = Literal["plugin", "mcp", "skill"]

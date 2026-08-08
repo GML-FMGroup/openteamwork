@@ -16,6 +16,7 @@ from openppx.modeling.selection import ModelProfileSelector, ModelRequirements
 from openppx.permissions import (
     AgentWorkspaceBoundary,
     PermissionChange,
+    ResolvedPermissionSnapshot,
     compile_permission_snapshot,
     diff_permission_snapshots,
 )
@@ -249,6 +250,21 @@ class ConfigService:
             revision=revision,
         )
 
+    def permission_snapshot(self, agent_id: str) -> ResolvedPermissionSnapshot:
+        """Compile the current Agent permissions without resolving a Model profile."""
+
+        node = self.repository.read_node()
+        agent = self.repository.read_agent(agent_id)
+        return compile_permission_snapshot(
+            node=node.document,
+            agent=agent.document,
+            source_revisions={
+                node.resource_id: node.revision,
+                agent.resource_id: agent.revision,
+            },
+            agent_workspaces=self._agent_workspace_boundaries(),
+        )
+
     def _agent_workspace_boundaries(
         self,
         *,
@@ -417,7 +433,7 @@ def _effect_for_path(resource_kind: str, path: tuple[str | int, ...]) -> ConfigE
         ("spec", "workspace"),
         ("spec", "ownerPrincipalId"),
         ("spec", "privilegeLevel"),
-        ("spec", "permissionOverrides"),
+        ("spec", "controls"),
         ("spec", "permissions"),
         ("spec", "modelPolicy"),
     }

@@ -6,7 +6,7 @@ import asyncio
 from types import SimpleNamespace
 
 from openppx.config import AgentConfig, NodeConfig
-from openppx.permissions import compile_permission_snapshot
+from openppx.permissions import PermissionSnapshotAuthority, compile_permission_snapshot
 from openppx.runtime.authorization_plugin import OpenPpxAuthorizationPlugin
 
 
@@ -18,7 +18,12 @@ class _RecordingAudit:
         self.records.append((request, decision, rollout_mode))
 
 
-def _snapshot(*, preset: str = "low"):
+def _snapshot(
+    *,
+    preset: str = "low",
+    tool_rollout: str | None = None,
+    denied_network_origin: str | None = None,
+):
     node = NodeConfig.model_validate(
         {
             "apiVersion": "openppx.io/v1alpha1",
@@ -37,6 +42,28 @@ def _snapshot(*, preset: str = "low"):
                 "workspace": "workspace/worker",
                 "ownerPrincipalId": "local:owner",
                 "privilegeLevel": preset,
+                "permissions": {
+                    "rolloutModes": {
+                        **({"tool": tool_rollout} if tool_rollout is not None else {}),
+                        **({"network": "enforce"} if denied_network_origin is not None else {}),
+                    },
+                    "rules": (
+                        [
+                            {
+                                "ruleId": "deny-current-mcp-origin",
+                                "effect": "deny",
+                                "object": "network",
+                                "actions": ["connect"],
+                                "selector": {
+                                    "kind": "network",
+                                    "domains": [denied_network_origin],
+                                },
+                            }
+                        ]
+                        if denied_network_origin is not None
+                        else []
+                    ),
+                },
             },
         }
     )
@@ -54,6 +81,10 @@ def _context():
 
 
 def external_tool() -> dict[str, object]:
+    return {"ok": True}
+
+
+def mcp_docs_search() -> dict[str, object]:
     return {"ok": True}
 
 
@@ -104,3 +135,62 @@ def test_enforce_mode_fails_closed_when_permission_audit_is_unavailable() -> Non
 
     assert result is not None
     assert result["error"]["reasonCode"] == "permission_audit_unavailable"
+
+
+def test_long_lived_plugin_uses_current_permissions_before_each_tool_call() -> None:
+    baseline = _snapshot(preset="medium")
+    current = _snapshot(preset="low", tool_rollout="enforce")
+    plugin = OpenPpxAuthorizationPlugin(
+        baseline,
+        audit=_RecordingAudit(),
+        authority=PermissionSnapshotAuthority(baseline, provider=lambda: current),
+    )
+
+    result = asyncio.run(
+        plugin.before_tool_callback(tool=external_tool, tool_args={}, tool_context=_context())
+    )
+
+    assert result is not None
+    assert result["error"]["permissionRevision"] == current.revision
+
+
+def test_plugin_fails_closed_when_current_permission_snapshot_is_unavailable() -> None:
+    baseline = _snapshot(preset="medium")
+
+    def unavailable():
+        raise OSError("config unavailable")
+
+    plugin = OpenPpxAuthorizationPlugin(
+        baseline,
+        audit=_RecordingAudit(),
+        authority=PermissionSnapshotAuthority(baseline, provider=unavailable),
+    )
+
+    result = asyncio.run(
+        plugin.before_tool_callback(tool=external_tool, tool_args={}, tool_context=_context())
+    )
+
+    assert result is not None
+    assert result["error"]["reasonCode"] == "permission_snapshot_unavailable"
+
+
+def test_remote_mcp_origin_is_reauthorized_with_current_network_permissions() -> None:
+    baseline = _snapshot(preset="medium")
+    current = _snapshot(
+        preset="medium",
+        denied_network_origin="blocked.example",
+    )
+    plugin = OpenPpxAuthorizationPlugin(
+        baseline,
+        audit=_RecordingAudit(),
+        authority=PermissionSnapshotAuthority(baseline, provider=lambda: current),
+        fixed_network_origins={"mcp_docs": "https://blocked.example"},
+    )
+
+    result = asyncio.run(
+        plugin.before_tool_callback(tool=mcp_docs_search, tool_args={}, tool_context=_context())
+    )
+
+    assert result is not None
+    assert result["error"]["reasonCode"] == "network_intersection_denied"
+    assert result["error"]["permissionRevision"] == current.revision

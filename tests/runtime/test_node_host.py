@@ -73,7 +73,7 @@ def _configure(root: Path) -> InMemorySecretStore:
                     "workspace": str(root / "workspace"),
                     "ownerPrincipalId": "local:owner",
                     "privilegeLevel": "low",
-                    "permissionOverrides": {},
+                    "controls": {},
                     "modelPolicy": {"defaultProfile": "primary", "roleProfiles": {}},
                 },
             }

@@ -39,7 +39,7 @@ def agent_document() -> dict[str, object]:
             "workspace": "workspace/low-main",
             "ownerPrincipalId": "local:owner",
             "privilegeLevel": "low",
-            "permissionOverrides": {},
+            "controls": {},
         },
     }
 
@@ -204,26 +204,25 @@ def test_agent_rejects_blank_or_control_bearing_text(field: str, value: str) -> 
         AgentConfig.model_validate(document)
 
 
-def test_low_agent_permission_override_cannot_elevate() -> None:
+def test_removed_execution_permission_overrides_are_not_accepted() -> None:
     document = deepcopy(agent_document())
     document["spec"]["permissionOverrides"] = {"filesystemAccess": "read_write"}  # type: ignore[index]
 
-    with pytest.raises(ValidationError, match="narrow"):
+    with pytest.raises(ValidationError, match="filesystemAccess"):
         AgentConfig.model_validate(document)
 
 
-def test_high_agent_permission_override_can_narrow() -> None:
+def test_high_agent_controls_can_narrow_non_execution_capabilities() -> None:
     document = deepcopy(agent_document())
     document["spec"]["privilegeLevel"] = "high"  # type: ignore[index]
-    document["spec"]["permissionOverrides"] = {  # type: ignore[index]
-        "filesystemAccess": "read_only",
-        "shellExec": "restricted",
+    document["spec"]["controls"] = {  # type: ignore[index]
+        "secretAccess": "none",
         "canApprovePrivilegeEscalation": False,
     }
 
     resource = AgentConfig.model_validate(document)
 
-    assert resource.spec.permission_overrides.filesystem_access == "read_only"
+    assert resource.spec.controls.secret_access == "none"
 
 
 def test_exported_json_schemas_are_strict() -> None:

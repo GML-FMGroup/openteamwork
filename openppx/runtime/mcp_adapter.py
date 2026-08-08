@@ -37,6 +37,7 @@ class McpRuntimeBuild:
 
     toolsets: tuple[ManagedMcpToolset, ...]
     diagnostics: tuple[McpRuntimeDiagnostic, ...]
+    network_origins: tuple[tuple[str, str], ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -68,6 +69,7 @@ class McpRuntimeAdapter:
         """Build toolsets without ever copying Secret values into persisted resources."""
         toolsets: list[ManagedMcpToolset] = []
         diagnostics: list[McpRuntimeDiagnostic] = []
+        network_origins: list[tuple[str, str]] = []
         for entry in snapshot.entries:
             server_id = entry.record.metadata.name
             try:
@@ -134,8 +136,17 @@ class McpRuntimeAdapter:
                 raw["disabledTools"] = list(policy.disabled_tools)
             if policy.job_protocol is not None:
                 raw["jobProtocol"] = policy.job_protocol.model_dump(mode="json", by_alias=True)
-            toolsets.extend(build_mcp_toolsets({server_id: raw}, log_registered=False))
-        return McpRuntimeBuild(toolsets=tuple(toolsets), diagnostics=tuple(diagnostics))
+            built = build_mcp_toolsets({server_id: raw}, log_registered=False)
+            toolsets.extend(built)
+            if isinstance(entry.record.spec.transport, McpRemoteTransport) and built:
+                network_origins.append(
+                    (policy.resolved_prefix(server_id), entry.record.spec.transport.url)
+                )
+        return McpRuntimeBuild(
+            toolsets=tuple(toolsets),
+            diagnostics=tuple(diagnostics),
+            network_origins=tuple(network_origins),
+        )
 
     async def probe(
         self,

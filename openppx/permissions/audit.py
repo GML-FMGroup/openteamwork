@@ -97,9 +97,9 @@ class PermissionAuditStore:
                 INSERT INTO permission_audit (
                     recorded_at, request_id, agent_id, task_id, run_id, session_id,
                     object_kind, action, resource_kind, rollout_mode, outcome,
-                    legacy_outcome, shadow_mismatch, reason_code,
+                    enforced, reason_code,
                     permission_revision, matched_rule_ids_json
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     datetime.now(timezone.utc).isoformat(),
@@ -113,8 +113,7 @@ class PermissionAuditStore:
                     resource_kind,
                     rollout_mode,
                     decision.outcome,
-                    "allow",
-                    0 if decision.outcome == "allow" else 1,
+                    1 if rollout_mode == "enforce" else 0,
                     decision.reason_code,
                     decision.permission_revision,
                     matched_rules_json,
@@ -170,8 +169,7 @@ class PermissionAuditStore:
                 resource_kind TEXT NOT NULL,
                 rollout_mode TEXT NOT NULL,
                 outcome TEXT NOT NULL,
-                legacy_outcome TEXT NOT NULL,
-                shadow_mismatch INTEGER NOT NULL,
+                enforced INTEGER NOT NULL,
                 reason_code TEXT NOT NULL,
                 permission_revision TEXT NOT NULL,
                 matched_rule_ids_json TEXT NOT NULL
@@ -208,8 +206,7 @@ def _project_row(row: sqlite3.Row) -> dict[str, object]:
         "resourceKind": row["resource_kind"],
         "rolloutMode": row["rollout_mode"],
         "outcome": row["outcome"],
-        "legacyOutcome": row["legacy_outcome"],
-        "shadowMismatch": bool(row["shadow_mismatch"]),
+        "enforced": bool(row["enforced"]),
         "reasonCode": row["reason_code"],
         "permissionRevision": row["permission_revision"],
         "matchedRuleIds": json.loads(row["matched_rule_ids_json"]),

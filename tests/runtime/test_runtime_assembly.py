@@ -40,6 +40,7 @@ from openppx.extensions import (
 from openppx.extensions.app_models import AppConnection, AppDefinition
 from openppx.core.mcp_registry import ManagedMcpToolset
 from openppx.modeling import ModelCatalog, ModelProfile, ModelProfileRepository, ModelProfileSelector
+from openppx.permissions import AgentPermissionSpec
 from openppx.runtime.assembly import RuntimeAssembler
 from openppx.runtime.goal_store import GoalStore
 from openppx.runtime.node_runtime import NodeRuntimeSupervisor, RunNotActiveError, RunNotFoundError
@@ -98,7 +99,7 @@ def _configured(tmp_path: Path) -> tuple[ConfigService, InMemorySecretStore]:
                     "workspace": str(tmp_path / "workspace"),
                     "ownerPrincipalId": "local:owner",
                     "privilegeLevel": "low",
-                    "permissionOverrides": {},
+                    "controls": {},
                     "modelPolicy": {"defaultProfile": "primary", "roleProfiles": {}},
                 },
             }
@@ -220,6 +221,57 @@ def test_assembled_runtime_binds_core_tools_to_agent_workspace(
     assert (workspace / "result.md").read_text(encoding="utf-8") == "runtime workspace"
     assert not (ambient / "result.md").exists()
     assert not (node_cwd / "result.md").exists()
+
+
+def test_long_lived_runtime_rechecks_config_service_before_next_side_effect(
+    tmp_path: Path,
+) -> None:
+    """A held Runtime must honor compatible permission tightening without reassembly."""
+
+    config_service, secrets = _configured(tmp_path)
+    current = config_service.repository.read_agent("low-main")
+    medium = current.document.model_copy(
+        update={
+            "spec": current.document.spec.model_copy(update={"privilege_level": "medium"})
+        }
+    )
+    applied_medium = config_service.apply_agent(
+        "low-main",
+        medium,
+        expected_revision=current.revision,
+    )
+    assembler = RuntimeAssembler(
+        node_root=tmp_path,
+        secret_store=secrets,
+        model_factory=lambda _resolution: _HelloLlm(model="hello-model"),
+        permission_snapshot_provider=config_service.permission_snapshot,
+    )
+    runtime = assembler.assemble(config_service.snapshot("low-main"))
+    write = _tool_function(runtime.agent, "write_file")
+    assert "Successfully wrote" in write("before.txt", "allowed")
+
+    low_enforced = applied_medium.resource.document.model_copy(
+        update={
+            "spec": applied_medium.resource.document.spec.model_copy(
+                update={
+                    "privilege_level": "low",
+                    "permissions": AgentPermissionSpec.model_validate(
+                        {"rolloutModes": {"workspace": "enforce"}}
+                    ),
+                }
+            )
+        }
+    )
+    config_service.apply_agent(
+        "low-main",
+        low_enforced,
+        expected_revision=applied_medium.resource.revision,
+    )
+
+    denied = write("after.txt", "revoked")
+
+    assert "denied by Agent permissions" in denied
+    assert not (tmp_path / "workspace" / "after.txt").exists()
 
 
 def test_supervisor_reuses_exact_snapshot_and_refreshes_after_config_change(tmp_path: Path) -> None:

@@ -154,6 +154,33 @@ def test_proxy_policy_is_atomic_revision_bound_and_matches_domain_and_private_de
     assert private is False
 
 
+def test_proxy_policy_fails_closed_for_unknown_constraint_fields() -> None:
+    policy = {
+        "defaults": {"connect": "deny", "read": "allow"},
+        "rules": [
+            {
+                "effect": "allow",
+                "action": "connect",
+                "selector": {"kind": "all"},
+                "constraints": {"kind": "network", "unknownFutureLimit": 1},
+            }
+        ],
+    }
+
+    allowed, reason = proxy_policy_allows(
+        policy,
+        scheme="http",
+        host="docs.example.com",
+        port=80,
+        resolved_ips=("93.184.216.34",),
+        visibility="public",
+        method="GET",
+    )
+
+    assert allowed is False
+    assert reason == "default_deny:connect"
+
+
 def test_proxy_only_network_verification_requires_docker_internal_flag() -> None:
     success = mock.Mock(returncode=0, stdout="true\n", stderr="")
     with mock.patch("openppx.runtime.sandbox.proxy_network.subprocess.run", return_value=success):

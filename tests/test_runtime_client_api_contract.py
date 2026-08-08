@@ -60,7 +60,7 @@ def _write_strict_node(root: Path) -> None:
                     "workspace": "workspace/writer",
                     "ownerPrincipalId": "owner",
                     "privilegeLevel": "low",
-                    "permissionOverrides": {},
+                    "controls": {},
                     "modelPolicy": {"defaultProfile": None, "roleProfiles": {}},
                 },
             }

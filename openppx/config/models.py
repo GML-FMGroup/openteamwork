@@ -207,25 +207,15 @@ class NodeConfig(StrictConfigModel):
     spec: NodeSpec
 
 
-WorkspaceScope: TypeAlias = Literal["single_workspace"]
-FilesystemAccess: TypeAlias = Literal["read_only", "read_write"]
-ShellAccess: TypeAlias = Literal["denied", "restricted", "full"]
-NetworkAccess: TypeAlias = Literal["denied", "restricted", "full"]
-ToolAccess: TypeAlias = Literal["safe", "task_scoped", "broad"]
 SecretAccess: TypeAlias = Literal["none", "limited"]
 HighRiskActionAccess: TypeAlias = Literal["denied", "conditional"]
 PrivilegeLevel: TypeAlias = Literal["low", "medium", "high", "root"]
 ModelRole: TypeAlias = Literal["fast", "reasoning", "vision"]
 
 
-class PermissionOverrides(StrictConfigModel):
-    """Legacy coarse profile override retained until explicit permission migration."""
+class AgentControls(StrictConfigModel):
+    """Non-execution controls outside the static execution matrix."""
 
-    workspace_scope: WorkspaceScope | None = None
-    filesystem_access: FilesystemAccess | None = None
-    shell_exec: ShellAccess | None = None
-    network_access: NetworkAccess | None = None
-    tool_access: ToolAccess | None = None
     secret_access: SecretAccess | None = None
     can_delegate: StrictBool | None = None
     can_approve_privilege_escalation: StrictBool | None = None
@@ -242,46 +232,26 @@ class AgentModelPolicy(StrictConfigModel):
     role_profiles: dict[ModelRole, ResourceName] = Field(default_factory=dict)
 
 
-_PERMISSION_PROFILES: dict[str, dict[str, str | bool]] = {
+_CONTROL_PROFILES: dict[str, dict[str, str | bool]] = {
     "low": {
-        "workspace_scope": "single_workspace",
-        "filesystem_access": "read_only",
-        "shell_exec": "denied",
-        "network_access": "denied",
-        "tool_access": "safe",
         "secret_access": "none",
         "can_delegate": False,
         "can_approve_privilege_escalation": False,
         "high_risk_action_access": "denied",
     },
     "medium": {
-        "workspace_scope": "single_workspace",
-        "filesystem_access": "read_write",
-        "shell_exec": "restricted",
-        "network_access": "restricted",
-        "tool_access": "task_scoped",
         "secret_access": "limited",
         "can_delegate": True,
         "can_approve_privilege_escalation": False,
         "high_risk_action_access": "denied",
     },
     "high": {
-        "workspace_scope": "multi_workspace",
-        "filesystem_access": "read_write",
-        "shell_exec": "full",
-        "network_access": "full",
-        "tool_access": "broad",
         "secret_access": "limited",
         "can_delegate": True,
         "can_approve_privilege_escalation": True,
         "high_risk_action_access": "conditional",
     },
     "root": {
-        "workspace_scope": "multi_workspace",
-        "filesystem_access": "read_write",
-        "shell_exec": "full",
-        "network_access": "full",
-        "tool_access": "broad",
         "secret_access": "limited",
         "can_delegate": True,
         "can_approve_privilege_escalation": True,
@@ -289,12 +259,7 @@ _PERMISSION_PROFILES: dict[str, dict[str, str | bool]] = {
     },
 }
 
-_PERMISSION_ORDER: dict[str, tuple[str, ...]] = {
-    "workspace_scope": ("single_workspace", "multi_workspace"),
-    "filesystem_access": ("read_only", "read_write"),
-    "shell_exec": ("denied", "restricted", "full"),
-    "network_access": ("denied", "restricted", "full"),
-    "tool_access": ("safe", "task_scoped", "broad"),
+_CONTROL_ORDER: dict[str, tuple[str, ...]] = {
     "secret_access": ("none", "limited"),
     "high_risk_action_access": ("denied", "conditional"),
 }
@@ -308,7 +273,7 @@ class AgentSpec(StrictConfigModel):
     instruction: Annotated[str, StringConstraints(max_length=16_384)] = ""
     owner_principal_id: Annotated[str, StringConstraints(min_length=1, max_length=128)]
     privilege_level: PrivilegeLevel = "low"
-    permission_overrides: PermissionOverrides = Field(default_factory=PermissionOverrides)
+    controls: AgentControls = Field(default_factory=AgentControls)
     permissions: AgentPermissionSpec = Field(default_factory=AgentPermissionSpec)
     model_policy: AgentModelPolicy = Field(default_factory=AgentModelPolicy)
 
@@ -327,28 +292,19 @@ class AgentSpec(StrictConfigModel):
         return value.strip()
 
     @model_validator(mode="after")
-    def permission_overrides_must_only_narrow(self) -> "AgentSpec":
-        """Reject legacy elevation and ambiguous legacy/new permission sources."""
-        base = _PERMISSION_PROFILES[self.privilege_level]
-        provided = self.permission_overrides.model_dump(exclude_none=True)
-        execution_fields = {
-            "workspace_scope",
-            "filesystem_access",
-            "shell_exec",
-            "network_access",
-            "tool_access",
-        }
-        if execution_fields.intersection(provided) and not self.permissions.is_empty():
-            raise ValueError("permissionOverrides and permissions cannot both contain values")
+    def control_overrides_must_only_narrow(self) -> "AgentSpec":
+        """Reject elevation through non-execution control overrides."""
+        base = _CONTROL_PROFILES[self.privilege_level]
+        provided = self.controls.model_dump(exclude_none=True)
         for field_name, requested in provided.items():
             allowed = base[field_name]
             if isinstance(requested, bool):
                 if requested and not allowed:
-                    raise ValueError("permissionOverrides may only narrow the selected privilege profile")
+                    raise ValueError("controls may only narrow the selected privilege profile")
                 continue
-            order = _PERMISSION_ORDER[field_name]
+            order = _CONTROL_ORDER[field_name]
             if order.index(requested) > order.index(str(allowed)):
-                raise ValueError("permissionOverrides may only narrow the selected privilege profile")
+                raise ValueError("controls may only narrow the selected privilege profile")
         return self
 
 

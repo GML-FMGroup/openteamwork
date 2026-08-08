@@ -53,7 +53,7 @@ def agent_payload(*, display_name: str = "Low Main", workspace: str = "workspace
             "workspace": workspace,
             "ownerPrincipalId": "local:owner",
             "privilegeLevel": "low",
-            "permissionOverrides": {},
+            "controls": {},
             "modelPolicy": {"defaultProfile": "primary", "roleProfiles": {}},
         },
     }
@@ -220,6 +220,21 @@ def test_agent_permission_preview_reports_redacted_semantic_changes(tmp_path: Pa
     assert "workspace/low-main" not in str(preview.permission_changes)
 
 
+def test_current_permission_snapshot_does_not_depend_on_model_resolution(tmp_path: Path) -> None:
+    _, _, config_service = service(tmp_path)
+    config_service.apply_node(NodeConfig.model_validate(node_payload()), expected_revision=None)
+    config_service.apply_agent(
+        "low-main",
+        AgentConfig.model_validate(agent_payload()),
+        expected_revision=None,
+    )
+
+    snapshot = config_service.permission_snapshot("low-main")
+
+    assert snapshot.agent_id == "low-main"
+    assert snapshot.preset == "low"
+
+
 def test_apply_rejects_stale_revision_without_changing_resource(tmp_path: Path) -> None:
     repository, _, config_service = service(tmp_path)
     created = config_service.apply_node(NodeConfig.model_validate(node_payload()), expected_revision=None)
@@ -270,7 +285,7 @@ def test_snapshot_is_deterministic_and_changes_with_agent_revision(tmp_path: Pat
     second = config_service.snapshot("low-main")
     assert first.revision == second.revision
     assert first.permissions.revision == second.permissions.revision
-    assert first.permissions.activation == "observe"
+    assert first.permissions.rollout_for("workspace") == "observe"
     assert first.permissions.agent_id == "low-main"
     assert first.model.profile_id == "primary"
     assert {origin.resource_id for origin in first.origins} == {

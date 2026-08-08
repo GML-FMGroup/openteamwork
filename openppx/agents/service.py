@@ -94,7 +94,7 @@ class AgentLifecycleService:
                     "instruction": instruction,
                     "ownerPrincipalId": owner_principal_id,
                     "privilegeLevel": privilege_level,
-                    "permissionOverrides": {},
+                    "controls": {},
                     "modelPolicy": {
                         "defaultProfile": model_profile_id,
                         "roleProfiles": {},

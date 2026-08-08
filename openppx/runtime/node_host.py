@@ -118,6 +118,7 @@ def build_node_composition(
         app_manager=app_manager,
         plugin_manager=plugin_manager,
         mcp_adapter=mcp_adapter,
+        permission_snapshot_provider=control_plane.config_service.permission_snapshot,
     )
     runtime_supervisor = NodeRuntimeSupervisor(
         config_service=control_plane.config_service,
