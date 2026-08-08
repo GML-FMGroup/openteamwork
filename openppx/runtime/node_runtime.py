@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import inspect
+import logging
 import threading
 import time
 import uuid
@@ -16,16 +17,19 @@ from google.adk.agents.invocation_context import LlmCallsLimitExceededError
 
 from openppx.config import ConfigService
 
+from .adk_identity import LEGACY_ADK_APP_NAME, adk_app_name_for_agent_id
 from .assembly import AssembledRuntime, RuntimeAssembler
 from .goal_supervisor import GoalSliceObserver
 from .message_time import inject_request_time
 from .run_config import build_run_config
 from .session_history import project_visible_history
+from .session_metadata_store import SessionMetadataStore
 from .session_rewind import RewindTarget, resolve_rewind_target
 
 
 RunState = Literal["running", "cancelling", "completed", "failed", "cancelled"]
 TerminalRunState = Literal["completed", "failed", "cancelled"]
+LOGGER = logging.getLogger(__name__)
 
 
 def _bounded_policy_int(
@@ -76,6 +80,16 @@ class ManagedRunSnapshot:
     model_profile_revision: str | None = None
     provider: str | None = None
     model: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class LegacySessionMigrationReport:
+    """Outcome of one idempotent legacy ADK Session namespace migration."""
+
+    migrated: int = 0
+    removed_placeholders: int = 0
+    skipped: int = 0
+    failed: int = 0
 
 
 @dataclass(slots=True)
@@ -344,6 +358,324 @@ class NodeRuntimeSupervisor:
     def fork_session_sync(self, agent_id: str, *, user_id: str, session_id: str) -> object:
         """Fork one Session from synchronous Action boundaries."""
         return _run_sync(self.fork_session(agent_id, user_id=user_id, session_id=session_id))
+
+    async def migrate_legacy_sessions(
+        self,
+        *,
+        session_metadata: SessionMetadataStore,
+    ) -> LegacySessionMigrationReport:
+        """Move Sessions from the historical shared ADK namespace to Agent ownership.
+
+        The migration is deliberately idempotent. Source data is deleted only
+        after its events, artifacts, and ownership metadata are durable in the
+        target namespace. A partially copied target is safe to resume on the
+        next Node start.
+        """
+        service = self.assembler.services.session_service
+        artifact_service = self.assembler.services.artifact_service
+        known_agent_ids = set(self.config_service.repository.list_agent_ids())
+        fallback_agent_id = "main" if "main" in known_agent_ids else None
+        response = await service.list_sessions(
+            app_name=LEGACY_ADK_APP_NAME,
+            user_id=None,
+        )
+        migrated = 0
+        removed_placeholders = 0
+        skipped = 0
+        failed = 0
+        for summary in response.sessions:
+            session_id = str(summary.id)
+            user_id = str(summary.user_id)
+            try:
+                source = await service.get_session(
+                    app_name=LEGACY_ADK_APP_NAME,
+                    user_id=user_id,
+                    session_id=session_id,
+                )
+                if source is None:
+                    raise RuntimeSupervisorError(
+                        f"Legacy Session '{session_id}' is unavailable after discovery."
+                    )
+                metadata = session_metadata.get(session_id)
+                artifact_keys = await self._artifact_keys_for_scope(
+                    artifact_service,
+                    app_name=LEGACY_ADK_APP_NAME,
+                    user_id=user_id,
+                    session_id=session_id,
+                )
+                durable_events = [
+                    event
+                    for event in source.events
+                    if not bool(getattr(event, "partial", False))
+                ]
+                has_content = bool(durable_events or artifact_keys)
+                if metadata is None and not has_content:
+                    await service.delete_session(
+                        app_name=LEGACY_ADK_APP_NAME,
+                        user_id=user_id,
+                        session_id=session_id,
+                    )
+                    session_metadata.delete(session_id)
+                    removed_placeholders += 1
+                    continue
+
+                if metadata is not None:
+                    target_agent_id = metadata.agent_id
+                    if target_agent_id not in known_agent_ids:
+                        LOGGER.warning(
+                            "Keeping legacy Session %s because its owning Agent %s is unavailable.",
+                            session_id,
+                            target_agent_id,
+                        )
+                        skipped += 1
+                        continue
+                else:
+                    target_agent_id = fallback_agent_id
+                    if target_agent_id is None:
+                        LOGGER.warning(
+                            "Keeping unmapped legacy Session %s because Agent 'main' is unavailable.",
+                            session_id,
+                        )
+                        skipped += 1
+                        continue
+
+                target_app_name = adk_app_name_for_agent_id(target_agent_id)
+                target = await service.get_session(
+                    app_name=target_app_name,
+                    user_id=user_id,
+                    session_id=session_id,
+                )
+                if target is None:
+                    target = await service.create_session(
+                        app_name=target_app_name,
+                        user_id=user_id,
+                        state=dict(getattr(source, "state", {}) or {}),
+                        session_id=session_id,
+                    )
+
+                target_event_ids = {
+                    str(getattr(event, "id", ""))
+                    for event in target.events
+                    if getattr(event, "id", None)
+                }
+                for event in durable_events:
+                    event_id = str(getattr(event, "id", ""))
+                    if not event_id:
+                        raise RuntimeSupervisorError(
+                            f"Legacy Session '{session_id}' contains an event without an identity."
+                        )
+                    if event_id and event_id in target_event_ids:
+                        continue
+                    cloned = event.model_copy(deep=True)
+                    await service.append_event(target, cloned)
+                    target_event_ids.add(event_id)
+
+                verified_target = await service.get_session(
+                    app_name=target_app_name,
+                    user_id=user_id,
+                    session_id=session_id,
+                )
+                if verified_target is None:
+                    raise RuntimeSupervisorError(
+                        f"Legacy Session '{session_id}' target is unavailable after event copy."
+                    )
+                source_event_ids = {
+                    str(getattr(event, "id", "")) for event in durable_events
+                }
+                verified_event_ids = {
+                    str(getattr(event, "id", ""))
+                    for event in verified_target.events
+                    if getattr(event, "id", None)
+                }
+                if not source_event_ids.issubset(verified_event_ids):
+                    raise RuntimeSupervisorError(
+                        f"Legacy Session '{session_id}' events could not be verified in its target namespace."
+                    )
+
+                await self._copy_artifacts_between_apps(
+                    artifact_service,
+                    source_app_name=LEGACY_ADK_APP_NAME,
+                    target_app_name=target_app_name,
+                    user_id=user_id,
+                    session_id=session_id,
+                    artifact_keys=artifact_keys,
+                )
+                session_metadata.update(
+                    session_id=session_id,
+                    agent_id=target_agent_id,
+                    principal_id=user_id,
+                )
+                await self._delete_artifacts_for_scope(
+                    artifact_service,
+                    app_name=LEGACY_ADK_APP_NAME,
+                    user_id=user_id,
+                    session_id=session_id,
+                    artifact_keys=artifact_keys,
+                )
+                await service.delete_session(
+                    app_name=LEGACY_ADK_APP_NAME,
+                    user_id=user_id,
+                    session_id=session_id,
+                )
+                migrated += 1
+            except Exception:
+                failed += 1
+                LOGGER.exception("Legacy Session migration failed for %s; source retained.", session_id)
+        return LegacySessionMigrationReport(
+            migrated=migrated,
+            removed_placeholders=removed_placeholders,
+            skipped=skipped,
+            failed=failed,
+        )
+
+    def migrate_legacy_sessions_sync(
+        self,
+        *,
+        session_metadata: SessionMetadataStore,
+    ) -> LegacySessionMigrationReport:
+        """Run legacy Session migration at the synchronous Node boundary."""
+        return _run_sync(
+            self.migrate_legacy_sessions(session_metadata=session_metadata)
+        )  # type: ignore[return-value]
+
+    @staticmethod
+    async def _artifact_keys_for_scope(
+        service: Any | None,
+        *,
+        app_name: str,
+        user_id: str,
+        session_id: str,
+    ) -> list[str]:
+        """List artifact keys through ADK's public ArtifactService API."""
+        if service is None:
+            return []
+        return list(
+            await service.list_artifact_keys(
+                app_name=app_name,
+                user_id=user_id,
+                session_id=session_id,
+            )
+        )
+
+    @staticmethod
+    async def _copy_artifacts_between_apps(
+        service: Any | None,
+        *,
+        source_app_name: str,
+        target_app_name: str,
+        user_id: str,
+        session_id: str,
+        artifact_keys: list[str],
+    ) -> None:
+        """Idempotently copy Artifact versions between ADK app namespaces."""
+        if service is None:
+            return
+        for key in artifact_keys:
+            source_versions = await service.list_artifact_versions(
+                app_name=source_app_name,
+                user_id=user_id,
+                session_id=session_id,
+                filename=key,
+            )
+            target_versions = await service.list_artifact_versions(
+                app_name=target_app_name,
+                user_id=user_id,
+                session_id=session_id,
+                filename=key,
+            )
+            existing_versions = {int(version.version) for version in target_versions}
+            for version in source_versions:
+                version_number = int(version.version)
+                if version_number in existing_versions:
+                    continue
+                artifact = await service.load_artifact(
+                    app_name=source_app_name,
+                    user_id=user_id,
+                    session_id=session_id,
+                    filename=key,
+                    version=version_number,
+                )
+                if artifact is None:
+                    raise RuntimeSupervisorError(
+                        f"Legacy Artifact '{key}' version {version_number} is unavailable."
+                    )
+                saved_version = await service.save_artifact(
+                    app_name=target_app_name,
+                    user_id=user_id,
+                    session_id=session_id,
+                    filename=key,
+                    artifact=artifact,
+                    custom_metadata=dict(version.custom_metadata or {}),
+                )
+                existing_versions.add(int(saved_version))
+            verified_target_versions = await service.list_artifact_versions(
+                app_name=target_app_name,
+                user_id=user_id,
+                session_id=session_id,
+                filename=key,
+            )
+            source_by_version = {
+                int(version.version): version for version in source_versions
+            }
+            target_by_version = {
+                int(version.version): version for version in verified_target_versions
+            }
+            if set(source_by_version) != set(target_by_version):
+                raise RuntimeSupervisorError(
+                    f"Legacy Artifact '{key}' could not be verified in its target namespace."
+                )
+            for version_number, source_version in source_by_version.items():
+                source_artifact = await service.load_artifact(
+                    app_name=source_app_name,
+                    user_id=user_id,
+                    session_id=session_id,
+                    filename=key,
+                    version=version_number,
+                )
+                target_artifact = await service.load_artifact(
+                    app_name=target_app_name,
+                    user_id=user_id,
+                    session_id=session_id,
+                    filename=key,
+                    version=version_number,
+                )
+                if source_artifact is None or target_artifact is None:
+                    raise RuntimeSupervisorError(
+                        f"Legacy Artifact '{key}' version {version_number} is unavailable."
+                    )
+                if source_artifact.model_dump(mode="json") != target_artifact.model_dump(
+                    mode="json"
+                ):
+                    raise RuntimeSupervisorError(
+                        f"Legacy Artifact '{key}' version {version_number} content differs after copy."
+                    )
+                target_version = target_by_version[version_number]
+                if dict(source_version.custom_metadata or {}) != dict(
+                    target_version.custom_metadata or {}
+                ):
+                    raise RuntimeSupervisorError(
+                        f"Legacy Artifact '{key}' version {version_number} metadata differs after copy."
+                    )
+
+    @staticmethod
+    async def _delete_artifacts_for_scope(
+        service: Any | None,
+        *,
+        app_name: str,
+        user_id: str,
+        session_id: str,
+        artifact_keys: list[str],
+    ) -> None:
+        """Delete a known Artifact set through ADK's public API."""
+        if service is None:
+            return
+        for key in artifact_keys:
+            await service.delete_artifact(
+                app_name=app_name,
+                user_id=user_id,
+                session_id=session_id,
+                filename=key,
+            )
 
     async def session_history(
         self,
@@ -954,6 +1286,7 @@ def _run_sync(awaitable: object) -> object:
 
 
 __all__ = [
+    "LegacySessionMigrationReport",
     "ManagedRunSnapshot",
     "NodeRuntimeSupervisor",
     "RunNotActiveError",

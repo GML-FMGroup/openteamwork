@@ -14,8 +14,9 @@ from google.adk.tools.preload_memory_tool import PreloadMemoryTool
 from ..config import normalize_agent_privilege_level
 from ..core.mcp_registry import summarize_mcp_toolsets
 from ..extensions import ExtensionError, SkillSnapshot
-from ..permissions.tooling import filter_authorized_tools
 from ..permissions import PermissionSnapshotAuthority
+from ..permissions.tooling import filter_authorized_tools
+from ..runtime.adk_identity import adk_app_name_for_agent_id
 from ..runtime.goal_store import GoalStore
 from ..runtime.tool_execution_context import ToolExecutionContext, bind_tool_callable
 from ..tooling.artifact_tools import publish_artifact
@@ -315,7 +316,7 @@ def build_root_agent(
             ),
         )
     return LlmAgent(
-        name="openppx",
+        name=adk_app_name_for_agent_id(agent_config.metadata.name),
         model=model,
         static_instruction=_build_static_instruction(),
         instruction=build_startup_runtime_context(

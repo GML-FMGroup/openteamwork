@@ -700,7 +700,7 @@ describe("App sending state", () => {
     expect(screen.getByRole("button", { name: "Set up & say Hello" })).toBeEnabled();
   });
 
-  it("creates a new Agent, selects it, and opens its first Session", async () => {
+  it("creates a new Agent without manufacturing an empty Session", async () => {
     const createAgent = vi.fn(async () => ({
       agent: {
         id: "research",
@@ -716,14 +716,9 @@ describe("App sending state", () => {
       nodeRevision: "sha256:node-next",
       effect: "next_run" as const,
     }));
-    const createdSession: SessionSummary = {
-      id: "session-research",
-      agentId: "research",
-      title: "New chat",
-      updatedAt: "2026-08-04T11:00:00.000Z",
-      lastMessagePreview: "",
-    };
-    const createSession = vi.fn(async () => ({ session: createdSession }));
+    const createSession = vi.fn(async () => {
+      throw new Error("Agent creation must not create an empty Session");
+    });
     installClient({
       createAgent,
       createSession,
@@ -761,9 +756,10 @@ describe("App sending state", () => {
       privilegeLevel: "medium",
       modelProfileId: "primary",
     }));
-    await waitFor(() => expect(createSession).toHaveBeenCalledWith("research"));
+    expect(createSession).not.toHaveBeenCalled();
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
-    expect(screen.getAllByText("Research")).toHaveLength(3);
+    expect(screen.getAllByText("Research").length).toBeGreaterThan(0);
+    expect(await screen.findByText("Research is ready")).toBeInTheDocument();
   });
 
   it("jumps to the latest reply when loading a session", async () => {
@@ -1445,7 +1441,7 @@ describe("App sending state", () => {
     expect(screen.getByText("Agent 1 is ready")).toBeInTheDocument();
   });
 
-  it("creates a session on startup when the selected agent has none", async () => {
+  it("waits until first send to create a Session for an Agent with no history", async () => {
     const createdSession: SessionSummary = {
       id: "session-created",
       agentId: "agent-1",
@@ -1462,24 +1458,25 @@ describe("App sending state", () => {
         messages: [],
         selectedSessionId: "",
       }),
+      listSessions: async () => ({ sessions: [] }),
       createSession,
       sendMessage,
     });
 
     render(<App />);
 
-    await waitFor(() => {
-      expect(screen.getAllByText("New local session").length).toBeGreaterThan(0);
-    });
-
-    expect(createSession).toHaveBeenCalledWith("agent-1");
+    expect(await screen.findByText("Agent 1 is ready")).toBeInTheDocument();
+    expect(createSession).not.toHaveBeenCalled();
 
     fireEvent.change(screen.getByPlaceholderText("Describe the outcome you want..."), {
       target: { value: "first task" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+    const sendButton = screen.getByRole("button", { name: "Send" });
+    expect(sendButton).toBeEnabled();
+    fireEvent.click(sendButton);
 
     await waitFor(() => {
+      expect(createSession).toHaveBeenCalledWith("agent-1");
       expect(sendMessage).toHaveBeenCalledWith({
         agentId: "agent-1",
         sessionId: "session-created",
@@ -1644,15 +1641,15 @@ describe("App sending state", () => {
         messages: [],
         selectedSessionId: "",
       }),
+      listSessions: async () => ({ sessions: [] }),
       createSession: async () => ({ session: createdSession }),
       sendMessage,
     });
 
     render(<App />);
 
-    await waitFor(() => {
-      expect(screen.getAllByText("New chat").length).toBeGreaterThan(0);
-    });
+    expect(await screen.findByText("Agent 1 is ready")).toBeInTheDocument();
+    expect(screen.queryByText("New chat")).not.toBeInTheDocument();
 
     fireEvent.change(screen.getByPlaceholderText("Describe the outcome you want..."), {
       target: { value: "帮我查一下深圳到青岛的火车和费用" },

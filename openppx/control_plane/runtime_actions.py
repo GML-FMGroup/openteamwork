@@ -74,6 +74,7 @@ def register_runtime_actions(
         ),
         lambda _context, input_data: _new_session(
             supervisor,
+            metadata,
             cast(SessionNewInput, input_data),
         ),
         slash_input=_new_session_slash_input,
@@ -424,6 +425,7 @@ def _task_list_slash_input(
 
 def _new_session(
     supervisor: NodeRuntimeSupervisor,
+    metadata: SessionMetadataStore,
     input_data: SessionNewInput,
 ) -> dict[str, object]:
     try:
@@ -435,6 +437,28 @@ def _new_session(
         raise ActionFailure(
             ActionError("runtime_unavailable", "The Node runtime is not available.")
         ) from exc
+    session_id = str(getattr(session, "id", ""))
+    try:
+        metadata.update(
+            session_id=session_id,
+            agent_id=input_data.agent_id,
+            principal_id=input_data.user_id,
+        )
+    except Exception as exc:
+        try:
+            supervisor.delete_session_sync(
+                input_data.agent_id,
+                user_id=input_data.user_id,
+                session_id=session_id,
+            )
+        except Exception:
+            pass
+        raise ActionFailure(
+            ActionError(
+                "session_metadata_unavailable",
+                "The Session ownership record could not be persisted.",
+            )
+        ) from exc
     last_update = getattr(session, "last_update_time", None)
     if isinstance(last_update, (int, float)):
         updated_at = datetime.fromtimestamp(last_update, tz=timezone.utc).isoformat()
@@ -442,7 +466,7 @@ def _new_session(
         updated_at = datetime.now(timezone.utc).isoformat()
     return {
         "session": {
-            "id": str(getattr(session, "id", "")),
+            "id": session_id,
             "agentId": input_data.agent_id,
             "subjectPrincipalId": input_data.user_id,
             "title": "New chat",

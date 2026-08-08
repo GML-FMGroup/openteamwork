@@ -4,10 +4,13 @@ import asyncio
 from types import SimpleNamespace
 
 from google.adk.artifacts import FileArtifactService
+from google.adk.events.event import Event
 from google.adk.sessions import InMemorySessionService
 from google.genai import types
 
+from openppx.runtime.adk_identity import LEGACY_ADK_APP_NAME, adk_app_name_for_agent_id
 from openppx.runtime.node_runtime import NodeRuntimeSupervisor
+from openppx.runtime.session_metadata_store import SessionMetadataStore
 
 
 def _supervisor(tmp_path):
@@ -110,5 +113,192 @@ def test_delete_session_removes_its_artifacts(tmp_path) -> None:
             user_id="owner",
             session_id=str(session.id),
         ) == []
+
+    asyncio.run(scenario())
+
+
+def test_migrate_legacy_sessions_assigns_ownership_and_removes_only_placeholders(
+    tmp_path,
+) -> None:
+    session_service = InMemorySessionService()
+    artifact_service = FileArtifactService(root_dir=tmp_path / "migration-artifacts")
+
+    class _Repository:
+        @staticmethod
+        def list_agent_ids() -> tuple[str, ...]:
+            return ("main", "research")
+
+    assembler = SimpleNamespace(
+        services=SimpleNamespace(
+            session_service=session_service,
+            artifact_service=artifact_service,
+        )
+    )
+    supervisor = NodeRuntimeSupervisor(
+        config_service=SimpleNamespace(repository=_Repository()),
+        assembler=assembler,
+    )
+    metadata = SessionMetadataStore(tmp_path / "session_metadata.db")
+
+    async def scenario() -> None:
+        await session_service.create_session(
+            app_name=LEGACY_ADK_APP_NAME,
+            user_id="owner",
+            session_id="placeholder",
+        )
+        fallback = await session_service.create_session(
+            app_name=LEGACY_ADK_APP_NAME,
+            user_id="owner",
+            session_id="fallback",
+        )
+        await session_service.append_event(
+            fallback,
+            Event(
+                id="fallback-event",
+                author="user",
+                content=types.Content(
+                    role="user",
+                    parts=[types.Part.from_text(text="Keep this conversation")],
+                ),
+            ),
+        )
+        owned = await session_service.create_session(
+            app_name=LEGACY_ADK_APP_NAME,
+            user_id="owner",
+            session_id="owned",
+        )
+        await session_service.append_event(
+            owned,
+            Event(
+                id="owned-event",
+                author="assistant",
+                content=types.Content(
+                    role="model",
+                    parts=[types.Part.from_text(text="Research result")],
+                ),
+            ),
+        )
+        metadata.update(
+            session_id="owned",
+            agent_id="research",
+            principal_id="owner",
+            title="Research conversation",
+        )
+        key = "outputs/report.txt"
+        await artifact_service.save_artifact(
+            app_name=LEGACY_ADK_APP_NAME,
+            user_id="owner",
+            session_id="owned",
+            filename=key,
+            artifact=types.Part.from_bytes(data=b"report", mime_type="text/plain"),
+            custom_metadata={"source": "agent_output"},
+        )
+
+        report = await supervisor.migrate_legacy_sessions(session_metadata=metadata)
+
+        assert report.migrated == 2
+        assert report.removed_placeholders == 1
+        assert report.skipped == 0
+        assert report.failed == 0
+        legacy = await session_service.list_sessions(
+            app_name=LEGACY_ADK_APP_NAME,
+            user_id=None,
+        )
+        assert legacy.sessions == []
+
+        migrated_fallback = await session_service.get_session(
+            app_name=adk_app_name_for_agent_id("main"),
+            user_id="owner",
+            session_id="fallback",
+        )
+        assert migrated_fallback is not None
+        assert [event.id for event in migrated_fallback.events] == ["fallback-event"]
+        assert metadata.get("fallback").agent_id == "main"  # type: ignore[union-attr]
+
+        migrated_owned = await session_service.get_session(
+            app_name=adk_app_name_for_agent_id("research"),
+            user_id="owner",
+            session_id="owned",
+        )
+        assert migrated_owned is not None
+        assert [event.id for event in migrated_owned.events] == ["owned-event"]
+        assert metadata.get("owned").agent_id == "research"  # type: ignore[union-attr]
+        versions = await artifact_service.list_artifact_versions(
+            app_name=adk_app_name_for_agent_id("research"),
+            user_id="owner",
+            session_id="owned",
+            filename=key,
+        )
+        copied = await artifact_service.load_artifact(
+            app_name=adk_app_name_for_agent_id("research"),
+            user_id="owner",
+            session_id="owned",
+            filename=key,
+            version=0,
+        )
+        assert [version.version for version in versions] == [0]
+        assert versions[0].custom_metadata == {"source": "agent_output"}
+        assert copied is not None
+        assert copied.inline_data.data == b"report"  # type: ignore[union-attr]
+
+        rerun = await supervisor.migrate_legacy_sessions(session_metadata=metadata)
+        assert rerun.migrated == 0
+        assert rerun.removed_placeholders == 0
+        assert rerun.failed == 0
+
+    asyncio.run(scenario())
+
+
+def test_migrate_legacy_session_preserves_source_when_owner_is_missing(tmp_path) -> None:
+    session_service = InMemorySessionService()
+    assembler = SimpleNamespace(
+        services=SimpleNamespace(session_service=session_service, artifact_service=None)
+    )
+
+    class _Repository:
+        @staticmethod
+        def list_agent_ids() -> tuple[str, ...]:
+            return ("main",)
+
+    supervisor = NodeRuntimeSupervisor(
+        config_service=SimpleNamespace(repository=_Repository()),
+        assembler=assembler,
+    )
+    metadata = SessionMetadataStore(tmp_path / "session_metadata.db")
+
+    async def scenario() -> None:
+        source = await session_service.create_session(
+            app_name=LEGACY_ADK_APP_NAME,
+            user_id="owner",
+            session_id="missing-owner",
+        )
+        await session_service.append_event(
+            source,
+            Event(
+                id="keep-event",
+                author="user",
+                content=types.Content(
+                    role="user",
+                    parts=[types.Part.from_text(text="Do not lose this")],
+                ),
+            ),
+        )
+        metadata.update(
+            session_id="missing-owner",
+            agent_id="removed-agent",
+            principal_id="owner",
+        )
+
+        report = await supervisor.migrate_legacy_sessions(session_metadata=metadata)
+
+        assert report.skipped == 1
+        assert report.migrated == 0
+        retained = await session_service.get_session(
+            app_name=LEGACY_ADK_APP_NAME,
+            user_id="owner",
+            session_id="missing-owner",
+        )
+        assert retained is not None
+        assert [event.id for event in retained.events] == ["keep-event"]
 
     asyncio.run(scenario())

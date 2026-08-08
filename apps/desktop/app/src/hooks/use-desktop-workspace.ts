@@ -611,15 +611,6 @@ export function useDesktopWorkspace() {
         if (!mounted) {
           return;
         }
-        let nextSessions = payload.sessions;
-        let nextSelectedSessionId = payload.selectedSessionId;
-        let nextMessages = payload.messages;
-        if (nextSetupStatus.state === "ready" && payload.selectedAgentId && !nextSelectedSessionId) {
-          const created = await window.ppxClient.createSession(payload.selectedAgentId);
-          nextSessions = [created.session, ...nextSessions.filter((session) => session.id !== created.session.id)];
-          nextSelectedSessionId = created.session.id;
-          nextMessages = [];
-        }
         if (!mounted) {
           return;
         }
@@ -632,10 +623,10 @@ export function useDesktopWorkspace() {
           setSetupForm(setupFormFromStatus(nextSetupStatus, nextDiagnostics));
         }
         setAgents(payload.agents);
-        setSessions(nextSessions);
-        replaceMessages(nextMessages);
+        setSessions(payload.sessions);
+        replaceMessages(payload.messages);
         selectAgentId(payload.selectedAgentId);
-        selectSessionId(nextSelectedSessionId);
+        selectSessionId(payload.selectedSessionId);
         setReady(true);
         setBootstrapError(null);
         if (nextSetupStatus.state === "ready") void window.ppxClient
@@ -863,12 +854,6 @@ export function useDesktopWorkspace() {
       }
       return;
     }
-    const created = await window.ppxClient.createSession(agentId);
-    if (requestId === switchRequestIdRef.current) {
-      setSessions([created.session]);
-      selectSessionId(created.session.id);
-      replaceMessages([]);
-    }
   }
 
   async function createAgent(input: AgentCreateRequest): Promise<boolean> {
@@ -884,13 +869,6 @@ export function useDesktopWorkspace() {
       setSessions([]);
       replaceMessages([]);
       setDiagnostics((current) => current ? { ...current, agentCount: current.agentCount + 1 } : current);
-      try {
-        const created = await window.ppxClient.createSession(nextAgent.id);
-        setSessions([created.session]);
-        selectSessionId(created.session.id);
-      } catch (error) {
-        setSendError(error instanceof Error ? error.message : String(error));
-      }
       return true;
     } catch (error) {
       setAgentCreateError(error instanceof Error ? error.message : String(error));
@@ -1165,9 +1143,7 @@ export function useDesktopWorkspace() {
       ?? listed.sessions.find((session) => !session.archived)
       ?? listed.sessions[0];
     if (!next) {
-      const created = await window.ppxClient.createSession(agentId);
-      setSessions([created.session]);
-      selectSessionId(created.session.id);
+      selectSessionId("");
       replaceMessages([]);
       return;
     }

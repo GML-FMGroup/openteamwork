@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import threading
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -38,6 +39,7 @@ from .session_metadata_store import SessionMetadataStore
 
 
 ServerFactory = Callable[..., Any]
+LOGGER = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True, slots=True)
@@ -125,6 +127,30 @@ def build_node_composition(
         assembler=assembler,
     )
     session_metadata = control_plane.session_metadata
+    try:
+        migration = runtime_supervisor.migrate_legacy_sessions_sync(
+            session_metadata=session_metadata,
+        )
+    except Exception:
+        # Legacy migration is recoverable: leave the source namespace intact
+        # and allow the Node to start so the next launch can retry it.
+        LOGGER.exception("Legacy ADK Session migration could not be started; source data was retained.")
+    else:
+        if any(
+            (
+                migration.migrated,
+                migration.removed_placeholders,
+                migration.skipped,
+                migration.failed,
+            )
+        ):
+            LOGGER.info(
+                "Legacy ADK Session migration: migrated=%s placeholders_removed=%s skipped=%s failed=%s",
+                migration.migrated,
+                migration.removed_placeholders,
+                migration.skipped,
+                migration.failed,
+            )
     control_plane.attach_runtime(runtime_supervisor)
     try:
         operations_config = control_plane.config_repository.read_node().document.spec.operations
