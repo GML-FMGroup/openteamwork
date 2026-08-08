@@ -34,7 +34,7 @@ Docker-sandboxed execution uses:
 - the workspace mounted at the same absolute path;
 - `.git` metadata mounted read-only;
 - credential-style workspace files masked;
-- no network by default;
+- no direct network by default;
 - bounded CPU, memory, PIDs, temporary storage, timeout, and output;
 - labeled containers with best-effort cleanup after timeout, kill, or removal.
 
@@ -75,6 +75,44 @@ export OPENPPX_SANDBOX_NETWORK_LOCK=disabled
 ```
 
 Grant network access narrowly. A sandbox with network access can still exfiltrate any data made available inside it.
+
+### Permission-derived proxy-only egress
+
+When static Command permissions are enforced, `low`, `medium`, and `high` cannot select host execution:
+
+- `low` runs its reviewed `grep`/`rg` commands in a read-only Workspace mount with network disabled;
+- `medium` and `high` attach only to a Node-configured Docker `--internal` network;
+- a trusted OpenPPX egress proxy is the only service connected to both that internal network and an external network;
+- the proxy loads a revision-addressed, network-only policy and verifies a high-entropy credential for that exact revision;
+- the task container receives its own proxy credential but cannot read the policy directory or select another revision without that revision's credential.
+
+Provisioning is an operator action. OpenPPX verifies the network but never creates or weakens it during an Agent call:
+
+```bash
+docker network create --internal openppx-egress-internal
+```
+
+Run `ppx-egress-proxy` from a reviewed service image that has OpenPPX installed. Mount the Node-owned policy directory read-only, start the proxy on an external network, and then attach only that trusted proxy container to the internal network:
+
+```bash
+docker build \
+  --tag openppx-egress-proxy:dev \
+  --file docker/egress-proxy/Dockerfile \
+  .
+
+docker run -d \
+  --name openppx-egress-proxy \
+  --network bridge \
+  --mount type=bind,src=/srv/openppx/egress-policies,dst=/policies,readonly \
+  openppx-egress-proxy:dev \
+  --policy-directory /policies --listen 0.0.0.0 --port 3128
+
+docker network connect openppx-egress-internal openppx-egress-proxy
+```
+
+The matching Node configuration uses `http://openppx-egress-proxy:3128`, Docker network `openppx-egress-internal`, and host policy directory `/srv/openppx/egress-policies`. The directory is created with restrictive permissions and must stay outside every Agent Workspace.
+
+For plain HTTP the proxy evaluates the actual method. For HTTPS CONNECT, the method is encrypted, so the proxy requires connect/read/write/upload permission together and blocks the whole origin if any of those actions is denied. Proxy audit logs contain Agent ID, permission revision, method, scheme, port, visibility, outcome, and reason code, but omit destination host, URL path, query, headers, and body.
 
 ## Image policy
 
@@ -149,6 +187,17 @@ python -m pytest -q tests/test_docker_sandbox_integration.py
 ```
 
 The integration suite verifies workspace masking, read-only Git metadata, default network denial, PTY/background cleanup, Skill API execution, and trusted network/image controls.
+
+After building both images, the opt-in egress integration creates two temporary Docker networks and verifies that a task can reach a target through the revision-bound proxy but cannot connect to the target directly:
+
+```bash
+export OPENPPX_RUN_DOCKER_EGRESS_TESTS=1
+export OPENPPX_SANDBOX_IMAGE=openppx-sandbox:dev
+export OPENPPX_EGRESS_PROXY_IMAGE=openppx-egress-proxy:dev
+python -m pytest -q tests/runtime/test_proxy_egress_docker_integration.py
+```
+
+The test removes its named containers and networks in a `finally` block.
 
 ## Operational cautions
 

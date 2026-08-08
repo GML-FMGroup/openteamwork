@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from openppx.modeling.selection import ModelResolution
+from openppx.permissions import ResolvedPermissionSnapshot
 
 from .models import AgentConfig, NodeConfig
 
@@ -24,5 +25,6 @@ class ConfigSnapshot:
     node: NodeConfig
     agent: AgentConfig
     model: ModelResolution
+    permissions: ResolvedPermissionSnapshot
     origins: tuple[ConfigOrigin, ...]
     revision: str

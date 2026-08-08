@@ -22,6 +22,8 @@ from .plan import (
     SandboxMount,
     ValidatedSandboxExecutionPlan,
 )
+from .permissions import derive_sandbox_permission_profile
+from .proxy_network import verify_docker_internal_network
 from .profiles import read_only_profile, workspace_write_profile
 from .recipe_options import RecipeSandboxOptions, recipe_sandbox_declared, resolve_recipe_sandbox_options
 from .validation import (
@@ -51,6 +53,8 @@ __all__ = [
     "SandboxMount",
     "SandboxValidationError",
     "ValidatedSandboxExecutionPlan",
+    "derive_sandbox_permission_profile",
+    "verify_docker_internal_network",
     "WorkspaceDockerSandbox",
     "build_docker_run_spec",
     "build_sandbox_diagnostics",

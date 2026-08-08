@@ -1,0 +1,229 @@
+"""Path Gate and permission-derived sandbox boundary tests."""
+
+from __future__ import annotations
+
+import os
+from pathlib import Path
+
+import pytest
+
+from openppx.config import AgentConfig, NodeConfig
+from openppx.permissions import AgentWorkspaceBoundary, authorize_path, compile_permission_snapshot
+from openppx.runtime.sandbox import NetworkMode, PathAccessMode, derive_sandbox_permission_profile
+
+
+def _snapshot(
+    preset: str,
+    workspace: Path,
+    *,
+    node_permissions: dict[str, object] | None = None,
+    boundaries: tuple[AgentWorkspaceBoundary, ...] = (),
+):
+    effective_node_permissions = {
+        "rolloutModes": {"workspace": "enforce", "external_path": "enforce"},
+        **(node_permissions or {}),
+    }
+    node = NodeConfig.model_validate(
+        {
+            "apiVersion": "openppx.io/v1alpha1",
+            "kind": "NodeConfig",
+            "metadata": {"name": "node"},
+            "spec": {
+                "displayName": "Node",
+                "enabledAgents": ["worker"],
+                "permissions": effective_node_permissions,
+            },
+        }
+    )
+    agent = AgentConfig.model_validate(
+        {
+            "apiVersion": "openppx.io/v1alpha1",
+            "kind": "AgentConfig",
+            "metadata": {"name": "worker"},
+            "spec": {
+                "displayName": "Worker",
+                "workspace": str(workspace),
+                "ownerPrincipalId": "local:owner",
+                "privilegeLevel": preset,
+            },
+        }
+    )
+    return compile_permission_snapshot(node=node, agent=agent, agent_workspaces=boundaries)
+
+
+def test_low_can_read_but_cannot_write_its_workspace(tmp_path: Path) -> None:
+    workspace = tmp_path / "low"
+    workspace.mkdir()
+    target = workspace / "answer.txt"
+    target.write_text("answer", encoding="utf-8")
+    snapshot = _snapshot("low", workspace)
+
+    assert authorize_path(snapshot, workspace_root=workspace, raw_path=target, action="read").path == target
+    with pytest.raises(PermissionError, match="Path action 'write'"):
+        authorize_path(snapshot, workspace_root=workspace, raw_path=target, action="write")
+
+
+def test_medium_safe_root_never_overrides_high_workspace_deny(tmp_path: Path) -> None:
+    workspace = tmp_path / "medium"
+    high_workspace = tmp_path / "shared" / "high"
+    workspace.mkdir()
+    high_workspace.mkdir(parents=True)
+    secret = high_workspace / "secret.txt"
+    secret.write_text("secret", encoding="utf-8")
+    snapshot = _snapshot(
+        "medium",
+        workspace,
+        node_permissions={"safeExternalReadRoots": [str(tmp_path / "shared")]},
+        boundaries=(
+            AgentWorkspaceBoundary(
+                agent_id="high-agent",
+                privilege_level="high",
+                workspace=str(high_workspace),
+            ),
+        ),
+    )
+
+    with pytest.raises(PermissionError, match="explicit_deny"):
+        authorize_path(snapshot, workspace_root=workspace, raw_path=secret, action="read")
+
+
+def test_symlink_is_classified_by_its_canonical_external_target(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    external = tmp_path / "external"
+    workspace.mkdir()
+    external.mkdir()
+    secret = external / "secret.txt"
+    secret.write_text("secret", encoding="utf-8")
+    (workspace / "shortcut").symlink_to(secret)
+
+    with pytest.raises(PermissionError):
+        authorize_path(
+            _snapshot("medium", workspace),
+            workspace_root=workspace,
+            raw_path="shortcut",
+            action="read",
+        )
+
+
+@pytest.mark.skipif(not hasattr(os, "link"), reason="hard links are unavailable")
+def test_non_root_presets_reject_hardlinked_files(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    source = workspace / "source.txt"
+    alias = workspace / "alias.txt"
+    source.write_text("shared inode", encoding="utf-8")
+    os.link(source, alias)
+
+    with pytest.raises(PermissionError, match="Hard-linked"):
+        authorize_path(
+            _snapshot("medium", workspace),
+            workspace_root=workspace,
+            raw_path=alias,
+            action="read",
+        )
+
+
+def test_authorized_file_descriptor_rejects_inode_replacement(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    target = workspace / "answer.txt"
+    replacement = workspace / "replacement.txt"
+    target.write_text("original", encoding="utf-8")
+    replacement.write_text("replacement", encoding="utf-8")
+    authorized = authorize_path(
+        _snapshot("medium", workspace),
+        workspace_root=workspace,
+        raw_path=target,
+        action="read",
+    )
+    os.replace(replacement, target)
+
+    with pytest.raises(PermissionError, match="identity changed"):
+        authorized.open_fd(os.O_RDONLY)
+
+
+@pytest.mark.parametrize(
+    ("preset", "workspace_access", "network_mode"),
+    [
+        ("low", PathAccessMode.READ, NetworkMode.DISABLED),
+        ("medium", PathAccessMode.WRITE, NetworkMode.PROXY_ONLY),
+        ("high", PathAccessMode.WRITE, NetworkMode.PROXY_ONLY),
+        ("root", PathAccessMode.WRITE, NetworkMode.ENABLED),
+    ],
+)
+def test_sandbox_profile_is_derived_from_the_permission_snapshot(
+    tmp_path: Path,
+    preset: str,
+    workspace_access: PathAccessMode,
+    network_mode: NetworkMode,
+) -> None:
+    workspace = tmp_path / preset
+    workspace.mkdir()
+
+    profile = derive_sandbox_permission_profile(_snapshot(preset, workspace), workspace_root=workspace)
+    workspace_grants = (*profile.filesystem.readable_roots, *profile.filesystem.writable_roots)
+
+    assert len([grant for grant in workspace_grants if grant.logical_name == "workspace"]) == 1
+    assert next(grant.access for grant in workspace_grants if grant.logical_name == "workspace") == workspace_access
+    assert profile.network.mode == network_mode
+
+
+def test_medium_safe_root_becomes_a_readonly_sandbox_grant(tmp_path: Path) -> None:
+    workspace = tmp_path / "medium"
+    safe_root = tmp_path / "reference"
+    workspace.mkdir()
+    safe_root.mkdir()
+    profile = derive_sandbox_permission_profile(
+        _snapshot(
+            "medium",
+            workspace,
+            node_permissions={"safeExternalReadRoots": [str(safe_root)]},
+        ),
+        workspace_root=workspace,
+    )
+
+    assert any(
+        grant.host_path == safe_root and grant.access == PathAccessMode.READ
+        for grant in profile.filesystem.readable_roots
+    )
+
+
+def test_high_reads_external_files_but_cannot_mutate_node_protected_roots(tmp_path: Path) -> None:
+    workspace = tmp_path / "high"
+    protected = tmp_path / "protected"
+    workspace.mkdir()
+    protected.mkdir()
+    target = protected / "node.json"
+    target.write_text("{}", encoding="utf-8")
+    snapshot = _snapshot(
+        "high",
+        workspace,
+        node_permissions={"highProtectedWriteRoots": [str(protected)]},
+    )
+
+    assert authorize_path(
+        snapshot,
+        workspace_root=workspace,
+        raw_path=target,
+        action="read",
+    ).path == target
+    with pytest.raises(PermissionError, match="explicit_deny"):
+        authorize_path(
+            snapshot,
+            workspace_root=workspace,
+            raw_path=target,
+            action="write",
+        )
+
+
+def test_root_can_read_and_write_external_paths(tmp_path: Path) -> None:
+    workspace = tmp_path / "root"
+    external = tmp_path / "external"
+    workspace.mkdir()
+    external.mkdir()
+    target = external / "system.conf"
+    target.write_text("value", encoding="utf-8")
+    snapshot = _snapshot("root", workspace)
+
+    assert authorize_path(snapshot, workspace_root=workspace, raw_path=target, action="read").path == target
+    assert authorize_path(snapshot, workspace_root=workspace, raw_path=target, action="write").path == target

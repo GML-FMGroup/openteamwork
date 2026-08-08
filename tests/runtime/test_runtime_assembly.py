@@ -169,6 +169,7 @@ def test_snapshot_builds_real_adk_runner_and_completes_hello_without_env_project
 
     assert response == "Hello from immutable snapshot"
     assert runtime.metadata.snapshot_revision == snapshot.revision
+    assert runtime.metadata.permission_revision == snapshot.permissions.revision
     assert runtime.metadata.agent_id == "low-main"
     assert runtime.metadata.model_profile_id == "primary"
     assert dict(os.environ) == before

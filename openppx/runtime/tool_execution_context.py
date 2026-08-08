@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any, Callable, Iterator, ParamSpec, TypeVar, cast
 
 from openppx.core.security import SecurityPolicy, load_security_policy
+from openppx.permissions import PermissionAuditSink, ResolvedPermissionSnapshot
 
 
 P = ParamSpec("P")
@@ -28,9 +29,18 @@ class ToolExecutionContext:
     agent_id: str
     workspace_root: Path
     security_policy: SecurityPolicy
+    permission_snapshot: ResolvedPermissionSnapshot | None = None
+    permission_audit: PermissionAuditSink | None = None
 
     @classmethod
-    def for_agent(cls, *, agent_id: str, workspace_root: str | Path) -> "ToolExecutionContext":
+    def for_agent(
+        cls,
+        *,
+        agent_id: str,
+        workspace_root: str | Path,
+        permission_snapshot: ResolvedPermissionSnapshot | None = None,
+        permission_audit: PermissionAuditSink | None = None,
+    ) -> "ToolExecutionContext":
         """Build a context using an explicit Agent Workspace and ambient Node limits."""
         normalized_agent_id = str(agent_id or "").strip()
         if not normalized_agent_id:
@@ -40,6 +50,8 @@ class ToolExecutionContext:
             agent_id=normalized_agent_id,
             workspace_root=normalized_workspace,
             security_policy=load_security_policy(workspace_root=normalized_workspace),
+            permission_snapshot=permission_snapshot,
+            permission_audit=permission_audit,
         )
 
 

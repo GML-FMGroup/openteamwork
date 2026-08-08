@@ -19,6 +19,7 @@ from openppx.extensions.mcp_models import (
     McpValueBinding,
 )
 from openppx.extensions.mcp_oauth import McpOAuthService
+from openppx.permissions import PermissionAuditSink, ResolvedPermissionSnapshot, authorize_network_url
 
 
 @dataclass(frozen=True, slots=True)
@@ -57,14 +58,37 @@ class McpRuntimeAdapter:
         self.secret_store = secret_store
         self.oauth_service = oauth_service or McpOAuthService(secret_store)
 
-    def build(self, snapshot: McpSnapshot) -> McpRuntimeBuild:
+    def build(
+        self,
+        snapshot: McpSnapshot,
+        *,
+        permission_snapshot: ResolvedPermissionSnapshot | None = None,
+        permission_audit: PermissionAuditSink | None = None,
+    ) -> McpRuntimeBuild:
         """Build toolsets without ever copying Secret values into persisted resources."""
         toolsets: list[ManagedMcpToolset] = []
         diagnostics: list[McpRuntimeDiagnostic] = []
         for entry in snapshot.entries:
             server_id = entry.record.metadata.name
             try:
+                if permission_snapshot is not None and isinstance(entry.record.spec.transport, McpRemoteTransport):
+                    authorize_network_url(
+                        permission_snapshot,
+                        entry.record.spec.transport.url,
+                        method="POST",
+                        actions=("connect", "read", "write", "upload"),
+                        audit=permission_audit,
+                    )
                 raw = self._runtime_config(server_id, entry.record.spec.transport)
+            except PermissionError:
+                diagnostics.append(
+                    McpRuntimeDiagnostic(
+                        server_id=server_id,
+                        code="permission_denied",
+                        message="Remote MCP endpoint is not allowed by the Agent network policy.",
+                    )
+                )
+                continue
             except SecretNotFound:
                 diagnostics.append(
                     McpRuntimeDiagnostic(

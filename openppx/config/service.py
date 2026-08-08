@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from enum import Enum
 from pathlib import Path
 from typing import Callable, Generic, Mapping, Sequence, TypeVar
@@ -13,6 +13,12 @@ from pydantic import BaseModel, ValidationError
 
 from openppx.modeling.repository import ModelProfileRepository
 from openppx.modeling.selection import ModelProfileSelector, ModelRequirements
+from openppx.permissions import (
+    AgentWorkspaceBoundary,
+    PermissionChange,
+    compile_permission_snapshot,
+    diff_permission_snapshots,
+)
 
 from .diagnostics import ConfigDiagnostics, ConfigIssue, ConfigLoadError, ConfigRevisionConflict, validation_issues
 from .layers import ConfigOrigin, ConfigSnapshot
@@ -57,6 +63,8 @@ class ConfigPreview:
     candidate_revision: str
     changes: tuple[ConfigChange, ...]
     effect: ConfigEffect
+    candidate_permission_revision: str | None = None
+    permission_changes: tuple[PermissionChange, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -135,13 +143,42 @@ class ConfigService:
         """Return the structural Agent diff and effect without persistence."""
         self._require_agent_identity(agent_id, candidate)
         current = self._optional_current(lambda: self.repository.read_agent(agent_id))
-        return self._preview(
+        preview = self._preview(
             candidate,
             current=current,
             expected_revision=expected_revision,
             source=f"agent:{agent_id}",
             path=self.repository.paths.agent_file(agent_id),
             resource_kind="agent",
+        )
+        node = self._optional_current(self.repository.read_node)
+        if node is None:
+            return preview
+        candidate_permissions = compile_permission_snapshot(
+            node=node.document,
+            agent=candidate,
+            agent_workspaces=self._agent_workspace_boundaries(override=candidate),
+            source_revisions={
+                node.resource_id: node.revision,
+                f"agent/{agent_id}": config_revision(candidate),
+            },
+        )
+        permission_changes: tuple[PermissionChange, ...] = ()
+        if current is not None:
+            current_permissions = compile_permission_snapshot(
+                node=node.document,
+                agent=current.document,
+                agent_workspaces=self._agent_workspace_boundaries(),
+                source_revisions={
+                    node.resource_id: node.revision,
+                    current.resource_id: current.revision,
+                },
+            )
+            permission_changes = diff_permission_snapshots(current_permissions, candidate_permissions)
+        return replace(
+            preview,
+            candidate_permission_revision=candidate_permissions.revision,
+            permission_changes=permission_changes,
         )
 
     def apply_node(self, candidate: NodeConfig, *, expected_revision: str | None) -> ConfigApplyResult[NodeConfig]:
@@ -184,8 +221,20 @@ class ConfigService:
             ConfigOrigin(agent.resource_id, agent.revision),
             ConfigOrigin(f"model-profile/{model.profile_id}", model.revision),
         )
+        permissions = compile_permission_snapshot(
+            node=node.document,
+            agent=agent.document,
+            source_revisions={origin.resource_id: origin.revision for origin in origins},
+            agent_workspaces=self._agent_workspace_boundaries(),
+        )
         payload = json.dumps(
-            [{"resourceId": origin.resource_id, "revision": origin.revision} for origin in origins],
+            {
+                "origins": [
+                    {"resourceId": origin.resource_id, "revision": origin.revision}
+                    for origin in origins
+                ],
+                "permissionRevision": permissions.revision,
+            },
             ensure_ascii=False,
             separators=(",", ":"),
             sort_keys=True,
@@ -195,9 +244,36 @@ class ConfigService:
             node=node.document,
             agent=agent.document,
             model=model,
+            permissions=permissions,
             origins=origins,
             revision=revision,
         )
+
+    def _agent_workspace_boundaries(
+        self,
+        *,
+        override: AgentConfig | None = None,
+    ) -> tuple[AgentWorkspaceBoundary, ...]:
+        """Return trusted Workspace ownership facts from versioned Agent resources."""
+
+        agent_ids = set(self.repository.list_agent_ids())
+        if override is not None:
+            agent_ids.add(override.metadata.name)
+        boundaries: list[AgentWorkspaceBoundary] = []
+        for agent_id in sorted(agent_ids):
+            document = (
+                override
+                if override is not None and override.metadata.name == agent_id
+                else self.repository.read_agent(agent_id).document
+            )
+            boundaries.append(
+                AgentWorkspaceBoundary(
+                    agent_id=document.metadata.name,
+                    privilege_level=document.spec.privilege_level,
+                    workspace=document.spec.workspace,
+                )
+            )
+        return tuple(boundaries)
 
     def _require_agent_identity(self, agent_id: str, candidate: AgentConfig) -> None:
         """Reject a path/resource identity mismatch before preview or persistence."""
@@ -334,7 +410,17 @@ def _effect_for_path(resource_kind: str, path: tuple[str | int, ...]) -> ConfigE
             return ConfigEffect.RESTART_REQUIRED
         if path[:2] == ("spec", "enabledAgents"):
             return ConfigEffect.NEXT_RUN
+        if path[:2] == ("spec", "permissions"):
+            return ConfigEffect.NEXT_RUN
         return ConfigEffect.LIVE
-    if path[:2] in {("spec", "workspace"), ("spec", "ownerPrincipalId"), ("spec", "privilegeLevel"), ("spec", "permissionOverrides"), ("spec", "modelPolicy")}:
+    next_run_paths = {
+        ("spec", "workspace"),
+        ("spec", "ownerPrincipalId"),
+        ("spec", "privilegeLevel"),
+        ("spec", "permissionOverrides"),
+        ("spec", "permissions"),
+        ("spec", "modelPolicy"),
+    }
+    if path[:2] in next_run_paths:
         return ConfigEffect.NEXT_RUN
     return ConfigEffect.LIVE

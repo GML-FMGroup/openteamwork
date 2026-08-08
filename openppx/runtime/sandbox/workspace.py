@@ -16,6 +16,7 @@ from .plan import (
     NetworkPolicy,
     PathAccessMode,
     PathGrant,
+    PermissionProfile,
     ResourceLimits,
     SandboxCommand,
     SandboxExecutionPlan,
@@ -23,6 +24,7 @@ from .plan import (
     ValidatedSandboxExecutionPlan,
 )
 from .profiles import workspace_write_profile
+from .proxy_network import verify_docker_internal_network
 from .validation import resolve_network_mode
 
 
@@ -53,11 +55,13 @@ def build_workspace_docker_sandbox(
     network_mode: NetworkMode | None = None,
     network_approved: bool = False,
     tty: bool = False,
+    permission_profile: PermissionProfile | None = None,
+    verify_proxy_network: bool = True,
 ) -> WorkspaceDockerSandbox:
     """Build a validated Docker sandbox command for a workspace execution."""
     root = workspace.resolve(strict=False)
     cap = max(1, int(timeout_cap_seconds))
-    profile = workspace_write_profile(root)
+    profile = permission_profile or workspace_write_profile(root)
     trusted_readonly_mounts = _trusted_readonly_mounts(readonly_mounts or {})
     if trusted_readonly_mounts:
         profile = replace(
@@ -79,7 +83,14 @@ def build_workspace_docker_sandbox(
             lock_mode=network_lock,
             approved=network_approved,
         )
-        profile = replace(profile, network=NetworkPolicy(mode=resolved_network, lock=network_lock))
+        profile = replace(
+            profile,
+            network=replace(
+                profile.network,
+                mode=resolved_network,
+                lock=network_lock or profile.network.lock,
+            ),
+        )
     plan_labels = {
         "openppx.run_id": uuid.uuid4().hex,
         **{str(k): str(v) for k, v in (labels or {}).items()},
@@ -91,6 +102,7 @@ def build_workspace_docker_sandbox(
         profile=profile,
         mounts=(
             *_workspace_mounts(profile=profile, root=root),
+            *_permission_external_mounts(profile=profile, root=root),
             *_readonly_mounts_from_trusted_paths(trusted_readonly_mounts),
         ),
         env={str(k): str(v) for k, v in (env or {}).items()},
@@ -101,6 +113,11 @@ def build_workspace_docker_sandbox(
     validated = ValidatedSandboxExecutionPlan.from_plan(plan)
     resolved_docker_bin = docker_bin or os.getenv("OPENPPX_SANDBOX_DOCKER_BIN", "").strip() or "docker"
     resolved_image = image or os.getenv("OPENPPX_SANDBOX_IMAGE", "").strip() or "openppx-sandbox:dev"
+    if profile.network.mode == NetworkMode.PROXY_ONLY and verify_proxy_network:
+        verify_docker_internal_network(
+            docker_bin=resolved_docker_bin,
+            network_name=str(profile.network.docker_network or ""),
+        )
     spec = build_docker_run_spec(
         validated,
         config=DockerSandboxConfig(
@@ -172,13 +189,14 @@ def cleanup_docker_sandbox_container(docker_bin: str, container_name: str) -> No
             continue
 
 
-def _workspace_mounts(*, profile: object, root: Path) -> tuple[SandboxMount, ...]:
+def _workspace_mounts(*, profile: PermissionProfile, root: Path) -> tuple[SandboxMount, ...]:
+    workspace_access = _workspace_access(profile=profile, root=root)
     mounts: list[SandboxMount] = [
         SandboxMount(
             logical_name="workspace",
             host_path=root,
             container_path=str(root),
-            access=PathAccessMode.WRITE,
+            access=workspace_access,
         )
     ]
 
@@ -205,6 +223,38 @@ def _workspace_mounts(*, profile: object, root: Path) -> tuple[SandboxMount, ...
                     mask=True,
                 )
             )
+    return tuple(mounts)
+
+
+def _workspace_access(*, profile: PermissionProfile, root: Path) -> PathAccessMode:
+    for grant in profile.filesystem.writable_roots:
+        if grant.logical_name == "workspace" and grant.host_path.resolve(strict=False) == root:
+            return PathAccessMode.WRITE
+    for grant in profile.filesystem.readable_roots:
+        if grant.logical_name == "workspace" and grant.host_path.resolve(strict=False) == root:
+            return PathAccessMode.READ
+    raise ValueError("permission profile must contain exactly one workspace grant")
+
+
+def _permission_external_mounts(*, profile: PermissionProfile, root: Path) -> tuple[SandboxMount, ...]:
+    mounts: list[SandboxMount] = []
+    grants = (*profile.filesystem.readable_roots, *profile.filesystem.writable_roots)
+    for grant in grants:
+        if (
+            grant.logical_name == "workspace"
+            or grant.logical_name.startswith("backend:")
+            or grant.host_path.resolve(strict=False) == root
+        ):
+            continue
+        mounts.append(
+            SandboxMount(
+                logical_name=grant.logical_name,
+                host_path=grant.host_path,
+                container_path=grant.container_path,
+                access=grant.access,
+                required=grant.must_exist,
+            )
+        )
     return tuple(mounts)
 
 

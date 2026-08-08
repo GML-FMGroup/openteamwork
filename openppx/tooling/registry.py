@@ -8,6 +8,7 @@ import difflib
 import fnmatch
 import hashlib
 import html
+import io
 import json
 import mimetypes
 import os
@@ -21,12 +22,13 @@ import threading
 import uuid
 import zipfile
 from collections.abc import Iterable
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Any, Callable
 from urllib.error import HTTPError, URLError
 from urllib.parse import quote, urlencode, urlparse
-from urllib.request import Request, urlopen
+from urllib.request import HTTPRedirectHandler, Request, build_opener, urlopen
 import xml.etree.ElementTree as ET
 
 from ..browser.schema import (
@@ -66,6 +68,7 @@ from ..runtime.sandbox import (
     WorkspaceDockerSandbox,
     build_workspace_docker_sandbox,
     cleanup_docker_sandbox_container,
+    derive_sandbox_permission_profile,
     resolve_backend,
 )
 from ..runtime.step_events import build_step_metadata, normalize_outbound_metadata
@@ -87,6 +90,14 @@ from ..runtime.paths import node_database_path
 from ..runtime.tool_context import get_route
 from ..runtime.tool_execution_context import current_tool_execution_context
 from ..core.security import PathGuard, SecurityPolicy, load_security_policy, validate_network_url
+from ..permissions import (
+    AuthorizedPath,
+    ProcessFacts,
+    authorize_command,
+    authorize_network_url,
+    authorize_path,
+    authorize_process,
+)
 from . import file_state
 
 
@@ -126,10 +137,54 @@ def _workspace(policy: SecurityPolicy | None = None) -> Path:
     return (policy or _security_policy()).workspace_root
 
 
-def _resolve_path(path: str, *, base_dir: Path | None = None, policy: SecurityPolicy | None = None) -> Path:
+def _resolve_path(
+    path: str,
+    *,
+    base_dir: Path | None = None,
+    policy: SecurityPolicy | None = None,
+    permission_action: str | None = None,
+) -> Path:
+    resolved, _authorized = _resolve_path_with_authorization(
+        path,
+        base_dir=base_dir,
+        policy=policy,
+        permission_action=permission_action,
+    )
+    return resolved
+
+
+def _resolve_path_with_authorization(
+    path: str,
+    *,
+    base_dir: Path | None = None,
+    policy: SecurityPolicy | None = None,
+    permission_action: str | None = None,
+) -> tuple[Path, AuthorizedPath | None]:
+    """Resolve a path and retain the capability used for race-safe file I/O."""
+
     active = policy or _security_policy()
+    runtime_context = current_tool_execution_context()
+    resolved_input: str | Path = path
+    authorized: AuthorizedPath | None = None
+    if (
+        permission_action is not None
+        and runtime_context is not None
+        and runtime_context.permission_snapshot is not None
+    ):
+        authorized = authorize_path(
+            runtime_context.permission_snapshot,
+            workspace_root=runtime_context.workspace_root,
+            raw_path=path,
+            action=permission_action,  # type: ignore[arg-type]
+            base_dir=base_dir,
+            audit=runtime_context.permission_audit,
+        )
+        resolved_input = authorized.path
     guard = PathGuard(active)
-    return guard.resolve_path(path, base_dir=base_dir)
+    resolved = guard.resolve_path(str(resolved_input), base_dir=base_dir)
+    if authorized is not None and resolved != authorized.path:
+        raise PermissionError("Legacy and static Path boundaries resolved different targets.")
+    return resolved, authorized
 
 
 def _ensure_write_allowed(policy: SecurityPolicy | None = None) -> None:
@@ -184,6 +239,7 @@ _READ_MAX_OFFICE_CHARS = 128_000
 _READ_MAX_PDF_PAGES = 20
 _READ_MAX_XLSX_ROWS = 200
 _READ_MAX_XLSX_COLS = 50
+_READ_MAX_SPECIAL_BYTES = 64 * 1024 * 1024
 _GLOB_DEFAULT_HEAD_LIMIT = 250
 _GREP_DEFAULT_HEAD_LIMIT = 250
 _GREP_MAX_RESULT_CHARS = 128_000
@@ -284,6 +340,39 @@ def _resolve_read_path(*, path: str | None, file_path: str | None) -> str | None
     if isinstance(file_path, str) and file_path.strip():
         return file_path
     return None
+
+
+def _open_authorized_fd(target: Path, authorized: AuthorizedPath | None, flags: int) -> int:
+    """Open a file without following a final symlink or losing its authorized identity."""
+
+    if authorized is not None:
+        return authorized.open_fd(flags)
+    return os.open(target, flags | getattr(os, "O_NOFOLLOW", 0))
+
+
+def _read_authorized_bytes(
+    target: Path,
+    authorized: AuthorizedPath | None,
+    *,
+    max_bytes: int | None = None,
+) -> bytes:
+    """Read bytes from the exact file descriptor accepted by the Path Gate."""
+
+    fd = _open_authorized_fd(target, authorized, os.O_RDONLY)
+    with os.fdopen(fd, "rb") as handle:
+        raw = handle.read() if max_bytes is None else handle.read(max_bytes + 1)
+    if max_bytes is not None and len(raw) > max_bytes:
+        raise ValueError(f"File exceeds the supported read size of {_format_bytes(max_bytes)}.")
+    return raw
+
+
+@contextmanager
+def _authorized_text_reader(target: Path, authorized: AuthorizedPath | None):
+    """Yield a UTF-8 reader for the exact file accepted by the Path Gate."""
+
+    fd = _open_authorized_fd(target, authorized, os.O_RDONLY)
+    with os.fdopen(fd, "r", encoding="utf-8") as handle:
+        yield handle
 
 
 def _looks_like_blocked_device_path(path: str | Path) -> bool:
@@ -388,14 +477,20 @@ def _iter_entries(
         return
 
     for dirpath, dirnames, filenames in os.walk(root):
-        dirnames[:] = sorted(d for d in dirnames if d not in _LIST_DIR_IGNORE_DIRS)
         current = Path(dirpath)
+        dirnames[:] = sorted(
+            d
+            for d in dirnames
+            if d not in _LIST_DIR_IGNORE_DIRS and not (current / d).is_symlink()
+        )
         if include_dirs:
             for dirname in dirnames:
                 yield current / dirname
         if include_files:
             for filename in sorted(filenames):
-                yield current / filename
+                candidate = current / filename
+                if not candidate.is_symlink():
+                    yield candidate
 
 
 def _iter_files(root: Path) -> Iterable[Path]:
@@ -592,11 +687,11 @@ def _truncate_extracted_text(text: str) -> str:
     return text[:_READ_MAX_OFFICE_CHARS] + "\n\n[Document text truncated.]"
 
 
-def _read_docx_text(target: Path) -> str:
+def _read_docx_text(raw: bytes) -> str:
     """Extract text from a DOCX file using its zipped XML payload."""
 
     try:
-        with zipfile.ZipFile(target) as archive:
+        with zipfile.ZipFile(io.BytesIO(raw)) as archive:
             xml_bytes = archive.read("word/document.xml")
     except KeyError:
         return f"Error: {target.name} does not contain word/document.xml"
@@ -609,11 +704,11 @@ def _slide_sort_key(name: str) -> tuple[int, str]:
     return (int(match.group(1)) if match else 0, name)
 
 
-def _read_pptx_text(target: Path) -> str:
+def _read_pptx_text(raw: bytes) -> str:
     """Extract slide text from a PPTX file using its zipped XML payload."""
 
     parts: list[str] = []
-    with zipfile.ZipFile(target) as archive:
+    with zipfile.ZipFile(io.BytesIO(raw)) as archive:
         slide_names = sorted(
             [name for name in archive.namelist() if re.match(r"ppt/slides/slide\d+\.xml$", name)],
             key=_slide_sort_key,
@@ -625,7 +720,7 @@ def _read_pptx_text(target: Path) -> str:
     return _truncate_extracted_text("\n\n".join(parts))
 
 
-def _read_xlsx_text(target: Path) -> str:
+def _read_xlsx_text(raw: bytes) -> str:
     """Extract a bounded TSV preview from an XLSX workbook."""
 
     try:
@@ -633,7 +728,7 @@ def _read_xlsx_text(target: Path) -> str:
     except ModuleNotFoundError:
         return "Error: XLSX reading requires openpyxl to be installed."
 
-    workbook = load_workbook(target, read_only=True, data_only=True)
+    workbook = load_workbook(io.BytesIO(raw), read_only=True, data_only=True)
     try:
         lines: list[str] = []
         for sheet in workbook.worksheets:
@@ -687,7 +782,7 @@ def _parse_pdf_pages(pages: str | None, *, total_pages: int) -> list[int] | str:
     return unique
 
 
-def _read_pdf_text(target: Path, *, pages: str | None) -> str:
+def _read_pdf_text(raw: bytes, *, pages: str | None) -> str:
     """Extract bounded PDF text when PyMuPDF is available."""
 
     try:
@@ -695,7 +790,7 @@ def _read_pdf_text(target: Path, *, pages: str | None) -> str:
     except ModuleNotFoundError:
         return "Error: PDF reading requires PyMuPDF (pymupdf) to be installed."
 
-    with fitz.open(target) as document:
+    with fitz.open(stream=raw, filetype="pdf") as document:
         selected = _parse_pdf_pages(pages, total_pages=len(document))
         if isinstance(selected, str):
             return selected
@@ -707,7 +802,7 @@ def _read_pdf_text(target: Path, *, pages: str | None) -> str:
     return _truncate_extracted_text("\n\n".join(parts))
 
 
-def _image_file_summary(target: Path) -> str:
+def _image_file_summary(target: Path, raw: bytes) -> str:
     """Return a JSON summary for an image file without dumping binary data."""
 
     mime_type = mimetypes.guess_type(target.name)[0] or "application/octet-stream"
@@ -715,26 +810,26 @@ def _image_file_summary(target: Path) -> str:
         "type": "image",
         "path": str(target),
         "mimeType": mime_type,
-        "sizeBytes": target.stat().st_size,
+        "sizeBytes": len(raw),
         "text": f"(Image file: {target.name})",
     }
     return _json(payload)
 
 
-def _read_special_file(target: Path, *, pages: str | None) -> tuple[str, str] | None:
+def _read_special_file(target: Path, raw: bytes, *, pages: str | None) -> tuple[str, str] | None:
     """Return extracted content and variant name for supported non-text files."""
 
     suffix = target.suffix.lower()
     if suffix in _IMAGE_SUFFIXES:
-        return _image_file_summary(target), "image"
+        return _image_file_summary(target, raw), "image"
     if suffix == ".docx":
-        return _read_docx_text(target), "docx"
+        return _read_docx_text(raw), "docx"
     if suffix == ".pptx":
-        return _read_pptx_text(target), "pptx"
+        return _read_pptx_text(raw), "pptx"
     if suffix == ".xlsx":
-        return _read_xlsx_text(target), "xlsx"
+        return _read_xlsx_text(raw), "xlsx"
     if suffix == ".pdf":
-        return _read_pdf_text(target, pages=pages), "pdf"
+        return _read_pdf_text(raw, pages=pages), "pdf"
     return None
 
 
@@ -964,7 +1059,10 @@ def read_file(
                 return _ret("tool.read_file.output", parsed_limit)
             limit_value = parsed_limit
 
-        target = _resolve_path(effective_path)
+        target, authorized = _resolve_path_with_authorization(
+            effective_path,
+            permission_action="read",
+        )
         if _looks_like_blocked_device_path(target):
             return _ret("tool.read_file.output", f"Error: Refusing to read device or fd path: {effective_path}")
         if not target.exists():
@@ -983,8 +1081,22 @@ def read_file(
             return _ret("tool.read_file.output", f"[File unchanged since last read: {effective_path}]")
 
         read_max_bytes = _resolve_read_max_bytes()
-        special = _read_special_file(target, pages=pages)
-        if special is not None:
+        if authorized is not None and authorized.max_bytes is not None:
+            read_max_bytes = min(read_max_bytes, authorized.max_bytes)
+        special_suffixes = {*_IMAGE_SUFFIXES, ".docx", ".pptx", ".xlsx", ".pdf"}
+        if target.suffix.lower() in special_suffixes:
+            raw = _read_authorized_bytes(
+                target,
+                authorized,
+                max_bytes=min(
+                    _READ_MAX_SPECIAL_BYTES,
+                    authorized.max_bytes
+                    if authorized is not None and authorized.max_bytes is not None
+                    else _READ_MAX_SPECIAL_BYTES,
+                ),
+            )
+            special = _read_special_file(target, raw, pages=pages)
+            assert special is not None
             extracted, special_kind = special
             if extracted.startswith("Error:"):
                 return _ret("tool.read_file.output", extracted)
@@ -1017,7 +1129,7 @@ def read_file(
         has_more = False
         next_offset: int | None = None
         selected_bytes = 0
-        with target.open("r", encoding="utf-8") as handle:
+        with _authorized_text_reader(target, authorized) as handle:
             for line_number, line in enumerate(handle, start=1):
                 if line_number < start_line:
                     continue
@@ -1088,9 +1200,26 @@ def write_file(path: str, content: str) -> str:
     _debug("tool.write_file.input", {"path": path, "chars": len(content)})
     try:
         _ensure_write_allowed()
-        target = _resolve_path(path)
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(content, encoding="utf-8")
+        initial_target = _resolve_path(path)
+        action = "write" if initial_target.exists() else "create"
+        target, authorized = _resolve_path_with_authorization(
+            path,
+            permission_action=action,
+        )
+        content_bytes = content.encode("utf-8")
+        if authorized is not None and authorized.max_bytes is not None and len(content_bytes) > authorized.max_bytes:
+            raise PermissionError("File content exceeds the matched Path rule maxBytes constraint.")
+        if action == "create":
+            if authorized is not None:
+                authorized.ensure_parent_directories()
+            else:
+                target.parent.mkdir(parents=True, exist_ok=True)
+        flags = os.O_WRONLY | os.O_TRUNC
+        if action == "create":
+            flags |= os.O_CREAT | os.O_EXCL
+        fd = _open_authorized_fd(target, authorized, flags)
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(content)
         file_state.record_write(target)
         result = f"Successfully wrote {len(content)} bytes to {target}"
         _debug("tool.write_file.output", result)
@@ -1133,12 +1262,29 @@ def edit_file(path: str, old_text: str, new_text: str, replace_all: bool = False
                 "tool.edit_file.output",
                 "Error: Jupyter notebook editing is not supported by edit_file in this iteration.",
             )
-        target = _resolve_path(path)
-        if not target.exists():
+        initial_target = _resolve_path(path)
+        action = "edit" if initial_target.exists() else "create"
+        target, authorized = _resolve_path_with_authorization(
+            path,
+            permission_action=action,
+        )
+        if authorized is not None and authorized.max_bytes is not None:
+            if action == "create" and len(new_text.encode("utf-8")) > authorized.max_bytes:
+                raise PermissionError("File content exceeds the matched Path rule maxBytes constraint.")
+        if action == "create":
             if old_text.replace("\r\n", "\n") != "":
                 return _ret("tool.edit_file.output", f"Error: File not found: {path}")
-            target.parent.mkdir(parents=True, exist_ok=True)
-            target.write_text(new_text, encoding="utf-8")
+            if authorized is not None:
+                authorized.ensure_parent_directories()
+            else:
+                target.parent.mkdir(parents=True, exist_ok=True)
+            fd = _open_authorized_fd(
+                target,
+                authorized,
+                os.O_WRONLY | os.O_CREAT | os.O_EXCL,
+            )
+            with os.fdopen(fd, "w", encoding="utf-8") as handle:
+                handle.write(new_text)
             file_state.record_write(target)
             result = f"Successfully created {target}"
             _debug("tool.edit_file.output", result)
@@ -1146,7 +1292,9 @@ def edit_file(path: str, old_text: str, new_text: str, replace_all: bool = False
         if not target.is_file():
             return _ret("tool.edit_file.output", f"Error: Not a file: {path}")
         stale_warning = file_state.check_read(target)
-        raw = target.read_bytes()
+        fd = _open_authorized_fd(target, authorized, os.O_RDONLY)
+        with os.fdopen(fd, "rb") as handle:
+            raw = handle.read()
         uses_crlf = b"\r\n" in raw
         content = raw.decode("utf-8").replace("\r\n", "\n")
         normalized_old = old_text.replace("\r\n", "\n")
@@ -1177,7 +1325,12 @@ def edit_file(path: str, old_text: str, new_text: str, replace_all: bool = False
                 updated = updated[: match.start] + replacement + updated[match.start + len(match.text) :]
         if uses_crlf:
             updated = updated.replace("\n", "\r\n")
-        target.write_text(updated, encoding="utf-8")
+        if authorized is not None and authorized.max_bytes is not None:
+            if len(updated.encode("utf-8")) > authorized.max_bytes:
+                raise PermissionError("Edited content exceeds the matched Path rule maxBytes constraint.")
+        write_fd = _open_authorized_fd(target, authorized, os.O_WRONLY | os.O_TRUNC)
+        with os.fdopen(write_fd, "wb") as handle:
+            handle.write(updated.encode("utf-8"))
         file_state.record_write(target)
         result = f"Successfully edited {target}"
         if stale_warning:
@@ -1204,7 +1357,7 @@ def list_dir(path: str, recursive: bool = False, max_entries: int | None = None)
     """
     _debug("tool.list_dir.input", {"path": path, "recursive": recursive, "max_entries": max_entries})
     try:
-        target = _resolve_path(path)
+        target, authorized = _resolve_path_with_authorization(path, permission_action="list")
         if not target.exists():
             return _ret("tool.list_dir.output", f"Error: Directory not found: {path}")
         if not target.is_dir():
@@ -1212,15 +1365,21 @@ def list_dir(path: str, recursive: bool = False, max_entries: int | None = None)
         cap = _LIST_DIR_DEFAULT_MAX if max_entries is None else _parse_positive_int(max_entries, field="max_entries")
         if isinstance(cap, str):
             return _ret("tool.list_dir.output", cap)
+        if authorized is not None and authorized.max_entries is not None:
+            cap = min(cap, authorized.max_entries)
         entries: list[str] = []
         total = 0
         if recursive:
-            for child in sorted(target.rglob("*")):
-                if any(part in _LIST_DIR_IGNORE_DIRS for part in child.parts):
+            children = _iter_entries(target, include_files=True, include_dirs=True)
+            for child in sorted(children):
+                rel = child.relative_to(target)
+                if authorized is not None and authorized.max_depth is not None:
+                    if len(rel.parts) > authorized.max_depth:
+                        continue
+                if any(part in _LIST_DIR_IGNORE_DIRS for part in rel.parts):
                     continue
                 total += 1
                 if len(entries) < cap:
-                    rel = child.relative_to(target)
                     entries.append(f"{rel}/" if child.is_dir() else str(rel))
         else:
             for child in sorted(target.iterdir(), key=lambda p: (not p.is_dir(), p.name.lower())):
@@ -1263,7 +1422,7 @@ def glob(
         },
     )
     try:
-        root = _resolve_path(path)
+        root, authorized = _resolve_path_with_authorization(path, permission_action="search")
         if not root.exists():
             return _ret("tool.glob.output", f"Error: Path not found: {path}")
         if not root.is_dir():
@@ -1275,6 +1434,12 @@ def glob(
         limit = _resolve_head_limit(head_limit=head_limit, legacy_limit=max_results, default=_GLOB_DEFAULT_HEAD_LIMIT)
         if isinstance(limit, str):
             return _ret("tool.glob.output", limit)
+        if authorized is not None and authorized.max_entries is not None:
+            limit = (
+                authorized.max_entries
+                if limit is None
+                else min(limit, authorized.max_entries)
+            )
         include_files = entry_type in {"files", "both"}
         include_dirs = entry_type in {"dirs", "both"}
         if not include_files and not include_dirs:
@@ -1284,6 +1449,9 @@ def glob(
         workspace = _workspace()
         for entry in _iter_entries(root, include_files=include_files, include_dirs=include_dirs):
             rel_path = entry.relative_to(root).as_posix()
+            if authorized is not None and authorized.max_depth is not None:
+                if len(entry.relative_to(root).parts) > authorized.max_depth:
+                    continue
             if not _match_glob(rel_path, entry.name, pattern):
                 continue
             display = _display_path(entry, root, workspace)
@@ -1346,7 +1514,11 @@ def grep(
         },
     )
     try:
-        target = _resolve_path(path)
+        target, search_authorized = _resolve_path_with_authorization(
+            path,
+            permission_action="search",
+        )
+        _resolve_path(path, permission_action="read")
         if not target.exists():
             return _ret("tool.grep.output", f"Error: Path not found: {path}")
         if not (target.is_dir() or target.is_file()):
@@ -1389,14 +1561,30 @@ def grep(
         root = target if target.is_dir() else target.parent
         workspace = _workspace()
 
+        processed_files = 0
         for file_path in _iter_files(target):
+            if search_authorized is not None and search_authorized.max_depth is not None:
+                if len(file_path.relative_to(root).parts) > search_authorized.max_depth:
+                    continue
+            if search_authorized is not None and search_authorized.max_entries is not None:
+                if processed_files >= search_authorized.max_entries:
+                    truncated = True
+                    break
+            processed_files += 1
+            file_path, authorized = _resolve_path_with_authorization(
+                str(file_path),
+                permission_action="read",
+            )
             rel_path = file_path.relative_to(root).as_posix()
             if glob and not _match_glob(rel_path, file_path.name, glob):
                 continue
             if not _matches_type(file_path.name, type):
                 continue
 
-            raw = file_path.read_bytes()
+            raw = _read_authorized_bytes(file_path, authorized)
+            if authorized is not None and authorized.max_bytes is not None:
+                if len(raw) > authorized.max_bytes:
+                    continue
             if len(raw) > _GREP_MAX_FILE_BYTES or _is_binary(raw):
                 continue
             try:
@@ -1841,6 +2029,7 @@ def _run_limited_foreground_process(
     cwd: str,
     timeout: float | int | None,
     stream_max_chars: int = 10_000,
+    env: dict[str, str] | None = None,
 ) -> _ForegroundProcessResult:
     """Run a foreground process while bounding captured stdout and stderr."""
     process = subprocess.Popen(  # noqa: S603 - caller already validated argv and shell=False.
@@ -1851,6 +2040,7 @@ def _run_limited_foreground_process(
         stderr=subprocess.PIPE,
         text=True,
         bufsize=1,
+        env=env,
     )
     stdout = _BoundedTextCollector(max_chars=stream_max_chars, label="stdout")
     stderr = _BoundedTextCollector(max_chars=stream_max_chars, label="stderr")
@@ -2012,6 +2202,29 @@ def _resolve_process_scope(scope: str | None) -> str | None:
     if route and scope_id:
         return f"{route}:{scope_id}"
     return None
+
+
+def _trusted_process_task_id(tool_context: Any | None) -> str | None:
+    """Return a stable task boundary from Node/ADK context, never Tool arguments."""
+
+    route, scope_id = get_route()
+    if route and scope_id:
+        return f"{route}:{scope_id}"
+    session_id = _session_attr(tool_context)
+    return f"session:{session_id}" if session_id else None
+
+
+def _process_facts(snapshot: Any) -> ProcessFacts:
+    """Project one trusted ProcessSession snapshot into permission facts."""
+
+    return ProcessFacts(
+        process_id=snapshot.pid,
+        created_by_agent_id=snapshot.created_by_agent_id,
+        created_by_task_id=snapshot.created_by_task_id,
+        created_by_allowed_command=snapshot.created_by_allowed_command,
+        protected=snapshot.protected,
+        system_process=snapshot.system_process,
+    )
 
 
 def _context_attr(tool_context: Any | None, name: str) -> str:
@@ -3045,6 +3258,45 @@ def exec_command(
     if path_guard_error:
         return _ret("tool.exec.output", path_guard_error)
 
+    runtime_context = current_tool_execution_context()
+    authorized_command = None
+    trusted_task_id = _trusted_process_task_id(tool_context)
+    invocation = _task_invocation_context(tool_context)
+    if runtime_context is not None and runtime_context.permission_snapshot is not None:
+        try:
+            authorized_command = authorize_command(
+                runtime_context.permission_snapshot,
+                workspace_root=runtime_context.workspace_root,
+                argv=argv,
+                cwd=cwd,
+                shell=_should_use_shell(argv),
+                background=background,
+                pty=pty,
+                timeout_seconds=timeout,
+                task_id=trusted_task_id,
+                run_id=invocation.invocation_id or None,
+                audit=runtime_context.permission_audit,
+            )
+        except PermissionError as exc:
+            return _ret("tool.exec.output", f"Error: {exc}")
+        try:
+            authorize_process(
+                runtime_context.permission_snapshot,
+                action="spawn",
+                facts=ProcessFacts(
+                    created_by_agent_id=runtime_context.agent_id,
+                    created_by_task_id=trusted_task_id,
+                    created_by_allowed_command=bool(
+                        authorized_command is not None and authorized_command.allowed_by_policy
+                    ),
+                ),
+                task_id=trusted_task_id,
+                run_id=invocation.invocation_id or None,
+                audit=runtime_context.permission_audit,
+            )
+        except PermissionError as exc:
+            return _ret("tool.exec.output", f"Error: {exc}")
+
     try:
         sandbox_name = _resolve_exec_sandbox_name(
             sandbox,
@@ -3052,6 +3304,13 @@ def exec_command(
         )
     except SandboxValidationError as exc:
         return _ret("tool.exec.output", f"Error: failed to validate sandbox request: {exc}")
+    if authorized_command is not None and authorized_command.required_backend is not None:
+        if sandbox_name and sandbox_name != authorized_command.required_backend:
+            return _ret(
+                "tool.exec.output",
+                f"Error: Agent permissions require sandbox backend {authorized_command.required_backend}",
+            )
+        sandbox_name = authorized_command.required_backend
     docker_sandbox: WorkspaceDockerSandbox | None = None
     command_argv = argv
     effective_command = cmd
@@ -3059,6 +3318,14 @@ def exec_command(
         if _should_use_shell(argv):
             command_argv = ["/bin/sh", "-lc", effective_command]
         try:
+            permission_profile = (
+                derive_sandbox_permission_profile(
+                    runtime_context.permission_snapshot,
+                    workspace_root=runtime_context.workspace_root,
+                )
+                if runtime_context is not None and runtime_context.permission_snapshot is not None
+                else None
+            )
             docker_sandbox = build_workspace_docker_sandbox(
                 command_argv=command_argv,
                 workspace=_workspace(policy),
@@ -3067,6 +3334,7 @@ def exec_command(
                 timeout_cap_seconds=_exec_sandbox_timeout_cap_seconds(),
                 labels={"openppx.tool": "exec"},
                 tty=pty,
+                permission_profile=permission_profile,
             )
             command_argv = docker_sandbox.argv
         except SandboxValidationError as exc:
@@ -3124,13 +3392,36 @@ def exec_command(
     )
 
     if not background and yield_ms is None and not pty:
-        run_timeout = docker_sandbox.timeout_seconds if docker_sandbox is not None else timeout
+        run_timeout = (
+            docker_sandbox.timeout_seconds
+            if docker_sandbox is not None
+            else authorized_command.timeout_seconds
+            if authorized_command is not None
+            else timeout
+        )
         try:
-            if docker_sandbox is not None:
+            if docker_sandbox is not None or (
+                authorized_command is not None
+                and runtime_context is not None
+                and runtime_context.permission_snapshot is not None
+                and runtime_context.permission_snapshot.rollout_for("command") == "enforce"
+            ):
+                command_env = None
+                stream_max_chars = 10_000
+                if docker_sandbox is None:
+                    command_env = {
+                        "PATH": os.environ.get("PATH", ""),
+                        "LANG": os.environ.get("LANG", "C.UTF-8"),
+                        "LC_ALL": os.environ.get("LC_ALL", ""),
+                        "RIPGREP_CONFIG_PATH": "",
+                    }
+                    stream_max_chars = max(1, authorized_command.max_output_bytes // 4)
                 completed = _run_limited_foreground_process(
                     command_argv,
                     cwd=str(cwd),
                     timeout=run_timeout,
+                    stream_max_chars=stream_max_chars,
+                    env=command_env,
                 )
             else:
                 completed = subprocess.run(
@@ -3182,6 +3473,12 @@ def exec_command(
 
     manager = get_process_session_manager()
     effective_scope = _resolve_process_scope(scope)
+    if (
+        runtime_context is not None
+        and runtime_context.permission_snapshot is not None
+        and runtime_context.permission_snapshot.rollout_for("process") == "enforce"
+    ):
+        effective_scope = trusted_task_id
     terminate_callback: Callable[[], None] | None = None
     if docker_sandbox is not None:
         def _cleanup_docker_background() -> None:
@@ -3197,6 +3494,20 @@ def exec_command(
             use_pty=pty,
             scope_key=effective_scope,
             terminate_callback=terminate_callback,
+            created_by_agent_id=runtime_context.agent_id if runtime_context is not None else None,
+            created_by_task_id=trusted_task_id,
+            created_by_run_id=invocation.invocation_id or None,
+            permission_revision_at_start=(
+                runtime_context.permission_snapshot.revision
+                if runtime_context is not None and runtime_context.permission_snapshot is not None
+                else None
+            ),
+            execution_profile=(
+                authorized_command.execution_profile if authorized_command is not None else None
+            ),
+            created_by_allowed_command=bool(
+                authorized_command is not None and authorized_command.allowed_by_policy
+            ),
         )
     except Exception as exc:
         return _ret("tool.exec.output", f"Error executing command: {exc}")
@@ -3394,9 +3705,33 @@ def process_session(
     manager = get_process_session_manager()
     effective_scope = _resolve_process_scope(scope)
     normalized = (action or "").strip().lower()
+    runtime_context = current_tool_execution_context()
+    permission_snapshot = (
+        runtime_context.permission_snapshot if runtime_context is not None else None
+    )
+    trusted_task_id = _trusted_process_task_id(tool_context)
+    invocation = _task_invocation_context(tool_context)
+    if permission_snapshot is not None and permission_snapshot.rollout_for("process") == "enforce":
+        effective_scope = trusted_task_id
 
     if normalized == "list":
         sessions = manager.list_sessions(scope_key=effective_scope)
+        if permission_snapshot is not None:
+            visible_sessions = []
+            for item in sessions:
+                try:
+                    authorize_process(
+                        permission_snapshot,
+                        action="view",
+                        facts=_process_facts(item),
+                        task_id=trusted_task_id,
+                        run_id=invocation.invocation_id or None,
+                        audit=runtime_context.permission_audit if runtime_context is not None else None,
+                    )
+                except PermissionError:
+                    continue
+                visible_sessions.append(item)
+            sessions = visible_sessions
         if not sessions:
             return _ret("tool.process.output", "No running or recent sessions.")
         lines = []
@@ -3414,6 +3749,32 @@ def process_session(
     if not (session_id or "").strip():
         return _ret("tool.process.output", "Error: session_id is required for this action")
     sid = session_id.strip()
+    process_actions = {
+        "poll": "wait",
+        "log": "view",
+        "write": "input",
+        "send-keys": "input",
+        "submit": "input",
+        "paste": "input",
+        "kill": "stop",
+        "remove": "cleanup",
+    }
+    permission_action = process_actions.get(normalized)
+    if permission_snapshot is not None and permission_action is not None:
+        session_snapshot = manager.describe_session(sid, scope_key=effective_scope)
+        if session_snapshot is None:
+            return _ret("tool.process.output", f"Error: No session found for {sid}")
+        try:
+            authorize_process(
+                permission_snapshot,
+                action=permission_action,  # type: ignore[arg-type]
+                facts=_process_facts(session_snapshot),
+                task_id=trusted_task_id,
+                run_id=invocation.invocation_id or None,
+                audit=runtime_context.permission_audit if runtime_context is not None else None,
+            )
+        except PermissionError as exc:
+            return _ret("tool.process.output", f"Error: {exc}")
 
     if normalized == "poll":
         payload = manager.poll_session(sid, timeout_ms=timeout_ms, scope_key=effective_scope)
@@ -3740,6 +4101,69 @@ def _validate_http_url(url: str) -> tuple[bool, str]:
         block_dns_default=False,
     )
     return (error is None, error or "")
+
+
+def _authorize_managed_network_url(
+    url: str,
+    *,
+    method: str = "GET",
+    actions: tuple[str, ...] = ("connect", "read"),
+) -> str:
+    """Authorize a managed network hop using the active immutable Runtime facts."""
+
+    runtime_context = current_tool_execution_context()
+    if runtime_context is None or runtime_context.permission_snapshot is None:
+        return url
+    target = authorize_network_url(
+        runtime_context.permission_snapshot,
+        url,
+        method=method,
+        actions=actions,  # type: ignore[arg-type]
+        audit=runtime_context.permission_audit,
+    )
+    return target.url
+
+
+class _PermissionRedirectHandler(HTTPRedirectHandler):
+    """Re-authorize every redirect before urllib opens the next hop."""
+
+    def redirect_request(
+        self,
+        req: Request,
+        fp: Any,
+        code: int,
+        msg: str,
+        headers: Any,
+        newurl: str,
+    ) -> Request | None:
+        authorized_url = _authorize_managed_network_url(
+            newurl,
+            method=req.get_method(),
+            actions=("connect", "read") if req.get_method().upper() in {"GET", "HEAD"} else ("connect", "write", "upload"),
+        )
+        return super().redirect_request(req, fp, code, msg, headers, authorized_url)
+
+
+def _managed_urlopen(request: Request, *, timeout: float) -> Any:
+    """Open one managed request with initial-hop and redirect authorization."""
+
+    runtime_context = current_tool_execution_context()
+    if runtime_context is None or runtime_context.permission_snapshot is None:
+        return urlopen(request, timeout=timeout)
+    method = request.get_method().upper()
+    actions = ("connect", "read") if method in {"GET", "HEAD"} else ("connect", "write", "upload")
+    authorized_url = _authorize_managed_network_url(
+        request.full_url,
+        method=method,
+        actions=actions,
+    )
+    authorized_request = Request(
+        authorized_url,
+        data=request.data,
+        headers=dict(request.header_items()),
+        method=method,
+    )
+    return build_opener(_PermissionRedirectHandler()).open(authorized_request, timeout=timeout)
 
 
 def browser(
@@ -4695,7 +5119,7 @@ def web_search(query: str, count: int = 5, provider: str | None = None) -> str:
                     headers={"Accept": "application/json", "X-Subscription-Token": api_key},
                     method="GET",
                 )
-                with urlopen(req, timeout=15) as response:
+                with _managed_urlopen(req, timeout=15) as response:
                     payload = json.loads(response.read().decode("utf-8"))
                 results = payload.get("web", {}).get("results", [])
                 if not results:
@@ -4732,7 +5156,7 @@ def web_search(query: str, count: int = 5, provider: str | None = None) -> str:
             headers={"User-Agent": "Mozilla/5.0", "Accept": "text/html"},
             method="GET",
         )
-        with urlopen(req, timeout=15) as response:
+        with _managed_urlopen(req, timeout=15) as response:
             raw = response.read().decode("utf-8", errors="replace")
         hits = re.findall(
             r'<a[^>]*class="result__a"[^>]*href="(?P<url>[^"]+)"[^>]*>(?P<title>.*?)</a>(?P<body>.*?)(?:</div>|<a[^>]*class="result__a")',
@@ -4781,6 +5205,10 @@ def web_fetch(url: str, max_chars: int = 50000, extract_mode: str = "markdown") 
     ok, err = _validate_http_url(url)
     if not ok:
         return _ret("tool.web_fetch.output", _json({"error": err, "url": url}))
+    try:
+        _authorize_managed_network_url(url, method="GET")
+    except PermissionError as exc:
+        return _ret("tool.web_fetch.output", _json({"error": str(exc), "url": url}))
     normalized_extract_mode = (extract_mode or "markdown").strip().lower() or "markdown"
     if normalized_extract_mode not in {"markdown", "text"}:
         return _ret(
@@ -4794,13 +5222,20 @@ def web_fetch(url: str, max_chars: int = 50000, extract_mode: str = "markdown") 
         jina_headers["Authorization"] = f"Bearer {jina_key}"
     try:
         jina_req = Request(f"https://r.jina.ai/{url}", headers=jina_headers, method="GET")
-        with urlopen(jina_req, timeout=20) as response:
+        with _managed_urlopen(jina_req, timeout=20) as response:
             status = getattr(response, "status", 200)
             payload = json.loads(response.read().decode("utf-8"))
         data = payload.get("data", {}) if isinstance(payload, dict) else {}
         title = str(data.get("title") or "").strip()
         text = str(data.get("content") or "").strip()
         final_url = str(data.get("url") or url)
+        try:
+            _authorize_managed_network_url(final_url, method="GET")
+        except PermissionError as exc:
+            return _ret(
+                "tool.web_fetch.output",
+                _json({"error": str(exc), "url": url, "finalUrl": final_url}),
+            )
         final_ok, final_err = _validate_http_url(final_url)
         if not final_ok:
             return _ret("tool.web_fetch.output", _json({"error": final_err, "url": url, "finalUrl": final_url}))
@@ -4836,7 +5271,7 @@ def web_fetch(url: str, max_chars: int = 50000, extract_mode: str = "markdown") 
 
     req = Request(url, headers={"User-Agent": _WEB_USER_AGENT}, method="GET")
     try:
-        with urlopen(req, timeout=30) as response:
+        with _managed_urlopen(req, timeout=30) as response:
             status = getattr(response, "status", 200)
             final_url = getattr(response, "url", url)
             ctype = response.headers.get("Content-Type", "")

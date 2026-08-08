@@ -1,0 +1,8 @@
+.git
+.venv
+.pytest_cache
+.openppx
+dist
+**/__pycache__
+**/*.pyc
+apps/desktop/node_modules

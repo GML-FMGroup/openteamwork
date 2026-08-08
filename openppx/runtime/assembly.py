@@ -27,8 +27,11 @@ from openppx.extensions import (
 )
 from openppx.modeling import ModelResolution
 from openppx.core.mcp_registry import ManagedMcpToolset, summarize_mcp_toolsets
+from openppx.permissions import PermissionAuditStore
 
 from .adk_utils import run_text_async
+from .authorization_plugin import OpenPpxAuthorizationPlugin
+from .sandbox.egress_policy import write_egress_proxy_policy
 from .artifact_service import ArtifactConfig, create_artifact_service
 from .context_engine import LongTaskContextStore
 from .goal_store import GoalStore
@@ -53,6 +56,7 @@ class RuntimeMetadata:
     model: str
     workspace: str
     snapshot_revision: str
+    permission_revision: str
     extension_revision: str
     mcp_diagnostics: tuple[tuple[str, str], ...]
     origin_revisions: tuple[tuple[str, str], ...]
@@ -68,6 +72,7 @@ class RuntimeServices:
     task_store: TaskStore
     context_store: LongTaskContextStore
     goal_store: GoalStore
+    permission_audit: PermissionAuditStore
 
     @classmethod
     def local(cls, node_root: Path) -> "RuntimeServices":
@@ -94,6 +99,7 @@ class RuntimeServices:
         task_store = TaskStore(db_path=task_db_path)
         context_store = LongTaskContextStore(db_path=task_db_path)
         goal_store = GoalStore(db_path=database_dir / "goals.db")
+        permission_audit = PermissionAuditStore(database_dir / "permission_audit.db")
         return cls(
             session_service=session_service,
             memory_service=memory_service,
@@ -101,6 +107,7 @@ class RuntimeServices:
             task_store=task_store,
             context_store=context_store,
             goal_store=goal_store,
+            permission_audit=permission_audit,
         )
 
 
@@ -311,7 +318,21 @@ class RuntimeAssembler:
         resolved_extensions = extension_snapshot or self.extension_snapshot_for_agent(
             snapshot.agent.metadata.name
         )
-        mcp_build = self._mcp_adapter.build(resolved_extensions.mcp)
+        proxy = snapshot.permissions.code_egress_proxy
+        if (
+            proxy is not None
+            and snapshot.permissions.preset in {"medium", "high"}
+            and snapshot.permissions.rollout_for("command") == "enforce"
+        ):
+            write_egress_proxy_policy(
+                snapshot.permissions,
+                policy_directory=Path(proxy.policy_directory),
+            )
+        mcp_build = self._mcp_adapter.build(
+            resolved_extensions.mcp,
+            permission_snapshot=snapshot.permissions,
+            permission_audit=self.services.permission_audit,
+        )
         native_app_tools = (
             ()
             if self._app_manager is None
@@ -327,6 +348,7 @@ class RuntimeAssembler:
             skill_snapshot=resolved_extensions.skills,
             mcp_summaries=summarize_mcp_toolsets(list(mcp_build.toolsets)),
             goal_store=self.services.goal_store,
+            permission_audit=self.services.permission_audit,
             extension_snapshot_digest=resolved_extensions.revision,
         )
         runner, session_service = self._runner_factory(
@@ -340,15 +362,21 @@ class RuntimeAssembler:
             context_store=self.services.context_store,
             goal_store=self.services.goal_store,
             extra_plugins=(
-                ()
-                if not resolved_extensions.plugins.hooks.entries
-                else (
-                    OpenPpxPluginHookBridge(
-                        resolved_extensions.plugins.hooks,
-                        workspace=Path(snapshot.agent.spec.workspace),
-                        root_agent_name=agent.name,
-                    ),
-                )
+                OpenPpxAuthorizationPlugin(
+                    snapshot.permissions,
+                    audit=self.services.permission_audit,
+                ),
+                *(
+                    ()
+                    if not resolved_extensions.plugins.hooks.entries
+                    else (
+                        OpenPpxPluginHookBridge(
+                            resolved_extensions.plugins.hooks,
+                            workspace=Path(snapshot.agent.spec.workspace),
+                            root_agent_name=agent.name,
+                        ),
+                    )
+                ),
             ),
         )
         metadata = RuntimeMetadata(
@@ -360,6 +388,7 @@ class RuntimeAssembler:
             model=snapshot.model.model,
             workspace=snapshot.agent.spec.workspace,
             snapshot_revision=snapshot.revision,
+            permission_revision=snapshot.permissions.revision,
             extension_revision=resolved_extensions.revision,
             mcp_diagnostics=tuple(
                 (diagnostic.server_id, diagnostic.code) for diagnostic in mcp_build.diagnostics

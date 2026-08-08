@@ -8,6 +8,7 @@ import uuid
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Mapping
+from urllib.parse import quote, urlsplit, urlunsplit
 
 from .plan import NetworkMode, PathAccessMode, ValidatedSandboxExecutionPlan
 
@@ -63,7 +64,7 @@ def build_docker_run_spec(
             "--user",
             _user_spec(cfg),
             "--network",
-            _network_arg(plan.profile.network.mode),
+            _network_arg(plan.profile.network),
             "--memory",
             plan.profile.limits.memory,
             "--memory-swap",
@@ -87,7 +88,7 @@ def build_docker_run_spec(
         argv.append("-i")
     if cfg.tty:
         argv.append("-t")
-    env = {"HOME": cfg.home, "TMPDIR": "/tmp", **{str(k): str(v) for k, v in plan.env.items()}}
+    env = {"HOME": cfg.home, "TMPDIR": "/tmp", **_proxy_env(plan.profile.network), **{str(k): str(v) for k, v in plan.env.items()}}
     for key in sorted(env):
         argv.extend(["--env", f"{key}={env[key]}"])
     for mount in plan.mounts:
@@ -122,12 +123,51 @@ def _user_spec(config: DockerSandboxConfig) -> str:
     return f"{uid}:{gid}"
 
 
-def _network_arg(mode: NetworkMode) -> str:
+def _network_arg(policy: object) -> str:
+    mode = getattr(policy, "mode")
     if mode == NetworkMode.DISABLED:
         return "none"
     if mode == NetworkMode.ENABLED:
         return "bridge"
-    raise ValueError("proxy_only network mode is not implemented")
+    if mode == NetworkMode.PROXY_ONLY:
+        network = str(getattr(policy, "docker_network") or "").strip()
+        if not network:
+            raise ValueError("proxy_only Docker network is not configured")
+        return network
+    raise ValueError(f"unsupported sandbox network mode: {mode}")
+
+
+def _proxy_env(policy: object) -> dict[str, str]:
+    if getattr(policy, "mode") != NetworkMode.PROXY_ONLY:
+        return {}
+    revision = str(getattr(policy, "permission_revision") or "")
+    credential = str(getattr(policy, "proxy_credential") or "")
+    proxy_url = _revision_proxy_url(
+        str(getattr(policy, "proxy_url") or ""),
+        revision,
+        credential,
+    )
+    return {
+        "HTTP_PROXY": proxy_url,
+        "HTTPS_PROXY": proxy_url,
+        "http_proxy": proxy_url,
+        "https_proxy": proxy_url,
+        "NO_PROXY": "",
+        "no_proxy": "",
+        "OPENPPX_PERMISSION_REVISION": revision,
+    }
+
+
+def _revision_proxy_url(proxy_url: str, revision: str, credential: str) -> str:
+    parsed = urlsplit(proxy_url)
+    identity = revision.replace(":", "-")
+    host = parsed.hostname or ""
+    if ":" in host:
+        host = f"[{host}]"
+    netloc = f"{quote(identity, safe='-')}:{quote(credential, safe='')}@{host}"
+    if parsed.port is not None:
+        netloc = f"{netloc}:{parsed.port}"
+    return urlunsplit((parsed.scheme, netloc, parsed.path, parsed.query, ""))
 
 
 def _format_cpus(value: float) -> str:

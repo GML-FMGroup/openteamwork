@@ -14,6 +14,7 @@ from google.adk.tools.preload_memory_tool import PreloadMemoryTool
 from ..config import normalize_agent_privilege_level
 from ..core.mcp_registry import summarize_mcp_toolsets
 from ..extensions import ExtensionError, SkillSnapshot
+from ..permissions.tooling import filter_authorized_tools
 from ..runtime.goal_store import GoalStore
 from ..runtime.tool_execution_context import ToolExecutionContext, bind_tool_callable
 from ..tooling.artifact_tools import publish_artifact
@@ -230,6 +231,14 @@ def _build_tools(
     base_tools = [_runtime_tool_entry(item, tool_execution_context) for item in base_tools]
 
     resolved_privilege_level = _agent_privilege_level(privilege_level)
+    permission_snapshot = tool_execution_context.permission_snapshot if tool_execution_context is not None else None
+    if permission_snapshot is not None:
+        tools = list(base_tools)
+        tools.extend(
+            _runtime_tool_entry(item, tool_execution_context)
+            for item in (extension_tools or ())
+        )
+        return filter_authorized_tools(tools, permission_snapshot)
     if resolved_privilege_level == "low":
         allowed_names = {
             "list_skills",
@@ -271,6 +280,7 @@ def build_root_agent(
     skill_snapshot: SkillSnapshot | None = None,
     mcp_summaries: list[dict[str, str]] | None = None,
     goal_store: GoalStore | None = None,
+    permission_audit: Any | None = None,
     extension_snapshot_digest: str = "",
 ) -> LlmAgent:
     """Build one ADK Agent from an immutable Config snapshot.
@@ -282,6 +292,8 @@ def build_root_agent(
     tool_execution_context = ToolExecutionContext.for_agent(
         agent_id=agent_config.metadata.name,
         workspace_root=agent_config.spec.workspace,
+        permission_snapshot=snapshot.permissions,
+        permission_audit=permission_audit,
     )
     resolved_skill_snapshot = skill_snapshot or SkillSnapshot.empty()
     delegation_override = agent_config.spec.permission_overrides.can_delegate
@@ -294,7 +306,7 @@ def build_root_agent(
             GoalToolRuntimeSnapshot(
                 agent_id=agent_config.metadata.name,
                 workspace_ref=agent_config.spec.workspace,
-                permission_revision=snapshot.revision,
+                permission_revision=snapshot.permissions.revision,
                 model_profile_revision=snapshot.model.revision,
                 extension_snapshot_digest=extension_snapshot_digest,
             ),

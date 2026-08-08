@@ -98,6 +98,29 @@ class SandboxPhaseOneTests(unittest.TestCase):
             with self.assertRaisesRegex(SandboxValidationError, "not covered"):
                 ValidatedSandboxExecutionPlan.from_plan(plan)
 
+    def test_trusted_readonly_mount_is_emitted_once(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            workspace = Path(tmp, "workspace").resolve()
+            runtime = Path(tmp, "runtime").resolve()
+            workspace.mkdir()
+            runtime.mkdir()
+
+            sandbox = build_workspace_docker_sandbox(
+                command_argv=["python", "runner.py"],
+                workspace=workspace,
+                cwd=workspace,
+                timeout_seconds=10,
+                readonly_mounts={"openppx-runtime": runtime},
+            )
+
+        mounts = [
+            sandbox.argv[index + 1]
+            for index, value in enumerate(sandbox.argv)
+            if value == "--mount"
+        ]
+        runtime_mounts = [value for value in mounts if f"dst={runtime}" in value]
+        self.assertEqual(len(runtime_mounts), 1)
+
     def test_writable_mount_requires_writable_grant(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             workspace = Path(tmp).resolve()
@@ -230,6 +253,13 @@ class SandboxPhaseOneTests(unittest.TestCase):
             ),
             NetworkMode.DISABLED,
         )
+        with self.assertRaisesRegex(SandboxValidationError, "cannot be weakened"):
+            resolve_network_mode(
+                default_mode=NetworkMode.PROXY_ONLY,
+                requested_mode=NetworkMode.ENABLED,
+                lock_mode=NetworkMode.PROXY_ONLY,
+                approved=True,
+            )
 
     def test_validated_plan_requires_network_approval_label(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
