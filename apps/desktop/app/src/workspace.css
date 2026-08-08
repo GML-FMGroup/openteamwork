@@ -245,12 +245,19 @@
 }
 
 .node-beacon.starting,
+.node-beacon.reconnecting,
 .agent-state.starting,
 .activity-state.running,
 .session-live-dot {
   background: var(--moss);
   box-shadow: 0 0 0 3px rgba(47, 125, 87, 0.12);
   animation: quiet-pulse 1.8s ease-in-out infinite;
+}
+
+.node-beacon.needs_configuration,
+.runtime-dot.needs_configuration {
+  background: var(--amber);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--amber) 16%, transparent);
 }
 
 .node-beacon.error,
@@ -736,9 +743,63 @@
 
 .agent-policy-actions {
   display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
+  position: sticky;
+  bottom: 16px;
+  z-index: 2;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
   margin-top: 18px;
+  padding: 12px 14px;
+  border: 1px solid var(--hairline);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--paper) 92%, transparent);
+  box-shadow: 0 10px 28px rgba(24, 22, 18, 0.08);
+  backdrop-filter: blur(14px);
+}
+
+.agent-policy-save-state,
+.agent-policy-action-buttons {
+  display: flex;
+  align-items: center;
+}
+
+.agent-policy-save-state {
+  gap: 8px;
+  color: var(--ink-faint);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.agent-policy-save-state.unsaved {
+  color: color-mix(in srgb, var(--amber) 78%, var(--ink));
+}
+
+.agent-policy-save-state.saved {
+  color: var(--moss);
+}
+
+.agent-policy-save-dot {
+  width: 7px;
+  height: 7px;
+  flex: 0 0 auto;
+  border-radius: 999px;
+  background: currentColor;
+}
+
+.agent-policy-action-buttons {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-left: auto;
+}
+
+.agent-policy-save-button {
+  min-width: 126px;
+}
+
+.agent-policy-action-buttons .danger-quiet {
+  margin-left: 0;
 }
 
 .danger-quiet {
@@ -3370,7 +3431,7 @@
   color: var(--ink-faint);
 }
 
-.connection-profile .node-beacon:not(.healthy) {
+.connection-profile .node-beacon:not(.healthy):not(.needs_configuration) {
   background: var(--ink-faint);
   box-shadow: none;
 }
@@ -3484,10 +3545,15 @@
 }
 
 .onboarding-shell {
+  --titlebar-controls-safe-inline-start: 34px;
   height: 100vh;
   overflow: auto;
   background: var(--paper-warm);
   color: var(--ink);
+}
+
+.onboarding-shell.platform-macos {
+  --titlebar-controls-safe-inline-start: 124px;
 }
 
 .onboarding-brand {
@@ -3499,13 +3565,49 @@
   height: 74px;
   align-items: center;
   gap: 11px;
-  padding: 0 34px;
+  padding-inline: 34px;
+  padding-inline-start: var(--titlebar-controls-safe-inline-start);
   border-bottom: 1px solid var(--hairline);
   background: color-mix(in srgb, var(--paper-warm) 92%, transparent);
   backdrop-filter: blur(18px);
   font-family: var(--font-display);
   font-size: 22px;
   font-weight: 650;
+}
+
+.onboarding-connection-state {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 7px;
+}
+
+.onboarding-state-badge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  padding: 0 9px;
+  border: 1px solid var(--hairline);
+  border-radius: 999px;
+  background: var(--paper);
+  font-size: 10px;
+  font-weight: 650;
+  letter-spacing: 0.01em;
+}
+
+.onboarding-state-badge.connected {
+  border-color: color-mix(in srgb, var(--moss) 30%, var(--hairline));
+  color: var(--moss);
+}
+
+.onboarding-state-badge.setup-required {
+  border-color: color-mix(in srgb, var(--amber) 35%, var(--hairline));
+  background: color-mix(in srgb, var(--amber) 7%, var(--paper));
+  color: color-mix(in srgb, var(--amber) 78%, var(--ink));
+}
+
+.onboarding-state-badge.unavailable {
+  color: var(--danger);
 }
 
 .onboarding-mark {

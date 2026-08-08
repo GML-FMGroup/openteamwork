@@ -113,7 +113,7 @@ function onboardingBootstrap(diagnostics: ClientDiagnostics): BootstrapPayload {
   return {
     runtime: {
       target: diagnostics.target,
-      state: diagnostics.clientApiHealthy ? "starting" : "error",
+      state: diagnostics.clientApiHealthy ? "needs_configuration" : "error",
       summary: diagnostics.clientApiHealthy
         ? "OpenPPX Node needs configuration."
         : "OpenPPX Node is unavailable.",

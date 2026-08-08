@@ -164,6 +164,7 @@ export function App() {
   if (workspace.setupStatus.state !== "ready") {
     return (
       <OnboardingView
+        platform={window.ppxClient.platform}
         status={workspace.setupStatus}
         form={workspace.setupForm}
         connection={workspace.connectionForm}
@@ -291,6 +292,8 @@ export function App() {
                     ? "Connected"
                     : runtime.state === "reconnecting"
                       ? "Reconnecting"
+                      : runtime.state === "needs_configuration"
+                        ? "Setup required"
                       : runtime.state}
                 </button>
                 <button

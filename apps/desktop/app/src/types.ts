@@ -138,7 +138,13 @@ export type {
   AutomationTemplateSummary,
 } from "@openppx/client";
 
-export type RuntimeState = "stopped" | "starting" | "reconnecting" | "healthy" | "error";
+export type RuntimeState =
+  | "stopped"
+  | "starting"
+  | "reconnecting"
+  | "needs_configuration"
+  | "healthy"
+  | "error";
 export type DesktopPlatform = "macos" | "windows" | "linux" | "other";
 
 /** Stable local human identity shared by Desktop and CLI control surfaces. */

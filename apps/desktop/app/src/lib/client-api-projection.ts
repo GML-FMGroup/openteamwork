@@ -12,11 +12,18 @@ function asString(value: unknown, fallback = ""): string {
 }
 
 function normalizeRuntimeState(value: unknown): RuntimeState {
-  const state = asString(value, "healthy");
-  if (state === "stopped" || state === "starting" || state === "healthy" || state === "error") {
+  const state = asString(value);
+  if (
+    state === "stopped" ||
+    state === "starting" ||
+    state === "reconnecting" ||
+    state === "needs_configuration" ||
+    state === "healthy" ||
+    state === "error"
+  ) {
     return state;
   }
-  return "healthy";
+  return "error";
 }
 
 /** Normalize the Desktop-specific runtime status returned by the Client API host. */

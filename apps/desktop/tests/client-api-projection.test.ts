@@ -22,6 +22,37 @@ describe("client api projection helpers", () => {
     });
   });
 
+  it.each(["needs_configuration", "reconnecting"] as const)(
+    "preserves the %s runtime state",
+    (state) => {
+      const runtime = normalizeClientApiRuntime({
+        target: { id: "local-default", type: "local", name: "This Mac" },
+        state,
+        summary: "setup is incomplete",
+      });
+
+      expect(runtime).not.toBeNull();
+      if (!runtime) {
+        throw new Error("Expected runtime projection");
+      }
+      expect(runtime.state).toBe(state);
+    },
+  );
+
+  it("projects unknown runtime states as errors instead of healthy", () => {
+    const runtime = normalizeClientApiRuntime({
+      target: { id: "local-default", type: "local", name: "This Mac" },
+      state: "future_state",
+      summary: "unknown state",
+    });
+
+    expect(runtime).not.toBeNull();
+    if (!runtime) {
+      throw new Error("Expected runtime projection");
+    }
+    expect(runtime.state).toBe("error");
+  });
+
   it("normalizes session payloads", () => {
     const session = normalizeClientApiSession({
       id: "session_1",

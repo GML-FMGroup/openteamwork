@@ -6,6 +6,7 @@ import {
   type KeyboardEvent as ReactKeyboardEvent,
   type ReactNode,
 } from "react";
+import { sortSessionsByRecency } from "../../lib/session-order";
 import type {
   AgentProfile,
   ClientDiagnostics,
@@ -14,7 +15,23 @@ import type {
   SessionSummary,
   UserProfile,
 } from "../../types";
-import { sortSessionsByRecency } from "../../lib/session-order";
+
+function runtimeStateLabel(state: RuntimeStatus["state"]): string {
+  switch (state) {
+    case "needs_configuration":
+      return "setup required";
+    case "reconnecting":
+      return "reconnecting";
+    case "starting":
+      return "starting";
+    case "healthy":
+      return "healthy";
+    case "stopped":
+      return "stopped";
+    case "error":
+      return "error";
+  }
+}
 
 type ShellIconName = "settings" | "extensions" | "automations" | "expand" | "search" | "plus" | "sidebar" | "sidebar-right" | "more";
 
@@ -365,7 +382,7 @@ export function ContextSidebar({
         <span className={`node-beacon ${runtime.state}`} />
         <span className="node-card-copy">
           <strong>{nodeName}</strong>
-          <small>{connectionMode} · {runtime.state}</small>
+          <small>{connectionMode} · {runtimeStateLabel(runtime.state)}</small>
         </span>
         <span className="node-card-count">{agents.length}</span>
       </button>

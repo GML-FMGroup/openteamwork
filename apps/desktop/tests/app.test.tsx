@@ -606,6 +606,10 @@ describe("App sending state", () => {
     render(<App />);
 
     expect(await screen.findByRole("heading", { name: "Set up your agent workspace." })).toBeInTheDocument();
+    expect(screen.getByRole("main")).toHaveClass("platform-macos");
+    expect(screen.getByText("Connected")).toBeInTheDocument();
+    expect(screen.getByText("Setup required")).toBeInTheDocument();
+    expect(screen.getByText("Node").closest("li")).toHaveClass("pending");
     expect(screen.getByLabelText("Workspace folder")).toHaveValue("/workspace/openppx");
     expect(screen.getByLabelText("Model")).toHaveValue("gemini-2.5-flash");
     fireEvent.change(screen.getByLabelText("API key"), { target: { value: "test-api-key" } });

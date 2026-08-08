@@ -2,6 +2,7 @@ import type { Dispatch, SetStateAction } from "react";
 import type {
   ClientDiagnostics,
   ConnectionSettings,
+  DesktopPlatform,
   ModelCatalogResult,
   ProviderAuthStatus,
   SetupForm,
@@ -9,6 +10,7 @@ import type {
 } from "../../types";
 
 interface OnboardingViewProps {
+  platform: DesktopPlatform;
   status: SetupStatusResult;
   form: SetupForm;
   connection: ConnectionSettings;
@@ -56,6 +58,7 @@ function setupDiagnosticMessage(status: SetupStatusResult): string | null {
 
 /** First-run control surface driven entirely by setup Actions from the connected Node. */
 export function OnboardingView({
+  platform,
   status,
   form,
   connection,
@@ -97,7 +100,7 @@ export function OnboardingView({
   );
 
   return (
-    <main className="onboarding-shell">
+    <main className={`onboarding-shell platform-${platform}`}>
       <header className="onboarding-brand">
         <span className="onboarding-mark" aria-hidden="true">P</span>
         <span>OpenPPX</span>
@@ -125,7 +128,14 @@ export function OnboardingView({
           <section className="onboarding-section">
             <div className="onboarding-section-heading">
               <div><span>01</span><h2>Connection</h2></div>
-              <small>{diagnostics?.clientApiHealthy ? "Connected" : "Check connection"}</small>
+              <span className="onboarding-connection-state" aria-live="polite">
+                {diagnostics?.clientApiHealthy ? (
+                  <>
+                    <small className="onboarding-state-badge connected">Connected</small>
+                    {!configured ? <small className="onboarding-state-badge setup-required">Setup required</small> : null}
+                  </>
+                ) : <small className="onboarding-state-badge unavailable">Check connection</small>}
+              </span>
             </div>
             <div className="onboarding-field-grid two-columns">
               <label>
