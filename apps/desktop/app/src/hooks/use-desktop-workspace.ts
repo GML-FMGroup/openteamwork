@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from "react";
 import type {
   AgentProfile,
   AgentCreateRequest,
@@ -7,6 +7,7 @@ import type {
   ChatMessage,
   ClientDiagnostics,
   ConnectionSettings,
+  ConnectionTestState,
   ExtensionSummary,
   GoalDetail,
   GoalMutationOperation,
@@ -34,6 +35,7 @@ import {
   MAX_MESSAGE_ATTACHMENTS,
 } from "../attachment-policy";
 import { normalizeConnectionSettings } from "../lib/connection-profile";
+import { connectionFailureMessage } from "../lib/connection-feedback";
 import { sortSessionsByRecency } from "../lib/session-order";
 import { LOCAL_USER_ID } from "../types";
 import { useActiveRuns } from "./use-active-runs";
@@ -373,6 +375,7 @@ export function useDesktopWorkspace() {
   const [connectionForm, setConnectionForm] = useState<ConnectionSettings>(buildConnectionSettings(null));
   const [savingConnection, setSavingConnection] = useState(false);
   const [testingConnection, setTestingConnection] = useState(false);
+  const [connectionTestState, setConnectionTestState] = useState<ConnectionTestState>("untested");
   const [connectionFeedback, setConnectionFeedback] = useState<string | null>(null);
   const [extensions, setExtensions] = useState<ExtensionSummary[]>([]);
   const [extensionsLoading, setExtensionsLoading] = useState(false);
@@ -397,8 +400,16 @@ export function useDesktopWorkspace() {
   const selectedAgentIdRef = useRef("");
   const selectedSessionIdRef = useRef("");
   const connectionProfileKeyRef = useRef("");
+  const connectionCandidateVersionRef = useRef(0);
   const setupFormInitializedRef = useRef(false);
   const activeRuns = useActiveRuns();
+
+  const updateConnectionForm: Dispatch<SetStateAction<ConnectionSettings>> = (next) => {
+    connectionCandidateVersionRef.current += 1;
+    setConnectionTestState("untested");
+    setConnectionFeedback(null);
+    setConnectionForm(next);
+  };
 
   async function refreshCurrentGoal(sessionId = selectedSessionIdRef.current): Promise<void> {
     if (!sessionId) {
@@ -1082,10 +1093,14 @@ export function useDesktopWorkspace() {
   }
 
   async function saveConnection(): Promise<void> {
+    const candidateVersion = connectionCandidateVersionRef.current;
     setSavingConnection(true);
+    setConnectionTestState("testing");
     setConnectionFeedback(null);
+    let attemptedSettings = connectionForm;
     try {
       const nextSettings = normalizeConnectionSettings(connectionForm);
+      attemptedSettings = nextSettings;
       const nextDiagnostics = await window.ppxClient.saveConnectionSettings(nextSettings);
       setDiagnostics(nextDiagnostics);
       if (nextSettings.targetType === "local") {
@@ -1105,24 +1120,41 @@ export function useDesktopWorkspace() {
         selectAgentId("");
         selectSessionId("");
       }
-      setConnectionFeedback(`Connected to ${nextDiagnostics.nodeName ?? nextDiagnostics.target.name}.`);
+      if (candidateVersion === connectionCandidateVersionRef.current) {
+        setConnectionTestState("connected");
+        setConnectionFeedback(`Connected to ${nextDiagnostics.nodeName ?? nextDiagnostics.target.name}.`);
+      }
     } catch (error) {
-      setConnectionFeedback(error instanceof Error ? error.message : String(error));
+      if (candidateVersion === connectionCandidateVersionRef.current) {
+        setConnectionTestState("failed");
+        setConnectionFeedback(connectionFailureMessage(error, attemptedSettings));
+      }
     } finally {
       setSavingConnection(false);
     }
   }
 
   async function testConnection(): Promise<void> {
+    const candidateVersion = connectionCandidateVersionRef.current;
     setTestingConnection(true);
+    setConnectionTestState("testing");
     setConnectionFeedback(null);
+    let attemptedSettings = connectionForm;
     try {
-      const nextDiagnostics = await window.ppxClient.testConnectionSettings(normalizeConnectionSettings(connectionForm));
-      setConnectionFeedback(
-        `Connection successful: ${nextDiagnostics.nodeName ?? nextDiagnostics.target.name} · ${nextDiagnostics.clientApiProductVersion ?? "unknown"}`,
-      );
+      const nextSettings = normalizeConnectionSettings(connectionForm);
+      attemptedSettings = nextSettings;
+      const nextDiagnostics = await window.ppxClient.testConnectionSettings(nextSettings);
+      if (candidateVersion === connectionCandidateVersionRef.current) {
+        setConnectionTestState("connected");
+        setConnectionFeedback(
+          `Connection successful: ${nextDiagnostics.nodeName ?? nextDiagnostics.target.name} · ${nextDiagnostics.clientApiProductVersion ?? "unknown"}`,
+        );
+      }
     } catch (error) {
-      setConnectionFeedback(error instanceof Error ? error.message : String(error));
+      if (candidateVersion === connectionCandidateVersionRef.current) {
+        setConnectionTestState("failed");
+        setConnectionFeedback(connectionFailureMessage(error, attemptedSettings));
+      }
     } finally {
       setTestingConnection(false);
     }
@@ -1486,9 +1518,10 @@ export function useDesktopWorkspace() {
     activeRunId,
     cancellingCurrentRun: Boolean(activeRunId && cancellingRunId === activeRunId),
     connectionForm,
-    setConnectionForm,
+    setConnectionForm: updateConnectionForm,
     savingConnection,
     testingConnection,
+    connectionTestState,
     connectionFeedback,
     extensions,
     extensionsLoading,

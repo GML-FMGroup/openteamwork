@@ -168,7 +168,7 @@ export function App() {
         status={workspace.setupStatus}
         form={workspace.setupForm}
         connection={workspace.connectionForm}
-        diagnostics={workspace.diagnostics}
+        connectionTestState={workspace.connectionTestState}
         submitting={workspace.setupSubmitting}
         testingConnection={workspace.testingConnection}
         savingConnection={workspace.savingConnection}

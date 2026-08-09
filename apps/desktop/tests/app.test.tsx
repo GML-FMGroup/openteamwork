@@ -90,6 +90,20 @@ function buildDiagnostics(): ClientDiagnostics {
   };
 }
 
+function viewportRect(top: number, height = 200): DOMRect {
+  return {
+    x: 0,
+    y: top,
+    top,
+    right: 800,
+    bottom: top + height,
+    left: 0,
+    width: 800,
+    height,
+    toJSON: () => ({}),
+  };
+}
+
 function buildSlashCommands(): ProjectedSlashCommand[] {
   return [
     {
@@ -648,11 +662,53 @@ describe("App sending state", () => {
 
     render(<App />);
 
-    expect(await screen.findByRole("heading", { name: "Set up your agent workspace." })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Set up your first agent." })).toBeInTheDocument();
     expect(screen.getByRole("main")).toHaveClass("platform-macos");
-    expect(screen.getByText("Connected")).toBeInTheDocument();
-    expect(screen.getByText("Setup required")).toBeInTheDocument();
-    expect(screen.getByText("Node").closest("li")).toHaveClass("pending");
+    expect(screen.getByText("Not tested")).toBeInTheDocument();
+    expect(screen.queryByText("Connected")).not.toBeInTheDocument();
+    expect(screen.queryByText("Setup required")).not.toBeInTheDocument();
+    const nodeStep = screen.getByRole("button", { name: "Node" });
+    const agentStep = screen.getByRole("button", { name: "Agent" });
+    const helloStep = screen.getByRole("button", { name: "First Hello" });
+    expect(nodeStep.closest("li")).toHaveClass("pending", "active");
+    expect(nodeStep).toHaveAttribute("aria-current", "step");
+    expect(screen.getByText("Connection & identity")).toBeInTheDocument();
+    expect(screen.getByText("Workspace & model")).toBeInTheDocument();
+    expect(screen.getByText("Real model check")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Node" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Agent" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "First Hello" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Model" })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Test" }));
+    expect(await screen.findByText("Connected")).toBeInTheDocument();
+    expect(screen.getByRole("status")).toHaveTextContent("Connection successful: This Mac");
+
+    const shell = screen.getByRole("main");
+    const nodeSection = screen.getByRole("heading", { name: "Node" }).closest("section") as HTMLElement;
+    const agentSection = screen.getByRole("heading", { name: "Agent" }).closest("section") as HTMLElement;
+    const helloSection = screen.getByRole("heading", { name: "First Hello" }).closest("section") as HTMLElement;
+    vi.spyOn(shell, "getBoundingClientRect").mockReturnValue(viewportRect(0, 1_000));
+    vi.spyOn(nodeSection, "getBoundingClientRect").mockReturnValue(viewportRect(-420));
+    vi.spyOn(agentSection, "getBoundingClientRect").mockReturnValue(viewportRect(80, 500));
+    vi.spyOn(helloSection, "getBoundingClientRect").mockReturnValue(viewportRect(900));
+    shell.scrollTop = 420;
+    fireEvent.scroll(shell);
+    expect(agentStep).toHaveAttribute("aria-current", "step");
+    expect(nodeStep).not.toHaveAttribute("aria-current");
+
+    const scrollIntoView = vi.fn();
+    Object.defineProperty(helloSection, "scrollIntoView", { configurable: true, value: scrollIntoView });
+    const originalMatchMedia = window.matchMedia;
+    Object.defineProperty(window, "matchMedia", {
+      configurable: true,
+      value: vi.fn(() => ({ matches: true })),
+    });
+    fireEvent.click(helloStep);
+    expect(helloStep).toHaveAttribute("aria-current", "step");
+    expect(scrollIntoView).toHaveBeenCalledWith({ behavior: "auto", block: "start" });
+    Object.defineProperty(window, "matchMedia", { configurable: true, value: originalMatchMedia });
+
     expect(screen.getByLabelText("Workspace folder")).toHaveValue("/workspace/openppx");
     expect(screen.getByLabelText("Model")).toHaveValue("gemini-2.5-flash");
     fireEvent.change(screen.getByLabelText("API key"), { target: { value: "test-api-key" } });
@@ -664,6 +720,47 @@ describe("App sending state", () => {
     }));
     expect(runSetupHello).toHaveBeenCalledWith("main", "ppx-client-user", "Hello OpenPPX");
     expect(await screen.findByRole("button", { name: "Send" })).toBeInTheDocument();
+  });
+
+  it("updates the candidate connection state and explains an unreachable local Node", async () => {
+    const needsConfiguration = {
+      ...configuredSetupStatus(),
+      state: "needs_configuration" as const,
+      steps: { node: "complete", agent: "complete", model: "complete", credential: "not_required", hello: "pending" },
+    };
+    let rejectTest!: (reason: unknown) => void;
+    const testConnectionSettings = vi.fn(() => new Promise<ClientDiagnostics>((_resolve, reject) => {
+      rejectTest = reject;
+    }));
+    installClient({
+      getSetupStatus: async () => needsConfiguration,
+      testConnectionSettings,
+    });
+
+    render(<App />);
+
+    await screen.findByRole("heading", { name: "Set up your first agent." });
+    expect(screen.getByText("Not tested")).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("Node URL"), { target: { value: "http://127.0.0.1:18764" } });
+    fireEvent.click(screen.getByRole("button", { name: "Test" }));
+    expect(screen.getByText("Testing…", { selector: ".onboarding-state-badge" })).toBeInTheDocument();
+
+    await act(async () => {
+      rejectTest(new Error(
+        "Error invoking remote method 'ppx-client:test-connection-settings': Error: Testing the local connection requires the OpenPPX Client API. fetch failed",
+      ));
+    });
+
+    expect(await screen.findByText("Connection failed")).toBeInTheDocument();
+    const alert = screen.getByRole("alert");
+    expect(alert).toHaveTextContent(
+      "Couldn’t reach an OpenPPX Node at http://127.0.0.1:18764. Check the URL and make sure the Node is running, then try again.",
+    );
+    expect(alert).not.toHaveTextContent(/Error invoking remote method|test-connection-settings|fetch failed/);
+
+    fireEvent.change(screen.getByLabelText("Node URL"), { target: { value: "http://127.0.0.1:18765" } });
+    await waitFor(() => expect(screen.getByText("Not tested")).toBeInTheDocument());
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 
   it("retries only Hello when configuration is already saved", async () => {
@@ -719,11 +816,10 @@ describe("App sending state", () => {
     expect(screen.getByRole("heading", { name: "Edit your saved configuration." })).toBeInTheDocument();
     expect(screen.getByLabelText("Node name")).toHaveValue("This Mac");
 
-    fireEvent.click(screen.getByRole("button", { name: "Model" }));
+    expect(screen.queryByRole("button", { name: "Model" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Agent" }));
     expect(screen.getByLabelText("Provider")).toBeEnabled();
     expect(screen.queryByLabelText("First message")).not.toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole("button", { name: "Agent" }));
     expect(screen.getByLabelText("Agent ID")).toHaveValue("main");
     expect(screen.getByLabelText("Agent ID")).toBeDisabled();
     fireEvent.change(screen.getByLabelText("Agent name"), { target: { value: "Monica Prime" } });
@@ -781,7 +877,7 @@ describe("App sending state", () => {
 
     render(<App />);
 
-    await screen.findByRole("heading", { name: "Set up your agent workspace." });
+    await screen.findByRole("heading", { name: "Set up your first agent." });
     fireEvent.change(screen.getByLabelText("API key"), { target: { value: "test-api-key" } });
     fireEvent.click(screen.getByRole("button", { name: "Set up & say Hello" }));
 
@@ -818,7 +914,7 @@ describe("App sending state", () => {
 
     render(<App />);
 
-    expect(await screen.findByRole("heading", { name: "Set up your agent workspace." })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Set up your first agent." })).toBeInTheDocument();
     expect(screen.getByRole("alert")).toHaveTextContent(
       "Model profile configuration is invalid (spec.displayName). Setting has an invalid value. Repair the Node configuration and retry.",
     );

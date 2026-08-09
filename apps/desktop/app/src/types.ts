@@ -204,6 +204,9 @@ export interface ConnectionSettings {
   accessToken?: string;
 }
 
+/** Validation state for the connection candidate currently shown in the form. */
+export type ConnectionTestState = "untested" | "testing" | "connected" | "failed";
+
 export interface ConnectionProfileSummary {
   targetType: "local" | "lan";
   targetId: string;
