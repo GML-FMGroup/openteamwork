@@ -10,7 +10,7 @@ If OpenPPX is useful to you, give it a ⭐ so more builders can discover it.
 
 ## News
 
-- **2026-08-09 — Skills from conversations:** `/make-skill` turns a successful Session into a reviewable, Agent-scoped Skill with redaction, approval, and provenance.
+- **2026-08-09 — v0.6.0 Developer Preview:** teach Agents with `/make-skill`, automate recurring work, and govern real execution with isolated workspaces, permissions, Apps, MCP, and audit.
 - **2026-08-06 — v0.5.4:** added durable Goals, TaskFlows, automation, typed commands, diagnostics, and document/image Artifacts.
 - **2026-08-05 — v0.5.3:** introduced the unified Plugin/App/MCP/Skill extension platform and full Desktop management.
 - **2026-08-04 — Unified Node architecture:** brought Config, Actions, Extensions, Operations, audit, onboarding, and LAN access under one governed contract.
