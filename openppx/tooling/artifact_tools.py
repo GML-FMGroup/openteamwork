@@ -2,15 +2,12 @@
 
 from __future__ import annotations
 
-import datetime as dt
-import hashlib
 import os
 from pathlib import Path
 from typing import Any
 
-from google.genai import types
-
 from openppx.permissions import AuthorizedPath, authorize_path
+from openppx.runtime.artifact_persistence import save_prepared_artifact
 from openppx.runtime.attachment_service import (
     AttachmentValidationError,
     prepare_attachment,
@@ -93,35 +90,16 @@ async def publish_artifact(
             data=data,
         )
         storage_key = f"outputs/{prepared.file_name}"
-        artifact_id = "artifact_output_" + hashlib.sha256(storage_key.encode("utf-8")).hexdigest()[:16]
-        created_at = dt.datetime.now(dt.timezone.utc).isoformat()
-        version = await tool_context.save_artifact(
-            filename=storage_key,
-            artifact=types.Part.from_bytes(
-                data=prepared.data,
-                mime_type=prepared.mime_type,
-            ),
-            custom_metadata={
-                "artifact_id": artifact_id,
-                "source": "agent_output",
-                "file_name": prepared.file_name,
-                "size_bytes": len(prepared.data),
-                "created_at": created_at,
-                **prepared.metadata,
-            },
+        artifact = await save_prepared_artifact(
+            tool_context=tool_context,
+            prepared=prepared,
+            storage_key=storage_key,
+            source="agent_output",
+            artifact_id_prefix="artifact_output_",
         )
         return {
             "ok": True,
-            "artifact": {
-                "id": artifact_id,
-                "key": storage_key,
-                "fileName": prepared.file_name,
-                "mimeType": prepared.mime_type,
-                "sizeBytes": len(prepared.data),
-                "version": int(version),
-                "source": "agent_output",
-                "createdAt": created_at,
-            },
+            "artifact": artifact,
         }
     except (AttachmentValidationError, FileNotFoundError, PermissionError, ValueError, OSError) as exc:
         return {"ok": False, "error": str(exc)}

@@ -24,6 +24,7 @@ from openppx.extensions import (
 from openppx.extensions.indexes import ExtensionReferenceIndex, ResourceIdentityIndex
 from openppx.extensions.prefixes import ToolPrefixIndex
 from openppx.operations import NodeAutomationExecutor, NodeOperationsRuntime, OperationsService
+from openppx.tooling.registry import configure_subagent_dispatcher
 
 from .assembly import RuntimeAssembler
 from .client_api_auth import resolve_client_api_access_token, validate_client_api_bind
@@ -353,6 +354,7 @@ class OpenPpxNodeHost:
             coordinator,
             access_token=resolved_token,
         )
+        configure_subagent_dispatcher(runtime_supervisor.dispatch_subagent)
         return cls(
             node_root=root,
             control_plane=control_plane,
@@ -389,6 +391,7 @@ class OpenPpxNodeHost:
             self.server.shutdown()
         self.server.server_close()
         self._operations_thread.stop()
+        configure_subagent_dispatcher(None)
         self.runtime_supervisor.close()
         self.control_plane.close()
 

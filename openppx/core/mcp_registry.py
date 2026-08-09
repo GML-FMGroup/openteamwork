@@ -10,6 +10,7 @@ from typing import Any
 from typing import Callable
 
 from google.adk.agents.readonly_context import ReadonlyContext
+from google.adk.tools.load_mcp_resource_tool import LoadMcpResourceTool
 from google.adk.tools.mcp_tool import McpToolset
 from google.adk.tools.mcp_tool.mcp_session_manager import (
     SseConnectionParams,
@@ -23,9 +24,14 @@ from mcp.shared.session import ProgressFnT
 from ..runtime.mcp_proxy import DEFAULT_MCP_PROXY_INLINE_BUDGET_MS
 from ..runtime.mcp_proxy import normalize_mcp_proxy_inline_budget_ms
 from ..runtime.mcp_proxy import wrap_mcp_tool_for_long_tasks
+from ..runtime.mcp_artifacts import wrap_mcp_tool_artifacts
 from ..runtime.mcp_job_protocol import McpJobProtocolConfig
 from ..runtime.mcp_job_protocol import normalize_mcp_job_protocol
 from ..runtime.mcp_job_protocol import register_mcp_job_tools
+from ..runtime.mcp_resources import (
+    ContextBoundLoadMcpResourceTool,
+    current_mcp_resource_context,
+)
 from ..runtime.step_events import publish_runtime_step_event
 from .env_utils import is_enabled
 
@@ -53,6 +59,7 @@ _CONFIG_ERROR_HINTS = (
     "parse",
     "schema",
 )
+MAX_MCP_RESOURCE_TEXT_BYTES = 1 * 1024 * 1024
 
 
 class SafeMcpToolset(McpToolset):
@@ -97,6 +104,8 @@ class McpToolsetOptions:
     long_task_proxy: bool
     inline_budget_ms: int
     job_protocol: McpJobProtocolConfig | None
+    resources_enabled: bool
+    resource_uri_allowlist: tuple[str, ...]
 
 
 class ManagedMcpToolset(SafeMcpToolset):
@@ -116,6 +125,8 @@ class ManagedMcpToolset(SafeMcpToolset):
         long_task_proxy: bool = True,
         inline_budget_ms: int = DEFAULT_MCP_PROXY_INLINE_BUDGET_MS,
         job_protocol: McpJobProtocolConfig | None = None,
+        resources_enabled: bool = False,
+        resource_uri_allowlist: tuple[str, ...] = (),
     ) -> None:
         self.meta = meta
         self.runtime_headers = dict(runtime_headers or {})
@@ -123,6 +134,9 @@ class ManagedMcpToolset(SafeMcpToolset):
         self.long_task_proxy = bool(long_task_proxy)
         self.inline_budget_ms = normalize_mcp_proxy_inline_budget_ms(inline_budget_ms)
         self.job_protocol = job_protocol
+        self.resources_enabled = bool(resources_enabled)
+        self.resource_uri_allowlist = tuple(resource_uri_allowlist)
+        self._resource_uri_allowlist = frozenset(self.resource_uri_allowlist)
         # Runtime health state is tracked for startup diagnostics and operator hints.
         self.availability_status = "unknown"
         self.availability_message = ""
@@ -133,11 +147,22 @@ class ManagedMcpToolset(SafeMcpToolset):
             require_confirmation=require_confirmation,
             header_provider=header_provider,
             progress_callback=progress_callback,
+            use_mcp_resources=self.resources_enabled,
         )
 
     async def get_tools(self, *args: Any, **kwargs: Any) -> list[Any]:
         """Return ADK MCP tools, optionally wrapped by openppx long-task proxy."""
         tools = await super().get_tools(*args, **kwargs)
+        tools = [
+            ContextBoundLoadMcpResourceTool(mcp_toolset=self)
+            if isinstance(tool, LoadMcpResourceTool)
+            else tool
+            for tool in tools
+        ]
+        tools = [
+            wrap_mcp_tool_artifacts(tool, server_name=self.meta.name)
+            for tool in tools
+        ]
         if self.job_protocol is not None:
             register_mcp_job_tools(self.meta.name, tools)
         if not self.long_task_proxy:
@@ -151,6 +176,79 @@ class ManagedMcpToolset(SafeMcpToolset):
                 job_protocol=self.job_protocol,
             )
             for tool in tools
+        ]
+
+    async def list_resources(
+        self,
+        readonly_context: ReadonlyContext | None = None,
+    ) -> list[str]:
+        """List only Resource names whose exact URI is explicitly allowed."""
+        infos = await self._allowed_resource_infos(readonly_context)
+        return [str(info.get("name") or "") for info in infos if info.get("name")]
+
+    async def get_resource_info(
+        self,
+        name: str,
+        readonly_context: ReadonlyContext | None = None,
+    ) -> dict[str, Any]:
+        """Resolve one Resource name only inside the configured URI allowlist."""
+        context = readonly_context or current_mcp_resource_context()
+        result = await self._execute_with_session(
+            lambda session: session.list_resources(),
+            "Failed to list resources from MCP server",
+            context,
+        )
+        matched_disallowed = False
+        for resource in result.resources:
+            info = resource.model_dump(mode="json", exclude_none=True)
+            if str(info.get("name") or "") != name:
+                continue
+            if str(info.get("uri") or "") in self._resource_uri_allowlist:
+                return info
+            matched_disallowed = True
+        if matched_disallowed:
+            raise ValueError(f"MCP Resource '{name}' is not allowed by its URI policy.")
+        raise ValueError(f"Resource with name '{name}' not found.")
+
+    async def read_resource(
+        self,
+        name: str,
+        readonly_context: ReadonlyContext | None = None,
+    ) -> Any:
+        """Read one allowed, bounded text Resource and reject binary injection."""
+        context = readonly_context or current_mcp_resource_context()
+        contents = await super().read_resource(name, context)
+        total_bytes = 0
+        for content in contents:
+            if getattr(content, "blob", None) is not None:
+                raise ValueError(
+                    "Binary MCP resources are not inserted into model context; use an Artifact-producing MCP tool."
+                )
+            text = getattr(content, "text", None)
+            if text is None:
+                raise ValueError("Unsupported MCP Resource content type.")
+            total_bytes += len(str(text).encode("utf-8"))
+            if total_bytes > MAX_MCP_RESOURCE_TEXT_BYTES:
+                raise ValueError("MCP Resource text exceeds the 1 MB model-context limit.")
+        return contents
+
+    async def _allowed_resource_infos(
+        self,
+        readonly_context: ReadonlyContext | None,
+    ) -> list[dict[str, Any]]:
+        """Fetch Resource metadata once and filter it by exact URI identity."""
+        context = readonly_context or current_mcp_resource_context()
+        result = await self._execute_with_session(
+            lambda session: session.list_resources(),
+            "Failed to list resources from MCP server",
+            context,
+        )
+        return [
+            info
+            for resource in result.resources
+            if (
+                info := resource.model_dump(mode="json", exclude_none=True)
+            ).get("uri") in self._resource_uri_allowlist
         ]
 
     def mark_available(self) -> None:
@@ -583,6 +681,26 @@ def _resolve_toolset_options(server_name: str, raw_cfg: dict[str, Any]) -> McpTo
         _pick_int(raw_cfg, "inline_budget_ms", "inlineBudgetMs", DEFAULT_MCP_PROXY_INLINE_BUDGET_MS)
     )
     job_protocol = normalize_mcp_job_protocol(_pick(raw_cfg, "job_protocol", "jobProtocol", {}))
+    resources_enabled = _pick_bool(
+        raw_cfg,
+        "resources_enabled",
+        "resourcesEnabled",
+        False,
+    )
+    resource_uri_allowlist = tuple(
+        _string_list(
+            _pick(
+                raw_cfg,
+                "resource_uri_allowlist",
+                "resourceUriAllowlist",
+                [],
+            )
+        )
+    )
+    if resources_enabled != bool(resource_uri_allowlist):
+        raise ValueError(
+            "MCP resourcesEnabled and a non-empty resourceUriAllowlist must be configured together"
+        )
     return McpToolsetOptions(
         tool_filter=resolved_filter,
         prefix=prefix,
@@ -592,6 +710,8 @@ def _resolve_toolset_options(server_name: str, raw_cfg: dict[str, Any]) -> McpTo
         long_task_proxy=long_task_proxy,
         inline_budget_ms=inline_budget_ms,
         job_protocol=job_protocol,
+        resources_enabled=resources_enabled,
+        resource_uri_allowlist=resource_uri_allowlist,
     )
 
 
@@ -610,6 +730,8 @@ def build_mcp_toolsets(mcp_servers: dict[str, Any], *, log_registered: bool = Tr
     - `longTaskProxy` / `long_task_proxy` (optional, default true)
     - `inlineBudgetMs` / `inline_budget_ms` (optional, default 5000)
     - `jobProtocol` / `job_protocol` (optional explicit external job protocol)
+    - `resourcesEnabled` / `resources_enabled` (default false)
+    - `resourceUriAllowlist` / `resource_uri_allowlist` (required when enabled)
     """
     toolsets: list[ManagedMcpToolset] = []
     for server_name, raw_cfg in mcp_servers.items():
@@ -644,6 +766,8 @@ def build_mcp_toolsets(mcp_servers: dict[str, Any], *, log_registered: bool = Tr
             long_task_proxy=options.long_task_proxy,
             inline_budget_ms=options.inline_budget_ms,
             job_protocol=options.job_protocol,
+            resources_enabled=options.resources_enabled,
+            resource_uri_allowlist=options.resource_uri_allowlist,
         )
         toolsets.append(toolset)
         if log_registered:

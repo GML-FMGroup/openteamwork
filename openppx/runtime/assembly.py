@@ -6,7 +6,7 @@ import hashlib
 import json
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, Literal
 
 from google.genai import types
 from google.adk.agents.run_config import RunConfig
@@ -175,6 +175,7 @@ class AssembledRuntime:
     session_service: Any
     extension_toolsets: tuple[ManagedMcpToolset, ...] = ()
     artifact_service: Any | None = None
+    permission_refresh_policy: Literal["current", "fixed", "fail_on_change"] = "current"
 
     async def close(self) -> None:
         """Release every connection-bearing extension toolset."""
@@ -289,6 +290,11 @@ class RuntimeAssembler:
         self._plugin_manager = plugin_manager
         self._mcp_adapter = mcp_adapter or McpRuntimeAdapter(secret_store)
         self._permission_snapshot_provider = permission_snapshot_provider
+        self._task_controller: Any | None = None
+
+    def attach_task_controller(self, task_controller: Any) -> None:
+        """Attach the Node-owned task controller before assembling runtimes."""
+        self._task_controller = task_controller
 
     def skill_snapshot_for_agent(self, agent_id: str) -> SkillSnapshot:
         """Capture the immutable Skill set used to key and assemble a Runtime."""
@@ -324,17 +330,26 @@ class RuntimeAssembler:
         *,
         extension_tools: tuple[Any, ...] = (),
         extension_snapshot: RuntimeExtensionSnapshot | None = None,
+        permission_refresh_policy: Literal["current", "fixed", "fail_on_change"] = "current",
+        restrict_subagent: bool = False,
     ) -> AssembledRuntime:
         """Build a snapshot-native Agent and Runner with explicit dependencies."""
         resolved_extensions = extension_snapshot or self.extension_snapshot_for_agent(
             snapshot.agent.metadata.name
         )
+        permission_provider = (
+            None
+            if self._permission_snapshot_provider is None
+            or permission_refresh_policy == "fixed"
+            else lambda: self._permission_snapshot_provider(snapshot.agent.metadata.name)
+        )
         permission_authority = PermissionSnapshotAuthority(
             baseline=snapshot.permissions,
-            provider=(
-                None
-                if self._permission_snapshot_provider is None
-                else lambda: self._permission_snapshot_provider(snapshot.agent.metadata.name)
+            provider=permission_provider,
+            required_revision=(
+                snapshot.permissions.revision
+                if permission_refresh_policy == "fail_on_change" and permission_provider is not None
+                else None
             ),
         )
         proxy = snapshot.permissions.code_egress_proxy
@@ -370,7 +385,12 @@ class RuntimeAssembler:
             permission_audit=self.services.permission_audit,
             permission_authority=permission_authority,
             extension_snapshot_digest=resolved_extensions.revision,
+            task_controller=self._task_controller,
         )
+        if restrict_subagent:
+            from .subagent_agent import build_restricted_subagent
+
+            agent = build_restricted_subagent(agent)
         runner, session_service = self._runner_factory(
             agent=agent,
             app_name=agent.name,
@@ -427,6 +447,21 @@ class RuntimeAssembler:
             session_service=session_service,
             artifact_service=self.services.artifact_service,
             extension_toolsets=mcp_build.toolsets,
+            permission_refresh_policy=permission_refresh_policy,
+        )
+
+    def assemble_subagent(
+        self,
+        snapshot: ConfigSnapshot,
+        *,
+        extension_snapshot: RuntimeExtensionSnapshot | None = None,
+    ) -> AssembledRuntime:
+        """Build a restricted ADK worker pinned to the spawn-time permissions."""
+        return self.assemble(
+            snapshot,
+            extension_snapshot=extension_snapshot,
+            permission_refresh_policy="fail_on_change",
+            restrict_subagent=True,
         )
 
 

@@ -6,7 +6,7 @@ import contextlib
 import functools
 import inspect
 from contextvars import ContextVar
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, Callable, Iterator, ParamSpec, TypeVar, cast
 
@@ -37,6 +37,9 @@ class ToolExecutionContext:
     permission_snapshot: ResolvedPermissionSnapshot | None = None
     permission_authority: PermissionSnapshotAuthority | None = None
     permission_audit: PermissionAuditSink | None = None
+    runtime_snapshot_revision: str = ""
+    extension_revision: str = ""
+    task_controller: Any | None = field(default=None, repr=False, compare=False)
 
     @classmethod
     def for_agent(
@@ -47,6 +50,9 @@ class ToolExecutionContext:
         permission_snapshot: ResolvedPermissionSnapshot | None = None,
         permission_authority: PermissionSnapshotAuthority | None = None,
         permission_audit: PermissionAuditSink | None = None,
+        runtime_snapshot_revision: str = "",
+        extension_revision: str = "",
+        task_controller: Any | None = None,
     ) -> "ToolExecutionContext":
         """Build a context using an explicit Agent Workspace and ambient Node limits."""
         normalized_agent_id = str(agent_id or "").strip()
@@ -63,6 +69,9 @@ class ToolExecutionContext:
             permission_snapshot=baseline,
             permission_authority=permission_authority,
             permission_audit=permission_audit,
+            runtime_snapshot_revision=str(runtime_snapshot_revision or ""),
+            extension_revision=str(extension_revision or ""),
+            task_controller=task_controller,
         )
 
     def current_permission_snapshot(self) -> ResolvedPermissionSnapshot | None:

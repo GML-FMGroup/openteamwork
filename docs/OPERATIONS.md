@@ -60,6 +60,20 @@ ppx operations tasks --session <session-id> --limit 50
 
 Task state, events, artifacts, checkpoints, cancellation controls, and delivery facts remain durable below the Node root. A terminal state is based on runner evidence, not a model claim.
 
+### Background Subagents
+
+`spawn_subagent` runs a background task with the same business Agent, not a different Agent identity. Each spawn receives:
+
+- a separate Google ADK Session;
+- the exact Agent Config, permission, and Extension revisions trusted by the parent call;
+- a restricted Tool catalog that removes recursive `spawn_subagent`;
+- a durable `TaskRun` and Node-owned runtime Run;
+- the parent route and original ADK function-call ID for result delivery.
+
+The worker fails closed before starting if any captured revision is stale. If the permission revision changes while it is running, its next Tool Action is rejected instead of inheriting expanded authority. A parent Session can have at most four active Subagents, and retrying the same function call resolves to the same deterministic Task rather than launching a duplicate.
+
+On completion, OpenPPX retains a bounded Task result and appends a native ADK `FunctionResponse` to the parent Session. The original conversation is not blocked while the worker runs. Task inspection, output, and cooperative cancellation are supported. Interrupt, pause, rejoin, and restart-resume are not advertised because this worker has no durable checkpoint boundary; a Node process loss makes an attached running worker non-resumable.
+
 ## Cron
 
 Cron belongs to the Node process. Jobs execute only while Node automation is running.

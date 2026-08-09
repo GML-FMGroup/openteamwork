@@ -102,6 +102,40 @@ def test_mcp_schema_rejects_ambiguous_transport_secret_leaks_and_unknown_fields(
         McpServer.model_validate(payload)
 
 
+def test_mcp_resource_policy_is_default_off_and_requires_an_exact_uri_allowlist() -> None:
+    default_policy = _server().spec.policy
+
+    assert default_policy.resources_enabled is False
+    assert default_policy.resource_uri_allowlist == []
+
+    payload = _server().model_dump(mode="json", by_alias=True)
+    payload["spec"]["policy"]["resourcesEnabled"] = True
+    with pytest.raises(ValidationError):
+        McpServer.model_validate(payload)
+
+    payload["spec"]["policy"]["resourceUriAllowlist"] = [
+        "resource://openppx/allowed"
+    ]
+    enabled = McpServer.model_validate(payload)
+    assert enabled.spec.policy.resource_uri_allowlist == [
+        "resource://openppx/allowed"
+    ]
+
+    payload["spec"]["policy"]["resourceUriAllowlist"] *= 2
+    with pytest.raises(ValidationError):
+        McpServer.model_validate(payload)
+
+
+def test_mcp_resource_allowlist_cannot_exist_while_resource_access_is_disabled() -> None:
+    payload = _server().model_dump(mode="json", by_alias=True)
+    payload["spec"]["policy"]["resourceUriAllowlist"] = [
+        "resource://openppx/allowed"
+    ]
+
+    with pytest.raises(ValidationError):
+        McpServer.model_validate(payload)
+
+
 def test_mcp_create_enable_disable_remove_and_snapshot(tmp_path: Path) -> None:
     manager = McpManager(tmp_path, InMemorySecretStore())
     created = manager.create(_server(), expected_revision=None)
