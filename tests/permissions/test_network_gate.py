@@ -103,6 +103,45 @@ def test_medium_allows_public_but_denies_private_and_metadata_targets(tmp_path: 
         authorize_network_url(snapshot, "http://169.254.169.254/latest/meta-data")
 
 
+def test_reviewed_imaps_endpoint_uses_the_same_network_permission_intersection(
+    tmp_path: Path,
+) -> None:
+    snapshot = _snapshot(
+        "low",
+        tmp_path,
+        agent_rules=[
+            {
+                "ruleId": "allow-qq-imaps-read",
+                "effect": "allow",
+                "object": "network",
+                "actions": ["connect", "read"],
+                "selector": {
+                    "kind": "network",
+                    "domains": ["imap.qq.com"],
+                    "schemes": ["imaps"],
+                    "ports": [993],
+                },
+                "constraints": {"kind": "network", "readOnly": True},
+            }
+        ],
+    )
+
+    target = authorize_network_url(
+        snapshot,
+        "imaps://IMAP.QQ.COM./",
+        resolver=_public_resolver,
+    )
+
+    assert target.url == "imaps://imap.qq.com/"
+    assert target.port == 993
+    with pytest.raises(PermissionError):
+        authorize_network_url(
+            snapshot,
+            "imaps://imap.163.com/",
+            resolver=_public_resolver,
+        )
+
+
 def test_web_fetch_low_empty_allowlist_stops_before_http_io(tmp_path: Path, monkeypatch) -> None:
     snapshot = _snapshot("low", tmp_path)
     context = ToolExecutionContext.for_agent(

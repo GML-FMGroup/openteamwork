@@ -222,6 +222,7 @@ export interface AppCredentialSpec extends Record<string, unknown> {
   name: string;
   label: string;
   required: boolean;
+  inputType: "secret" | "text" | "email";
 }
 
 export interface AppToolSpec extends Record<string, unknown> {

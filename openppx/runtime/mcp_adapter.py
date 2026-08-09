@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Literal
 from urllib.parse import urlencode
 
 from openppx.config import SecretBackendUnavailable, SecretNotFound, SecretStore
@@ -37,7 +37,10 @@ class McpRuntimeBuild:
 
     toolsets: tuple[ManagedMcpToolset, ...]
     diagnostics: tuple[McpRuntimeDiagnostic, ...]
-    network_origins: tuple[tuple[str, str], ...] = ()
+    network_policies: tuple[
+        tuple[str, tuple[str, Literal["read", "write"]]],
+        ...,
+    ] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -69,16 +72,23 @@ class McpRuntimeAdapter:
         """Build toolsets without ever copying Secret values into persisted resources."""
         toolsets: list[ManagedMcpToolset] = []
         diagnostics: list[McpRuntimeDiagnostic] = []
-        network_origins: list[tuple[str, str]] = []
+        network_policies: list[
+            tuple[str, tuple[str, Literal["read", "write"]]]
+        ] = []
         for entry in snapshot.entries:
             server_id = entry.record.metadata.name
             try:
                 if permission_snapshot is not None and isinstance(entry.record.spec.transport, McpRemoteTransport):
+                    access = entry.record.spec.policy.network_access
                     authorize_network_url(
                         permission_snapshot,
                         entry.record.spec.transport.url,
                         method="POST",
-                        actions=("connect", "read", "write", "upload"),
+                        actions=(
+                            ("connect", "read")
+                            if access == "read"
+                            else ("connect", "write", "upload")
+                        ),
                         audit=permission_audit,
                     )
                 raw = self._runtime_config(server_id, entry.record.spec.transport)
@@ -139,13 +149,16 @@ class McpRuntimeAdapter:
             built = build_mcp_toolsets({server_id: raw}, log_registered=False)
             toolsets.extend(built)
             if isinstance(entry.record.spec.transport, McpRemoteTransport) and built:
-                network_origins.append(
-                    (policy.resolved_prefix(server_id), entry.record.spec.transport.url)
+                network_policies.append(
+                    (
+                        policy.resolved_prefix(server_id),
+                        (entry.record.spec.transport.url, policy.network_access),
+                    )
                 )
         return McpRuntimeBuild(
             toolsets=tuple(toolsets),
             diagnostics=tuple(diagnostics),
-            network_origins=tuple(network_origins),
+            network_policies=tuple(network_policies),
         )
 
     async def probe(

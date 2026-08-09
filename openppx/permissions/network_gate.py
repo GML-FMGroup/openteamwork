@@ -19,6 +19,7 @@ _CONTROL_PLANE_IPS = {
     ipaddress.ip_address("169.254.169.254"),
     ipaddress.ip_address("100.100.100.200"),
 }
+_MANAGED_SCHEME_PORTS = {"http": 80, "https": 443, "imaps": 993}
 
 
 @dataclass(frozen=True, slots=True)
@@ -49,7 +50,7 @@ def authorize_network_url(
 
     snapshot.assert_enforce_ready("network")
     parsed = _normalize_url(url)
-    port = parsed.port or (443 if parsed.scheme == "https" else 80)
+    port = parsed.port or _MANAGED_SCHEME_PORTS[parsed.scheme]
     rollout_mode = snapshot.rollout_for("network")
     try:
         resolved_ips = _resolve_ips(parsed.hostname or "", port, resolver=resolver)
@@ -114,8 +115,8 @@ def _normalize_url(raw_url: str) -> SplitResult:
     except Exception as exc:
         raise PermissionError("Network URL is invalid.") from exc
     scheme = parsed.scheme.lower()
-    if scheme not in {"http", "https"}:
-        raise PermissionError("Only HTTP and HTTPS managed network targets are allowed.")
+    if scheme not in _MANAGED_SCHEME_PORTS:
+        raise PermissionError("The managed network target scheme is not supported.")
     if not parsed.hostname:
         raise PermissionError("Network URL must contain a hostname.")
     if parsed.username is not None or parsed.password is not None:

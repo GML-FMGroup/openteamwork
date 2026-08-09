@@ -17,7 +17,12 @@ from openppx.extensions.mcp_models import McpServer
 from openppx.runtime.mcp_adapter import McpRuntimeAdapter
 
 
-def _record(name: str, transport: dict[str, object]) -> McpServer:
+def _record(
+    name: str,
+    transport: dict[str, object],
+    *,
+    network_access: str = "write",
+) -> McpServer:
     return McpServer.model_validate(
         {
             "apiVersion": "openppx.io/v1alpha1",
@@ -34,6 +39,7 @@ def _record(name: str, transport: dict[str, object]) -> McpServer:
                     "progressEvents": True,
                     "longTaskProxy": True,
                     "inlineBudgetMs": 500,
+                    "networkAccess": network_access,
                 },
                 "risk": "low",
                 "enabledAgentIds": [],
@@ -110,6 +116,29 @@ def test_runtime_adapter_resolves_secrets_only_into_connection_objects(tmp_path:
     assert "stdio-secret" not in persisted
     assert "http-secret" not in persisted
     assert "query secret/+" not in manager.get("remote").record.model_dump_json()
+
+
+def test_remote_mcp_build_preserves_declared_network_effect(tmp_path: Path) -> None:
+    secrets = InMemorySecretStore()
+    manager = McpManager(tmp_path, secrets)
+    snapshot = _enabled(
+        manager,
+        _record(
+            "readonly",
+            {
+                "type": "streamable_http",
+                "url": "https://docs.example.com/mcp",
+                "headers": {},
+            },
+            network_access="read",
+        ),
+    )
+
+    build = McpRuntimeAdapter(secrets).build(snapshot)
+
+    assert build.network_policies == (
+        ("mcp_readonly", ("https://docs.example.com/mcp", "read")),
+    )
 
 
 def test_missing_secret_is_diagnostic_and_does_not_block_other_mcp(tmp_path: Path) -> None:

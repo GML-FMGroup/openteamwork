@@ -229,6 +229,7 @@ class McpToolPolicy(StrictConfigModel):
     disabled_tools: list[ToolName] = Field(default_factory=list)
     tool_name_prefix: ToolPrefix | None = None
     require_confirmation: StrictBool = False
+    network_access: Literal["read", "write"] = "write"
     runtime_headers: dict[HeaderName, RuntimeHeaderSource] = Field(default_factory=dict)
     progress_events: StrictBool = True
     long_task_proxy: StrictBool = True

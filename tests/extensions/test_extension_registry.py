@@ -103,7 +103,12 @@ def test_registry_projects_safe_editor_details_for_mcp_and_app_connections(tmp_p
     assert mcp_detail["resource"]["metadata"]["name"] == "docs"
     assert mcp_detail["resource"]["spec"]["transport"]["type"] == "stdio"
     assert app_detail["credentials"] == [
-        {"name": "api-token", "label": "API token", "required": True}
+        {
+            "name": "api-token",
+            "label": "API token",
+            "required": True,
+            "inputType": "secret",
+        }
     ]
     assert app_detail["tools"][0]["name"] == "echo_context"
     assert app_detail["connections"][0]["credentialRefs"] == {

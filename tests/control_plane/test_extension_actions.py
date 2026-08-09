@@ -165,6 +165,37 @@ def test_direct_app_starter_install_is_validated_and_idempotent(tmp_path: Path) 
     assert invalid.error.code == "invalid_operation"
 
 
+def test_first_wave_office_apps_use_the_common_starter_install_path(tmp_path: Path) -> None:
+    application = _application(tmp_path)
+
+    expected = {
+        "app-email": "email-imap",
+        "app-feishu-docs": "feishu-docs",
+        "app-notion": "notion",
+        "app-wps-cloud-docs": "wps-cloud-docs",
+    }
+    installed = {
+        starter_id: application.invoke(
+            "app.starter.install",
+            {"starterId": starter_id},
+            _context(),
+        )
+        for starter_id in expected
+    }
+    inventory = application.invoke(
+        "extension.list",
+        {"kind": "app", "agentId": None},
+        _context(),
+    )
+
+    assert all(result.ok for result in installed.values())
+    assert {
+        starter_id: result.data["id"]
+        for starter_id, result in installed.items()
+    } == expected
+    assert {item["id"] for item in inventory.data["items"]} == set(expected.values())
+
+
 def test_skill_preview_install_list_enable_disable_remove_use_one_action_path(tmp_path: Path) -> None:
     application = _application(tmp_path)
     source = _skill(tmp_path / "source")
