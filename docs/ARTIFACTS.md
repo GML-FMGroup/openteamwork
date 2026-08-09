@@ -48,3 +48,5 @@ Text content is rendered as text, not HTML, so an Artifact cannot inject markup 
 The Client API resolves each reference inside the selected Agent and Session scope and loads bytes through the Google ADK Artifact service. Office, PDF, CSV, and text formats become deterministic bounded text parts; supported images remain validated binary parts for vision-capable models. The runtime does not trust the client-supplied filename as a server path.
 
 Artifacts remain associated with the Session and are available after restarting Desktop or switching Node targets, provided the selected Node still owns that Session.
+
+MCP Tools use the same ADK Artifact service for supported binary results. Their Artifact metadata records `source=mcp_tool_result`, MCP server and Tool identity, content index, MIME type, byte size, and creation time. The model receives the Artifact key and metadata instead of the original base64 payload. This does not make arbitrary MCP bytes trusted: the same attachment size, MIME, format, archive, document, and image checks run before persistence.

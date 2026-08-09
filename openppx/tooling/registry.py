@@ -72,6 +72,7 @@ from ..runtime.sandbox import (
     resolve_backend,
 )
 from ..runtime.step_events import build_step_metadata, normalize_outbound_metadata
+from ..runtime.subagent_contract import SubagentSpawnRequest
 from ..runtime.sandbox.egress_policy import write_egress_proxy_policy
 from ..runtime.sync_tool_proxy import SyncCancellationToken
 from ..runtime.sync_tool_proxy import run_sync_callable_with_proxy
@@ -106,27 +107,6 @@ _SUBAGENT_DISPATCHER: Callable[["SubagentSpawnRequest"], None] | None = None
 _HEARTBEAT_WAKE_REQUESTER: Callable[[str], None] | None = None
 
 
-@dataclass(slots=True)
-class SubagentSpawnRequest:
-    """A background sub-agent task request created by ``spawn_subagent``.
-
-    The request carries enough metadata for the runtime to:
-    1. execute the sub-task in a separate session;
-    2. resume the paused parent invocation with the same function_call_id; and
-    3. preserve the originating client scope for completion facts.
-    """
-
-    task_id: str
-    prompt: str
-    user_id: str
-    session_id: str
-    invocation_id: str
-    function_call_id: str
-    route: str
-    scope_id: str
-    notify_on_complete: bool = True
-
-
 def _security_policy() -> SecurityPolicy:
     runtime_context = current_tool_execution_context()
     if runtime_context is not None:
@@ -136,6 +116,13 @@ def _security_policy() -> SecurityPolicy:
 
 def _workspace(policy: SecurityPolicy | None = None) -> Path:
     return (policy or _security_policy()).workspace_root
+
+
+def _current_task_controller() -> TaskController:
+    """Return the Node-owned controller bound to this Tool Action."""
+    runtime_context = current_tool_execution_context()
+    controller = getattr(runtime_context, "task_controller", None)
+    return controller if isinstance(controller, TaskController) else TaskController()
 
 
 def _resolve_path(
@@ -2390,13 +2377,13 @@ def list_skill_api_runners() -> str:
 def list_tasks(limit: int = 20, session_id: str | None = None, tool_context: Any | None = None) -> str:
     """List recent long-task records for the current or specified session."""
     resolved_session_id = (session_id or "").strip() or _session_attr(tool_context)
-    payload = TaskController().list_tasks(session_id=resolved_session_id or None, limit=limit)
+    payload = _current_task_controller().list_tasks(session_id=resolved_session_id or None, limit=limit)
     return _ret("tool.list_tasks.output", _json(payload))
 
 
 def show_task(task_id: str) -> str:
     """Show one long-task status and recent events."""
-    payload = TaskController().show_task(task_id)
+    payload = _current_task_controller().show_task(task_id)
     return _ret("tool.show_task.output", _json(payload))
 
 
@@ -2408,7 +2395,7 @@ def task_control_snapshot(
 ) -> str:
     """Return UI/app-ready task control snapshots."""
     resolved_session = (session_id or "").strip() or _session_attr(tool_context)
-    payload = TaskController().task_control_snapshot(
+    payload = _current_task_controller().task_control_snapshot(
         task_id=(task_id or "").strip() or None,
         session_id=resolved_session or None,
         limit=limit,
@@ -2424,7 +2411,7 @@ def task_runtime_status(
 ) -> str:
     """Return a compact health snapshot for long-task runtime facts."""
     resolved_session = (session_id or "").strip() or _session_attr(tool_context)
-    payload = TaskController().runtime_status(
+    payload = _current_task_controller().runtime_status(
         session_id=resolved_session or None,
         stuck_after_ms=stuck_after_ms,
         stuck_limit=stuck_limit,
@@ -2440,7 +2427,7 @@ def audit_stuck_tasks(
 ) -> str:
     """List active long tasks that have not changed within the age budget."""
     resolved_session = (session_id or "").strip() or _session_attr(tool_context)
-    payload = TaskController().audit_stuck_tasks(
+    payload = _current_task_controller().audit_stuck_tasks(
         older_than_ms=older_than_ms,
         session_id=resolved_session or None,
         limit=limit,
@@ -2459,7 +2446,7 @@ def remediate_stuck_tasks(
 ) -> str:
     """Conservatively synchronize stuck running/stale task facts."""
     resolved_session = (session_id or "").strip() or _session_attr(tool_context)
-    payload = TaskController().remediate_stuck_tasks(
+    payload = _current_task_controller().remediate_stuck_tasks(
         older_than_ms=older_than_ms,
         stale_lost_after_ms=stale_lost_after_ms,
         session_id=resolved_session or None,
@@ -2481,7 +2468,7 @@ def cleanup_terminal_tasks(
 ) -> str:
     """Clean up old terminal TaskRuntime facts after explicit confirmation."""
     resolved_session = (session_id or "").strip() or _session_attr(tool_context)
-    payload = TaskController().cleanup_terminal_tasks(
+    payload = _current_task_controller().cleanup_terminal_tasks(
         older_than_ms=older_than_ms,
         session_id=resolved_session or None,
         limit=limit,
@@ -2494,7 +2481,7 @@ def cleanup_terminal_tasks(
 
 def audit_orphan_runtime_facts(limit: int = 100) -> str:
     """List orphaned task artifact/checkpoint facts whose parent task is gone."""
-    payload = TaskController().audit_orphan_runtime_facts(limit=limit)
+    payload = _current_task_controller().audit_orphan_runtime_facts(limit=limit)
     return _ret("tool.audit_orphan_runtime_facts.output", _json(payload))
 
 
@@ -2505,7 +2492,7 @@ def cleanup_orphan_runtime_facts(
     delete_artifact_files: bool = False,
 ) -> str:
     """Clean up orphaned task artifact/checkpoint facts after confirmation."""
-    payload = TaskController().cleanup_orphan_runtime_facts(
+    payload = _current_task_controller().cleanup_orphan_runtime_facts(
         limit=limit,
         dry_run=dry_run,
         confirm=confirm,
@@ -2524,7 +2511,7 @@ def audit_checkpoint_retention(
 ) -> str:
     """List old non-current checkpoints eligible for retention cleanup."""
     resolved_session = (session_id or "").strip() or _session_attr(tool_context)
-    payload = TaskController().audit_checkpoint_retention(
+    payload = _current_task_controller().audit_checkpoint_retention(
         older_than_ms=older_than_ms,
         keep_latest_per_task=keep_latest_per_task,
         task_id=(task_id or "").strip() or None,
@@ -2546,7 +2533,7 @@ def cleanup_checkpoint_retention(
 ) -> str:
     """Clean up old non-current checkpoints after explicit confirmation."""
     resolved_session = (session_id or "").strip() or _session_attr(tool_context)
-    payload = TaskController().cleanup_checkpoint_retention(
+    payload = _current_task_controller().cleanup_checkpoint_retention(
         older_than_ms=older_than_ms,
         keep_latest_per_task=keep_latest_per_task,
         task_id=(task_id or "").strip() or None,
@@ -2560,7 +2547,7 @@ def cleanup_checkpoint_retention(
 
 def task_output(task_id: str) -> str:
     """Return retained output for one long task."""
-    payload = TaskController().task_output(task_id)
+    payload = _current_task_controller().task_output(task_id)
     return _ret("tool.task_output.output", _json(payload))
 
 
@@ -3116,7 +3103,7 @@ def _todo_payload(item: TodoItem) -> dict[str, Any]:
 
 def resume_task(task_id: str) -> str:
     """Rejoin or explain resume limits for one long task."""
-    payload = TaskController().resume_task(task_id)
+    payload = _current_task_controller().resume_task(task_id)
     return _ret("tool.resume_task.output", _json(payload))
 
 
@@ -3128,7 +3115,7 @@ def dispatch_task_action(
     tool_context: Any | None = None,
 ) -> str:
     """Dispatch a UI/app task action through the existing task control surface."""
-    payload = TaskController().dispatch_task_action(
+    payload = _current_task_controller().dispatch_task_action(
         task_id,
         action,
         content=content,
@@ -3140,7 +3127,7 @@ def dispatch_task_action(
 
 def restart_task(task_id: str, inline_budget_ms: int | None = None, tool_context: Any | None = None) -> str:
     """Explicitly start a new run from a recorded restartable boundary."""
-    payload = TaskController().restart_task(
+    payload = _current_task_controller().restart_task(
         task_id,
         inline_budget_ms=inline_budget_ms,
         context=_task_invocation_context(tool_context),
@@ -3150,25 +3137,25 @@ def restart_task(task_id: str, inline_budget_ms: int | None = None, tool_context
 
 def pause_task(task_id: str) -> str:
     """Pause a task only when its runner exposes a durable pause boundary."""
-    payload = TaskController().pause_task(task_id)
+    payload = _current_task_controller().pause_task(task_id)
     return _ret("tool.pause_task.output", _json(payload))
 
 
 def send_task_input(task_id: str, content: str) -> str:
     """Record user input for a waiting long task."""
-    payload = TaskController().send_task_input(task_id, content)
+    payload = _current_task_controller().send_task_input(task_id, content)
     return _ret("tool.send_task_input.output", _json(payload))
 
 
 def interrupt_task(task_id: str) -> str:
     """Request that a running task stop at the nearest explainable boundary."""
-    payload = TaskController().interrupt_task(task_id)
+    payload = _current_task_controller().interrupt_task(task_id)
     return _ret("tool.interrupt_task.output", _json(payload))
 
 
 def cancel_task(task_id: str) -> str:
     """Cancel a task because the user explicitly abandoned it."""
-    payload = TaskController().cancel_task(task_id)
+    payload = _current_task_controller().cancel_task(task_id)
     return _ret("tool.cancel_task.output", _json(payload))
 
 
@@ -4855,7 +4842,7 @@ def browser(
                         last_error=str(payload.get("error") or job_payload.get("error") or "").strip(),
                     )
                     enriched["remote_job"] = browser_remote_job_payload(job_record)
-                    task_result = TaskController().materialize_browser_remote_job(
+                    task_result = _current_task_controller().materialize_browser_remote_job(
                         job_record,
                         context=TaskInvocationContext(),
                     )
@@ -5886,6 +5873,30 @@ def spawn_subagent(
         _debug("tool.spawn_subagent.output", result)
         return result
 
+    runtime_context = current_tool_execution_context()
+    permission_snapshot = (
+        runtime_context.permission_snapshot if runtime_context is not None else None
+    )
+    agent_id = str(getattr(runtime_context, "agent_id", "") or "").strip()
+    snapshot_revision = str(
+        getattr(runtime_context, "runtime_snapshot_revision", "") or ""
+    ).strip()
+    permission_revision = str(
+        getattr(permission_snapshot, "revision", "") or ""
+    ).strip()
+    extension_revision = str(
+        getattr(runtime_context, "extension_revision", "") or ""
+    ).strip()
+    if not all(
+        (agent_id, snapshot_revision, permission_revision, extension_revision)
+    ):
+        result = {
+            "status": "error",
+            "error": "trusted runtime snapshot is required for subagent delegation",
+        }
+        _debug("tool.spawn_subagent.output", result)
+        return result
+
     user_id = getattr(tool_context, "user_id", None)
     session = getattr(tool_context, "session", None)
     session_id = getattr(session, "id", None) if session is not None else None
@@ -5905,22 +5916,33 @@ def spawn_subagent(
     route, scope_id = get_route()
     target_route = route or "client"
     target_scope_id = scope_id or str(session_id)
-    task_id = f"subagent-{uuid.uuid4().hex[:12]}"
+    task_identity = "\x00".join(
+        (agent_id, str(session_id), str(invocation_id), str(function_call_id))
+    ).encode("utf-8")
+    task_id = f"subagent-{hashlib.sha256(task_identity).hexdigest()[:16]}"
     request = SubagentSpawnRequest(
         task_id=task_id,
         prompt=prompt,
+        agent_id=agent_id,
         user_id=user_id,
         session_id=session_id,
         invocation_id=invocation_id,
         function_call_id=function_call_id,
         route=target_route,
         scope_id=target_scope_id,
+        snapshot_revision=snapshot_revision,
+        permission_revision=permission_revision,
+        extension_revision=extension_revision,
         notify_on_complete=bool(notify_on_complete),
     )
     try:
         _SUBAGENT_DISPATCHER(request)
     except Exception as exc:
-        result = {"status": "error", "error": f"failed to dispatch subagent task: {exc}"}
+        _debug(
+            "tool.spawn_subagent.dispatch_error",
+            {"error_type": type(exc).__name__},
+        )
+        result = {"status": "error", "error": "failed to dispatch subagent task"}
         _debug("tool.spawn_subagent.output", result)
         return result
 
@@ -5930,11 +5952,14 @@ def spawn_subagent(
             {
                 "status": "pending",
                 "task_id": task_id,
-                "prompt_preview": prompt.strip()[:200],
                 "prompt_chars": len(prompt),
                 "notify_on_complete": bool(notify_on_complete),
                 "route": target_route,
                 "scope_id": target_scope_id,
+                "agent_id": agent_id,
+                "snapshot_revision": snapshot_revision,
+                "permission_revision": permission_revision,
+                "extension_revision": extension_revision,
                 "user_id": user_id,
                 "session_id": session_id,
                 "invocation_id": invocation_id,
@@ -5942,7 +5967,10 @@ def spawn_subagent(
             }
         )
     except Exception as exc:
-        _debug("tool.spawn_subagent.record_error", {"task_id": task_id, "error": str(exc)})
+        _debug(
+            "tool.spawn_subagent.record_error",
+            {"task_id": task_id, "error_type": type(exc).__name__},
+        )
 
     _emit_feedback(
         "Background sub-agent task accepted.",

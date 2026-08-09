@@ -1121,6 +1121,152 @@ class TaskRunnerAdapter:
         }
 
 
+class SubagentTaskRunnerAdapter(TaskRunnerAdapter):
+    """Map durable Subagent TaskRuns to one Node Runtime Supervisor."""
+
+    name = "subagent"
+
+    def __init__(self, *, run_status: Any, stop_run: Any) -> None:
+        self._run_status = run_status
+        self._stop_run = stop_run
+
+    def matches(self, task: TaskRun) -> bool:
+        """Return whether this task is backed by an OpenPPX subagent Run."""
+        return _task_runner_name(task) == self.name
+
+    def controls(self, task: TaskRun) -> dict[str, Any]:
+        """Expose cancellation only while the detached ADK Run is active."""
+        running = task.status == "running" and bool(task.external_ref)
+        terminal = task.status in TASK_TERMINAL_STATUSES
+        unavailable = "task is terminal" if terminal else "subagent run is not active"
+        return _build_task_controls(
+            task,
+            can_interrupt=False,
+            interrupt_reason="subagent runs expose cancellation, not interruption",
+            can_cancel=running,
+            cancel_reason=unavailable,
+            can_pause=False,
+            pause_reason="subagent runs do not expose a durable pause boundary",
+            can_resume=False,
+            resume_reason="subagent runs are not resumable after their worker stops",
+        )
+
+    def sync_task(
+        self,
+        controller: "TaskController",
+        task: TaskRun,
+        *,
+        poll_timeout_ms: int,
+    ) -> TaskRun | None:
+        """Synchronize a TaskRun with the Node-owned detached Run state."""
+        _ = poll_timeout_ms
+        if task.status in TASK_TERMINAL_STATUSES or not task.external_ref:
+            return task
+        try:
+            snapshot = self._run_status(task.external_ref)
+        except Exception:
+            updated = controller.task_store.update_task(
+                task.task_id,
+                status="lost",
+                last_error="The detached subagent Run is no longer available.",
+                terminal_summary="Subagent Run was lost before completion.",
+            )
+            if updated is not None:
+                controller.event_store.append_event(
+                    task.task_id,
+                    "task.lost",
+                    message=updated.terminal_summary,
+                    payload={"runner": self.name},
+                )
+            return updated or task
+        state = str(getattr(snapshot, "state", "") or "")
+        if state not in TASK_TERMINAL_STATUSES:
+            return task
+        updated = controller.task_store.update_task(task.task_id, status=state)
+        return updated or task
+
+    def task_output(
+        self,
+        controller: "TaskController",
+        task: TaskRun,
+        *,
+        artifacts: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        """Return retained subagent output alongside the generic task facts."""
+        payload = controller._generic_task_output(task, artifacts=artifacts)
+        payload["result"] = task.runner_payload.get("result", "")
+        return payload
+
+    def interrupt_task(
+        self,
+        controller: "TaskController",
+        task: TaskRun,
+    ) -> dict[str, Any]:
+        """Report that detached subagent interruption is not supported."""
+        return {
+            "ok": False,
+            "task": controller._task_payload(task),
+            "action": "not_supported",
+            "message": "Subagent Runs support cancellation, not interruption.",
+        }
+
+    def cancel_task(
+        self,
+        controller: "TaskController",
+        task: TaskRun,
+    ) -> dict[str, Any]:
+        """Request cooperative cancellation of a running subagent."""
+        return self._request_stop(controller, task, action="cancelled")
+
+    def _request_stop(
+        self,
+        controller: "TaskController",
+        task: TaskRun,
+        *,
+        action: str,
+    ) -> dict[str, Any]:
+        if task.status in TASK_TERMINAL_STATUSES:
+            return {
+                "ok": True,
+                "task": controller._task_payload(task),
+                "action": "already_terminal",
+                "message": "Task is already terminal.",
+            }
+        if task.status != "running" or not task.external_ref:
+            return {
+                "ok": False,
+                "task": controller._task_payload(task),
+                "action": "not_running",
+                "message": "Subagent Run is not active.",
+            }
+        try:
+            self._stop_run(task.external_ref)
+        except Exception as exc:
+            return {
+                "ok": False,
+                "task": controller._task_payload(task),
+                "action": "stop_failed",
+                "message": f"Failed to stop Subagent Run: {exc}",
+            }
+        message = "Subagent cancellation requested."
+        updated = controller.task_store.update_task(
+            task.task_id,
+            progress_summary=message,
+        ) or task
+        controller.event_store.append_event(
+            task.task_id,
+            f"task.{action}_requested",
+            message=message,
+            payload={"runner": self.name, "run_id": task.external_ref},
+        )
+        return {
+            "ok": True,
+            "task": controller._task_payload(updated),
+            "action": "stop_requested",
+            "message": message,
+        }
+
+
 class ProcessTaskRunnerAdapter(TaskRunnerAdapter):
     """Task runner adapter for process-backed execution."""
 
@@ -2124,11 +2270,14 @@ def _request_sync_proxy_stop(
 class TaskRunnerRegistry:
     """Resolve runner adapters for task facts."""
 
-    def __init__(self, adapters: list[TaskRunnerAdapter] | None = None) -> None:
+    def __init__(
+        self,
+        adapters: list[TaskRunnerAdapter] | None = None,
+        *,
+        prepend_adapters: list[TaskRunnerAdapter] | None = None,
+    ) -> None:
         self._fallback = TaskRunnerAdapter()
-        self._adapters = list(
-            adapters
-            or [
+        defaults = [
                 ProcessTaskRunnerAdapter(),
                 GuiJobTaskRunnerAdapter(),
                 BrowserRemoteJobTaskRunnerAdapter(),
@@ -2136,7 +2285,10 @@ class TaskRunnerRegistry:
                 SyncToolProxyTaskRunnerAdapter(),
                 McpJobTaskRunnerAdapter(),
             ]
-        )
+        self._adapters = [
+            *(prepend_adapters or []),
+            *(defaults if adapters is None else adapters),
+        ]
 
     def for_task(self, task: TaskRun) -> TaskRunnerAdapter:
         """Return the first adapter that handles the task."""

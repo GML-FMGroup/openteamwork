@@ -60,10 +60,43 @@ Each MCP resource can define:
 - progress event projection;
 - long-task proxy behavior and inline time budget;
 - a declared external-job protocol for status, output, cancel, pause, resume, and checkpoints.
+- optional MCP Resource access with an exact URI allowlist.
 
 Tool prefixes must remain unique across direct MCP, Apps, and Product Plugins enabled for one Agent. A collision is rejected before ADK assembly.
 
 OpenPPX does not infer remote-job semantics from arbitrary provider payloads. Long-task controls appear only when the resource declares the corresponding protocol and the contract probe succeeds.
+
+## MCP Resources
+
+MCP Resource access is disabled by default. Enabling it requires both fields in the same strict policy:
+
+```json
+{
+  "resourcesEnabled": true,
+  "resourceUriAllowlist": [
+    "resource://company-handbook/approved"
+  ]
+}
+```
+
+The allowlist contains at most 256 unique absolute URIs and uses exact matching. OpenPPX filters both Resource discovery and Resource reads, so a model cannot bypass discovery by constructing a known Resource name. The generated ADK Tool remains namespaced with the MCP prefix, for example `mcp_docs_load_mcp_resource`, and therefore also passes through the ordinary Tool permission gate.
+
+OpenPPX reuses the authenticated Google ADK MCP session. Static transport Secrets, the previously authorized Network endpoint, and dynamic user/session/tenant headers remain in force for Resource list and read operations. Resource access does not create a second ungoverned client.
+
+The current safe projection accepts text Resources up to 1 MB per read. Binary Resource content is rejected before model-context insertion. A provider should return downloadable binary content from an MCP Tool so OpenPPX can validate and persist it as an Artifact instead.
+
+## MCP binary results
+
+Google ADK MCP Tools are wrapped before the long-task proxy. Supported MCP `ImageContent` and embedded binary Resource results are:
+
+1. bounded before base64 decoding;
+2. decoded with strict base64 validation;
+3. limited to 20 MB;
+4. validated against the declared MIME type and supported attachment format;
+5. saved through the active ADK ToolContext as a Session-scoped Artifact;
+6. replaced in the model-facing FunctionResponse by a small Artifact reference.
+
+This ordering is identical for inline and background MCP completion. Invalid, unsupported, oversized, or unavailable-storage results are omitted with a bounded error; their original base64 is never returned to the model. Audio and arbitrary opaque binaries are not persisted by this first implementation unless they enter a separately reviewed supported-format boundary.
 
 ## Apps
 
@@ -129,6 +162,7 @@ Before enabling an extension:
 2. Review the declared resources, commands, endpoints, tools, risk, and requested runtime capabilities.
 3. Confirm that every sensitive binding is a SecretRef.
 4. Prefer a tool allowlist and the lowest useful Agent privilege.
-5. Test readiness and MCP discovery before assigning real work.
-6. Review Action audit and Task facts after the first run.
-7. Disable the resource before removal; resolve active references explicitly.
+5. Keep MCP Resources disabled unless exact reviewed URIs are required.
+6. Test readiness and MCP discovery before assigning real work.
+7. Review Action audit, Task facts, and any created Artifacts after the first run.
+8. Disable the resource before removal; resolve active references explicitly.

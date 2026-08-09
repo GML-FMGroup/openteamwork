@@ -285,6 +285,7 @@ def build_root_agent(
     permission_audit: Any | None = None,
     permission_authority: PermissionSnapshotAuthority | None = None,
     extension_snapshot_digest: str = "",
+    task_controller: Any | None = None,
 ) -> LlmAgent:
     """Build one ADK Agent from an immutable Config snapshot.
 
@@ -298,6 +299,9 @@ def build_root_agent(
         permission_snapshot=snapshot.permissions,
         permission_authority=permission_authority,
         permission_audit=permission_audit,
+        runtime_snapshot_revision=snapshot.revision,
+        extension_revision=extension_snapshot_digest,
+        task_controller=task_controller,
     )
     resolved_skill_snapshot = skill_snapshot or SkillSnapshot.empty()
     delegation_override = agent_config.spec.controls.can_delegate

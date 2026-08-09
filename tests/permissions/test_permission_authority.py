@@ -113,6 +113,23 @@ def test_authority_rejects_identity_boundary_changes_and_provider_failure(tmp_pa
         invalid_authority.current()
 
 
+def test_delegated_authority_fails_closed_when_permission_revision_changes(
+    tmp_path: Path,
+) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    baseline = _snapshot(workspace)
+    changed = _snapshot(workspace, workspace_read="deny")
+    authority = PermissionSnapshotAuthority(
+        baseline,
+        provider=lambda: changed,
+        required_revision=baseline.revision,
+    )
+
+    with pytest.raises(PermissionError, match="delegated permission ceiling"):
+        authority.current()
+
+
 def test_direct_file_tool_rechecks_tightened_workspace_permissions(tmp_path: Path) -> None:
     workspace = tmp_path / "workspace"
     workspace.mkdir()

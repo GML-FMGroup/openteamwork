@@ -8,6 +8,7 @@ from pathlib import Path
 from openppx.config import AgentConfig, FilesystemConfigRepository, InMemorySecretStore, NodeConfig, SecretRef, SecretValue
 from openppx.modeling import ModelProfile, ModelProfileRepository
 from openppx.runtime.node_host import OpenPpxNodeHost
+from openppx.tooling import registry as tooling_registry
 
 
 class _Server:
@@ -135,6 +136,7 @@ def test_node_host_uses_strict_listener_and_one_shared_component_graph(tmp_path:
     assert host.control_plane.extension_registry is not None
     assert extension_payload["ok"] is True
     assert isinstance(extension_payload["result"]["items"], list)
+    host.close()
 
 
 def test_node_host_starts_scheduler_before_server_and_stops_once(tmp_path: Path) -> None:
@@ -150,6 +152,7 @@ def test_node_host_starts_scheduler_before_server_and_stops_once(tmp_path: Path)
             _Server(address, coordinator, access_token=access_token)
         ) or servers[-1],
     )
+    assert tooling_registry._SUBAGENT_DISPATCHER is not None
 
     host.serve_forever()
     host.close()
@@ -157,6 +160,7 @@ def test_node_host_starts_scheduler_before_server_and_stops_once(tmp_path: Path)
     assert scheduler.events == ["scheduler.start", "scheduler.stop"]
     assert servers[0].events == ["server.start", "server.close"]
     assert host.runtime_supervisor.status()["state"] == "stopped"
+    assert tooling_registry._SUBAGENT_DISPATCHER is None
 
 
 def test_node_startup_reconciles_orphaned_active_goal(tmp_path: Path) -> None:

@@ -25,6 +25,8 @@ from .run_config import build_run_config
 from .session_history import project_visible_history
 from .session_metadata_store import SessionMetadataStore
 from .session_rewind import RewindTarget, resolve_rewind_target
+from .subagent_contract import SubagentSpawnRequest
+from .subagent_runtime import SubagentRuntimeManager
 
 
 RunState = Literal["running", "cancelling", "completed", "failed", "cancelled"]
@@ -136,7 +138,29 @@ class NodeRuntimeSupervisor:
         self._runs: dict[str, _ManagedRun] = {}
         self._lock = threading.RLock()
         self._stopped = False
+        self._subagents: SubagentRuntimeManager | None = None
+        if getattr(getattr(assembler, "services", None), "task_store", None) is not None:
+            self._subagents = SubagentRuntimeManager(
+                config_service=config_service,
+                assembler=assembler,
+                register_run=self.register_run,
+                complete_run=self.complete_run,
+                run_status=self.run_status,
+                stop_run=self.stop_run,
+            )
+            self.task_controller = self._subagents.task_controller
+            attach = getattr(self.assembler, "attach_task_controller", None)
+            if callable(attach):
+                attach(self.task_controller)
+        else:
+            self.task_controller = None
 
+    def dispatch_subagent(self, request: SubagentSpawnRequest) -> Any:
+        """Dispatch one detached same-Agent worker through the Node manager."""
+        self._ensure_running()
+        if self._subagents is None:
+            raise RuntimeError("Subagent execution requires Node Runtime task services.")
+        return self._subagents.dispatch(request)
     def runtime_for(
         self,
         agent_id: str,

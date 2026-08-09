@@ -138,6 +138,8 @@ class McpRuntimeAdapter:
                     "progressEvents": policy.progress_events,
                     "longTaskProxy": policy.long_task_proxy,
                     "inlineBudgetMs": policy.inline_budget_ms,
+                    "resourcesEnabled": policy.resources_enabled,
+                    "resourceUriAllowlist": list(policy.resource_uri_allowlist),
                 }
             )
             if policy.tool_filter:

@@ -33,6 +33,7 @@ QueryName: TypeAlias = Annotated[
     str,
     StringConstraints(pattern=r"^[A-Za-z0-9][A-Za-z0-9_.~-]{0,127}$"),
 ]
+ResourceUri: TypeAlias = Annotated[str, StringConstraints(min_length=1, max_length=2048)]
 
 
 def _require_visible(value: str) -> str:
@@ -235,6 +236,8 @@ class McpToolPolicy(StrictConfigModel):
     long_task_proxy: StrictBool = True
     inline_budget_ms: StrictInt = Field(default=5000, ge=100, le=60_000)
     job_protocol: McpJobProtocolSpec | None = None
+    resources_enabled: StrictBool = False
+    resource_uri_allowlist: list[ResourceUri] = Field(default_factory=list)
 
     @field_validator("tool_filter", "disabled_tools")
     @classmethod
@@ -262,6 +265,30 @@ class McpToolPolicy(StrictConfigModel):
         if len(value) > 32 or any(source not in exact and not source.startswith(prefixes) for source in value.values()):
             raise ValueError("runtimeHeaders contains an unsupported source")
         return value
+
+    @field_validator("resource_uri_allowlist")
+    @classmethod
+    def resource_uris_are_exact_bounded_and_unique(cls, value: list[str]) -> list[str]:
+        """Validate exact MCP Resource URIs without normalizing their identity."""
+        if len(value) > 256:
+            raise ValueError("resourceUriAllowlist exceeds the allowed entry count")
+        if len(value) != len(set(value)):
+            raise ValueError("resourceUriAllowlist entries must be unique")
+        for uri in value:
+            if any(character.isspace() or ord(character) < 32 or ord(character) == 127 for character in uri):
+                raise ValueError("resourceUriAllowlist entries cannot contain whitespace or controls")
+            if not urlsplit(uri).scheme:
+                raise ValueError("resourceUriAllowlist entries must be absolute URIs")
+        return value
+
+    @model_validator(mode="after")
+    def resource_access_requires_explicit_enablement_and_allowlist(self) -> "McpToolPolicy":
+        """Fail closed unless Resource access is both enabled and explicitly scoped."""
+        if self.resources_enabled != bool(self.resource_uri_allowlist):
+            raise ValueError(
+                "resourcesEnabled and a non-empty resourceUriAllowlist must be configured together"
+            )
+        return self
 
     def resolved_prefix(self, server_id: str) -> str:
         """Return the stable ADK tool-name prefix for one resource."""

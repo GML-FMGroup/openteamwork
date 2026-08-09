@@ -19,7 +19,12 @@ from openppx.core.mcp_registry import (
     probe_mcp_toolsets,
     summarize_mcp_toolsets,
 )
+from openppx.runtime.mcp_artifacts import McpArtifactTool
 from openppx.runtime.mcp_proxy import McpLongTaskProxyTool
+from openppx.runtime.mcp_resources import (
+    ContextBoundLoadMcpResourceTool,
+    current_mcp_resource_context,
+)
 
 
 class FakeMcpTool(BaseTool):
@@ -147,6 +152,43 @@ class McpRegistryTests(unittest.TestCase):
         self.assertFalse(toolsets[0].long_task_proxy)
         self.assertEqual(toolsets[0].inline_budget_ms, 250)
 
+    def test_build_mcp_toolsets_resources_are_default_off_and_explicitly_scoped(self) -> None:
+        default = build_mcp_toolsets(
+            {"remote": {"url": "https://example.com/mcp"}},
+            log_registered=False,
+        )[0]
+        enabled = build_mcp_toolsets(
+            {
+                "remote": {
+                    "url": "https://example.com/mcp",
+                    "resourcesEnabled": True,
+                    "resourceUriAllowlist": ["resource://openppx/handbook"],
+                }
+            },
+            log_registered=False,
+        )[0]
+
+        self.assertFalse(default.resources_enabled)
+        self.assertFalse(default._use_mcp_resources)
+        self.assertEqual(default.resource_uri_allowlist, ())
+        self.assertTrue(enabled.resources_enabled)
+        self.assertTrue(enabled._use_mcp_resources)
+        self.assertEqual(
+            enabled.resource_uri_allowlist,
+            ("resource://openppx/handbook",),
+        )
+
+        with self.assertRaises(ValueError):
+            build_mcp_toolsets(
+                {
+                    "remote": {
+                        "url": "https://example.com/mcp",
+                        "resourcesEnabled": True,
+                    }
+                },
+                log_registered=False,
+            )
+
     def test_build_mcp_toolsets_job_protocol_config(self) -> None:
         toolsets = build_mcp_toolsets(
             {
@@ -260,6 +302,28 @@ class McpRegistryTests(unittest.TestCase):
 
 
 class McpRegistryProbeTests(unittest.IsolatedAsyncioTestCase):
+    async def test_resource_loader_binds_and_resets_the_adk_invocation_context(self) -> None:
+        invocation_context = SimpleNamespace()
+        observed = []
+
+        async def _observe_context(_self, *, tool_context, llm_request) -> None:
+            del tool_context, llm_request
+            observed.append(current_mcp_resource_context())
+
+        loader = ContextBoundLoadMcpResourceTool(mcp_toolset=SimpleNamespace())
+        with patch(
+            "google.adk.tools.load_mcp_resource_tool.LoadMcpResourceTool.process_llm_request",
+            new=_observe_context,
+        ):
+            await loader.process_llm_request(
+                tool_context=SimpleNamespace(_invocation_context=invocation_context),
+                llm_request=SimpleNamespace(),
+            )
+
+        self.assertEqual(len(observed), 1)
+        self.assertIs(observed[0]._invocation_context, invocation_context)
+        self.assertIsNone(current_mcp_resource_context())
+
     async def test_managed_mcp_toolset_wraps_mcp_tools_by_default(self) -> None:
         toolsets = build_mcp_toolsets({"remote": {"url": "https://example.com/mcp"}}, log_registered=False)
         fake_tool = FakeMcpTool()
@@ -269,7 +333,8 @@ class McpRegistryProbeTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(len(tools), 1)
         self.assertIsInstance(tools[0], McpLongTaskProxyTool)
-        self.assertIs(tools[0].wrapped_tool, fake_tool)
+        self.assertIsInstance(tools[0].wrapped_tool, McpArtifactTool)
+        self.assertIs(tools[0].wrapped_tool.wrapped_tool, fake_tool)
         self.assertEqual(tools[0].raw_mcp_tool.name, "mcp_remote_echo")
 
     async def test_managed_mcp_proxy_supports_adk_tool_name_prefixing(self) -> None:
@@ -302,7 +367,7 @@ class McpRegistryProbeTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(metadata["job_protocol"]["job_id_path"], "job_id")
         self.assertEqual(metadata["job_protocol"]["status_tool"], "job_status")
 
-    async def test_managed_mcp_toolset_returns_raw_tools_when_proxy_disabled(self) -> None:
+    async def test_managed_mcp_toolset_keeps_artifact_boundary_when_proxy_disabled(self) -> None:
         toolsets = build_mcp_toolsets(
             {"remote": {"url": "https://example.com/mcp", "longTaskProxy": False}},
             log_registered=False,
@@ -312,7 +377,9 @@ class McpRegistryProbeTests(unittest.IsolatedAsyncioTestCase):
         with patch("openppx.core.mcp_registry.McpToolset.get_tools", new=AsyncMock(return_value=[fake_tool])):
             tools = await toolsets[0].get_tools()
 
-        self.assertEqual(tools, [fake_tool])
+        self.assertEqual(len(tools), 1)
+        self.assertIsInstance(tools[0], McpArtifactTool)
+        self.assertIs(tools[0].wrapped_tool, fake_tool)
 
     async def test_progress_events_publish_step_update(self) -> None:
         toolsets = build_mcp_toolsets(

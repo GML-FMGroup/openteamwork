@@ -3206,7 +3206,16 @@ class ToolsTests(unittest.TestCase):
             session=pytypes.SimpleNamespace(id="s1"),
         )
 
-        with route_context("feishu", "oc_123"):
+        runtime_context = pytypes.SimpleNamespace(
+            agent_id="writer",
+            runtime_snapshot_revision="snapshot-rev-1",
+            extension_revision="extension-rev-1",
+            permission_snapshot=pytypes.SimpleNamespace(revision="permission-rev-1"),
+        )
+        with patch(
+            "openppx.tooling.registry.current_tool_execution_context",
+            return_value=runtime_context,
+        ), route_context("feishu", "oc_123"):
             out = spawn_subagent(prompt="summarize logs", tool_context=ctx)
 
         self.assertEqual(out.get("status"), "pending")
@@ -3219,7 +3228,53 @@ class ToolsTests(unittest.TestCase):
         self.assertEqual(req.function_call_id, "fc-1")
         self.assertEqual(req.route, "feishu")
         self.assertEqual(req.scope_id, "oc_123")
+        self.assertEqual(req.agent_id, "writer")
+        self.assertEqual(req.snapshot_revision, "snapshot-rev-1")
+        self.assertEqual(req.permission_revision, "permission-rev-1")
+        self.assertEqual(req.extension_revision, "extension-rev-1")
         self.assertTrue(req.notify_on_complete)
+
+    def test_spawn_subagent_requires_trusted_runtime_snapshot(self) -> None:
+        configure_subagent_dispatcher(lambda _request: None)
+        ctx = pytypes.SimpleNamespace(
+            user_id="u1",
+            invocation_id="inv-1",
+            function_call_id="fc-1",
+            session=pytypes.SimpleNamespace(id="s1"),
+        )
+
+        out = spawn_subagent(prompt="summarize logs", tool_context=ctx)
+
+        self.assertEqual(out.get("status"), "error")
+        self.assertIn("trusted runtime snapshot", str(out.get("error", "")).lower())
+
+    def test_spawn_subagent_redacts_dispatcher_exception_text(self) -> None:
+        def _fail(_request: SubagentSpawnRequest) -> None:
+            raise RuntimeError("provider-secret-value")
+
+        configure_subagent_dispatcher(_fail)
+        ctx = pytypes.SimpleNamespace(
+            user_id="u1",
+            invocation_id="inv-1",
+            function_call_id="fc-1",
+            session=pytypes.SimpleNamespace(id="s1"),
+        )
+        runtime_context = pytypes.SimpleNamespace(
+            agent_id="writer",
+            runtime_snapshot_revision="snapshot-rev-1",
+            extension_revision="extension-rev-1",
+            permission_snapshot=pytypes.SimpleNamespace(revision="permission-rev-1"),
+        )
+
+        with patch(
+            "openppx.tooling.registry.current_tool_execution_context",
+            return_value=runtime_context,
+        ):
+            out = spawn_subagent(prompt="summarize logs", tool_context=ctx)
+
+        self.assertEqual(out["status"], "error")
+        self.assertEqual(out["error"], "failed to dispatch subagent task")
+        self.assertNotIn("provider-secret-value", str(out))
 
     def test_spawn_subagent_persists_spawn_record(self) -> None:
         captured: list[SubagentSpawnRequest] = []
@@ -3233,7 +3288,17 @@ class ToolsTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmp:
             os.environ["OPENPPX_WORKSPACE"] = tmp
-            with route_context("feishu", "oc_123"):
+            runtime_context = pytypes.SimpleNamespace(
+                agent_id="writer",
+                runtime_snapshot_revision="snapshot-rev-1",
+                extension_revision="extension-rev-1",
+                permission_snapshot=pytypes.SimpleNamespace(revision="permission-rev-1"),
+                security_policy=pytypes.SimpleNamespace(workspace_root=Path(tmp)),
+            )
+            with patch(
+                "openppx.tooling.registry.current_tool_execution_context",
+                return_value=runtime_context,
+            ), route_context("feishu", "oc_123"):
                 out = spawn_subagent(prompt="summarize logs", tool_context=ctx)
 
             self.assertEqual(out.get("status"), "pending")
@@ -3246,6 +3311,8 @@ class ToolsTests(unittest.TestCase):
             self.assertEqual(record["scope_id"], "oc_123")
             self.assertEqual(record["user_id"], "u1")
             self.assertEqual(record["session_id"], "s1")
+            self.assertNotIn("prompt_preview", record)
+            self.assertNotIn("summarize logs", str(record))
 
     def test_spawn_subagent_records_feedback_event(self) -> None:
         captured: list[SubagentSpawnRequest] = []
@@ -3259,7 +3326,16 @@ class ToolsTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmp:
             os.environ["OPENPPX_WORKSPACE"] = tmp
-            with route_context("feishu", "oc_123"):
+            runtime_context = pytypes.SimpleNamespace(
+                agent_id="writer",
+                runtime_snapshot_revision="snapshot-rev-1",
+                extension_revision="extension-rev-1",
+                permission_snapshot=pytypes.SimpleNamespace(revision="permission-rev-1"),
+            )
+            with patch(
+                "openppx.tooling.registry.current_tool_execution_context",
+                return_value=runtime_context,
+            ), route_context("feishu", "oc_123"):
                 out = spawn_subagent(prompt="summarize logs", tool_context=ctx)
 
             self.assertEqual(out.get("status"), "pending")

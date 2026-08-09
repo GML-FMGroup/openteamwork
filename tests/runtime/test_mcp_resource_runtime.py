@@ -6,6 +6,7 @@ import asyncio
 import sys
 from pathlib import Path
 
+import pytest
 from google.adk.tools.mcp_tool.mcp_session_manager import (
     StdioConnectionParams,
     StreamableHTTPConnectionParams,
@@ -14,7 +15,9 @@ from google.adk.tools.mcp_tool.mcp_session_manager import (
 from openppx.config import InMemorySecretStore, SecretRef, SecretValue
 from openppx.extensions.mcp import McpManager
 from openppx.extensions.mcp_models import McpServer
+from openppx.runtime.mcp_artifacts import McpArtifactTool
 from openppx.runtime.mcp_adapter import McpRuntimeAdapter
+from openppx.runtime.mcp_proxy import McpLongTaskProxyTool
 
 
 def _record(
@@ -22,6 +25,7 @@ def _record(
     transport: dict[str, object],
     *,
     network_access: str = "write",
+    resource_uri_allowlist: list[str] | None = None,
 ) -> McpServer:
     return McpServer.model_validate(
         {
@@ -40,6 +44,8 @@ def _record(
                     "longTaskProxy": True,
                     "inlineBudgetMs": 500,
                     "networkAccess": network_access,
+                    "resourcesEnabled": resource_uri_allowlist is not None,
+                    "resourceUriAllowlist": resource_uri_allowlist or [],
                 },
                 "risk": "low",
                 "enabledAgentIds": [],
@@ -225,3 +231,76 @@ def test_connection_probe_reports_prefixed_tools_and_closes_fixture(tmp_path: Pa
     assert report.diagnostics == ()
     assert report.results[0]["status"] == "ok"
     assert report.results[0]["tool_names"] == ["mcp_probe_echo_context"]
+
+
+def test_resource_access_lists_and_reads_only_explicitly_allowed_uris(tmp_path: Path) -> None:
+    secrets = InMemorySecretStore()
+    manager = McpManager(tmp_path, secrets)
+    fixture = Path("tests/eval/mock_mcp_content_server.py").resolve()
+    snapshot = _enabled(
+        manager,
+        _record(
+            "resources",
+            {
+                "type": "stdio",
+                "command": sys.executable,
+                "args": [str(fixture)],
+                "environment": {},
+            },
+            resource_uri_allowlist=["resource://openppx/allowed"],
+        ),
+    )
+    adapter = McpRuntimeAdapter(secrets)
+
+    async def _read() -> tuple[list[str], str, list[str]]:
+        build = adapter.build(snapshot)
+        toolset = build.toolsets[0]
+        try:
+            tools = await toolset.get_tools_with_prefix()
+            binary_tool = next(
+                tool for tool in tools if tool.name == "mcp_resources_render_pixel"
+            )
+            assert isinstance(binary_tool, McpLongTaskProxyTool)
+            assert isinstance(binary_tool.wrapped_tool, McpArtifactTool)
+            names = await toolset.list_resources()
+            contents = await toolset.read_resource("allowed_notes")
+            with pytest.raises(ValueError, match="not allowed"):
+                await toolset.get_resource_info("blocked_notes")
+            return names, contents[0].text, [tool.name for tool in tools]
+        finally:
+            await toolset.close()
+
+    resource_names, text, tool_names = asyncio.run(_read())
+
+    assert resource_names == ["allowed_notes"]
+    assert text == "OpenPPX allowed resource"
+    assert "mcp_resources_load_mcp_resource" in tool_names
+
+
+def test_binary_mcp_resource_is_rejected_before_model_context_injection(tmp_path: Path) -> None:
+    secrets = InMemorySecretStore()
+    manager = McpManager(tmp_path, secrets)
+    fixture = Path("tests/eval/mock_mcp_content_server.py").resolve()
+    snapshot = _enabled(
+        manager,
+        _record(
+            "resources",
+            {
+                "type": "stdio",
+                "command": sys.executable,
+                "args": [str(fixture)],
+                "environment": {},
+            },
+            resource_uri_allowlist=["resource://openppx/binary"],
+        ),
+    )
+
+    async def _read() -> None:
+        build = McpRuntimeAdapter(secrets).build(snapshot)
+        try:
+            with pytest.raises(ValueError, match="Binary MCP resources"):
+                await build.toolsets[0].read_resource("binary_notes")
+        finally:
+            await build.toolsets[0].close()
+
+    asyncio.run(_read())

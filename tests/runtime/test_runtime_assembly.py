@@ -7,6 +7,7 @@ import json
 import os
 import sys
 import threading
+import time
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -15,6 +16,7 @@ from google.adk.agents.invocation_context import LlmCallsLimitExceededError
 from google.adk.models.base_llm import BaseLlm
 from google.adk.models.llm_response import LlmResponse
 from google.genai import types
+from pydantic import PrivateAttr
 
 from openppx.config import (
     AgentConfig,
@@ -44,6 +46,8 @@ from openppx.permissions import AgentPermissionSpec
 from openppx.runtime.assembly import RuntimeAssembler
 from openppx.runtime.goal_store import GoalStore
 from openppx.runtime.node_runtime import NodeRuntimeSupervisor, RunNotActiveError, RunNotFoundError
+from openppx.runtime.task_store import TaskStore
+from openppx.tooling.registry import SubagentSpawnRequest
 
 from tests.extensions.test_plugin_resources import _write_plugin
 
@@ -59,6 +63,44 @@ class _HelloLlm(BaseLlm):
                 parts=[types.Part.from_text(text="Hello from immutable snapshot")],
             )
         )
+
+
+class _BlockingLlm(BaseLlm):
+    """Deterministic model that remains active until cancelled or released."""
+
+    _started: threading.Event = PrivateAttr(default_factory=threading.Event)
+    _release: threading.Event = PrivateAttr(default_factory=threading.Event)
+
+    @property
+    def started(self) -> threading.Event:
+        """Return the signal raised when generation starts."""
+        return self._started
+
+    @property
+    def release(self) -> threading.Event:
+        """Return the signal that allows generation to finish."""
+        return self._release
+
+    async def generate_content_async(self, llm_request, stream: bool = False):
+        del llm_request, stream
+        self._started.set()
+        await asyncio.to_thread(self._release.wait)
+        yield LlmResponse(
+            content=types.Content(
+                role="model",
+                parts=[types.Part.from_text(text="released")],
+            )
+        )
+
+
+class _FailingLlm(BaseLlm):
+    """Raise one sensitive-looking provider error for redaction tests."""
+
+    async def generate_content_async(self, llm_request, stream: bool = False):
+        del llm_request, stream
+        if False:  # pragma: no cover - keeps this method an async generator
+            yield LlmResponse()
+        raise RuntimeError("provider-secret-value")
 
 
 def _configured(tmp_path: Path) -> tuple[ConfigService, InMemorySecretStore]:
@@ -130,6 +172,44 @@ def _configured(tmp_path: Path) -> tuple[ConfigService, InMemorySecretStore]:
     return service, secrets
 
 
+def _set_agent_privilege(config_service: ConfigService, privilege_level: str) -> None:
+    """Update the configured test Agent without changing its identity boundary."""
+    current = config_service.repository.read_agent("low-main")
+    updated = current.document.model_copy(
+        update={
+            "spec": current.document.spec.model_copy(
+                update={"privilege_level": privilege_level}
+            )
+        }
+    )
+    config_service.apply_agent(
+        "low-main",
+        updated,
+        expected_revision=current.revision,
+    )
+
+
+def _wait_for_task_status(
+    store: TaskStore,
+    task_id: str,
+    statuses: set[str],
+    *,
+    timeout_seconds: float = 3.0,
+):
+    """Poll one TaskRun until it reaches a requested status."""
+    deadline = time.monotonic() + timeout_seconds
+    while time.monotonic() < deadline:
+        task = store.get_task(task_id)
+        if task is not None and task.status in statuses:
+            return task
+        time.sleep(0.01)
+    task = store.get_task(task_id)
+    raise AssertionError(
+        f"Task {task_id!r} did not reach {sorted(statuses)}; "
+        f"last status={getattr(task, 'status', None)!r}."
+    )
+
+
 def _skill(root: Path, *, description: str, body: str) -> Path:
     """Write one installable Skill fixture."""
     root.mkdir(parents=True, exist_ok=True)
@@ -174,6 +254,322 @@ def test_snapshot_builds_real_adk_runner_and_completes_hello_without_env_project
     assert runtime.metadata.agent_id == "low-main"
     assert runtime.metadata.model_profile_id == "primary"
     assert dict(os.environ) == before
+
+
+def test_subagent_runtime_removes_recursive_delegation_and_pins_spawn_snapshot(
+    tmp_path: Path,
+) -> None:
+    config_service, secrets = _configured(tmp_path)
+    _set_agent_privilege(config_service, "medium")
+    snapshot = config_service.snapshot("low-main")
+    assembler = RuntimeAssembler(
+        node_root=tmp_path,
+        secret_store=secrets,
+        model_factory=lambda _resolution: _HelloLlm(model="hello-model"),
+        permission_snapshot_provider=config_service.permission_snapshot,
+    )
+
+    runtime = assembler.assemble_subagent(snapshot)
+
+    tool_names = {
+        getattr(getattr(tool, "func", tool), "__name__", getattr(tool, "name", ""))
+        for tool in runtime.agent.tools
+    }
+    assert "spawn_subagent" not in tool_names
+    assert runtime.metadata.permission_revision == snapshot.permissions.revision
+    assert runtime.permission_refresh_policy == "fail_on_change"
+
+
+def test_supervisor_dispatch_subagent_completes_real_adk_run_and_bridges_result(
+    tmp_path: Path,
+) -> None:
+    config_service, secrets = _configured(tmp_path)
+    _set_agent_privilege(config_service, "medium")
+    assembler = RuntimeAssembler(
+        node_root=tmp_path,
+        secret_store=secrets,
+        model_factory=lambda _resolution: _HelloLlm(model="hello-model"),
+        permission_snapshot_provider=config_service.permission_snapshot,
+    )
+    supervisor = NodeRuntimeSupervisor(config_service=config_service, assembler=assembler)
+    parent_session_id = "parent-subagent-session"
+    supervisor.create_session_sync(
+        "low-main",
+        user_id="local:owner",
+        session_id=parent_session_id,
+    )
+    snapshot = config_service.snapshot("low-main")
+    extension_revision = assembler.extension_snapshot_for_agent("low-main").revision
+    request = SubagentSpawnRequest(
+        task_id="subagent-real-run",
+        prompt="Summarize the repository",
+        agent_id="low-main",
+        user_id="local:owner",
+        session_id=parent_session_id,
+        invocation_id="inv-parent-1",
+        function_call_id="fc-parent-1",
+        route="client",
+        scope_id=parent_session_id,
+        snapshot_revision=snapshot.revision,
+        permission_revision=snapshot.permissions.revision,
+        extension_revision=extension_revision,
+        notify_on_complete=True,
+    )
+
+    supervisor.dispatch_subagent(request)
+
+    task = _wait_for_task_status(
+        assembler.services.task_store,
+        request.task_id,
+        {"completed"},
+    )
+    assert task.kind == "subagent"
+    assert task.session_id == parent_session_id
+    assert task.runner_payload["runner"] == "subagent"
+    assert task.runner_payload["result"] == "Hello from immutable snapshot"
+    assert task.runner_payload["permission_revision"] == snapshot.permissions.revision
+    shown = supervisor.task_controller.show_task(request.task_id)
+    assert shown["ok"] is True
+    assert shown["task"]["status"] == "completed"
+
+    parent = supervisor.get_session_sync(
+        "low-main",
+        user_id="local:owner",
+        session_id=parent_session_id,
+    )
+    responses = [
+        part.function_response
+        for event in parent.events
+        if event.content is not None
+        for part in event.content.parts or []
+        if part.function_response is not None
+    ]
+    bridged = next(response for response in responses if response.id == "fc-parent-1")
+    assert bridged.name == "spawn_subagent"
+    assert bridged.response["status"] == "completed"
+    assert bridged.response["task_id"] == request.task_id
+    assert bridged.response["result"] == "Hello from immutable snapshot"
+    supervisor.close()
+
+
+def test_subagent_failure_redacts_backend_exception_from_task_and_parent_session(
+    tmp_path: Path,
+) -> None:
+    config_service, secrets = _configured(tmp_path)
+    _set_agent_privilege(config_service, "medium")
+    assembler = RuntimeAssembler(
+        node_root=tmp_path,
+        secret_store=secrets,
+        model_factory=lambda _resolution: _FailingLlm(model="failing-model"),
+        permission_snapshot_provider=config_service.permission_snapshot,
+    )
+    supervisor = NodeRuntimeSupervisor(config_service=config_service, assembler=assembler)
+    parent_session_id = "parent-subagent-failure"
+    supervisor.create_session_sync(
+        "low-main",
+        user_id="local:owner",
+        session_id=parent_session_id,
+    )
+    snapshot = config_service.snapshot("low-main")
+    request = SubagentSpawnRequest(
+        task_id="subagent-failed-run",
+        prompt="Fail safely",
+        agent_id="low-main",
+        user_id="local:owner",
+        session_id=parent_session_id,
+        invocation_id="inv-parent-failed",
+        function_call_id="fc-parent-failed",
+        route="client",
+        scope_id=parent_session_id,
+        snapshot_revision=snapshot.revision,
+        permission_revision=snapshot.permissions.revision,
+        extension_revision=assembler.extension_snapshot_for_agent("low-main").revision,
+    )
+
+    supervisor.dispatch_subagent(request)
+
+    task = _wait_for_task_status(
+        assembler.services.task_store,
+        request.task_id,
+        {"failed"},
+    )
+    assert task.last_error == "Subagent task failed during execution."
+    assert "provider-secret-value" not in str(task)
+
+    bridged = None
+    for _ in range(100):
+        parent = supervisor.get_session_sync(
+            "low-main",
+            user_id="local:owner",
+            session_id=parent_session_id,
+        )
+        bridged = next(
+            (
+                part.function_response
+                for event in parent.events
+                if event.content is not None
+                for part in event.content.parts or []
+                if part.function_response is not None
+                and part.function_response.id == "fc-parent-failed"
+            ),
+            None,
+        )
+        if bridged is not None:
+            break
+        time.sleep(0.01)
+    assert bridged is not None
+    assert bridged.response["status"] == "failed"
+    assert bridged.response["error"] == "Subagent task failed during execution."
+    assert "provider-secret-value" not in str(bridged.response)
+    supervisor.close()
+
+
+def test_supervisor_rejects_subagent_when_spawn_snapshot_is_no_longer_current(
+    tmp_path: Path,
+) -> None:
+    config_service, secrets = _configured(tmp_path)
+    _set_agent_privilege(config_service, "medium")
+    assembler = RuntimeAssembler(
+        node_root=tmp_path,
+        secret_store=secrets,
+        model_factory=lambda _resolution: _HelloLlm(model="hello-model"),
+    )
+    supervisor = NodeRuntimeSupervisor(config_service=config_service, assembler=assembler)
+    snapshot = config_service.snapshot("low-main")
+    request = SubagentSpawnRequest(
+        task_id="subagent-stale-snapshot",
+        prompt="Do not run",
+        agent_id="low-main",
+        user_id="local:owner",
+        session_id="parent",
+        invocation_id="inv-parent",
+        function_call_id="fc-parent",
+        route="client",
+        scope_id="parent",
+        snapshot_revision="stale-snapshot",
+        permission_revision=snapshot.permissions.revision,
+        extension_revision=assembler.extension_snapshot_for_agent("low-main").revision,
+    )
+
+    with pytest.raises(PermissionError, match="snapshot"):
+        supervisor.dispatch_subagent(request)
+
+    assert assembler.services.task_store.get_task(request.task_id) is None
+    supervisor.close()
+
+
+def test_subagent_task_can_be_cancelled_through_node_owned_task_controller(
+    tmp_path: Path,
+) -> None:
+    config_service, secrets = _configured(tmp_path)
+    _set_agent_privilege(config_service, "medium")
+    model = _BlockingLlm(model="blocking-model")
+    assembler = RuntimeAssembler(
+        node_root=tmp_path,
+        secret_store=secrets,
+        model_factory=lambda _resolution: model,
+    )
+    supervisor = NodeRuntimeSupervisor(config_service=config_service, assembler=assembler)
+    supervisor.create_session_sync(
+        "low-main",
+        user_id="local:owner",
+        session_id="parent-cancel-session",
+    )
+    snapshot = config_service.snapshot("low-main")
+    request = SubagentSpawnRequest(
+        task_id="subagent-cancel-run",
+        prompt="Wait until cancelled",
+        agent_id="low-main",
+        user_id="local:owner",
+        session_id="parent-cancel-session",
+        invocation_id="inv-cancel",
+        function_call_id="fc-cancel",
+        route="client",
+        scope_id="parent-cancel-session",
+        snapshot_revision=snapshot.revision,
+        permission_revision=snapshot.permissions.revision,
+        extension_revision=assembler.extension_snapshot_for_agent("low-main").revision,
+    )
+    supervisor.dispatch_subagent(request)
+    assert model.started.wait(timeout=2)
+
+    shown = supervisor.task_controller.show_task(request.task_id)
+    assert shown["task"]["controls"]["can_interrupt"] is False
+    assert shown["task"]["controls"]["can_cancel"] is True
+    assert shown["task"]["controls"]["can_resume"] is False
+
+    cancelled = supervisor.task_controller.cancel_task(request.task_id)
+
+    assert cancelled["ok"] is True
+    model.release.set()
+    task = _wait_for_task_status(
+        assembler.services.task_store,
+        request.task_id,
+        {"cancelled"},
+    )
+    assert task.status == "cancelled"
+    assert supervisor.run_status(task.external_ref).state == "cancelled"
+    supervisor.close()
+
+
+def test_subagent_dispatch_is_idempotent_and_limits_parent_session_concurrency(
+    tmp_path: Path,
+) -> None:
+    config_service, secrets = _configured(tmp_path)
+    _set_agent_privilege(config_service, "medium")
+    model = _BlockingLlm(model="blocking-model")
+    assembler = RuntimeAssembler(
+        node_root=tmp_path,
+        secret_store=secrets,
+        model_factory=lambda _resolution: model,
+    )
+    supervisor = NodeRuntimeSupervisor(config_service=config_service, assembler=assembler)
+    parent_session_id = "parent-concurrency-session"
+    supervisor.create_session_sync(
+        "low-main",
+        user_id="local:owner",
+        session_id=parent_session_id,
+    )
+    snapshot = config_service.snapshot("low-main")
+    extension_revision = assembler.extension_snapshot_for_agent("low-main").revision
+
+    def request(index: int) -> SubagentSpawnRequest:
+        return SubagentSpawnRequest(
+            task_id=f"subagent-concurrency-{index}",
+            prompt=f"Wait as worker {index}",
+            agent_id="low-main",
+            user_id="local:owner",
+            session_id=parent_session_id,
+            invocation_id="inv-concurrency",
+            function_call_id=f"fc-concurrency-{index}",
+            route="client",
+            scope_id=parent_session_id,
+            snapshot_revision=snapshot.revision,
+            permission_revision=snapshot.permissions.revision,
+            extension_revision=extension_revision,
+        )
+
+    first = supervisor.dispatch_subagent(request(0))
+    duplicate = supervisor.dispatch_subagent(request(0))
+    assert duplicate.task_id == first.task_id
+    for index in range(1, 4):
+        supervisor.dispatch_subagent(request(index))
+
+    with pytest.raises(RuntimeError, match="maximum number"):
+        supervisor.dispatch_subagent(request(4))
+
+    assert supervisor.task_controller is not None
+    for index in range(4):
+        stopped = supervisor.task_controller.cancel_task(request(index).task_id)
+        assert stopped["ok"] is True
+    model.release.set()
+    for index in range(4):
+        _wait_for_task_status(
+            assembler.services.task_store,
+            request(index).task_id,
+            {"cancelled"},
+        )
+    supervisor.close()
 
 
 def test_assembled_runtime_binds_core_tools_to_agent_workspace(

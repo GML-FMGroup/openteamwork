@@ -23,6 +23,7 @@ class PermissionSnapshotAuthority:
 
     baseline: ResolvedPermissionSnapshot
     provider: PermissionSnapshotProvider | None = field(default=None, repr=False, compare=False)
+    required_revision: str | None = None
 
     def current(self) -> ResolvedPermissionSnapshot:
         """Return the current compatible snapshot or fail closed."""
@@ -41,6 +42,10 @@ class PermissionSnapshotAuthority:
         current_workspace = Path(snapshot.workspace).expanduser().resolve(strict=False)
         if current_workspace != baseline_workspace:
             raise PermissionError("The Agent Workspace changed and requires a new Runtime.")
+        if self.required_revision is not None and snapshot.revision != self.required_revision:
+            raise PermissionError(
+                "The delegated permission ceiling changed; the Subagent must stop or be restarted."
+            )
         return snapshot
 
 
