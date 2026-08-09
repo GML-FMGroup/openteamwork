@@ -567,6 +567,49 @@ async function openSettings(): Promise<void> {
   fireEvent.click(await screen.findByRole("menuitem", { name: "Settings" }));
 }
 
+function configuredSetupStatus() {
+  return {
+    state: "configured" as const,
+    steps: { node: "complete", agent: "complete", model: "complete", credential: "not_required", hello: "stale" },
+    revisions: { node: "node-revision", agent: "agent-revision", profile: "profile-revision" },
+    recommendedWorkspace: "/workspace/openppx",
+    diagnostic: null,
+    current: {
+      node: {
+        metadata: { name: "local-node" },
+        spec: { displayName: "This Mac" },
+      },
+      agent: {
+        metadata: { name: "main" },
+        spec: {
+          displayName: "Monica",
+          workspace: "/workspace/openppx",
+          ownerPrincipalId: "ppx-client-user",
+          privilegeLevel: "medium",
+          modelPolicy: { defaultProfile: "primary" },
+        },
+      },
+      profile: {
+        metadata: { name: "primary" },
+        spec: {
+          displayName: "Primary",
+          provider: "openai_codex",
+          model: "openai-codex/gpt-5.5",
+          executionLocation: "remote",
+        },
+      },
+    },
+    providers: [{
+      id: "openai_codex",
+      displayName: "OpenAI Codex",
+      runtime: "codex",
+      credentialMode: "oauth" as const,
+      credentialRequired: false,
+      defaultModel: "openai-codex/gpt-5.5",
+    }],
+  };
+}
+
 describe("App sending state", () => {
   it("completes first-run setup only after a real Hello is verified", async () => {
     const needsConfiguration = {
@@ -621,6 +664,131 @@ describe("App sending state", () => {
     }));
     expect(runSetupHello).toHaveBeenCalledWith("main", "ppx-client-user", "Hello OpenPPX");
     expect(await screen.findByRole("button", { name: "Send" })).toBeInTheDocument();
+  });
+
+  it("retries only Hello when configuration is already saved", async () => {
+    const configured = configuredSetupStatus();
+    const ready = {
+      ...configured,
+      state: "ready" as const,
+      steps: { ...configured.steps, hello: "verified" },
+    };
+    const getSetupStatus = vi.fn().mockResolvedValueOnce(configured).mockResolvedValue(ready);
+    const applySetup = vi.fn();
+    const runSetupHello = vi.fn(async () => ({ sessionId: "session-reverified", reply: "Hello", state: "ready" as const }));
+    installClient({ getSetupStatus, applySetup, runSetupHello });
+
+    render(<App />);
+
+    expect(await screen.findByRole("heading", { name: "Verify your saved agent." })).toBeInTheDocument();
+    expect(screen.queryByLabelText("Workspace folder")).not.toBeInTheDocument();
+    expect(screen.getByText("Monica")).toBeInTheDocument();
+    const verifyButton = screen.getByRole("button", { name: "Verify & open workspace" });
+    await waitFor(() => expect(verifyButton).toBeEnabled());
+    fireEvent.click(verifyButton);
+
+    await waitFor(() => expect(runSetupHello).toHaveBeenCalledTimes(1));
+    expect(applySetup).not.toHaveBeenCalled();
+    expect(runSetupHello).toHaveBeenCalledWith("main", "ppx-client-user", "Hello OpenPPX");
+    expect(await screen.findByRole("button", { name: "Send" })).toBeInTheDocument();
+  });
+
+  it("edits saved setup steps while preserving the immutable Agent ID", async () => {
+    const configured = configuredSetupStatus();
+    const ready = {
+      ...configured,
+      state: "ready" as const,
+      steps: { ...configured.steps, hello: "verified" },
+    };
+    const getSetupStatus = vi.fn().mockResolvedValueOnce(configured).mockResolvedValue(ready);
+    const applySetup = vi.fn(async () => ({
+      state: "configured" as const,
+      revisions: ready.revisions,
+      secretState: "not_required",
+      restartRequired: false,
+    }));
+    const runSetupHello = vi.fn(async () => ({ sessionId: "session-edited", reply: "Hello", state: "ready" as const }));
+    installClient({ getSetupStatus, applySetup, runSetupHello });
+
+    render(<App />);
+
+    expect(await screen.findByRole("heading", { name: "Verify your saved agent." })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "First Hello" })).toHaveAttribute("aria-current", "step");
+
+    fireEvent.click(screen.getByRole("button", { name: "Node" }));
+    expect(screen.getByRole("heading", { name: "Edit your saved configuration." })).toBeInTheDocument();
+    expect(screen.getByLabelText("Node name")).toHaveValue("This Mac");
+
+    fireEvent.click(screen.getByRole("button", { name: "Model" }));
+    expect(screen.getByLabelText("Provider")).toBeEnabled();
+    expect(screen.queryByLabelText("First message")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Agent" }));
+    expect(screen.getByLabelText("Agent ID")).toHaveValue("main");
+    expect(screen.getByLabelText("Agent ID")).toBeDisabled();
+    fireEvent.change(screen.getByLabelText("Agent name"), { target: { value: "Monica Prime" } });
+    fireEvent.click(screen.getByRole("button", { name: "Back to verification" }));
+
+    expect(screen.getByRole("heading", { name: "Verify your saved agent." })).toBeInTheDocument();
+    expect(screen.getByText("Monica Prime")).toBeInTheDocument();
+    const saveAndVerify = screen.getByRole("button", { name: "Save & verify" });
+    await waitFor(() => expect(saveAndVerify).toBeEnabled());
+    fireEvent.click(saveAndVerify);
+
+    await waitFor(() => expect(runSetupHello).toHaveBeenCalledTimes(1));
+    expect(applySetup).toHaveBeenCalledWith(expect.objectContaining({
+      agent: expect.objectContaining({
+        metadata: { name: "main" },
+        spec: expect.objectContaining({ displayName: "Monica Prime" }),
+      }),
+    }));
+    expect(applySetup.mock.invocationCallOrder[0]).toBeLessThan(runSetupHello.mock.invocationCallOrder[0]!);
+  });
+
+  it("restarts the Node before first Hello when setup requires it", async () => {
+    const needsConfiguration = {
+      state: "needs_configuration" as const,
+      steps: { node: "missing", agent: "missing", model: "missing", credential: "missing", hello: "pending" },
+      revisions: { node: null, agent: null, profile: null },
+      recommendedWorkspace: "/workspace/openppx",
+      diagnostic: null,
+      current: { node: null, agent: null, profile: null },
+      providers: [{
+        id: "google",
+        displayName: "Google Gemini",
+        runtime: "google_adk",
+        credentialMode: "api_key" as const,
+        credentialRequired: true,
+        defaultModel: "gemini-2.5-flash",
+      }],
+    };
+    const ready = {
+      ...needsConfiguration,
+      state: "ready" as const,
+      steps: { node: "complete", agent: "complete", model: "complete", credential: "available", hello: "verified" },
+      revisions: { node: "node-revision", agent: "agent-revision", profile: "profile-revision" },
+    };
+    const getSetupStatus = vi.fn().mockResolvedValueOnce(needsConfiguration).mockResolvedValue(ready);
+    const applySetup = vi.fn(async () => ({
+      state: "configured" as const,
+      revisions: ready.revisions,
+      secretState: "available",
+      restartRequired: true,
+    }));
+    const runRuntimeCommand = vi.fn(async () => buildBootstrapPayload().runtime);
+    const runSetupHello = vi.fn(async () => ({ sessionId: "session-first", reply: "Hello", state: "ready" as const }));
+    installClient({ getSetupStatus, applySetup, runRuntimeCommand, runSetupHello });
+
+    render(<App />);
+
+    await screen.findByRole("heading", { name: "Set up your agent workspace." });
+    fireEvent.change(screen.getByLabelText("API key"), { target: { value: "test-api-key" } });
+    fireEvent.click(screen.getByRole("button", { name: "Set up & say Hello" }));
+
+    await waitFor(() => expect(runSetupHello).toHaveBeenCalledTimes(1));
+    expect(runRuntimeCommand).toHaveBeenCalledWith("restart");
+    expect(applySetup.mock.invocationCallOrder[0]).toBeLessThan(runRuntimeCommand.mock.invocationCallOrder[0]!);
+    expect(runRuntimeCommand.mock.invocationCallOrder[0]).toBeLessThan(runSetupHello.mock.invocationCallOrder[0]!);
   });
 
   it("renders an invalid setup resource without failing Desktop initialization", async () => {

@@ -23,6 +23,7 @@ class SetupVerification(StrictConfigModel):
     node_revision: Revision
     agent_revision: Revision
     profile_revision: Revision
+    execution_fingerprint: Revision | None = None
     session_id: Annotated[str, StringConstraints(min_length=1, max_length=128)]
     verified_at: Annotated[str, StringConstraints(min_length=20, max_length=64)]
 
@@ -53,13 +54,15 @@ class SetupStateRepository:
         node_revision: str,
         agent_revision: str,
         profile_revision: str,
+        execution_fingerprint: str | None = None,
         session_id: str,
     ) -> SetupVerification:
-        """Persist a successful Hello against the exact effective resources."""
+        """Persist a successful Hello against the current execution-affecting resources."""
         document = SetupVerification(
             node_revision=node_revision,
             agent_revision=agent_revision,
             profile_revision=profile_revision,
+            execution_fingerprint=execution_fingerprint,
             session_id=session_id,
             verified_at=datetime.now(timezone.utc).isoformat(),
         )

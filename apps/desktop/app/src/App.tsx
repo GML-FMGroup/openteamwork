@@ -182,7 +182,7 @@ export function App() {
         setConnection={workspace.setConnectionForm}
         onTestConnection={() => void workspace.testConnection()}
         onSaveConnection={() => void workspace.saveConnection()}
-        onSubmit={() => void workspace.completeSetup()}
+        onSubmit={(applyConfiguration) => void workspace.completeSetup(applyConfiguration)}
         onBeginProviderAuth={() => void workspace.beginProviderAuth()}
         onRefreshProviderAuth={() => void workspace.refreshProviderAuth()}
         onOpenProviderAuthPage={() => void workspace.openProviderAuthPage()}

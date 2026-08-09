@@ -991,15 +991,20 @@ export function useDesktopWorkspace() {
     await window.ppxClient.openExternalUrl(url);
   }
 
-  async function completeSetup(): Promise<void> {
+  async function completeSetup(applyConfiguration = false): Promise<void> {
     if (!setupStatus || setupSubmitting) {
       return;
     }
     setSetupSubmitting(true);
     setSetupError(null);
     try {
-      const request = buildSetupRequest(setupForm, setupStatus, connectionForm);
-      await window.ppxClient.applySetup(request);
+      if (setupStatus.state !== "configured" || applyConfiguration) {
+        const request = buildSetupRequest(setupForm, setupStatus, connectionForm);
+        const applied = await window.ppxClient.applySetup(request);
+        if (applied.restartRequired) {
+          setRuntime(await window.ppxClient.runRuntimeCommand("restart"));
+        }
+      }
       await window.ppxClient.runSetupHello(setupForm.agentId, setupForm.ownerPrincipalId, setupForm.hello);
       const verified = await window.ppxClient.getSetupStatus();
       if (verified.state !== "ready") {

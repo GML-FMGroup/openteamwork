@@ -154,8 +154,11 @@ def test_update_disable_and_recoverable_delete_preserve_workspace(tmp_path: Path
         expected_revision=created.agent.revision,
     )
     assert updated.agent.document.spec.display_name == "Research Desk"
+    assert updated.agent.document.metadata.name == "research"
     assert updated.agent.document.spec.instruction == "Prefer concise research notes."
     assert updated.agent.document.spec.privilege_level == "high"
+    assert application.config_repository.paths.agent_file("research").is_file()
+    assert not (application.config_repository.paths.agents_dir / "Research Desk").exists()
 
     with pytest.raises(AgentLifecycleError) as active_delete:
         application.agent_lifecycle.delete(

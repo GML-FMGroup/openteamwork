@@ -3668,13 +3668,38 @@
 }
 
 .onboarding-steps li {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  color: var(--ink-faint);
+  min-width: 0;
 }
 
-.onboarding-steps li span {
+.onboarding-steps li button {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: 10px;
+  padding: 3px 7px 3px 0;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--ink-faint);
+  text-align: left;
+  transition: color 140ms ease, transform 140ms ease;
+}
+
+.onboarding-steps li button:disabled {
+  cursor: default;
+}
+
+.onboarding-steps li button:not(:disabled):hover {
+  color: var(--ink);
+  transform: translateX(2px);
+}
+
+.onboarding-steps li button:not(:disabled):focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 3px;
+}
+
+.onboarding-steps li button span {
   display: grid;
   width: 21px;
   height: 21px;
@@ -3684,13 +3709,24 @@
   font-size: 11px;
 }
 
-.onboarding-steps li.complete {
+.onboarding-steps li.complete button {
   color: var(--ink);
 }
 
-.onboarding-steps li.complete span {
+.onboarding-steps li.complete button span {
   border-color: color-mix(in srgb, var(--success) 40%, white);
   color: var(--success);
+}
+
+.onboarding-steps li.active button {
+  font-weight: 620;
+}
+
+.onboarding-steps li.active button span {
+  border-color: var(--ink);
+  box-shadow: inset 0 0 0 3px var(--surface-strong);
+  background: var(--ink);
+  color: white;
 }
 
 .onboarding-form {
@@ -3773,12 +3809,44 @@
   box-shadow: 0 0 0 3px var(--focus-surface);
 }
 
+.onboarding-field-grid input:disabled,
+.onboarding-field-grid select:disabled {
+  background: var(--surface-soft);
+  color: var(--ink-soft);
+  cursor: not-allowed;
+}
+
 .onboarding-field-grid .full-row {
   grid-column: 1 / -1;
 }
 
 .onboarding-field-grid .compact-field {
   max-width: calc(50% - 7px);
+}
+
+.onboarding-verification-summary {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  padding: 14px;
+  border: 1px solid var(--hairline);
+  border-radius: 12px;
+  background: var(--surface-soft);
+}
+
+.onboarding-verification-summary > div {
+  display: grid;
+  gap: 4px;
+}
+
+.onboarding-verification-summary span,
+.onboarding-verification-summary small {
+  color: var(--ink-soft);
+  font-size: 11px;
+}
+
+.onboarding-verification-summary strong {
+  font-size: 14px;
 }
 
 .onboarding-inline-actions {

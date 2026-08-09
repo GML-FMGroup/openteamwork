@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Literal, TypeVar
@@ -99,9 +101,21 @@ class SetupService:
                     verification = "invalid"
                     diagnostic = diagnostic or verification_issue(exc)
             else:
-                current = (node.revision, agent.revision, profile.revision)
-                verified = (record.node_revision, record.agent_revision, record.profile_revision)
-                verification = "verified" if verified == current else "stale"
+                if record.execution_fingerprint is not None:
+                    current_fingerprint = self._execution_fingerprint(
+                        node.document.model_dump(mode="json", by_alias=True),
+                        agent.document.model_dump(mode="json", by_alias=True),
+                        profile.document.model_dump(mode="json", by_alias=True),
+                    )
+                    verification = (
+                        "verified" if record.execution_fingerprint == current_fingerprint else "stale"
+                    )
+                else:
+                    # Verification records created by older releases did not include
+                    # a semantic fingerprint. Preserve their exact-revision behavior.
+                    current = (node.revision, agent.revision, profile.revision)
+                    verified = (record.node_revision, record.agent_revision, record.profile_revision)
+                    verification = "verified" if verified == current else "stale"
         state = "ready" if configured and verification == "verified" else "configured" if configured else "needs_configuration"
         return {
             "state": state,
@@ -190,7 +204,7 @@ class SetupService:
         )
 
     def mark_verified(self, *, session_id: str) -> None:
-        """Record that current complete revisions passed a real Runtime Hello."""
+        """Record that the current execution configuration passed a real Runtime Hello."""
         status = self.status()
         revisions = status["revisions"]
         if status["state"] not in {"configured", "ready"} or not isinstance(revisions, dict):
@@ -204,8 +218,44 @@ class SetupService:
             node_revision=node_revision,
             agent_revision=agent_revision,
             profile_revision=profile_revision,
+            execution_fingerprint=self._execution_fingerprint_from_status(status),
             session_id=session_id,
         )
+
+    @classmethod
+    def _execution_fingerprint_from_status(cls, status: dict[str, object]) -> str:
+        """Return a semantic setup fingerprint from one status snapshot."""
+        current = status.get("current")
+        if not isinstance(current, dict):
+            raise SetupError("setup_incomplete", "Setup resources are incomplete.")
+        documents = (current.get("node"), current.get("agent"), current.get("profile"))
+        if not all(isinstance(item, dict) for item in documents):
+            raise SetupError("setup_incomplete", "Setup resources are incomplete.")
+        return cls._execution_fingerprint(*documents)
+
+    @staticmethod
+    def _execution_fingerprint(
+        node: dict[str, object],
+        agent: dict[str, object],
+        profile: dict[str, object],
+    ) -> str:
+        """Hash setup behavior while ignoring presentation-only display names."""
+
+        def execution_document(document: dict[str, object]) -> dict[str, object]:
+            normalized = json.loads(json.dumps(document))
+            spec = normalized.get("spec")
+            if isinstance(spec, dict):
+                spec.pop("displayName", None)
+                spec.pop("display_name", None)
+            return normalized
+
+        payload = {
+            "node": execution_document(node),
+            "agent": execution_document(agent),
+            "profile": execution_document(profile),
+        }
+        serialized = json.dumps(payload, ensure_ascii=False, separators=(",", ":"), sort_keys=True)
+        return hashlib.sha256(serialized.encode("utf-8")).hexdigest()
 
     def _write_profile(self, profile, expected_revision: str | None) -> str:
         current = self._optional(lambda: self.profiles.read_profile(profile.metadata.name))

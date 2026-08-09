@@ -207,3 +207,33 @@ def test_setup_hello_preserves_safe_codex_model_access_failure(tmp_path: Path) -
     assert result.error is not None
     assert result.error.code == "provider_access_denied"
     assert result.error.message == "This Codex account is not allowed to use the selected model."
+
+
+def test_setup_hello_reports_runtime_initialization_phase_without_leaking_details(tmp_path: Path) -> None:
+    application = build_control_plane(
+        tmp_path,
+        secret_store=InMemorySecretStore(),
+        product_version="test",
+    )
+    application.invoke("setup.apply", {"request": setup_payload(tmp_path)}, setup_context())
+
+    class FailedSessionRuntime(FakeSetupRuntime):
+        def create_session_sync(self, agent_id: str, *, user_id: str):
+            raise RuntimeError("sensitive-internal-session-detail")
+
+        def hello_sync(self, agent_id: str, text: str, *, user_id: str, session_id: str) -> str:
+            raise AssertionError("The model turn must not start when Session initialization fails.")
+
+    application.attach_runtime(FailedSessionRuntime())
+    result = application.invoke(
+        "setup.hello",
+        {"agentId": "main", "userId": "ppx-client-user", "text": "Hello OpenPPX"},
+        setup_context(),
+    )
+
+    assert result.error is not None
+    assert result.error.code == "runtime_initialization_failed"
+    assert result.error.message == "The Agent runtime could not create the first Session. Restart the Node and retry."
+    assert result.error.details == {"phase": "session_initialization"}
+    assert result.error.retryable is True
+    assert "sensitive-internal-session-detail" not in repr(result)

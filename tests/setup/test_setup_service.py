@@ -102,6 +102,66 @@ def test_setup_applies_complete_baseline_and_is_exactly_retryable(tmp_path: Path
     assert secrets.resolve(request.profile.spec.credential).reveal() == "secret-canary-value"  # type: ignore[arg-type]
 
 
+def test_setup_verification_ignores_display_names_but_not_execution_changes(tmp_path: Path) -> None:
+    service, _secrets = build_service(tmp_path)
+    request = SetupApplyRequest.model_validate(setup_payload(tmp_path))
+    service.apply(request)
+    service.mark_verified(session_id="session-verified")
+
+    verified = service.state_repository.read()
+    assert verified.execution_fingerprint is not None
+
+    current = service.repository.read_agent("main")
+    renamed_spec = current.document.spec.model_copy(update={"display_name": "Monica"})
+    renamed = current.document.model_copy(update={"spec": renamed_spec})
+    renamed_resource = service.config_service.apply_agent(
+        "main",
+        renamed,
+        expected_revision=current.revision,
+    ).resource
+
+    assert renamed_resource.document.metadata.name == "main"
+    assert service.status()["state"] == "ready"
+    assert service.status()["steps"]["hello"] == "verified"  # type: ignore[index]
+
+    changed_spec = renamed_resource.document.spec.model_copy(
+        update={"instruction": "Use the saved workspace instructions."}
+    )
+    changed = renamed_resource.document.model_copy(update={"spec": changed_spec})
+    service.config_service.apply_agent(
+        "main",
+        changed,
+        expected_revision=renamed_resource.revision,
+    )
+
+    assert service.status()["state"] == "configured"
+    assert service.status()["steps"]["hello"] == "stale"  # type: ignore[index]
+
+
+def test_legacy_verification_remains_strict_until_one_new_hello(tmp_path: Path) -> None:
+    service, _secrets = build_service(tmp_path)
+    result = service.apply(SetupApplyRequest.model_validate(setup_payload(tmp_path)))
+    service.state_repository.mark_verified(
+        node_revision=result.node_revision,
+        agent_revision=result.agent_revision,
+        profile_revision=result.profile_revision,
+        session_id="legacy-session",
+    )
+
+    current = service.repository.read_agent("main")
+    renamed_spec = current.document.spec.model_copy(update={"display_name": "Monica"})
+    renamed = current.document.model_copy(update={"spec": renamed_spec})
+    service.config_service.apply_agent(
+        "main",
+        renamed,
+        expected_revision=current.revision,
+    )
+
+    status = service.status()
+    assert status["state"] == "configured"
+    assert status["steps"]["hello"] == "stale"  # type: ignore[index]
+
+
 def test_setup_rejects_missing_required_credential_without_publishing_node(tmp_path: Path) -> None:
     service, _secrets = build_service(tmp_path)
     request = SetupApplyRequest.model_validate(setup_payload(tmp_path, api_key=None))

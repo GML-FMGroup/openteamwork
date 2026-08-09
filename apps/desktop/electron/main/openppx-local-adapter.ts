@@ -22,6 +22,7 @@ import {
   normalizeClientApiSession,
 } from "@openppx/client";
 import { normalizeClientApiRuntime } from "../../app/src/lib/client-api-projection";
+import { normalizeAgentProfile, normalizeWorkspaceAgents } from "../../app/src/lib/agent-projection";
 import { isLoopbackClientApiHostname } from "../../app/src/lib/connection-profile";
 import type {
   AgentProfile,
@@ -310,17 +311,6 @@ function resolvePythonBin(openppxRoot: string): string {
     return venvPython;
   }
   return "python3";
-}
-
-function normalizeAgentProfile(payload: Record<string, unknown>): AgentProfile {
-  return {
-    id: String(payload.id ?? ""),
-    name: String(payload.name ?? payload.id ?? ""),
-    description: String(payload.description ?? "Local openppx agent"),
-    enabled: payload.enabled !== false,
-    status: (String(payload.status ?? "healthy") as AgentProfile["status"]) || "healthy",
-    tags: Array.isArray(payload.tags) ? payload.tags.map((tag) => String(tag)) : [],
-  };
 }
 
 export class OpenPpxLocalAdapter implements Omit<
@@ -637,7 +627,7 @@ export class OpenPpxLocalAdapter implements Omit<
         const items = Array.isArray((payload.data as Record<string, unknown> | undefined)?.items)
           ? ((payload.data as Record<string, unknown>).items as Array<Record<string, unknown>>)
           : [];
-        agents = items.map((item) => normalizeAgentProfile(item));
+        agents = normalizeWorkspaceAgents(items);
       } catch (error) {
         this.rememberClientApiError(error);
         throw this.clientApiUnavailableError("Loading agents");

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from typing import cast
 
 from openppx.actions import ActionError, ActionFailure, ActionRegistry, ActionSpec
@@ -10,6 +11,9 @@ from openppx.setup import SetupError, SetupService
 
 from .errors import raise_config_failure
 from .input_models import EmptyInput, SecretPutInput, SecretStatusInput, SetupApplyInput, SetupHelloInput
+
+
+LOGGER = logging.getLogger(__name__)
 
 
 def register_setup_actions(registry: ActionRegistry, service: SetupService) -> None:
@@ -131,6 +135,13 @@ def _hello(service: SetupService, supervisor, input_data: SetupHelloInput) -> di
     try:
         session = supervisor.create_session_sync(input_data.agent_id, user_id=input_data.user_id)
         session_id = str(session.id)
+    except Exception:
+        LOGGER.exception(
+            "Setup Hello failed while initializing a Session for Agent %s.",
+            input_data.agent_id,
+        )
+        raise ActionFailure(_runtime_initialization_failure()) from None
+    try:
         reply = supervisor.hello_sync(
             input_data.agent_id,
             input_data.text,
@@ -138,6 +149,10 @@ def _hello(service: SetupService, supervisor, input_data: SetupHelloInput) -> di
             session_id=session_id,
         )
     except Exception as exc:
+        LOGGER.exception(
+            "Setup Hello failed during the first model turn for Agent %s.",
+            input_data.agent_id,
+        )
         raise ActionFailure(_hello_failure(exc)) from None
     if not reply.strip():
         raise ActionFailure(ActionError("hello_failed", "The first model turn returned no reply."))
@@ -146,6 +161,16 @@ def _hello(service: SetupService, supervisor, input_data: SetupHelloInput) -> di
     except (ConfigError, SetupError):
         raise ActionFailure(ActionError("setup_verification_failed", "The successful Hello could not be verified.")) from None
     return {"sessionId": session_id, "reply": reply, "state": "ready"}
+
+
+def _runtime_initialization_failure() -> ActionError:
+    """Project a safe, actionable failure for pre-model Runtime initialization."""
+    return ActionError(
+        "runtime_initialization_failed",
+        "The Agent runtime could not create the first Session. Restart the Node and retry.",
+        details={"phase": "session_initialization"},
+        retryable=True,
+    )
 
 
 def _hello_failure(exc: Exception) -> ActionError:

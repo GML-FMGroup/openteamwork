@@ -8,8 +8,18 @@ import {
   isTerminalRunStatus,
   monitorPersistedTerminalRun,
 } from "../electron/main/run-terminal-reconciliation";
+import { normalizeWorkspaceAgents } from "../app/src/lib/agent-projection";
 
 describe("openppx local adapter projections", () => {
+  it("keeps disabled Agents out of the workspace session surface", () => {
+    expect(normalizeWorkspaceAgents([
+      { id: "root", name: "Root", enabled: false, status: "disabled" },
+      { id: "main", name: "Monica", enabled: true, status: "healthy" },
+    ])).toEqual([
+      expect.objectContaining({ id: "main", name: "Monica", enabled: true }),
+    ]);
+  });
+
   it("uses persisted messages only after the outer Run is authoritatively terminal", () => {
     const messages: ChatMessage[] = [
       {
