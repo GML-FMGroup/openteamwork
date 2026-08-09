@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ExtensionsSettings } from "../app/src/components/settings/ExtensionsSettings";
 import type { ExtensionDetail, ExtensionStarter, ExtensionSummary, PpxClientApi } from "../app/src/types";
@@ -175,6 +175,74 @@ describe("Extensions settings", () => {
     expect(screen.getByLabelText(/Connection ID/)).toHaveValue("telegram-default");
   });
 
+  it("keeps an installed App without a saved connection under Available", async () => {
+    const app: ExtensionSummary = {
+      ...extension("app", "telegram"),
+      displayName: "Telegram",
+      description: "Telegram Bot API.",
+      readiness: { ready: false, issues: ["connection_required"] },
+    };
+    const detail: ExtensionDetail = {
+      ...app,
+      details: {
+        credentials: [{ name: "bot-token", label: "Bot token", required: true }],
+        tools: [],
+        connections: [],
+      },
+    };
+    vi.mocked(window.ppxClient.listExtensionStarters).mockResolvedValue({
+      starters: [{
+        id: "app-telegram",
+        kind: "app",
+        runtimeKind: "app",
+        displayName: "Telegram",
+        description: "Telegram Bot API.",
+        category: "communication",
+        developer: "Telegram",
+        availability: "needs_auth",
+        installMode: "direct_app",
+        auth: "secret",
+        requirements: ["Telegram bot token"],
+        note: "Token remains protected.",
+        featured: true,
+        provenance: { project: "OpenPPX" },
+        presentation: { icon: "telegram", brandColor: "#229ed9" },
+        template: { definition: { metadata: { name: "telegram" } } },
+      }],
+      counts: { plugin: 0, app: 1, mcp: 0, skill: 0 },
+    });
+    vi.mocked(window.ppxClient.getExtension).mockResolvedValue({ extension: detail });
+
+    renderSettings([app], "app");
+
+    expect(await screen.findByRole("button", { name: "Connect" })).toBeInTheDocument();
+    expect(screen.queryByText(/Configured ·/)).not.toBeInTheDocument();
+    expect(screen.getAllByText("Telegram")).toHaveLength(1);
+
+    fireEvent.click(screen.getByRole("button", { name: "Connect" }));
+    expect(await screen.findByLabelText("Bot token *")).toBeInTheDocument();
+    expect(window.ppxClient.installAppStarter).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+
+    expect(window.ppxClient.saveAppConnection).not.toHaveBeenCalled();
+    expect(screen.queryByText(/Configured ·/)).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Connect" })).toBeInTheDocument();
+  });
+
+  it("keeps a saved but unhealthy App connection under Configured", async () => {
+    const app: ExtensionSummary = {
+      ...extension("app", "github"),
+      status: "connected",
+      readiness: { ready: false, issues: ["credential_missing"] },
+    };
+
+    renderSettings([app], "app");
+
+    expect(await screen.findByText("Configured · 1")).toBeInTheDocument();
+    expect(screen.getByText("Needs attention")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Connections" })).toBeInTheDocument();
+  });
+
   it("prefills a ready MCP starter without exposing a secret value", async () => {
     vi.mocked(window.ppxClient.listExtensionStarters).mockResolvedValue({
       starters: [{
@@ -341,10 +409,9 @@ describe("Extensions settings", () => {
     vi.mocked(window.ppxClient.getExtension).mockResolvedValue({ extension: detail });
     vi.mocked(window.ppxClient.saveAppConnection).mockResolvedValue({ revision: digest, status: "ready" });
     renderSettings([app], "app");
-    fireEvent.click(screen.getByRole("button", { name: "Connections" }));
-    fireEvent.click(await screen.findByRole("button", { name: "Add connection" }));
-    fireEvent.change(screen.getByLabelText("Personal access token *"), { target: { value: "write-only-token" } });
-    fireEvent.click(screen.getByRole("button", { name: "Connect" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Connect" }));
+    fireEvent.change(await screen.findByLabelText("Personal access token *"), { target: { value: "write-only-token" } });
+    fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Connect" }));
 
     await waitFor(() => expect(window.ppxClient.saveAppConnection).toHaveBeenCalledWith({
       appId: "github",

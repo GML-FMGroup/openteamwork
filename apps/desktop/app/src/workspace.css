@@ -685,6 +685,11 @@
   background: var(--surface-soft);
 }
 
+.agent-resource-list button.agent-resource-create {
+  border: 1px dashed var(--hairline-strong);
+  background: color-mix(in srgb, var(--surface-soft) 82%, var(--paper));
+}
+
 .agent-resource-list span {
   display: grid;
   min-width: 0;
@@ -725,6 +730,14 @@
   gap: 4px;
 }
 
+.agent-policy-heading h4 {
+  margin: 0;
+  color: var(--ink);
+  font-size: 16px;
+  font-weight: 650;
+  letter-spacing: -0.015em;
+}
+
 .agent-policy-heading span,
 .agent-policy-heading small {
   color: var(--ink-faint);
@@ -737,25 +750,41 @@
 }
 
 .agent-instruction-field textarea {
+  width: 100%;
   min-height: 128px;
+  padding: 11px 12px;
   resize: vertical;
+  border: 1px solid var(--hairline);
+  border-radius: 10px;
+  outline: 0;
+  background: var(--paper-warm);
+  color: var(--ink);
+  font-size: 13px;
+  line-height: 1.55;
+  transition:
+    border-color var(--motion-fast) ease,
+    box-shadow var(--motion-fast) ease,
+    background var(--motion-fast) ease;
+}
+
+.agent-instruction-field textarea::placeholder {
+  color: var(--ink-faint);
+}
+
+.agent-instruction-field textarea:focus {
+  border-color: var(--focus-ring);
+  outline: 0;
+  background: var(--surface-strong);
+  box-shadow: 0 0 0 3px var(--focus-surface);
 }
 
 .agent-policy-actions {
   display: flex;
-  position: sticky;
-  bottom: 16px;
-  z-index: 2;
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  margin-top: 18px;
-  padding: 12px 14px;
-  border: 1px solid var(--hairline);
-  border-radius: 14px;
-  background: color-mix(in srgb, var(--paper) 92%, transparent);
-  box-shadow: 0 10px 28px rgba(24, 22, 18, 0.08);
-  backdrop-filter: blur(14px);
+  margin-top: 20px;
+  padding: 0;
 }
 
 .agent-policy-save-state,
@@ -794,8 +823,45 @@
   margin-left: auto;
 }
 
-.agent-policy-save-button {
+.agent-policy-action-buttons button {
+  min-height: 34px;
+  padding: 0 12px;
+  border: 1px solid transparent;
+  border-radius: 9px;
+  font-size: 12px;
+  font-weight: 600;
+  transition:
+    border-color var(--motion-fast) ease,
+    background var(--motion-fast) ease,
+    color var(--motion-fast) ease;
+}
+
+.agent-policy-action-buttons button.secondary {
+  border-color: var(--hairline);
+  background: transparent;
+  color: var(--ink-soft);
+}
+
+.agent-policy-action-buttons button.secondary:hover:not(:disabled) {
+  border-color: var(--hairline-strong);
+  background: var(--surface-soft);
+  color: var(--ink);
+}
+
+.agent-policy-action-buttons .agent-policy-save-button {
   min-width: 126px;
+  border-color: var(--solid-control-bg);
+  background: var(--solid-control-bg);
+  color: var(--solid-control-fg);
+}
+
+.agent-policy-action-buttons .agent-policy-save-button:hover:not(:disabled) {
+  border-color: var(--solid-control-hover);
+  background: var(--solid-control-hover);
+}
+
+.agent-policy-action-buttons button:disabled {
+  opacity: 0.48;
 }
 
 .agent-policy-action-buttons .danger-quiet {
@@ -3517,6 +3583,10 @@
 
 .resource-state.ready::before {
   background: var(--success);
+}
+
+.resource-state.pending::before {
+  background: var(--ink-faint);
 }
 
 .diagnostic-wide {

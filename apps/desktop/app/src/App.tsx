@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { SettingsView, type SettingsSection } from "./components/settings/SettingsView";
 import { OnboardingView } from "./components/setup/OnboardingView";
-import { NewAgentDialog } from "./components/agents/NewAgentDialog";
 import { ModelProfileDialog } from "./components/models/ModelProfileDialog";
 import { AutomationsPage } from "./components/automations/AutomationsPage";
 import { Composer } from "./components/workspace/Composer";
@@ -48,7 +47,8 @@ export function App() {
   const [leftSidebarCollapsed, setLeftSidebarCollapsed] = useState(false);
   const [inspectorCollapsed, setInspectorCollapsed] = useState(false);
   const [sidebarSearchRequest, setSidebarSearchRequest] = useState(0);
-  const [newAgentOpen, setNewAgentOpen] = useState(false);
+  const [agentCreationRequest, setAgentCreationRequest] = useState(0);
+  const [handledAgentCreationRequest, setHandledAgentCreationRequest] = useState(0);
   const [modelProfileDialog, setModelProfileDialog] = useState<{ mode: "new" | "edit"; profileId: string | null } | null>(null);
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
 
@@ -128,9 +128,10 @@ export function App() {
   }
 
   function openNewAgentFromSidebar(): void {
-    handleChangeView("chat");
     workspace.clearAgentCreateError();
-    setNewAgentOpen(true);
+    setSettingsDestination({ area: "settings", section: "agent" });
+    handleChangeView("settings");
+    setAgentCreationRequest((current) => current + 1);
   }
 
   function selectSessionFromSidebar(session: Parameters<typeof workspace.switchSession>[0]): void {
@@ -381,11 +382,16 @@ export function App() {
           connectionFeedback={workspace.connectionFeedback}
           extensions={workspace.extensions}
           modelProfiles={workspace.modelProfiles}
+          providers={workspace.setupStatus.providers}
           agents={workspace.agents}
           extensionsLoading={workspace.extensionsLoading}
           extensionsError={workspace.extensionsError}
           extensionMutationId={workspace.extensionMutationId}
           selectedAgentId={workspace.selectedAgentId}
+          agentCreationRequested={agentCreationRequest > handledAgentCreationRequest}
+          suggestedAgentId={suggestedAgentId}
+          creatingAgent={workspace.agentCreating}
+          agentCreateError={workspace.agentCreateError}
           sidebarCollapsed={leftSidebarCollapsed}
           setConnectionForm={workspace.setConnectionForm}
           onRevealSidebar={() => setLeftSidebarCollapsed(false)}
@@ -397,33 +403,20 @@ export function App() {
           onTestConnection={() => void workspace.testConnection()}
           onSaveConnection={workspace.saveConnection}
           onRefreshExtensions={() => void workspace.refreshExtensions()}
-          onRefreshModels={() => void workspace.refreshModelProfiles()}
+          onRefreshModels={workspace.refreshModelProfiles}
+          onGetProviderAuth={workspace.getModelProviderAuth}
           onNewModelProfile={() => setModelProfileDialog({ mode: "new", profileId: null })}
           onEditModelProfile={(profileId) => setModelProfileDialog({ mode: "edit", profileId })}
           onSetExtensionEnabled={(extension, enabled) => void workspace.setExtensionEnabled(extension, enabled)}
+          onAgentCreationRequestHandled={() => setHandledAgentCreationRequest(agentCreationRequest)}
+          onClearAgentCreateError={workspace.clearAgentCreateError}
+          onCreateAgent={workspace.createAgent}
           onWorkspaceChanged={workspace.reloadWorkspace}
           preferences={preferences}
           onChangePreferences={updatePreferences}
           onRequestNotificationPermission={requestNotificationPermission}
         />
       )}
-      {newAgentOpen ? (
-        <NewAgentDialog
-          suggestedAgentId={suggestedAgentId}
-          modelProfiles={workspace.modelProfiles}
-          creating={workspace.agentCreating}
-          error={workspace.agentCreateError}
-          onCancel={() => setNewAgentOpen(false)}
-          onCreate={(input) => {
-            void workspace.createAgent(input).then((created) => {
-              if (created) {
-                setNewAgentOpen(false);
-                setView("chat");
-              }
-            });
-          }}
-        />
-      ) : null}
       {modelProfileDialog ? (
         <ModelProfileDialog
           mode={modelProfileDialog.mode}

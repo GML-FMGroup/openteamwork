@@ -1,18 +1,25 @@
 import { useEffect, useState, type Dispatch, type SetStateAction } from "react";
 import type {
+  AgentCreateRequest,
   AgentProfile,
   ClientDiagnostics,
   ConnectionProfileSummary,
   ConnectionSettings,
   ExtensionSummary,
   ModelProfileSummary,
+  ProviderAuthStatus,
   RuntimeStatus,
+  SetupProvider,
 } from "../../types";
 import { CollapsedSidebarTools } from "../workspace/ContextSidebar";
 import { ExtensionsSettings } from "./ExtensionsSettings";
 import { OperationsSettings } from "./OperationsSettings";
 import { AgentSettings } from "./AgentSettings";
 import { PreferencesSettings } from "./PreferencesSettings";
+import {
+  modelProfileAccessPresentation,
+  type ModelProviderAuthCheck,
+} from "./model-profile-access";
 import type { DesktopPreferenceChanges, DesktopPreferences } from "../../lib/desktop-preferences";
 
 export type SettingsSection = "general" | "models" | "operations" | "agent" | "preferences";
@@ -33,11 +40,16 @@ interface SettingsViewProps {
   connectionFeedback: string | null;
   extensions: ExtensionSummary[];
   modelProfiles: ModelProfileSummary[];
+  providers: SetupProvider[];
   agents: AgentProfile[];
   extensionsLoading: boolean;
   extensionsError: string | null;
   extensionMutationId: string | null;
   selectedAgentId: string;
+  agentCreationRequested: boolean;
+  suggestedAgentId: string;
+  creatingAgent: boolean;
+  agentCreateError: string | null;
   sidebarCollapsed: boolean;
   canCreateSession: boolean;
   setConnectionForm: Dispatch<SetStateAction<ConnectionSettings>>;
@@ -49,10 +61,14 @@ interface SettingsViewProps {
   onTestConnection: () => void;
   onSaveConnection: () => Promise<void>;
   onRefreshExtensions: () => void;
-  onRefreshModels: () => void;
+  onRefreshModels: () => Promise<void>;
+  onGetProviderAuth: (providerId: string) => Promise<ProviderAuthStatus>;
   onNewModelProfile: () => void;
   onEditModelProfile: (profileId: string) => void;
   onSetExtensionEnabled: (extension: ExtensionSummary, enabled: boolean) => void;
+  onAgentCreationRequestHandled: () => void;
+  onClearAgentCreateError: () => void;
+  onCreateAgent: (input: AgentCreateRequest) => Promise<boolean>;
   onWorkspaceChanged: () => Promise<void>;
   preferences: DesktopPreferences;
   onChangePreferences: (changes: DesktopPreferenceChanges) => void;
@@ -76,6 +92,15 @@ export function SettingsView(props: SettingsViewProps) {
   const [connectionProfiles, setConnectionProfiles] = useState<ConnectionProfileSummary[]>([]);
   const [profileWorkingId, setProfileWorkingId] = useState<string | null>(null);
   const [profileError, setProfileError] = useState<string | null>(null);
+  const [providerAuthChecks, setProviderAuthChecks] = useState<Record<string, ModelProviderAuthCheck>>({});
+  const [providerAuthRefresh, setProviderAuthRefresh] = useState(0);
+  const oauthProviderIds = Array.from(new Set(
+    props.modelProfiles
+      .map((profile) => props.providers.find((provider) => provider.id === profile.provider) ?? null)
+      .filter((provider): provider is SetupProvider => provider?.credentialMode === "oauth")
+      .map((provider) => provider.id),
+  ));
+  const oauthProviderKey = oauthProviderIds.join("\u001f");
 
   async function refreshConnectionProfiles(): Promise<void> {
     try {
@@ -91,6 +116,31 @@ export function SettingsView(props: SettingsViewProps) {
   useEffect(() => {
     if (!extensionsArea && section === "general") void refreshConnectionProfiles();
   }, [extensionsArea, section]);
+
+  useEffect(() => {
+    if (extensionsArea || section !== "models") return;
+    if (!oauthProviderIds.length) {
+      setProviderAuthChecks({});
+      return;
+    }
+    let active = true;
+    setProviderAuthChecks(Object.fromEntries(
+      oauthProviderIds.map((providerId) => [providerId, { kind: "loading" } satisfies ModelProviderAuthCheck]),
+    ));
+    void Promise.all(oauthProviderIds.map(async (providerId) => {
+      try {
+        const status = await props.onGetProviderAuth(providerId);
+        return [providerId, { kind: "resolved", status } satisfies ModelProviderAuthCheck] as const;
+      } catch {
+        return [providerId, { kind: "error" } satisfies ModelProviderAuthCheck] as const;
+      }
+    })).then((entries) => {
+      if (active) setProviderAuthChecks(Object.fromEntries(entries));
+    });
+    return () => {
+      active = false;
+    };
+  }, [extensionsArea, section, oauthProviderKey, providerAuthRefresh]);
 
   async function activateConnectionProfile(profile: ConnectionProfileSummary): Promise<void> {
     setProfileWorkingId(profile.targetId);
@@ -130,6 +180,11 @@ export function SettingsView(props: SettingsViewProps) {
   async function saveConnection(): Promise<void> {
     await props.onSaveConnection();
     await refreshConnectionProfiles();
+  }
+
+  async function refreshModels(): Promise<void> {
+    await props.onRefreshModels();
+    setProviderAuthRefresh((current) => current + 1);
   }
 
   return (
@@ -225,14 +280,18 @@ export function SettingsView(props: SettingsViewProps) {
 
           {!extensionsArea && section === "models" ? (
             <section className="settings-card settings-card-models">
-              <div className="settings-card-heading"><div><h3>Model Profiles</h3><p>Reusable provider, model, access, and fallback policies for Agents on this Node.</p></div><div className="settings-heading-actions"><button className="secondary settings-quiet-button" onClick={props.onRefreshModels}>Refresh</button><button onClick={props.onNewModelProfile}>New Profile</button></div></div>
+              <div className="settings-card-heading"><div><h3>Model Profiles</h3><p>Reusable provider, model, access, and fallback policies for Agents on this Node.</p></div><div className="settings-heading-actions"><button className="secondary settings-quiet-button" onClick={() => void refreshModels()}>Refresh</button><button onClick={props.onNewModelProfile}>New Profile</button></div></div>
               <div className="settings-resource-list">
-                {props.modelProfiles.length ? props.modelProfiles.map((profile) => (
-                  <button key={profile.id} className="settings-resource-row" onClick={() => props.onEditModelProfile(profile.id)}>
-                    <div><strong>{profile.displayName}</strong><p>{profile.provider} · {profile.model}</p></div>
-                    <span className="settings-resource-meta"><span className={profile.credentialState === "available" || profile.credentialState === "not_required" ? "resource-state ready" : "resource-state blocked"}>{profile.credentialState.replace("_", " ")}</span>{!profile.enabled ? <em>disabled</em> : null}<span aria-hidden="true">›</span></span>
-                  </button>
-                )) : <p className="extension-empty">No Model Profiles configured.</p>}
+                {props.modelProfiles.length ? props.modelProfiles.map((profile) => {
+                  const provider = props.providers.find((item) => item.id === profile.provider) ?? null;
+                  const access = modelProfileAccessPresentation(profile, provider, providerAuthChecks[profile.provider]);
+                  return (
+                    <button key={profile.id} className="settings-resource-row" onClick={() => props.onEditModelProfile(profile.id)}>
+                      <div><strong>{profile.displayName}</strong><p>{profile.provider} · {profile.model}</p></div>
+                      <span className="settings-resource-meta"><span className={`resource-state ${access.tone}`}>{access.label}</span>{!profile.enabled ? <em>disabled</em> : null}<span aria-hidden="true">›</span></span>
+                    </button>
+                  );
+                }) : <p className="extension-empty">No Model Profiles configured.</p>}
               </div>
             </section>
           ) : null}
@@ -263,7 +322,18 @@ export function SettingsView(props: SettingsViewProps) {
           ) : null}
 
           {!extensionsArea && section === "agent" ? (
-            <AgentSettings selectedAgentId={props.selectedAgentId} modelProfiles={props.modelProfiles} onWorkspaceChanged={props.onWorkspaceChanged} />
+            <AgentSettings
+              selectedAgentId={props.selectedAgentId}
+              modelProfiles={props.modelProfiles}
+              createRequested={props.agentCreationRequested}
+              suggestedAgentId={props.suggestedAgentId}
+              creatingAgent={props.creatingAgent}
+              createError={props.agentCreateError}
+              onCreateRequestHandled={props.onAgentCreationRequestHandled}
+              onClearCreateError={props.onClearAgentCreateError}
+              onCreateAgent={props.onCreateAgent}
+              onWorkspaceChanged={props.onWorkspaceChanged}
+            />
           ) : null}
 
           {!extensionsArea && section === "preferences" ? (

@@ -167,6 +167,19 @@ function starterListStatus(starter: ExtensionStarter): string | null {
   return null;
 }
 
+/** Return the durable App identity owned by a directly installable catalog entry. */
+function starterAppDefinitionId(starter: ExtensionStarter): string | null {
+  if (starter.kind !== "app" || starter.installMode !== "direct_app") return null;
+  const definition = asRecord(starter.template.definition);
+  const metadata = asRecord(definition.metadata);
+  return typeof metadata.name === "string" ? metadata.name : null;
+}
+
+/** Treat an App as configured only after the Node reports a saved connection. */
+function isConfiguredExtension(extension: ExtensionSummary): boolean {
+  return extension.kind !== "app" || extension.status !== "installed";
+}
+
 function starterMcpTemplate(starter: ExtensionStarter | null): StarterMcpTemplate | null {
   if (!starter || starter.installMode !== "direct_mcp") return null;
   const template = asRecord(starter.template);
@@ -230,10 +243,21 @@ export function ExtensionsSettings(props: ExtensionsSettingsProps) {
     const needle = query.trim().toLowerCase();
     return !needle || `${item.displayName} ${item.description} ${item.id}`.toLowerCase().includes(needle);
   }), [props.extensions, query, tab]);
+  const configured = useMemo(() => filtered.filter(isConfiguredExtension), [filtered]);
+  const availableApps = useMemo(
+    () => tab === "app" ? filtered.filter((item) => !isConfiguredExtension(item)) : [],
+    [filtered, tab],
+  );
+  const visibleAvailableAppIds = useMemo(
+    () => new Set(availableApps.map((item) => item.id)),
+    [availableApps],
+  );
   const filteredStarters = useMemo(() => starters.filter((item) => {
     const needle = query.trim().toLowerCase();
-    return !needle || `${item.displayName} ${item.description} ${item.category} ${item.developer} ${item.requirements.join(" ")}`.toLowerCase().includes(needle);
-  }), [query, starters]);
+    const matchesQuery = !needle || `${item.displayName} ${item.description} ${item.category} ${item.developer} ${item.requirements.join(" ")}`.toLowerCase().includes(needle);
+    const installedAppId = starterAppDefinitionId(item);
+    return matchesQuery && (!installedAppId || !visibleAvailableAppIds.has(installedAppId));
+  }), [query, starters, visibleAvailableAppIds]);
   const visibleStarters = useMemo(
     () => filteredStarters.slice(0, showAllStarters || query.trim() ? undefined : STARTER_FOLD),
     [filteredStarters, query, showAllStarters],
@@ -279,6 +303,19 @@ export function ExtensionsSettings(props: ExtensionsSettingsProps) {
     setLocalError(null);
     try {
       setDetail((await window.ppxClient.getExtension(extension.kind, extension.id)).extension);
+    } catch (error) {
+      setLocalError(errorMessage(error));
+    } finally {
+      setDetailLoading(false);
+    }
+  }
+
+  async function openAvailableApp(extension: ExtensionSummary): Promise<void> {
+    setDetailLoading(true);
+    setLocalError(null);
+    try {
+      const app = (await window.ppxClient.getExtension("app", extension.id)).extension;
+      setAppConnectionDialog({ app, connection: null });
     } catch (error) {
       setLocalError(errorMessage(error));
     } finally {
@@ -377,11 +414,11 @@ export function ExtensionsSettings(props: ExtensionsSettingsProps) {
             <label className="extension-search"><span aria-hidden="true">⌕</span><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={`Search ${plural(tab).toLowerCase()}`} /></label>
             <p>{tab === "app" ? "App definitions come from trusted Plugins or the Node. Open an App to manage connections." : `${counts[tab]} configured on this Node.`}</p>
           </div>
-          {filtered.length ? (
+          {configured.length ? (
             <div className="extension-resource-group">
-              <div className="extension-group-label">Configured · {filtered.length}</div>
+              <div className="extension-group-label">Configured · {configured.length}</div>
               <div className="extension-resource-list">
-                {filtered.map((extension) => {
+                {configured.map((extension) => {
                   const enabled = props.selectedAgentId ? extension.enabledAgentIds.includes(props.selectedAgentId) : false;
                   const pending = props.mutationId === `${extension.kind}:${extension.id}`;
                   return (
@@ -438,9 +475,18 @@ export function ExtensionsSettings(props: ExtensionsSettingsProps) {
           <div className="extension-starter-heading">
             <h4>Available</h4>
           </div>
-          {startersLoading ? <div className="extension-starter-loading">Loading catalog…</div> : filteredStarters.length ? (
+          {availableApps.length || visibleStarters.length ? (
             <>
             <div className="extension-starter-list">
+              {availableApps.map((extension) => (
+                <article className="extension-starter-row" key={`available:${extension.id}`}>
+                  <button className="extension-starter-copy" onClick={() => void openAvailableApp(extension)}>
+                    <ExtensionIcon presentation={extension.presentation} kind={extension.kind} label={extension.displayName} />
+                    <span><strong>{extension.displayName}</strong><small>{extension.description}</small></span>
+                  </button>
+                  <button className="secondary extension-starter-action" disabled={detailLoading} onClick={() => void openAvailableApp(extension)}>{detailLoading ? "Opening…" : "Connect"}</button>
+                </article>
+              ))}
               {visibleStarters.map((starter) => {
                 const listStatus = starterListStatus(starter);
                 return (
@@ -462,7 +508,9 @@ export function ExtensionsSettings(props: ExtensionsSettingsProps) {
               </div>
             ) : null}
             </>
-          ) : <div className="extension-starter-loading">No available starters match this search.</div>}
+          ) : startersLoading
+            ? <div className="extension-starter-loading">Loading catalog…</div>
+            : <div className="extension-starter-loading">No available starters match this search.</div>}
         </div>
       </section>
 

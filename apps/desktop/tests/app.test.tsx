@@ -3,6 +3,7 @@ import { vi } from "vitest";
 import { App } from "../app/src/App";
 import type {
   BootstrapPayload,
+  AgentResourceSummary,
   ClientDiagnostics,
   ExtensionSummary,
   GoalDetail,
@@ -581,6 +582,69 @@ async function openSettings(): Promise<void> {
   fireEvent.click(await screen.findByRole("menuitem", { name: "Settings" }));
 }
 
+describe("Model Profile settings", () => {
+  it("shows provider-aware access states instead of raw credential storage states", async () => {
+    const getProviderAuthStatus = vi.fn()
+      .mockResolvedValueOnce({
+        providerId: "openai_codex",
+        state: "authenticated",
+        source: "codex_cli",
+        expiresAt: null,
+        loginMode: "device_code",
+        session: null,
+      })
+      .mockResolvedValue({
+        providerId: "openai_codex",
+        state: "not_authenticated",
+        source: null,
+        expiresAt: null,
+        loginMode: "device_code",
+        session: null,
+      });
+    installClient({
+      getSetupStatus: async () => ({
+        state: "ready",
+        steps: { node: "complete", agent: "complete", model: "complete", credential: "available", hello: "verified" },
+        revisions: { node: "node-revision", agent: "agent-revision", profile: "profile-revision" },
+        recommendedWorkspace: "/workspace",
+        diagnostic: null,
+        current: { node: null, agent: null, profile: null },
+        providers: [
+          { id: "openai_codex", displayName: "OpenAI Codex", runtime: "codex", credentialMode: "oauth", credentialRequired: false, defaultModel: "openai-codex/gpt-5.5" },
+          { id: "google", displayName: "Google Gemini", runtime: "google", credentialMode: "api_key", credentialRequired: true, defaultModel: "gemini-3-flash-preview" },
+          { id: "local", displayName: "Local model", runtime: "local", credentialMode: "none", credentialRequired: false, defaultModel: "local/test" },
+        ],
+      }),
+      getProviderAuthStatus,
+      listModelProfiles: async () => ({
+        profiles: [
+          { id: "primary", displayName: "Primary", revision: "sha256:primary", provider: "openai_codex", model: "openai-codex/gpt-5.5", enabled: true, credentialState: "not_required" },
+          { id: "gemini", displayName: "Gemini", revision: "sha256:gemini", provider: "google", model: "gemini-3-flash-preview", enabled: true, credentialState: "available" },
+          { id: "local", displayName: "Local", revision: "sha256:local", provider: "local", model: "local/test", enabled: false, credentialState: "not_required" },
+        ],
+      }),
+    });
+
+    render(<App />);
+
+    await screen.findByRole("button", { name: "Send" });
+    await openSettings();
+    fireEvent.click(screen.getByRole("button", { name: "Models" }));
+
+    expect(await screen.findByText("Signed in on Node")).toBeInTheDocument();
+    expect(screen.getByText("API key saved")).toBeInTheDocument();
+    expect(screen.getByText("No credentials needed")).toBeInTheDocument();
+    expect(screen.getByText("disabled")).toBeInTheDocument();
+    expect(screen.queryByText("not required")).not.toBeInTheDocument();
+    expect(getProviderAuthStatus).toHaveBeenCalledTimes(1);
+    expect(getProviderAuthStatus).toHaveBeenCalledWith("openai_codex");
+
+    fireEvent.click(screen.getByRole("button", { name: "Refresh" }));
+    expect(await screen.findByText("Sign-in required")).toBeInTheDocument();
+    expect(getProviderAuthStatus).toHaveBeenCalledTimes(2);
+  });
+});
+
 function configuredSetupStatus() {
   return {
     state: "configured" as const,
@@ -969,27 +1033,62 @@ describe("App sending state", () => {
   });
 
   it("creates a new Agent without manufacturing an empty Session", async () => {
-    const createAgent = vi.fn(async () => ({
-      agent: {
+    let managedAgents: AgentResourceSummary[] = [{
+      id: "agent-1",
+      name: "Agent 1",
+      description: "Local test agent",
+      enabled: true,
+      status: "healthy",
+      workspace: "/workspace",
+      instruction: "",
+      privilegeLevel: "medium",
+      modelProfileId: "primary",
+      avatar: null,
+      tags: ["local"],
+      revision: "sha256:agent",
+      nodeRevision: "sha256:node",
+      effect: "none",
+    }];
+    const createAgent = vi.fn(async () => {
+      managedAgents = [...managedAgents, {
         id: "research",
         name: "Research",
         description: "Workspace: /node/workspaces/research",
         enabled: true,
-        status: "healthy" as const,
+        status: "healthy",
         workspace: "/node/workspaces/research",
+        instruction: "",
+        privilegeLevel: "medium",
+        modelProfileId: "primary",
         avatar: null,
         tags: ["local", "openppx"],
         revision: "sha256:research",
-      },
-      nodeRevision: "sha256:node-next",
-      effect: "next_run" as const,
-    }));
+        nodeRevision: "sha256:node-next",
+        effect: "next_run",
+      }];
+      return {
+        agent: {
+          id: "research",
+          name: "Research",
+          description: "Workspace: /node/workspaces/research",
+          enabled: true,
+          status: "healthy" as const,
+          workspace: "/node/workspaces/research",
+          avatar: null,
+          tags: ["local", "openppx"],
+          revision: "sha256:research",
+        },
+        nodeRevision: "sha256:node-next",
+        effect: "next_run" as const,
+      };
+    });
     const createSession = vi.fn(async () => {
       throw new Error("Agent creation must not create an empty Session");
     });
     installClient({
       createAgent,
       createSession,
+      listManagedAgents: async () => ({ agents: managedAgents }),
       listModelProfiles: async () => ({
         profiles: [{
           id: "primary",
@@ -1008,11 +1107,18 @@ describe("App sending state", () => {
     await screen.findByRole("button", { name: "Send" });
     await openSettings();
     await screen.findByRole("heading", { name: "Connection" });
-    fireEvent.click(screen.getByRole("button", { name: "New Agent" }));
+    fireEvent.click(screen.getByRole("button", { name: /^Agent$/ }));
+    await screen.findByRole("heading", { name: "Agents" });
+    const sidebarNewAgent = document.querySelector<HTMLButtonElement>(".agent-section .section-add");
+    expect(sidebarNewAgent).not.toBeNull();
+    fireEvent.click(sidebarNewAgent as HTMLButtonElement);
     expect(await screen.findByRole("heading", { name: "Create a focused workspace." })).toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "Connection" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     expect(screen.queryByLabelText("Owner")).not.toBeInTheDocument();
-    fireEvent.change(screen.getByLabelText("Agent name"), { target: { value: "Research" } });
+    const agentName = screen.getByLabelText("Agent name");
+    expect(agentName).toHaveFocus();
+    fireEvent.change(agentName, { target: { value: "Research" } });
     expect(screen.getByLabelText("Agent ID")).toHaveValue("research");
     await waitFor(() => expect(screen.getByLabelText("Model Profile")).toHaveValue("primary"));
     fireEvent.click(screen.getByRole("button", { name: "Create Agent" }));
@@ -1026,8 +1132,9 @@ describe("App sending state", () => {
     }));
     expect(createSession).not.toHaveBeenCalled();
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
-    expect(screen.getAllByText("Research").length).toBeGreaterThan(0);
-    expect(await screen.findByText("Research is ready")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Agents" })).toBeInTheDocument();
+    expect(await screen.findByDisplayValue("Research")).toBeInTheDocument();
+    expect(screen.getByText("Research created")).toBeInTheDocument();
   });
 
   it("jumps to the latest reply when loading a session", async () => {

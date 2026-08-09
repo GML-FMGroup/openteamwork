@@ -49,6 +49,13 @@ describe("AgentSettings", () => {
       <AgentSettings
         selectedAgentId="main"
         modelProfiles={[profile]}
+        createRequested={false}
+        suggestedAgentId="agent-2"
+        creatingAgent={false}
+        createError={null}
+        onCreateRequestHandled={() => undefined}
+        onClearCreateError={() => undefined}
+        onCreateAgent={vi.fn(async () => false)}
         onWorkspaceChanged={onWorkspaceChanged}
       />,
     );
@@ -71,5 +78,35 @@ describe("AgentSettings", () => {
     expect(await screen.findByText("Changes saved")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Save changes" })).toBeDisabled();
     expect(onWorkspaceChanged).toHaveBeenCalledTimes(1);
+  });
+
+  it("opens the inline creation form, focuses it, and cancels back to the selected Agent", async () => {
+    window.ppxClient = {
+      listManagedAgents: vi.fn(async () => ({ agents: [agent("Main", "agent-revision-1")] })),
+    } as unknown as PpxClientApi;
+
+    render(
+      <AgentSettings
+        selectedAgentId="main"
+        modelProfiles={[profile]}
+        createRequested
+        suggestedAgentId="agent-2"
+        creatingAgent={false}
+        createError={null}
+        onCreateRequestHandled={() => undefined}
+        onClearCreateError={() => undefined}
+        onCreateAgent={vi.fn(async () => false)}
+        onWorkspaceChanged={vi.fn(async () => undefined)}
+      />,
+    );
+
+    expect(await screen.findByRole("heading", { name: "Create a focused workspace." })).toBeInTheDocument();
+    expect(screen.getByLabelText("Agent name")).toHaveFocus();
+    expect(screen.getByLabelText("Agent ID")).toHaveValue("agent-2");
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+
+    expect(screen.queryByRole("heading", { name: "Create a focused workspace." })).not.toBeInTheDocument();
+    expect(await screen.findByLabelText("Name")).toHaveValue("Main");
+    expect(screen.getByRole("button", { name: /Main/ })).toHaveFocus();
   });
 });
