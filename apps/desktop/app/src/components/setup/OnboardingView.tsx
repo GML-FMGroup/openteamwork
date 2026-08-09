@@ -162,10 +162,11 @@ export function OnboardingView({
   const usesNodeCodexAuth = provider?.id === "openai_codex";
   const configured = status.state === "configured";
   const [activeStep, setActiveStep] = useState<SetupStepId>(configured ? "hello" : "node");
+  const [editingSavedConfiguration, setEditingSavedConfiguration] = useState(false);
   const [configurationDirty, setConfigurationDirty] = useState(false);
   const shellRef = useRef<HTMLElement | null>(null);
   const sectionRefs = useRef<Record<SetupStepId, HTMLElement | null>>({ node: null, agent: null, hello: null });
-  const editingSavedConfiguration = configured && activeStep !== "hello";
+  const pendingScrollStep = useRef<SetupStepId | null>(null);
   const configurationDiagnostic = setupDiagnosticMessage(status);
   const providerReady = Boolean(
     (!usesNodeCodexAuth || providerAuth?.state === "authenticated") &&
@@ -188,11 +189,14 @@ export function OnboardingView({
     );
 
   useEffect(() => {
-    if (configured) setActiveStep("hello");
+    if (configured) {
+      setActiveStep("hello");
+      setEditingSavedConfiguration(false);
+    }
   }, [configured]);
 
   useEffect(() => {
-    if (configured) return undefined;
+    if (configured && !editingSavedConfiguration) return undefined;
     const shell = shellRef.current;
     if (!shell) return undefined;
 
@@ -221,7 +225,15 @@ export function OnboardingView({
       shell.removeEventListener("scroll", updateVisibleStep);
       window.removeEventListener("resize", updateVisibleStep);
     };
-  }, [configured]);
+  }, [configured, editingSavedConfiguration]);
+
+  useEffect(() => {
+    if (!editingSavedConfiguration || pendingScrollStep.current === null) return;
+    const step = pendingScrollStep.current;
+    pendingScrollStep.current = null;
+    setActiveStep(step);
+    scrollToStep(step);
+  }, [editingSavedConfiguration]);
 
   function updateForm(patch: Partial<SetupForm>, configuration = true): void {
     if (configuration) setConfigurationDirty(true);
@@ -235,9 +247,18 @@ export function OnboardingView({
 
   function selectStep(step: SetupStepId): void {
     setActiveStep(step);
-    if (configured) return;
+    if (configured && !editingSavedConfiguration) {
+      if (step === "hello") return;
+      pendingScrollStep.current = step;
+      setEditingSavedConfiguration(true);
+      return;
+    }
+    scrollToStep(step);
+  }
+
+  function scrollToStep(step: SetupStepId): void {
     const section = sectionRefs.current[step];
-    if (!section) return;
+    if (!section || typeof section.scrollIntoView !== "function") return;
     const reduceMotion = typeof window.matchMedia === "function"
       && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     section.scrollIntoView({ behavior: reduceMotion ? "auto" : "smooth", block: "start" });
@@ -265,7 +286,7 @@ export function OnboardingView({
           <p className="eyebrow">{editingSavedConfiguration ? "CONFIGURATION" : configured ? "VERIFICATION" : "FIRST RUN"}</p>
           <h1>{editingSavedConfiguration ? "Edit your saved configuration." : configured ? "Verify your saved agent." : "Set up your first agent."}</h1>
           <p>{editingSavedConfiguration
-            ? "Review the Node or Agent, then return to verification. Resource IDs remain fixed after creation."
+            ? "Review the Node and Agent, then verify one real conversation. Resource IDs remain fixed after creation."
             : configured
               ? "Your configuration is saved. Verify one real conversation before entering the workspace."
               : "Configure a Node and its first Agent, then verify one real conversation."}</p>
@@ -280,14 +301,10 @@ export function OnboardingView({
           className="onboarding-form"
           onSubmit={(event) => {
             event.preventDefault();
-            if (editingSavedConfiguration) {
-              setActiveStep("hello");
-              return;
-            }
             onSubmit(shouldApplyConfiguration);
           }}
         >
-          {!configured || activeStep === "node" ? (
+          {!configured || editingSavedConfiguration ? (
             <section ref={(element) => { sectionRefs.current.node = element; }} className="onboarding-section" data-setup-step="node">
               <div className="onboarding-section-heading">
                 <div><span>01</span><h2>Node</h2></div>
@@ -357,7 +374,7 @@ export function OnboardingView({
             </section>
           ) : null}
 
-          {!configured || activeStep === "agent" ? (
+          {!configured || editingSavedConfiguration ? (
             <section ref={(element) => { sectionRefs.current.agent = element; }} className="onboarding-section" data-setup-step="agent">
               <div className="onboarding-section-heading"><div><span>02</span><h2>Agent</h2></div></div>
               <div className="onboarding-field-grid two-columns">
@@ -426,8 +443,7 @@ export function OnboardingView({
             </section>
           ) : null}
 
-          {!configured || activeStep === "hello" ? (
-            <section ref={(element) => { sectionRefs.current.hello = element; }} className="onboarding-section" data-setup-step="hello">
+          <section ref={(element) => { sectionRefs.current.hello = element; }} className="onboarding-section" data-setup-step="hello">
               <div className="onboarding-section-heading"><div><span>03</span><h2>First Hello</h2></div></div>
               <div className="onboarding-field-grid two-columns">
                 {configured ? (
@@ -443,36 +459,27 @@ export function OnboardingView({
                 ) : null}
                 <label className="full-row"><span>First message</span><input value={form.hello} onChange={(event) => updateForm({ hello: event.target.value }, false)} /></label>
               </div>
-            </section>
-          ) : null}
+          </section>
 
           {configurationDiagnostic ? <div className="onboarding-error" role="alert">{configurationDiagnostic}</div> : null}
           {error ? <div className="onboarding-error" role="alert">{error}</div> : null}
           <footer className="onboarding-submit">
             <p>{configurationDiagnostic
               ? "Repair the invalid Node configuration, then retry."
-              : editingSavedConfiguration
-                ? configurationDirty
-                  ? "Changes are kept locally until you return to verification."
-                  : "Review this saved section without changing the immutable resource IDs."
               : configured && configurationDirty
                 ? "Your changes will be saved before OpenPPX verifies the Agent."
               : configured
                 ? "Saved configuration will not be changed. OpenPPX will create one Session and verify the Agent."
                 : "A real Agent response is required before the workspace opens."}</p>
-            {editingSavedConfiguration ? (
-              <button type="button" onClick={() => setActiveStep("hello")}>Back to verification</button>
-            ) : (
-              <button type="submit" disabled={!canSubmit || submitting}>
-                {submitting
-                  ? (configured ? "Verifying…" : "Setting up…")
-                  : configured && configurationDirty
-                    ? "Save & verify"
-                    : configured
-                      ? "Verify & open workspace"
-                      : "Set up & say Hello"}
-              </button>
-            )}
+            <button type="submit" disabled={!canSubmit || submitting}>
+              {submitting
+                ? (configured ? "Verifying…" : "Setting up…")
+                : configured && configurationDirty
+                  ? "Save & verify"
+                  : configured
+                    ? "Verify & open workspace"
+                    : "Set up & say Hello"}
+            </button>
           </footer>
         </form>
       </div>

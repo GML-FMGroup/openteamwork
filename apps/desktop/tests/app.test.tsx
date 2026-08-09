@@ -879,18 +879,33 @@ describe("App sending state", () => {
     fireEvent.click(screen.getByRole("button", { name: "Node" }));
     expect(screen.getByRole("heading", { name: "Edit your saved configuration." })).toBeInTheDocument();
     expect(screen.getByLabelText("Node name")).toHaveValue("This Mac");
-
     expect(screen.queryByRole("button", { name: "Model" })).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Agent" }));
+    expect(screen.getByLabelText("Workspace folder")).toBeInTheDocument();
+    expect(screen.getByLabelText("First message")).toBeInTheDocument();
     expect(screen.getByLabelText("Provider")).toBeEnabled();
-    expect(screen.queryByLabelText("First message")).not.toBeInTheDocument();
     expect(screen.getByLabelText("Agent ID")).toHaveValue("main");
     expect(screen.getByLabelText("Agent ID")).toBeDisabled();
-    fireEvent.change(screen.getByLabelText("Agent name"), { target: { value: "Monica Prime" } });
-    fireEvent.click(screen.getByRole("button", { name: "Back to verification" }));
 
-    expect(screen.getByRole("heading", { name: "Verify your saved agent." })).toBeInTheDocument();
-    expect(screen.getByText("Monica Prime")).toBeInTheDocument();
+    const shell = screen.getByRole("main");
+    const nodeSection = screen.getByRole("heading", { name: "Node" }).closest("section") as HTMLElement;
+    const agentSection = screen.getByRole("heading", { name: "Agent" }).closest("section") as HTMLElement;
+    const helloSection = screen.getByRole("heading", { name: "First Hello" }).closest("section") as HTMLElement;
+    vi.spyOn(shell, "getBoundingClientRect").mockReturnValue(viewportRect(0, 1_000));
+    vi.spyOn(nodeSection, "getBoundingClientRect").mockReturnValue(viewportRect(-420));
+    vi.spyOn(agentSection, "getBoundingClientRect").mockReturnValue(viewportRect(80, 500));
+    vi.spyOn(helloSection, "getBoundingClientRect").mockReturnValue(viewportRect(900));
+    shell.scrollTop = 420;
+    fireEvent.scroll(shell);
+    expect(screen.getByRole("button", { name: "Agent" })).toHaveAttribute("aria-current", "step");
+
+    const scrollIntoView = vi.fn();
+    Object.defineProperty(helloSection, "scrollIntoView", { configurable: true, value: scrollIntoView });
+    fireEvent.click(screen.getByRole("button", { name: "First Hello" }));
+    expect(scrollIntoView).toHaveBeenCalledWith({ behavior: "smooth", block: "start" });
+    expect(screen.getByRole("heading", { name: "Edit your saved configuration." })).toBeInTheDocument();
+    expect(screen.getByLabelText("Agent name")).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText("Agent name"), { target: { value: "Monica Prime" } });
     const saveAndVerify = screen.getByRole("button", { name: "Save & verify" });
     await waitFor(() => expect(saveAndVerify).toBeEnabled());
     fireEvent.click(saveAndVerify);
@@ -1997,6 +2012,70 @@ describe("App sending state", () => {
 
     expect(screen.getByText("Preview A should stay hidden")).toBeInTheDocument();
     expect(screen.getByText("Preview B should stay hidden")).toBeInTheDocument();
+  });
+
+  it("separates active and archived sessions and supports restoring them", async () => {
+    let sessions = buildBootstrapPayload().sessions.map((session) => ({ ...session, archived: false }));
+    const archiveSession = vi.fn(async ({ sessionId, archived }: { sessionId: string; archived: boolean }) => {
+      sessions = sessions.map((session) => session.id === sessionId ? { ...session, archived } : session);
+      return { sessionId, archived };
+    });
+    installClient({
+      bootstrap: async () => ({ ...buildBootstrapPayload(), sessions }),
+      listSessions: async () => ({ sessions }),
+      archiveSession,
+    });
+
+    render(<App />);
+
+    const sessionA = await screen.findByRole("button", { name: /Session A/ });
+    expect(screen.getByRole("button", { name: "Active sessions" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: "Archived sessions" })).toHaveAttribute("aria-pressed", "false");
+    const sessionAShell = sessionA.closest(".session-row-shell") as HTMLElement;
+    fireEvent.click(within(sessionAShell).getByRole("button", { name: "Session actions" }));
+    fireEvent.click(within(sessionAShell).getByRole("button", { name: "Archive" }));
+
+    await waitFor(() => expect(screen.queryByRole("button", { name: /Session A/ })).not.toBeInTheDocument());
+    expect(screen.getByRole("button", { name: /Session B/ })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Archived sessions" }));
+
+    const archivedSessionA = await screen.findByRole("button", { name: /Session A/ });
+    expect(screen.queryByRole("button", { name: /Session B/ })).not.toBeInTheDocument();
+    const archivedShell = archivedSessionA.closest(".session-row-shell") as HTMLElement;
+    fireEvent.click(within(archivedShell).getByRole("button", { name: "Session actions" }));
+    fireEvent.click(within(archivedShell).getByRole("button", { name: "Restore" }));
+
+    expect(await screen.findByText("No archived sessions.")).toBeInTheDocument();
+    expect(archiveSession).toHaveBeenNthCalledWith(1, {
+      agentId: "agent-1",
+      sessionId: "session-a",
+      archived: true,
+    });
+    expect(archiveSession).toHaveBeenNthCalledWith(2, {
+      agentId: "agent-1",
+      sessionId: "session-a",
+      archived: false,
+    });
+  });
+
+  it("keeps a session visible and explains archive failures", async () => {
+    installClient({
+      archiveSession: async () => {
+        throw new Error("Error invoking remote method 'ppx-client:archive-session': internal failure");
+      },
+    });
+
+    render(<App />);
+
+    const sessionA = await screen.findByRole("button", { name: /Session A/ });
+    const sessionAShell = sessionA.closest(".session-row-shell") as HTMLElement;
+    fireEvent.click(within(sessionAShell).getByRole("button", { name: "Session actions" }));
+    fireEvent.click(within(sessionAShell).getByRole("button", { name: "Archive" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Couldn’t archive Session A. The session was not changed. Try again.",
+    );
+    expect(screen.getByRole("button", { name: /Session A/ })).toBeInTheDocument();
   });
 
   it("hides the generic OpenPPX session preview", async () => {

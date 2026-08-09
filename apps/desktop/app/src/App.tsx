@@ -259,7 +259,7 @@ export function App() {
         onSelectAgent={selectAgentFromSidebar}
         onSelectSession={selectSessionFromSidebar}
         onRenameSession={(session, title) => void workspace.renameSession(session, title)}
-        onArchiveSession={(session) => void workspace.archiveSession(session)}
+        onArchiveSession={workspace.archiveSession}
         onForkSession={(session) => void workspace.forkSession(session)}
         onExportSession={(session) => void workspace.exportSession(session)}
         onDeleteSession={(session) => void workspace.deleteSession(session)}

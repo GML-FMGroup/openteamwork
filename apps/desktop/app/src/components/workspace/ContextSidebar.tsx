@@ -159,6 +159,8 @@ function visibleSessionPreview(value: string): string {
   return /^openppx session$/i.test(preview) ? "" : preview;
 }
 
+type SessionView = "active" | "archived";
+
 function profileInitials(displayName: string): string {
   const parts = displayName.trim().split(/\s+/).filter(Boolean);
   if (parts.length > 1) {
@@ -189,7 +191,7 @@ interface ContextSidebarProps {
   onSelectAgent: (agentId: string) => void;
   onSelectSession: (session: SessionSummary) => void;
   onRenameSession: (session: SessionSummary, title: string) => void;
-  onArchiveSession: (session: SessionSummary) => void;
+  onArchiveSession: (session: SessionSummary) => Promise<void>;
   onForkSession: (session: SessionSummary) => void;
   onExportSession: (session: SessionSummary) => void;
   onDeleteSession: (session: SessionSummary) => void;
@@ -231,7 +233,9 @@ export function ContextSidebar({
   const [agentMenuOpen, setAgentMenuOpen] = useState(false);
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
   const [sessionMenuId, setSessionMenuId] = useState<string | null>(null);
-  const [showArchived, setShowArchived] = useState(false);
+  const [sessionView, setSessionView] = useState<SessionView>("active");
+  const [sessionMutationError, setSessionMutationError] = useState<string | null>(null);
+  const [mutatingSessionId, setMutatingSessionId] = useState<string | null>(null);
   const searchRef = useRef<HTMLInputElement | null>(null);
   const agentPickerRef = useRef<HTMLDivElement | null>(null);
   const agentTriggerRef = useRef<HTMLButtonElement | null>(null);
@@ -240,22 +244,42 @@ export function ContextSidebar({
   const profileTriggerRef = useRef<HTMLButtonElement | null>(null);
   const filteredSessions = useMemo(() => {
     const normalized = query.trim().toLowerCase();
+    const viewingArchived = sessionView === "archived";
+    const sessionsInView = sessions.filter(
+      (session) => Boolean(session.archived) === viewingArchived,
+    );
     if (!normalized) {
-      return sortSessionsByRecency(sessions.filter((session) => showArchived || !session.archived));
+      return sortSessionsByRecency(sessionsInView);
     }
     return sortSessionsByRecency(
-      sessions.filter((session) => (showArchived || !session.archived) && (() => {
+      sessionsInView.filter((session) => (() => {
         const preview = visibleSessionPreview(session.lastMessagePreview);
         return `${session.title} ${preview}`.toLowerCase().includes(normalized);
       })()),
     );
-  }, [query, sessions, showArchived]);
+  }, [query, sessions, sessionView]);
   const selectedAgent = useMemo(
     () => agents.find((agent) => agent.id === selectedAgentId) ?? null,
     [agents, selectedAgentId],
   );
   const nodeName = diagnostics?.nodeName ?? diagnostics?.target.name ?? runtime.target.name;
   const connectionMode = diagnostics?.mode === "lan" ? "LAN" : "LOCAL";
+
+  async function updateSessionArchiveState(session: SessionSummary): Promise<void> {
+    const action = session.archived ? "restore" : "archive";
+    setSessionMenuId(null);
+    setSessionMutationError(null);
+    setMutatingSessionId(session.id);
+    try {
+      await onArchiveSession(session);
+    } catch {
+      setSessionMutationError(
+        `Couldn’t ${action} ${session.title}. The session was not changed. Try again.`,
+      );
+    } finally {
+      setMutatingSessionId(null);
+    }
+  }
 
   useEffect(() => {
     function handleSearchShortcut(event: KeyboardEvent): void {
@@ -456,7 +480,37 @@ export function ContextSidebar({
       <section className="context-section session-section">
         <div className="context-section-heading">
           <span>Sessions</span>
-          <span className="context-heading-actions"><button className={showArchived ? "section-filter active" : "section-filter"} onClick={() => setShowArchived((value) => !value)} title="Show archived sessions">Archive</button><button className="section-add" onClick={onNewSession} disabled={!selectedAgentId} title="New session"><ShellIcon name="plus" /></button></span>
+          <span className="context-heading-actions">
+            <span className="session-view-toggle" role="group" aria-label="Session view">
+              <button
+                type="button"
+                className={sessionView === "active" ? "section-filter active" : "section-filter"}
+                aria-label="Active sessions"
+                aria-pressed={sessionView === "active"}
+                title="Show active sessions"
+                onClick={() => {
+                  setSessionView("active");
+                  setSessionMutationError(null);
+                }}
+              >
+                Active
+              </button>
+              <button
+                type="button"
+                className={sessionView === "archived" ? "section-filter active" : "section-filter"}
+                aria-label="Archived sessions"
+                aria-pressed={sessionView === "archived"}
+                title="Show archived sessions"
+                onClick={() => {
+                  setSessionView("archived");
+                  setSessionMutationError(null);
+                }}
+              >
+                Archived
+              </button>
+            </span>
+            <button className="section-add" onClick={onNewSession} disabled={!selectedAgentId} title="New session"><ShellIcon name="plus" /></button>
+          </span>
         </div>
         <label className="session-search">
           <ShellIcon name="search" />
@@ -468,6 +522,9 @@ export function ContextSidebar({
           />
           <kbd>⌘K</kbd>
         </label>
+        {sessionMutationError ? (
+          <p className="session-mutation-error" role="alert">{sessionMutationError}</p>
+        ) : null}
         <div className="session-list">
           {filteredSessions.map((session) => {
             const running = sendingSessionIds.includes(session.id);
@@ -500,13 +557,14 @@ export function ContextSidebar({
                 className="session-more"
                 aria-label="Session actions"
                 title={`Actions for ${session.title}`}
+                disabled={mutatingSessionId === session.id}
                 onClick={() => setSessionMenuId((value) => value === session.id ? null : session.id)}
               >
                 <ShellIcon name="more" />
               </button>
               {sessionMenuId === session.id ? <div className="session-action-menu" role="menu">
                 <button onClick={() => { const title = window.prompt("Rename session", session.title)?.trim(); setSessionMenuId(null); if (title && title !== session.title) onRenameSession(session, title); }}>Rename</button>
-                <button onClick={() => { setSessionMenuId(null); onArchiveSession(session); }}>{session.archived ? "Restore" : "Archive"}</button>
+                <button onClick={() => void updateSessionArchiveState(session)}>{session.archived ? "Restore" : "Archive"}</button>
                 <button onClick={() => { setSessionMenuId(null); onForkSession(session); }}>Duplicate</button>
                 <button onClick={() => { setSessionMenuId(null); onExportSession(session); }}>Export JSON</button>
                 <button className="danger" onClick={() => { setSessionMenuId(null); if (window.confirm(`Delete ${session.title}? Its conversation and Session files will be permanently removed.`)) onDeleteSession(session); }}>Delete</button>
@@ -516,7 +574,11 @@ export function ContextSidebar({
           })}
           {filteredSessions.length === 0 ? (
             <p className="sidebar-empty">
-              {query ? "No matching sessions." : "Create a session to get started."}
+              {query
+                ? "No matching sessions."
+                : sessionView === "archived"
+                  ? "No archived sessions."
+                  : "Create a session to get started."}
             </p>
           ) : null}
         </div>

@@ -1,17 +1,20 @@
 # OpenPPX
 
-OpenPPX is an open platform for running and managing personal AI agents. One OpenPPX Node owns the durable state, policies, extensions, automation, and Google ADK runtimes; CLI, Desktop, and future clients consume the same versioned contract.
+**An open-source Agent OS for secure, persistent, real-world AI work.**
 
-The current source tree is a developer preview. It is not yet a stable or production-ready release.
+Run and manage AI agents from one Node, with durable sessions, skills, automation, extensions, permissions, and audit built on Google ADK.
+
+If OpenPPX is useful to you, give it a ⭐ so more builders can discover it.
+
+> Developer preview — not yet production-ready.
 
 ## News
 
-- **2026-08-06 — v0.5.4 Goal & Automation Preview:** adds durable Goal/TaskFlow and User Automation resources, typed `/goal`, `/model`, `/task`, `/automation`, and `/skill` controls, ADK-native independent automation runs, trace/runtime diagnostics, Extension authoring and health history, Desktop preferences, and the completed document/image Artifact lifecycle.
-- **2026-08-05 — v0.5.3 Extension Platform Preview:** published a prerelease with the long-term Plugin/App/MCP/Skill taxonomy, Codex-compatible `.agent-plugin` packages, curated Extension starters, local product icons, full Desktop management flows, and a quieter OpenWorker-inspired grouped-list interface.
-- **2026-08-04 — Product closure on the development branch:** Desktop now manages Plugin/App/MCP/Skill lifecycles, Cron/Heartbeat/Task operations, Agent and Session resources, multiple saved Node targets, and session-scoped file/image/audio Artifacts through the shared Node contract. These changes are newer than the v0.5.2 prerelease artifacts.
-- **2026-08-04 — v0.5.2 Developer Preview:** published the unified Node architecture as a prerelease, including governed Config and Actions, Plugin/App/MCP/Skill extensions, Operations, OpenAI Codex authentication, Agent and Model Profile management, and a more polished Desktop workspace. The release remains intended for developer evaluation rather than production use.
-- **2026-08-04 — Node architecture baseline:** the development branch now uses one Node, Action, Config, Extension, Operations, and Client Contract architecture. First setup, model profiles, Plugin/App/MCP/Skill management, slash commands, audit, usage, Cron, Heartbeat, Desktop onboarding, and LAN access share the same backend facts. The previous parallel runtime and configuration paths have been removed rather than retained as compatibility layers.
-- **2026-08-02 — Desktop v0.5.1 Developer Preview:** published a prerelease with the three-column workspace, local/LAN Node connection, resizable panels, improved Run streaming, and the reusable TypeScript client.
+- **2026-08-09 — Skills from conversations:** `/make-skill` turns a successful Session into a reviewable, Agent-scoped Skill with redaction, approval, and provenance.
+- **2026-08-06 — v0.5.4:** added durable Goals, TaskFlows, automation, typed commands, diagnostics, and document/image Artifacts.
+- **2026-08-05 — v0.5.3:** introduced the unified Plugin/App/MCP/Skill extension platform and full Desktop management.
+- **2026-08-04 — Unified Node architecture:** brought Config, Actions, Extensions, Operations, audit, onboarding, and LAN access under one governed contract.
+- **2026-08-02 — Desktop v0.5.1:** launched the three-column workspace, local/LAN connections, Run streaming, and reusable TypeScript client.
 
 ## Architecture
 
