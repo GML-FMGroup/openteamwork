@@ -24,6 +24,7 @@ def _snapshot(
     tool_rollout: str | None = None,
     agent_rollout: str | None = None,
     denied_network_origin: str | None = None,
+    denied_network_actions: tuple[str, ...] = ("connect",),
 ):
     node = NodeConfig.model_validate(
         {
@@ -55,7 +56,7 @@ def _snapshot(
                                 "ruleId": "deny-current-mcp-origin",
                                 "effect": "deny",
                                 "object": "network",
-                                "actions": ["connect"],
+                                "actions": list(denied_network_actions),
                                 "selector": {
                                     "kind": "network",
                                     "domains": [denied_network_origin],
@@ -200,7 +201,7 @@ def test_remote_mcp_origin_is_reauthorized_with_current_network_permissions() ->
         baseline,
         audit=_RecordingAudit(),
         authority=PermissionSnapshotAuthority(baseline, provider=lambda: current),
-        fixed_network_origins={"mcp_docs": "https://blocked.example"},
+        fixed_network_policies={"mcp_docs": ("https://blocked.example", "write")},
     )
 
     result = asyncio.run(
@@ -210,3 +211,22 @@ def test_remote_mcp_origin_is_reauthorized_with_current_network_permissions() ->
     assert result is not None
     assert result["error"]["reasonCode"] == "network_intersection_denied"
     assert result["error"]["permissionRevision"] == current.revision
+
+
+def test_read_only_remote_mcp_does_not_require_network_write_permission() -> None:
+    snapshot = _snapshot(
+        preset="medium",
+        denied_network_origin="8.8.8.8",
+        denied_network_actions=("write", "upload"),
+    )
+    plugin = OpenPpxAuthorizationPlugin(
+        snapshot,
+        audit=_RecordingAudit(),
+        fixed_network_policies={"mcp_docs": ("https://8.8.8.8", "read")},
+    )
+
+    result = asyncio.run(
+        plugin.before_tool_callback(tool=mcp_docs_search, tool_args={}, tool_context=_context())
+    )
+
+    assert result is None

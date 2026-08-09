@@ -242,6 +242,7 @@ Use `--list`, `--skip-python`, or `--skip-build` only for diagnostics; the full 
 - [Client API contract](./contracts/client-api/README.md)
 - [Desktop](./apps/desktop/README.md)
 - [MCP and extension security](./docs/MCP_SECURITY.md)
+- [Office connectors](./docs/OFFICE_CONNECTORS.md)
 - [Sandbox](./docs/SANDBOX.md)
 - [Use cases](./docs/USE_CASES.md)
 

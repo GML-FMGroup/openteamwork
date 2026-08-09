@@ -117,25 +117,58 @@
     "presentation": { "icon": "email", "brandColor": "#6b7280" },
     "kind": "app",
     "runtimeKind": "app",
-    "displayName": "Email (IMAP)",
-    "description": "Read, search, and send mail from any IMAP account — Gmail, iCloud, Fastmail, or custom.",
+    "displayName": "Email (IMAP, read-only)",
+    "description": "List, search, and read mail from supported QQ Mail and NetEase IMAP accounts.",
     "category": "communication",
     "developer": "Email (IMAP)",
-    "availability": "planned",
-    "installMode": "unavailable",
+    "availability": "needs_auth",
+    "installMode": "direct_app",
     "auth": "secret",
     "requirements": [
-      "OpenPPX product adapter"
+      "QQ Mail or NetEase email address",
+      "Provider-issued IMAP authorization code or app password"
     ],
-    "note": "Catalog metadata is available; Connect remains disabled until OpenPPX ships a verified adapter.",
+    "note": "The verified adapter only connects to an audited public IMAPS endpoint selected from the email domain. Custom hosts, SMTP, mailbox mutation, and attachments are not enabled.",
     "featured": true,
     "provenance": {
-      "project": "OpenWorker",
-      "sourceUrl": "https://github.com/andrewyng/openworker",
-      "license": "MIT"
+      "project": "OpenPPX",
+      "sourceUrl": "https://datatracker.ietf.org/doc/html/rfc9051",
+      "license": "Protocol integration"
     },
     "template": {
-      "referenceId": "email"
+      "definition": {
+        "apiVersion": "openppx.io/v1alpha1",
+        "kind": "AppDefinition",
+        "metadata": { "name": "email-imap" },
+        "spec": {
+          "displayName": "Email (IMAP, read-only)",
+          "description": "Read mail through a fixed, audited IMAPS provider endpoint.",
+          "version": "1.0.0",
+          "category": "communication",
+          "developer": "OpenPPX",
+          "source": {
+            "type": "builtin",
+            "locator": "builtin:app-email",
+            "version": "1.0.0",
+            "revision": "builtin",
+            "digest": "sha256:6666666666666666666666666666666666666666666666666666666666666666"
+          },
+          "auth": {
+            "type": "secret",
+            "credentials": [
+              { "name": "email-address", "label": "Email address", "required": true, "inputType": "email" },
+              { "name": "app-password", "label": "IMAP authorization code / app password", "required": true }
+            ]
+          },
+          "implementation": { "type": "native", "adapter": "imap-readonly" },
+          "tools": [
+            { "name": "imap_list_messages", "title": "List messages", "description": "List recent message headers from one mailbox without changing read state.", "access": "read", "risk": "low", "enabledByDefault": true },
+            { "name": "imap_search_messages", "title": "Search messages", "description": "Search messages using bounded text criteria without changing read state.", "access": "read", "risk": "low", "enabledByDefault": true },
+            { "name": "imap_get_message", "title": "Read message", "description": "Read bounded message headers and text content by IMAP UID without downloading attachments.", "access": "read", "risk": "medium", "enabledByDefault": true }
+          ],
+          "policy": { "requireConfirmation": false, "progressEvents": true, "longTaskProxy": true, "inlineBudgetMs": 5000 }
+        }
+      }
     }
   },
   {
@@ -248,6 +281,153 @@
             { "name": "gcal_create_event", "title": "Create event", "description": "Create a Google Calendar event.", "access": "write", "risk": "high", "enabledByDefault": true }
           ],
           "policy": { "requireConfirmation": true, "progressEvents": true, "longTaskProxy": true, "inlineBudgetMs": 5000 }
+        }
+      }
+    }
+  },
+  {
+    "id": "app-wps-cloud-docs",
+    "presentation": { "icon": "wps", "brandColor": "#e2231a" },
+    "kind": "app",
+    "runtimeKind": "app",
+    "displayName": "WPS Cloud Docs",
+    "description": "Search and read WPS 365 cloud documents through the official MCP 2.0 service.",
+    "category": "knowledge",
+    "developer": "WPS",
+    "availability": "needs_auth",
+    "installMode": "direct_app",
+    "auth": "secret",
+    "requirements": [
+      "WPS 365 open-platform application",
+      "User access token with delegated:kso.mcp_yundoc.readwrite"
+    ],
+    "note": "The provider scope currently includes read/write, but OpenPPX exposes only four reviewed read tools and filters out sharing and permission-management tools.",
+    "featured": true,
+    "provenance": {
+      "project": "WPS 365 Open Platform MCP",
+      "sourceUrl": "https://open.wps.cn/documents/app-integration-dev/mcp-server/tools/mcp_kso-yundoc",
+      "license": "Official service"
+    },
+    "template": {
+      "definition": {
+        "apiVersion": "openppx.io/v1alpha1",
+        "kind": "AppDefinition",
+        "metadata": { "name": "wps-cloud-docs" },
+        "spec": {
+          "displayName": "WPS Cloud Docs",
+          "description": "Search and read WPS cloud documents through the official MCP 2.0 service.",
+          "version": "2.0.0",
+          "category": "knowledge",
+          "developer": "WPS",
+          "source": {
+            "type": "builtin",
+            "locator": "builtin:app-wps-cloud-docs",
+            "version": "2.0.0",
+            "revision": "builtin",
+            "digest": "sha256:8888888888888888888888888888888888888888888888888888888888888888"
+          },
+          "auth": {
+            "type": "secret",
+            "credentials": [
+              { "name": "access-token", "label": "WPS user access token", "required": true }
+            ]
+          },
+          "implementation": {
+            "type": "mcp",
+            "transport": {
+              "type": "streamable_http",
+              "url": "https://openapi.wps.cn/mcp/v2/kso-yundoc/message",
+              "headers": {
+                "Authorization": {
+                  "kind": "credential",
+                  "credentialSlot": "access-token",
+                  "prefix": "Bearer "
+                }
+              }
+            }
+          },
+          "tools": [
+            { "name": "kso_yundoc_search_yundoc", "title": "Search cloud documents", "description": "Search WPS cloud documents by keyword and type.", "access": "read", "risk": "low", "enabledByDefault": true },
+            { "name": "kso_yundoc_extract_yundoc_content", "title": "Read document content", "description": "Extract WPS cloud document content as Markdown.", "access": "read", "risk": "medium", "enabledByDefault": true },
+            { "name": "kso_yundoc_extract_yundoc_comment", "title": "Read document comments", "description": "Read comments from a supported WPS cloud document.", "access": "read", "risk": "medium", "enabledByDefault": true },
+            { "name": "kso_yundoc_get_file_meta", "title": "Read file metadata", "description": "Read WPS cloud document and drive metadata by file ID.", "access": "read", "risk": "low", "enabledByDefault": true }
+          ],
+          "policy": { "requireConfirmation": false, "progressEvents": true, "longTaskProxy": true, "inlineBudgetMs": 5000 }
+        }
+      }
+    }
+  },
+  {
+    "id": "app-feishu-docs",
+    "presentation": { "icon": "feishu", "brandColor": "#3370ff" },
+    "kind": "app",
+    "runtimeKind": "app",
+    "displayName": "Feishu Docs",
+    "description": "Search and read Feishu cloud documents through the official remote MCP service.",
+    "category": "knowledge",
+    "developer": "Feishu",
+    "availability": "needs_auth",
+    "installMode": "direct_app",
+    "auth": "secret",
+    "requirements": [
+      "Feishu self-built application with the official read scopes required by the selected MCP tools",
+      "User access token (UAT)"
+    ],
+    "note": "The first release uses a write-only UAT field and exposes only four reviewed read tools. Managed OAuth/token refresh, tenant identity, writes, comments mutation, and binary downloads remain out of scope.",
+    "featured": true,
+    "provenance": {
+      "project": "Feishu Remote MCP",
+      "sourceUrl": "https://open.feishu.cn/document/mcp_open_tools/developers-call-remote-mcp-server",
+      "license": "Official service"
+    },
+    "template": {
+      "definition": {
+        "apiVersion": "openppx.io/v1alpha1",
+        "kind": "AppDefinition",
+        "metadata": { "name": "feishu-docs" },
+        "spec": {
+          "displayName": "Feishu Docs",
+          "description": "Search and read Feishu cloud documents through the official remote MCP service.",
+          "version": "1.0.0",
+          "category": "knowledge",
+          "developer": "Feishu",
+          "source": {
+            "type": "builtin",
+            "locator": "builtin:app-feishu-docs",
+            "version": "1.0.0",
+            "revision": "builtin",
+            "digest": "sha256:9999999999999999999999999999999999999999999999999999999999999999"
+          },
+          "auth": {
+            "type": "secret",
+            "credentials": [
+              { "name": "user-access-token", "label": "Feishu user access token (UAT)", "required": true }
+            ]
+          },
+          "implementation": {
+            "type": "mcp",
+            "transport": {
+              "type": "streamable_http",
+              "url": "https://mcp.feishu.cn/mcp",
+              "headers": {
+                "X-Lark-MCP-UAT": {
+                  "kind": "credential",
+                  "credentialSlot": "user-access-token"
+                },
+                "X-Lark-MCP-Allowed-Tools": {
+                  "kind": "literal",
+                  "value": "search-doc,fetch-doc,list-docs,get-comments"
+                }
+              }
+            }
+          },
+          "tools": [
+            { "name": "search-doc", "title": "Search cloud documents", "description": "Search Feishu doc and docx documents using the current user's visible document scope.", "access": "read", "risk": "low", "enabledByDefault": true },
+            { "name": "fetch-doc", "title": "Read cloud document", "description": "Read bounded content from one Feishu cloud document by document link or ID.", "access": "read", "risk": "medium", "enabledByDefault": true },
+            { "name": "list-docs", "title": "List knowledge documents", "description": "List one bounded page of documents below a Feishu knowledge-space node.", "access": "read", "risk": "low", "enabledByDefault": true },
+            { "name": "get-comments", "title": "Read document comments", "description": "Read supported full-document and inline comments from one Feishu cloud document.", "access": "read", "risk": "medium", "enabledByDefault": true }
+          ],
+          "policy": { "requireConfirmation": false, "progressEvents": true, "longTaskProxy": true, "inlineBudgetMs": 5000 }
         }
       }
     }
@@ -918,24 +1098,55 @@
     "kind": "app",
     "runtimeKind": "app",
     "displayName": "Notion",
-    "description": "Search pages, read content, query databases, create pages.",
+    "description": "Search pages and read page metadata and block content through the official Notion API.",
     "category": "knowledge",
     "developer": "Notion",
-    "availability": "planned",
-    "installMode": "unavailable",
-    "auth": "oauth",
+    "availability": "needs_auth",
+    "installMode": "direct_app",
+    "auth": "secret",
     "requirements": [
-      "OpenPPX product adapter"
+      "Notion integration token or personal access token with content read access"
     ],
-    "note": "Catalog metadata is available; Connect remains disabled until OpenPPX ships a verified adapter.",
-    "featured": false,
+    "note": "The first release uses a write-only token field and exposes only three read tools. Managed browser OAuth and write operations remain out of scope.",
+    "featured": true,
     "provenance": {
-      "project": "OpenWorker",
-      "sourceUrl": "https://github.com/andrewyng/openworker",
-      "license": "MIT"
+      "project": "Notion API",
+      "sourceUrl": "https://developers.notion.com/reference/intro",
+      "license": "Official service"
     },
     "template": {
-      "referenceId": "notion"
+      "definition": {
+        "apiVersion": "openppx.io/v1alpha1",
+        "kind": "AppDefinition",
+        "metadata": { "name": "notion" },
+        "spec": {
+          "displayName": "Notion",
+          "description": "Search and read Notion workspace content through the official REST API.",
+          "version": "1.0.0",
+          "category": "knowledge",
+          "developer": "Notion",
+          "source": {
+            "type": "builtin",
+            "locator": "builtin:app-notion",
+            "version": "1.0.0",
+            "revision": "builtin",
+            "digest": "sha256:7777777777777777777777777777777777777777777777777777777777777777"
+          },
+          "auth": {
+            "type": "secret",
+            "credentials": [
+              { "name": "access-token", "label": "Integration or personal access token", "required": true }
+            ]
+          },
+          "implementation": { "type": "native", "adapter": "notion-api" },
+          "tools": [
+            { "name": "notion_search", "title": "Search pages", "description": "Search pages by title and return a bounded result page.", "access": "read", "risk": "low", "enabledByDefault": true },
+            { "name": "notion_get_page", "title": "Read page metadata", "description": "Read page properties and metadata by page ID.", "access": "read", "risk": "low", "enabledByDefault": true },
+            { "name": "notion_get_block_children", "title": "Read page content", "description": "Read one bounded page of child blocks by block or page ID.", "access": "read", "risk": "medium", "enabledByDefault": true }
+          ],
+          "policy": { "requireConfirmation": false, "progressEvents": true, "longTaskProxy": true, "inlineBudgetMs": 5000 }
+        }
+      }
     }
   },
   {

@@ -680,6 +680,9 @@ class AppManager:
                     require_confirmation=policy.require_confirmation
                     or connection.spec.require_confirmation
                     or any(tool.risk == "high" for tool in selected),
+                    network_access=(
+                        "write" if any(tool.access == "write" for tool in selected) else "read"
+                    ),
                     progress_events=policy.progress_events,
                     long_task_proxy=policy.long_task_proxy,
                     inline_budget_ms=policy.inline_budget_ms,

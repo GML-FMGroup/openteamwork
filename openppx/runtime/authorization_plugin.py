@@ -38,7 +38,7 @@ class OpenPpxAuthorizationPlugin(BasePlugin):
         audit: PermissionAuditSink | None = None,
         rollout_mode: PermissionRolloutMode | None = None,
         authority: PermissionSnapshotAuthority | None = None,
-        fixed_network_origins: Mapping[str, str] | None = None,
+        fixed_network_policies: Mapping[str, tuple[str, Literal["read", "write"]]] | None = None,
     ) -> None:
         super().__init__(name="openppx_authorization")
         self._snapshot = snapshot
@@ -47,7 +47,7 @@ class OpenPpxAuthorizationPlugin(BasePlugin):
         self._authority = authority or PermissionSnapshotAuthority(snapshot)
         self._audit = audit or NullPermissionAuditSink()
         self._rollout_mode = rollout_mode
-        self._fixed_network_origins = dict(fixed_network_origins or {})
+        self._fixed_network_policies = dict(fixed_network_policies or {})
 
     @property
     def permission_revision(self) -> str:
@@ -126,12 +126,13 @@ class OpenPpxAuthorizationPlugin(BasePlugin):
         metadata = getattr(tool, "custom_metadata", None)
         openppx_meta = metadata.get("openppx") if isinstance(metadata, dict) else None
         origin = openppx_meta.get("networkOrigin") if isinstance(openppx_meta, dict) else None
+        fixed_policy: tuple[str, Literal["read", "write"]] | None = None
         if not isinstance(origin, str) or not origin:
-            origin = next(
+            fixed_policy = next(
                 (
                     value
                     for prefix, value in sorted(
-                        self._fixed_network_origins.items(),
+                        self._fixed_network_policies.items(),
                         key=lambda item: len(item[0]),
                         reverse=True,
                     )
@@ -139,13 +140,12 @@ class OpenPpxAuthorizationPlugin(BasePlugin):
                 ),
                 None,
             )
+            origin = fixed_policy[0] if fixed_policy is not None else None
         if not isinstance(origin, str) or not origin:
             return None
-        access = (
-            str(openppx_meta.get("access", "read")).lower()
-            if isinstance(openppx_meta, dict)
-            else "write"
-        )
+        access = fixed_policy[1] if fixed_policy is not None else str(
+            openppx_meta.get("access", "read")
+        ).lower()
         actions = ("connect", "read") if access == "read" else ("connect", "write", "upload")
         try:
             authorize_network_url(

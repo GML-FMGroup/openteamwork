@@ -9,7 +9,12 @@ import pytest
 from pydantic import ValidationError
 
 from openppx.config import InMemorySecretStore, SecretRef, SecretValue
-from openppx.extensions import ExtensionError, McpManager, McpServer
+from openppx.extensions import (
+    ExtensionError,
+    McpManager,
+    McpServer,
+    default_extension_starter_catalog,
+)
 from openppx.extensions.app_models import AppConnection, AppDefinition
 from openppx.extensions.app_adapters import (
     NativeAppAdapterProbe,
@@ -261,6 +266,76 @@ def test_app_definition_connection_auth_enable_snapshot_and_remove(tmp_path: Pat
     manager.remove_definition("fixture-app", expected_revision=installed.revision)
     assert manager.list_definitions() == ()
     assert manager.list_connections() == ()
+
+
+def test_wps_read_only_app_projects_a_filtered_remote_mcp(tmp_path: Path) -> None:
+    starter = default_extension_starter_catalog().get("app-wps-cloud-docs")
+    definition = AppDefinition.model_validate(starter.template["definition"])
+    secrets = InMemorySecretStore()
+    token_ref = SecretRef(store="system", name="wps-access-token")
+    secrets.put(token_ref, SecretValue("private-wps-token"))
+    manager = AppManager(tmp_path, secrets)
+    manager.install_definition(definition, expected_revision=None)
+    created = manager.create_connection(
+        _connection(
+            name="wps-account",
+            app_id=definition.metadata.name,
+            credential_refs={
+                "access-token": token_ref.model_dump(mode="json", by_alias=True)
+            },
+        ),
+        expected_revision=None,
+    )
+    manager.enable_connection("wps-account", "reader", expected_revision=created.revision)
+
+    projected = manager.snapshot_for_agent("reader").mcp.entries[0].record
+
+    assert projected.spec.policy.network_access == "read"
+    assert projected.spec.policy.tool_filter == [
+        "kso_yundoc_search_yundoc",
+        "kso_yundoc_extract_yundoc_content",
+        "kso_yundoc_extract_yundoc_comment",
+        "kso_yundoc_get_file_meta",
+    ]
+    assert projected.spec.transport.url == "https://openapi.wps.cn/mcp/v2/kso-yundoc/message"
+    assert "private-wps-token" not in projected.model_dump_json()
+
+
+def test_feishu_read_only_app_projects_uat_and_two_layer_tool_filter(tmp_path: Path) -> None:
+    starter = default_extension_starter_catalog().get("app-feishu-docs")
+    definition = AppDefinition.model_validate(starter.template["definition"])
+    secrets = InMemorySecretStore()
+    token_ref = SecretRef(store="system", name="feishu-user-access-token")
+    secrets.put(token_ref, SecretValue("private-feishu-uat"))
+    manager = AppManager(tmp_path, secrets)
+    manager.install_definition(definition, expected_revision=None)
+    created = manager.create_connection(
+        _connection(
+            name="feishu-account",
+            app_id=definition.metadata.name,
+            credential_refs={
+                "user-access-token": token_ref.model_dump(mode="json", by_alias=True)
+            },
+        ),
+        expected_revision=None,
+    )
+    manager.enable_connection("feishu-account", "reader", expected_revision=created.revision)
+
+    projected = manager.snapshot_for_agent("reader").mcp.entries[0].record
+
+    assert projected.spec.policy.network_access == "read"
+    assert projected.spec.policy.tool_filter == [
+        "search-doc",
+        "fetch-doc",
+        "list-docs",
+        "get-comments",
+    ]
+    assert projected.spec.transport.url == "https://mcp.feishu.cn/mcp"
+    assert projected.spec.transport.headers["X-Lark-MCP-UAT"].secret_ref == token_ref
+    assert projected.spec.transport.headers["X-Lark-MCP-Allowed-Tools"].value == (
+        "search-doc,fetch-doc,list-docs,get-comments"
+    )
+    assert "private-feishu-uat" not in projected.model_dump_json()
 
 
 def test_connection_policy_update_cannot_replace_credential_refs(tmp_path: Path) -> None:

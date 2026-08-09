@@ -6,6 +6,7 @@
 - [OPERATIONS.md](./OPERATIONS.md): Node lifecycle, Tasks, Cron, Heartbeat, usage, audit, and troubleshooting
 - [ARTIFACTS.md](./ARTIFACTS.md): Session lifecycle, attachment upload, Artifact references, preview, download, and security limits
 - [MCP_SECURITY.md](./MCP_SECURITY.md): Plugin/App/MCP/Skill lifecycle and security boundaries
+- [OFFICE_CONNECTORS.md](./OFFICE_CONNECTORS.md): breadth-first office App adapters, permissions, and first-wave boundaries
 - [SANDBOX.md](./SANDBOX.md): trusted Docker execution policy and verification
 - [USE_CASES.md](./USE_CASES.md): representative Agent tasks and prompt templates
 - [Client API contract](../contracts/client-api/README.md): versioned protocol, schemas, and cross-language fixtures

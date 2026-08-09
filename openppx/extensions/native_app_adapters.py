@@ -10,7 +10,7 @@ from __future__ import annotations
 import asyncio
 import base64
 from email.message import EmailMessage
-from typing import Any, Awaitable, Callable, Mapping, Protocol
+from typing import TYPE_CHECKING, Any, Awaitable, Callable, Mapping, Protocol
 from urllib.parse import quote
 
 import httpx
@@ -25,16 +25,22 @@ from .app_adapters import (
 )
 from .app_models import AppToolSpec
 
+if TYPE_CHECKING:
+    from .imap_app_adapter import NativeImapTransport
+
 
 _DEFAULT_TIMEOUT_SECONDS = 30.0
 _MAX_RESPONSE_BYTES = 512 * 1024
 _NATIVE_ADAPTER_ORIGINS = {
     "telegram-bot-api": "https://api.telegram.org",
     "slack-web-api": "https://slack.com",
-    "gmail-rest": "https://gmail.googleapis.com",
-    "google-calendar-rest": "https://www.googleapis.com",
-    "microsoft-graph-rest": "https://graph.microsoft.com",
+    "gmail-api": "https://gmail.googleapis.com",
+    "google-calendar-api": "https://www.googleapis.com",
+    "microsoft-graph": "https://graph.microsoft.com",
+    "notion-api": "https://api.notion.com",
 }
+
+_NOTION_VERSION = "2026-03-11"
 
 
 class NativeAppHttpTransport(Protocol):
@@ -126,6 +132,7 @@ class NativeAppTool(BaseTool):
         parameters: dict[str, Any],
         operation: NativeOperation,
         adapter_id: str,
+        network_origin: str | None = None,
     ) -> None:
         super().__init__(
             name=spec.name,
@@ -136,7 +143,7 @@ class NativeAppTool(BaseTool):
                     "adapter": adapter_id,
                     "access": spec.access,
                     "risk": spec.risk,
-                    "networkOrigin": _NATIVE_ADAPTER_ORIGINS.get(adapter_id),
+                    "networkOrigin": network_origin or _NATIVE_ADAPTER_ORIGINS.get(adapter_id),
                 }
             },
         )
@@ -666,11 +673,112 @@ class MicrosoftGraphAdapter(_NativeRestAdapter):
         }
 
 
+class NotionApiAdapter(_NativeRestAdapter):
+    """Notion REST tools limited to searching and reading workspace content."""
+
+    adapter_id = "notion-api"
+
+    async def _probe(self, context: NativeAppContext) -> dict[str, Any]:
+        token = context.credential("access-token").reveal()
+        return await self.transport.request(
+            "GET",
+            "https://api.notion.com/v1/users/me",
+            headers=_notion_headers(token),
+        )
+
+    def _operations(self, context: NativeAppContext):
+        token = context.credential("access-token").reveal()
+        headers = _notion_headers(token)
+        base = "https://api.notion.com/v1"
+
+        async def search(args: dict[str, Any]) -> dict[str, Any]:
+            payload: dict[str, Any] = {
+                "page_size": _bounded_int(
+                    args.get("page_size"),
+                    default=20,
+                    minimum=1,
+                    maximum=100,
+                ),
+                "filter": {"property": "object", "value": "page"},
+            }
+            if query := _optional_text(args, "query", 512):
+                payload["query"] = query
+            if cursor := _optional_text(args, "start_cursor", 2048):
+                payload["start_cursor"] = cursor
+            return await self.transport.request(
+                "POST",
+                f"{base}/search",
+                headers=headers,
+                json_body=payload,
+            )
+
+        async def get_page(args: dict[str, Any]) -> dict[str, Any]:
+            page_id = quote(_required_text(args, "page_id", 128), safe="")
+            return await self.transport.request(
+                "GET",
+                f"{base}/pages/{page_id}",
+                headers=headers,
+            )
+
+        async def get_block_children(args: dict[str, Any]) -> dict[str, Any]:
+            block_id = quote(_required_text(args, "block_id", 128), safe="")
+            params: dict[str, Any] = {
+                "page_size": _bounded_int(
+                    args.get("page_size"),
+                    default=50,
+                    minimum=1,
+                    maximum=100,
+                )
+            }
+            if cursor := _optional_text(args, "start_cursor", 2048):
+                params["start_cursor"] = cursor
+            return await self.transport.request(
+                "GET",
+                f"{base}/blocks/{block_id}/children",
+                headers=headers,
+                params=params,
+            )
+
+        return {
+            "notion_search": (
+                _object_schema(
+                    {
+                        "query": _string("Optional page title search text."),
+                        "page_size": _integer(),
+                        "start_cursor": _string("Opaque cursor returned by Notion."),
+                    }
+                ),
+                search,
+            ),
+            "notion_get_page": (
+                _object_schema(
+                    {"page_id": _string("Notion page ID.")},
+                    required=("page_id",),
+                ),
+                get_page,
+            ),
+            "notion_get_block_children": (
+                _object_schema(
+                    {
+                        "block_id": _string("Notion block or page ID."),
+                        "page_size": _integer(),
+                        "start_cursor": _string("Opaque cursor returned by Notion."),
+                    },
+                    required=("block_id",),
+                ),
+                get_block_children,
+            ),
+        }
+
+
 def default_native_app_adapter_registry(
     *,
     transport: NativeAppHttpTransport | None = None,
+    imap_transport: NativeImapTransport | None = None,
 ) -> NativeAppAdapterRegistry:
     """Return the verified native adapter set shipped by this Node version."""
+    from .imap_app_adapter import ImapReadOnlyAdapter
+
     registry = NativeAppAdapterRegistry()
     for adapter in (
         TelegramBotAdapter(transport),
@@ -678,6 +786,8 @@ def default_native_app_adapter_registry(
         GmailApiAdapter(transport),
         GoogleCalendarApiAdapter(transport),
         MicrosoftGraphAdapter(transport),
+        NotionApiAdapter(transport),
+        ImapReadOnlyAdapter(imap_transport),
     ):
         registry.register(adapter)
     return registry
@@ -685,6 +795,16 @@ def default_native_app_adapter_registry(
 
 def _bearer_headers(token: str) -> dict[str, str]:
     return {"Authorization": f"Bearer {token}", "Accept": "application/json"}
+
+
+def _notion_headers(token: str) -> dict[str, str]:
+    """Return the stable headers required by the pinned Notion API version."""
+
+    return {
+        **_bearer_headers(token),
+        "Content-Type": "application/json",
+        "Notion-Version": _NOTION_VERSION,
+    }
 
 
 def _required_text(args: Mapping[str, Any], key: str, maximum: int) -> str:
@@ -739,6 +859,7 @@ __all__ = [
     "MicrosoftGraphAdapter",
     "NativeAppHttpTransport",
     "NativeAppTool",
+    "NotionApiAdapter",
     "SlackWebApiAdapter",
     "TelegramBotAdapter",
     "default_native_app_adapter_registry",

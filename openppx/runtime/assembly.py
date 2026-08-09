@@ -386,7 +386,7 @@ class RuntimeAssembler:
                     snapshot.permissions,
                     audit=self.services.permission_audit,
                     authority=permission_authority,
-                    fixed_network_origins=dict(mcp_build.network_origins),
+                    fixed_network_policies=dict(mcp_build.network_policies),
                 ),
                 *(
                     ()

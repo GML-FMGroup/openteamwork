@@ -160,6 +160,7 @@ class AppCredentialSpec(StrictConfigModel):
     name: ResourceName
     label: DisplayName
     required: StrictBool = True
+    input_type: Literal["secret", "text", "email"] = "secret"
 
 
 class AppAuthSpec(StrictConfigModel):

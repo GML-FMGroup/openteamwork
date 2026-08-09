@@ -11,8 +11,8 @@ from openppx.extensions.app_models import AppDefinition
 def test_default_catalog_has_expected_domain_coverage() -> None:
     catalog = default_extension_starter_catalog()
 
-    assert len(catalog.list()) == 143
-    assert len(catalog.list(kind="app")) == 42
+    assert len(catalog.list()) == 145
+    assert len(catalog.list(kind="app")) == 44
     assert len(catalog.list(kind="mcp")) == 4
     assert len(catalog.list(kind="skill")) == 97
     assert len(catalog.list(kind="plugin")) == 0
@@ -77,13 +77,16 @@ def test_every_direct_mcp_starter_has_a_complete_one_click_template() -> None:
         assert {"serverId", "displayName", "risk", "transport"}.issubset(starter.template), starter.starter_id
 
 
-def test_every_direct_app_starter_has_a_valid_native_definition() -> None:
+def test_every_direct_app_starter_has_a_valid_definition() -> None:
+    catalog = default_extension_starter_catalog()
     expected = {
         "app-telegram": "telegram-bot-api",
         "app-slack": "slack-web-api",
         "app-gmail": "gmail-api",
         "app-google-calendar": "google-calendar-api",
         "app-outlook": "microsoft-graph",
+        "app-email": "imap-readonly",
+        "app-notion": "notion-api",
     }
 
     for starter_id, adapter_id in expected.items():
@@ -95,6 +98,40 @@ def test_every_direct_app_starter_has_a_valid_native_definition() -> None:
         assert definition.spec.implementation.type == "native"
         assert definition.spec.implementation.adapter == adapter_id
         assert definition.spec.tools
+
+    wps = catalog.get("app-wps-cloud-docs")
+    definition = AppDefinition.model_validate(wps.template["definition"])
+
+    assert wps.install_mode == "direct_app"
+    assert wps.availability == "needs_auth"
+    assert definition.spec.implementation.type == "mcp"
+    assert {tool.access for tool in definition.spec.tools} == {"read"}
+    assert {tool.name for tool in definition.spec.tools} == {
+        "kso_yundoc_extract_yundoc_comment",
+        "kso_yundoc_extract_yundoc_content",
+        "kso_yundoc_get_file_meta",
+        "kso_yundoc_search_yundoc",
+    }
+    email = AppDefinition.model_validate(catalog.get("app-email").template["definition"])
+    assert email.spec.auth.credentials[0].input_type == "email"
+
+    feishu = catalog.get("app-feishu-docs")
+    definition = AppDefinition.model_validate(feishu.template["definition"])
+
+    assert feishu.install_mode == "direct_app"
+    assert feishu.availability == "needs_auth"
+    assert definition.spec.implementation.type == "mcp"
+    assert definition.spec.implementation.transport.url == "https://mcp.feishu.cn/mcp"
+    assert [credential.name for credential in definition.spec.auth.credentials] == [
+        "user-access-token"
+    ]
+    assert {tool.access for tool in definition.spec.tools} == {"read"}
+    assert {tool.name for tool in definition.spec.tools} == {
+        "fetch-doc",
+        "get-comments",
+        "list-docs",
+        "search-doc",
+    }
 
 
 def test_catalog_rejects_duplicate_ids() -> None:
