@@ -343,6 +343,57 @@ function formatSlashCommandResult(outcome: SlashCommandResult): string {
         }).join("\n")
       : "This Session has no active Goal.";
   }
+  if (outcome.targetActionId === "skill.draft.command") {
+    const operation = String(result.operation ?? "");
+    if (operation === "published") {
+      const skill = record(result.skill);
+      return `Skill created: ${String(skill.displayName ?? skill.skillId ?? "Skill")}\n\nEnabled for the current Agent · user confirmed`;
+    }
+    if (operation === "cancelled") {
+      return "Skill draft cancelled. No Skill was created.";
+    }
+    const draft = record(result.draft);
+    const displayName = String(draft.displayName ?? draft.skillId ?? "Untitled Skill");
+    const status = String(draft.status ?? "needs_input");
+    const lines = [
+      `## Skill draft: ${displayName}`,
+      "",
+      status === "ready_for_review"
+        ? "**Not execution-verified.** Review the workflow before confirming it."
+        : "**More information is required before this Skill can be created.**",
+      "",
+      String(draft.description ?? ""),
+    ];
+    const appendList = (title: string, values: unknown): void => {
+      const items = Array.isArray(values) ? values.map((item) => String(item)).filter(Boolean) : [];
+      if (items.length) {
+        lines.push("", `### ${title}`, "", ...items.map((item) => `- ${item}`));
+      }
+    };
+    appendList("When to use", draft.triggers);
+    appendList("Inputs", draft.inputs);
+    appendList("Outputs", draft.outputs);
+    const steps = Array.isArray(draft.steps) ? draft.steps : [];
+    if (steps.length) {
+      lines.push("", "### Steps", "");
+      steps.forEach((step, index) => lines.push(`${index + 1}. ${String(record(step).text ?? "")}`));
+    }
+    appendList("Boundaries", draft.limitations);
+    appendList("Questions", draft.unresolvedQuestions);
+    const sourceCount = Number(draft.sourceMessageCount ?? 0);
+    const redactionCount = Number(draft.redactionCount ?? 0);
+    lines.push("", `Source: ${sourceCount} visible ${sourceCount === 1 ? "message" : "messages"}.`);
+    if (redactionCount > 0) {
+      lines.push(`${redactionCount} sensitive ${redactionCount === 1 ? "value was" : "values were"} redacted.`);
+    }
+    lines.push(
+      "",
+      status === "ready_for_review"
+        ? "Use `/make-skill approve`, `/make-skill revise <changes>`, or `/make-skill cancel`."
+        : "Use `/make-skill revise <missing details>` or `/make-skill cancel`.",
+    );
+    return lines.join("\n");
+  }
   return JSON.stringify(result, null, 2);
 }
 

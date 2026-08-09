@@ -1743,6 +1743,45 @@ describe("App sending state", () => {
     expect(screen.queryByRole("listbox", { name: "Slash commands" })).not.toBeInTheDocument();
   });
 
+  it("renders a make-skill draft with explicit review commands", async () => {
+    installClient({
+      listSlashCommands: async () => ({ commands: buildSlashCommands() }),
+      invokeSlashCommand: async () => ({
+        command: "/make-skill",
+        lifecycle: "side_channel" as const,
+        targetActionId: "skill.draft.command",
+        result: {
+          operation: "draft",
+          draft: {
+            draftId: "draft-1",
+            status: "ready_for_review",
+            skillId: "weekly-sales-report",
+            displayName: "Weekly sales report",
+            description: "Prepare a weekly sales report.",
+            triggers: ["A weekly sales report is requested."],
+            inputs: ["Reviewed sales data"],
+            outputs: ["Weekly sales report"],
+            steps: [{ text: "Summarize the weekly sales metrics." }],
+            limitations: ["The recipient must be supplied."],
+            unresolvedQuestions: [],
+            sourceMessageCount: 2,
+            redactionCount: 1,
+          },
+        },
+      }),
+    });
+    render(<App />);
+
+    const composer = await screen.findByPlaceholderText("Describe the outcome you want...");
+    fireEvent.change(composer, { target: { value: "/make-skill weekly report" } });
+    fireEvent.keyDown(composer, { key: "Enter" });
+
+    expect(await screen.findByText("Skill draft: Weekly sales report")).toBeInTheDocument();
+    expect(screen.getByText(/Not execution-verified/)).toBeInTheDocument();
+    expect(screen.getByText(/\/make-skill approve/)).toBeInTheDocument();
+    expect(screen.getByText(/1 sensitive value was redacted/)).toBeInTheDocument();
+  });
+
   it("removes Electron transport wording from slash command errors", async () => {
     installClient({
       listSlashCommands: async () => ({ commands: buildSlashCommands() }),

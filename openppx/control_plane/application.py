@@ -20,8 +20,9 @@ from .config_actions import register_config_actions
 from .agent_actions import register_agent_actions
 from .automation_actions import register_automation_actions
 from .extension_actions import register_extension_actions
-from .model_actions import register_model_actions
 from .goal_actions import register_goal_actions
+from .make_skill_actions import register_make_skill_actions
+from .model_actions import register_model_actions
 from .operations_actions import register_operations_actions
 from .permission_actions import register_permission_actions
 from .runtime_actions import register_runtime_actions
@@ -65,6 +66,7 @@ class ControlPlaneApplication:
         self.mcp_oauth_service = None
         self.operations_service = None
         self.automation_service = None
+        self.make_skill_service = None
         self.session_metadata = SessionMetadataStore(
             config_repository.paths.node_root / "database" / "sessions.db"
         )
@@ -242,6 +244,13 @@ class ControlPlaneApplication:
         )
         register_setup_runtime_actions(self.registry, self.setup_service, supervisor)
         self.runtime_supervisor = supervisor
+
+    def attach_skill_authoring(self, service) -> None:
+        """Attach conversation Skill authoring after Runtime and Extensions exist."""
+        if self.make_skill_service is not None:
+            raise RuntimeError("A Skill authoring service is already attached.")
+        register_make_skill_actions(self.registry, service)
+        self.make_skill_service = service
 
     def attach_operations(self, service) -> None:
         """Attach the one Node-owned Operations facade and its Actions."""

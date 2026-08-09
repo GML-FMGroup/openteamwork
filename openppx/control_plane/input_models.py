@@ -1002,6 +1002,28 @@ class SkillCommandInput(ActionInput):
     instruction: Annotated[str, StringConstraints(max_length=16_384)] = ""
 
 
+class MakeSkillCommandInput(ActionInput):
+    """Create, revise, approve, or cancel one current-Session Skill draft."""
+
+    operation: Literal["create", "revise", "approve", "cancel"] = "create"
+    agent_id: ResourceId
+    user_id: PrincipalId
+    session_id: RunId
+    focus: Annotated[str, StringConstraints(max_length=2_000)] = ""
+    revision_notes: Annotated[str, StringConstraints(max_length=2_000)] | None = None
+
+    @model_validator(mode="after")
+    def fields_match_operation(self) -> "MakeSkillCommandInput":
+        """Reject ambiguous command payloads before service dispatch."""
+        if self.operation == "revise" and not (self.revision_notes or "").strip():
+            raise ValueError("revisionNotes is required for revise")
+        if self.operation != "revise" and self.revision_notes is not None:
+            raise ValueError("revisionNotes is only valid for revise")
+        if self.operation != "create" and self.focus:
+            raise ValueError("focus is only valid for create")
+        return self
+
+
 class ExtensionStarterListInput(ActionInput):
     """Filter the safe first-party Extension starter catalog."""
 

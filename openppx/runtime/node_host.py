@@ -24,6 +24,7 @@ from openppx.extensions import (
 from openppx.extensions.indexes import ExtensionReferenceIndex, ResourceIdentityIndex
 from openppx.extensions.prefixes import ToolPrefixIndex
 from openppx.operations import NodeAutomationExecutor, NodeOperationsRuntime, OperationsService
+from openppx.skill_authoring import MakeSkillService
 from openppx.tooling.registry import configure_subagent_dispatcher
 
 from .assembly import RuntimeAssembler
@@ -153,6 +154,13 @@ def build_node_composition(
                 migration.failed,
             )
     control_plane.attach_runtime(runtime_supervisor)
+    control_plane.attach_skill_authoring(
+        MakeSkillService(
+            node_root=root,
+            skills=skill_manager,
+            supervisor=runtime_supervisor,
+        )
+    )
     try:
         operations_config = control_plane.config_repository.read_node().document.spec.operations
     except ConfigLoadError as exc:
