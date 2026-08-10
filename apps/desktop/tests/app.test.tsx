@@ -841,6 +841,88 @@ describe("App sending state", () => {
     expect(await screen.findByRole("button", { name: "Send" })).toBeInTheDocument();
   });
 
+  it("adds the first Agent without replacing the initialized Node listener", async () => {
+    const nodeOnly = {
+      state: "needs_configuration" as const,
+      steps: { node: "complete", agent: "missing", model: "missing", credential: "not_required", hello: "not_started" },
+      revisions: { node: "node-revision", agent: null, profile: null },
+      recommendedWorkspace: "/node/users/root/agents/main/workspace",
+      diagnostic: null,
+      current: {
+        node: {
+          apiVersion: "openppx.io/v1alpha1",
+          kind: "NodeConfig",
+          metadata: { name: "team-node" },
+          spec: {
+            displayName: "Team Node",
+            enabledAgents: [],
+            clientApi: { listenHost: "127.0.0.1", port: 18765, authentication: "required" },
+          },
+        },
+        agent: null,
+        profile: null,
+      },
+      providers: [{
+        id: "google",
+        displayName: "Google Gemini",
+        runtime: "google_adk",
+        credentialMode: "api_key" as const,
+        credentialRequired: true,
+        defaultModel: "gemini-2.5-flash",
+      }],
+    };
+    const ready = {
+      ...nodeOnly,
+      state: "ready" as const,
+      steps: { node: "complete", agent: "complete", model: "complete", credential: "available", hello: "verified" },
+      revisions: { node: "node-next", agent: "agent-revision", profile: "profile-revision" },
+    };
+    const applySetup = vi.fn(async () => ({
+      state: "configured" as const,
+      revisions: ready.revisions,
+      secretState: "available",
+      restartRequired: false,
+    }));
+    installClient({
+      getUserProfile: async () => ({
+        id: "user-root",
+        displayName: "admin@example.com",
+        accountKind: "product",
+        email: "admin@example.com",
+        privilegeLevel: "root",
+      }),
+      getDiagnostics: async () => ({
+        ...buildDiagnostics(),
+        mode: "lan",
+        target: { id: "lan-team-node", type: "remote", name: "Team Node" },
+        clientApiBaseUrl: "https://node.example.com",
+        clientApiManagedByClient: false,
+      }),
+      getSetupStatus: vi.fn().mockResolvedValueOnce(nodeOnly).mockResolvedValue(ready),
+      applySetup,
+      runSetupHello: async () => ({ sessionId: "session-first", reply: "Hello", state: "ready" }),
+    });
+
+    render(<App />);
+
+    await screen.findByRole("heading", { name: "Set up your first agent." });
+    expect(screen.getByRole("button", { name: "Agent" })).toHaveAttribute("aria-current", "step");
+    expect(screen.getByText("Your Node is ready. Configure its first Agent and model, then verify one real conversation.")).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("API key"), { target: { value: "test-api-key" } });
+    fireEvent.click(screen.getByRole("button", { name: "Set up & say Hello" }));
+
+    await waitFor(() => expect(applySetup).toHaveBeenCalledTimes(1));
+    expect(applySetup).toHaveBeenCalledWith(expect.objectContaining({
+      node: expect.objectContaining({
+        metadata: { name: "team-node" },
+        spec: expect.objectContaining({
+          enabledAgents: ["main"],
+          clientApi: { listenHost: "127.0.0.1", port: 18765, authentication: "required" },
+        }),
+      }),
+    }));
+  });
+
   it("updates the candidate connection state and explains an unreachable local Node", async () => {
     const needsConfiguration = {
       ...configuredSetupStatus(),

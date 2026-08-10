@@ -58,7 +58,10 @@ def build_parser() -> argparse.ArgumentParser:
         help="Show the same Node overview as 'operations status'.",
     )
 
-    setup = subparsers.add_parser("setup", help="Configure a Node, Agent, Model Profile, and first Hello.")
+    setup = subparsers.add_parser(
+        "setup",
+        help=f"Initialize a {PRODUCT.display_name} Node without requiring an LLM credential.",
+    )
     setup.add_argument("--node-root", type=Path, default=default_node_root())
     setup.add_argument("--url", dest="client_api_url", default="", help="Configure a running Node instead of a local root.")
     setup.add_argument("--token", dest="access_token", default=os.getenv(_CLIENT_API_TOKEN_ENV, ""))
@@ -74,16 +77,25 @@ def build_parser() -> argparse.ArgumentParser:
         default=PRODUCT.default_agent_privilege_level,
     )
     setup.add_argument("--profile-id", default="primary")
-    setup.add_argument("--provider", default="google")
-    setup.add_argument("--model", default="")
+    setup.add_argument("--provider", default="google", help="Model provider used with --with-agent.")
+    setup.add_argument("--model", default="", help="Model name used with --with-agent.")
     setup.add_argument("--execution-location", choices=["local", "remote"], default="remote")
     setup.add_argument("--credential-name", default="primary-model-api-key")
-    setup.add_argument("--api-key", default="", help="Provider API key; prefer the hidden interactive prompt.")
+    setup.add_argument(
+        "--api-key",
+        default="",
+        help="Provider API key used with --with-agent; prefer the hidden interactive prompt.",
+    )
+    setup.add_argument(
+        "--with-agent",
+        action="store_true",
+        help="Also configure the first Agent, Model Profile, credential, and optional Hello.",
+    )
     setup.add_argument("--listen-host", default="127.0.0.1")
     setup.add_argument("--listen-port", type=int, default=PRODUCT.default_client_api_port)
-    setup.add_argument("--authentication", choices=["required", "disabled"], default="disabled")
+    setup.add_argument("--authentication", choices=["required", "disabled"], default="required")
     setup.add_argument("--hello", default=f"Hello {PRODUCT.display_name}")
-    setup.add_argument("--no-hello", action="store_true")
+    setup.add_argument("--no-hello", action="store_true", help="Skip first-Hello verification with --with-agent.")
     setup.add_argument("--json", dest="output_json", action="store_true")
 
     node = subparsers.add_parser("node", help=f"Run or install the long-lived {PRODUCT.display_name} Node.")

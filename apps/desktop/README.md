@@ -100,17 +100,20 @@ The repository-level acceptance gate runs those checks consistently and can also
 
 ## Local Node
 
-Complete setup once:
+Initialize the Node without an LLM credential, create the first root account, and start it with a persistent deployment token:
 
 ```bash
 source .venv/bin/activate
 otw setup \
-  --provider google \
-  --model <provider-model-id> \
-  --workspace <workspace-directory>
+  --listen-host 127.0.0.1 \
+  --listen-port 18765 \
+  --authentication required
+otw user add admin@example.com --privilege root
+export OPENTEAMWORK_CLIENT_API_TOKEN='<persistent-strong-random-token>'
+otw node run
 ```
 
-Desktop onboarding uses the same `setup.status`, `setup.apply`, and `setup.hello` Actions. It opens the workspace only after the current Node, Agent, and Model Profile revisions complete a real model turn.
+Sign in as root through Desktop to configure the first Model Profile, protected provider credential, and Agent. Desktop onboarding uses the same `setup.status`, `setup.apply`, and `setup.hello` Actions. It preserves the initialized Node listener and opens the workspace only after the current Node, Agent, and Model Profile revisions complete a real model turn.
 
 The local Electron process creates a random per-process bearer token when it supervises a Node. That token remains in Electron Main and is not returned through Renderer diagnostics.
 

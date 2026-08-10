@@ -22,7 +22,16 @@ from .transport import render_envelope
 def _setup_context(request_id: str) -> ActionContext:
     """Build the trusted local context used only during offline first setup."""
     permissions = frozenset(
-        {"setup.read", "setup.write", "secret.read", "secret.write", "model.read", "model.write", "run.start"}
+        {
+            "config.write",
+            "setup.read",
+            "setup.write",
+            "secret.read",
+            "secret.write",
+            "model.read",
+            "model.write",
+            "run.start",
+        }
     )
     return ActionContext(
         request_id=request_id,
@@ -141,6 +150,50 @@ def _apply_input(args: Any, status: dict[str, Any], *, api_key: str | None) -> d
     }
 
 
+def _node_apply_input(args: Any, status: dict[str, Any]) -> dict[str, Any]:
+    """Build a Node-only mutation while preserving existing Node-owned settings."""
+
+    current_container = status.get("current")
+    current = current_container.get("node") if isinstance(current_container, dict) else None
+    if isinstance(current, dict):
+        candidate = json.loads(json.dumps(current))
+        metadata = candidate.get("metadata")
+        if not isinstance(metadata, dict):
+            metadata = {}
+            candidate["metadata"] = metadata
+        spec = candidate.get("spec")
+        if not isinstance(spec, dict):
+            spec = {}
+            candidate["spec"] = spec
+        metadata["name"] = str(metadata.get("name") or args.node_id)
+        spec["displayName"] = args.node_name or str(spec.get("displayName") or socket.gethostname())
+        enabled_agents = spec.get("enabledAgents")
+        spec["enabledAgents"] = list(enabled_agents) if isinstance(enabled_agents, list) else []
+        spec["clientApi"] = {
+            "listenHost": args.listen_host,
+            "port": args.listen_port,
+            "authentication": args.authentication,
+        }
+    else:
+        candidate = {
+            "apiVersion": "openppx.io/v1alpha1",
+            "kind": "NodeConfig",
+            "metadata": {"name": args.node_id},
+            "spec": {
+                "displayName": args.node_name or socket.gethostname(),
+                "enabledAgents": [],
+                "clientApi": {
+                    "listenHost": args.listen_host,
+                    "port": args.listen_port,
+                    "authentication": args.authentication,
+                },
+            },
+        }
+    revisions = status.get("revisions")
+    expected_revision = revisions.get("node") if isinstance(revisions, dict) else None
+    return {"candidate": candidate, "expectedRevision": expected_revision}
+
+
 def run_setup(args: Any) -> int:
     """Configure one Node and optionally verify the first real model turn."""
     composition = None
@@ -154,6 +207,33 @@ def run_setup(args: Any) -> int:
         before = _result(before_envelope)
         if before is None:
             return render_envelope(before_envelope, output_json=args.output_json)
+        if not args.with_agent:
+            node_input = _node_apply_input(args, before)
+            node_envelope = invoke("config.node.apply", node_input)
+            node_result = _result(node_envelope)
+            if node_result is None:
+                return render_envelope(node_envelope, output_json=args.output_json)
+            after_envelope = invoke("setup.status", {})
+            after = _result(after_envelope)
+            if after is None:
+                return render_envelope(after_envelope, output_json=args.output_json)
+            payload = {"statusBefore": before, "node": node_result, "statusAfter": after}
+            if args.output_json:
+                print(json.dumps(payload, ensure_ascii=False, indent=2))
+            else:
+                candidate = node_input["candidate"]
+                metadata = candidate["metadata"]
+                spec = candidate["spec"]
+                client_api = spec["clientApi"]
+                print("Node setup: complete")
+                print(f"Node: {spec['displayName']} ({metadata['name']})")
+                print(
+                    "Client API: "
+                    f"{client_api['listenHost']}:{client_api['port']} "
+                    f"({client_api['authentication']})"
+                )
+                print("Model configuration: deferred")
+            return 0
         provider = _provider(before, args.provider)
         if provider is None:
             print(f"Error: Provider '{args.provider}' is not available on this {PRODUCT.display_name} Node")

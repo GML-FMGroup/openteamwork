@@ -193,14 +193,14 @@ Keep exactly one process bound to a Node root and listener. Do not start a secon
 otw setup
 ```
 
-If setup is intentionally incomplete, inspect the state with Desktop onboarding or `setup.status` through `otw action invoke`.
+This initializes only the Node. Sign in as root through Desktop to configure the first model and Agent. If setup remains incomplete, inspect the state with Desktop onboarding or `setup.status` through `otw action invoke`.
 
 ### Node is configured but not ready
 
 Run the first real Hello again after fixing model readiness:
 
 ```bash
-otw setup --provider <provider> --model <model-id>
+otw setup --with-agent --provider <provider> --model <model-id>
 ```
 
 ### LAN request is unauthorized

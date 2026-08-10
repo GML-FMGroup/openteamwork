@@ -193,28 +193,41 @@ function setupFormFromStatus(
 function buildSetupRequest(
   form: SetupForm,
   status: SetupStatusResult,
-  connection: ConnectionSettings,
 ): SetupApplyRequest {
   const provider = status.providers.find((item) => item.id === form.provider);
   if (!provider) {
     throw new Error("Select an available model provider.");
   }
-  const endpoint = new URL(connection.clientApiBaseUrl);
   const credential = { store: "system" as const, name: form.credentialName };
   const usesApiKey = provider.credentialMode === "api_key";
+  const currentNode = record(status.current.node);
+  const currentNodeMetadata = record(currentNode.metadata);
+  const currentNodeSpec = record(currentNode.spec);
+  const currentClientApi = record(currentNodeSpec.clientApi);
+  const currentEnabledAgents = Array.isArray(currentNodeSpec.enabledAgents)
+    ? currentNodeSpec.enabledAgents.filter((item): item is string => typeof item === "string")
+    : [];
+  const enabledAgents = Array.from(new Set([...currentEnabledAgents, form.agentId]));
+  const currentPort = Number(currentClientApi.port);
+  const clientApi = {
+    listenHost: typeof currentClientApi.listenHost === "string" && currentClientApi.listenHost.trim()
+      ? currentClientApi.listenHost
+      : "127.0.0.1",
+    port: Number.isSafeInteger(currentPort) && currentPort > 0
+      ? currentPort
+      : productProfile.defaultClientApiPort,
+    authentication: currentClientApi.authentication === "disabled" ? "disabled" as const : "required" as const,
+  };
   return {
     node: {
       apiVersion: "openppx.io/v1alpha1",
       kind: "NodeConfig",
-      metadata: { name: form.nodeId },
+      metadata: { ...currentNodeMetadata, name: String(currentNodeMetadata.name ?? form.nodeId) },
       spec: {
+        ...currentNodeSpec,
         displayName: form.nodeName,
-        enabledAgents: [form.agentId],
-        clientApi: {
-          listenHost: connection.targetType === "local" ? "127.0.0.1" : endpoint.hostname,
-          port: Number(endpoint.port || (endpoint.protocol === "https:" ? 443 : 80)),
-          authentication: connection.targetType === "local" ? "disabled" : "required",
-        },
+        enabledAgents,
+        clientApi,
       },
     },
     agent: {
@@ -1132,7 +1145,7 @@ export function useDesktopWorkspace() {
     setSetupError(null);
     try {
       if (setupStatus.state !== "configured" || applyConfiguration) {
-        const request = buildSetupRequest(setupForm, setupStatus, connectionForm);
+        const request = buildSetupRequest(setupForm, setupStatus);
         const applied = await window.ppxClient.applySetup(request);
         if (applied.restartRequired) {
           setRuntime(await window.ppxClient.runRuntimeCommand("restart"));

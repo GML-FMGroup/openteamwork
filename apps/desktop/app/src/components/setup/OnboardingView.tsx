@@ -162,7 +162,11 @@ export function OnboardingView({
   const provider = status.providers.find((item) => item.id === form.provider);
   const usesNodeCodexAuth = provider?.id === "openai_codex";
   const configured = status.state === "configured";
-  const [activeStep, setActiveStep] = useState<SetupStepId>(configured ? "hello" : "node");
+  const nodeInitialized = status.steps.node === "complete";
+  const nodeOnlyBootstrap = nodeInitialized && status.steps.agent === "missing";
+  const [activeStep, setActiveStep] = useState<SetupStepId>(
+    configured ? "hello" : nodeOnlyBootstrap ? "agent" : "node",
+  );
   const [editingSavedConfiguration, setEditingSavedConfiguration] = useState(false);
   const [configurationDirty, setConfigurationDirty] = useState(false);
   const shellRef = useRef<HTMLElement | null>(null);
@@ -197,7 +201,7 @@ export function OnboardingView({
   }, [configured]);
 
   useEffect(() => {
-    if (configured && !editingSavedConfiguration) return undefined;
+    if ((configured || nodeOnlyBootstrap) && !editingSavedConfiguration) return undefined;
     const shell = shellRef.current;
     if (!shell) return undefined;
 
@@ -226,7 +230,7 @@ export function OnboardingView({
       shell.removeEventListener("scroll", updateVisibleStep);
       window.removeEventListener("resize", updateVisibleStep);
     };
-  }, [configured, editingSavedConfiguration]);
+  }, [configured, editingSavedConfiguration, nodeOnlyBootstrap]);
 
   useEffect(() => {
     if (!editingSavedConfiguration || pendingScrollStep.current === null) return;
@@ -250,6 +254,11 @@ export function OnboardingView({
     setActiveStep(step);
     if (configured && !editingSavedConfiguration) {
       if (step === "hello") return;
+      pendingScrollStep.current = step;
+      setEditingSavedConfiguration(true);
+      return;
+    }
+    if (nodeOnlyBootstrap && !editingSavedConfiguration && step === "node") {
       pendingScrollStep.current = step;
       setEditingSavedConfiguration(true);
       return;
@@ -290,7 +299,9 @@ export function OnboardingView({
             ? "Review the Node and Agent, then verify one real conversation. Resource IDs remain fixed after creation."
             : configured
               ? "Your configuration is saved. Verify one real conversation before entering the workspace."
-              : "Configure a Node and its first Agent, then verify one real conversation."}</p>
+              : nodeOnlyBootstrap
+                ? "Your Node is ready. Configure its first Agent and model, then verify one real conversation."
+                : "Configure a Node and its first Agent, then verify one real conversation."}</p>
           <ol className="onboarding-steps">
             <SetupStep active={activeStep === "node"} complete={status.steps.node === "complete"} index="1" label="Node" description="Connection & identity" onSelect={() => selectStep("node")} />
             <SetupStep active={activeStep === "agent"} complete={status.steps.agent === "complete" && status.steps.model === "complete"} index="2" label="Agent" description="Workspace & model" onSelect={() => selectStep("agent")} />
@@ -305,7 +316,7 @@ export function OnboardingView({
             onSubmit(shouldApplyConfiguration);
           }}
         >
-          {!configured || editingSavedConfiguration ? (
+          {!nodeOnlyBootstrap || editingSavedConfiguration ? (
             <section ref={(element) => { sectionRefs.current.node = element; }} className="onboarding-section" data-setup-step="node">
               <div className="onboarding-section-heading">
                 <div><span>01</span><h2>Node</h2></div>

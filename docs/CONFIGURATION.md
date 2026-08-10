@@ -37,10 +37,20 @@ There is no alternate JSON or environment-based business configuration source.
 
 ## First setup
 
-The preferred way to create the first resources is:
+The preferred first step creates only a NodeConfig and never requires an LLM credential:
 
 ```bash
 otw setup \
+  --node-root ~/.openteamwork \
+  --listen-host 127.0.0.1 \
+  --listen-port 18765 \
+  --authentication required
+```
+
+After a root user signs in through Desktop, first-Agent onboarding creates the Model Profile, protected credential, and Agent. An explicit all-in-one CLI flow remains available for automation:
+
+```bash
+otw setup --with-agent \
   --node-root ~/.openteamwork \
   --provider google \
   --model <provider-model-id> \
@@ -48,7 +58,7 @@ otw setup \
   --workspace <workspace-directory>
 ```
 
-The flow performs:
+The `--with-agent` flow performs:
 
 1. `setup.status` against an empty or existing Node root;
 2. strict Node, Agent, Model Profile, and optional Secret validation;
@@ -228,7 +238,7 @@ Persisted resources contain only a `SecretRef`:
 
 The local production backend uses the system credential store. If a secure backend is unavailable, readiness reports that state and fails closed; OpenTeamwork does not store the value in ordinary JSON.
 
-Secret values may enter `otw setup` or a protected Secret Action, but they are excluded from Config reads, diffs, diagnostics, audit facts, error text, and client responses.
+Secret values may enter `otw setup --with-agent` or a protected Secret Action, but they are excluded from Config reads, diffs, diagnostics, audit facts, error text, and client responses. Default Node-only `otw setup` never requests a model Secret.
 
 ## Read, validate, preview, and apply
 

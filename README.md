@@ -74,23 +74,34 @@ python -m pip install --no-build-isolation -e .
 
 ## First setup
 
-`otw setup` configures a Node, one Agent, one Model Profile, protected credentials, and a real first model turn. By default it uses `~/.openteamwork` as the Node root and asks for an API key with a hidden prompt when the provider requires one.
+`otw setup` initializes only the Node. It does not create an Agent or Model Profile and does not request an LLM credential. By default it uses `~/.openteamwork`, listens on loopback, and requires Client API authentication.
 
 ```bash
 otw setup \
+  --listen-host 127.0.0.1 \
+  --listen-port 18765 \
+  --authentication required
+```
+
+Create a root account, provide one persistent deployment token, and start the Node:
+
+```bash
+otw user add admin@example.com --privilege root
+export OPENTEAMWORK_CLIENT_API_TOKEN='<persistent-strong-random-token>'
+otw node run
+```
+
+The root user can then sign in through Desktop and configure the first Model Profile, credential, and Agent. To retain the previous automated all-in-one flow, opt in explicitly:
+
+```bash
+otw setup --with-agent \
   --provider google \
   --model <provider-model-id> \
   --agent-id main \
   --workspace <workspace-directory>
 ```
 
-Use `--no-hello` only when configuration must be saved before the model is reachable. A configured Node is not reported as ready until `setup.hello` succeeds for the exact Config revisions.
-
-Start the Node:
-
-```bash
-otw node run
-```
+Only `--with-agent` may request a provider credential. Use `--no-hello` with that mode only when the complete configuration must be saved before the model is reachable; readiness still requires a successful `setup.hello` for the exact Config revisions.
 
 The default local endpoint is `http://127.0.0.1:18765`.
 

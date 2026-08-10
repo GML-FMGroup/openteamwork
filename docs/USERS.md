@@ -57,10 +57,10 @@ otw setup \
   --node-root ~/.openteamwork \
   --listen-host 127.0.0.1 \
   --listen-port 18765 \
-  --authentication required \
-  --provider <provider> \
-  --model <model-id>
+  --authentication required
 ```
+
+This step writes only Node configuration and does not request an LLM API key. Create the first root account before starting the Node; after root signs in through Desktop, first-Agent onboarding collects the model configuration and protected provider credential.
 
 Start it with a strong deployment token supplied through the process environment:
 
