@@ -10,6 +10,8 @@ from functools import lru_cache
 from importlib.resources import files
 from typing import Any, Literal
 
+from openppx.product import PRODUCT
+
 from .errors import ExtensionError
 from .models import ExtensionPresentation
 from .registry import ExtensionKind
@@ -144,10 +146,21 @@ def default_extension_starter_catalog() -> ExtensionStarterCatalog:
     """Load and validate the catalog bundled with the installed OpenPPX package."""
     resource = files("openppx.extensions").joinpath("data", "starter_catalog.json")
     with resource.open("r", encoding="utf-8") as handle:
-        raw = json.load(handle)
+        raw = _productize_visible_copy(json.load(handle))
     if not isinstance(raw, list):
         raise ValueError("Extension starter catalog must be a JSON array.")
     return ExtensionStarterCatalog(tuple(_parse_entry(item) for item in raw))
+
+
+def _productize_visible_copy(value: Any) -> Any:
+    """Replace shared-catalog product copy without changing protocol identifiers."""
+    if isinstance(value, str):
+        return value.replace("OpenPPX", PRODUCT.display_name)
+    if isinstance(value, list):
+        return [_productize_visible_copy(item) for item in value]
+    if isinstance(value, dict):
+        return {key: _productize_visible_copy(item) for key, item in value.items()}
+    return value
 
 
 def _parse_entry(raw: object) -> ExtensionStarter:

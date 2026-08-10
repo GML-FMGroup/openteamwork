@@ -4,7 +4,7 @@
   "protocolVersion": 1,
   "requestId": "req_setup_hello_fixture",
   "result": {
-    "reply": "Hello from OpenPPX",
+    "reply": "Hello from OpenTeamwork",
     "sessionId": "session_fixture",
     "state": "ready"
   }

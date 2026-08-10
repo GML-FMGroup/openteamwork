@@ -1,4 +1,4 @@
-export const DESKTOP_PREFERENCES_STORAGE_KEY = "openppx.desktop.preferences.v1";
+export const DESKTOP_PREFERENCES_STORAGE_KEY = "openteamwork.desktop.preferences.v1";
 
 export type ColorTheme = "system" | "light" | "dark";
 export type InterfaceDensity = "comfortable" | "compact";

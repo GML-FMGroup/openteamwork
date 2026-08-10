@@ -1,0 +1,8 @@
+#!/usr/bin/env python3
+"""Convenience source-checkout entry point for the long OpenTeamwork CLI alias."""
+
+from openppx.cli import main
+
+
+if __name__ == "__main__":
+    main()

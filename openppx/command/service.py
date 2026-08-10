@@ -1,4 +1,4 @@
-"""User-service installation for the single OpenPPX Node process."""
+"""User-service installation for the single product Node process."""
 
 from __future__ import annotations
 
@@ -9,6 +9,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from openppx.product import PRODUCT
 from openppx.runtime.node_service import (
     detect_service_manager,
     node_service_name,
@@ -20,10 +21,10 @@ from openppx.runtime.node_service import (
 def _manifest_path(manager: str, service_name: str) -> Path:
     """Return the current user's manifest path for one supported manager."""
     if manager == "launchd":
-        return Path.home() / "Library" / "LaunchAgents" / f"ai.openppx.{service_name}.plist"
+        return Path.home() / "Library" / "LaunchAgents" / f"{PRODUCT.service_namespace}.node.plist"
     if manager == "systemd":
         return Path.home() / ".config" / "systemd" / "user" / f"{service_name}.service"
-    raise ValueError("OpenPPX Node service is supported only on macOS and Linux")
+    raise ValueError(f"{PRODUCT.display_name} Node service is supported only on macOS and Linux")
 
 
 def install_node_service(args: Any) -> int:
@@ -37,14 +38,14 @@ def install_node_service(args: Any) -> int:
     if manifest.exists() and not args.force:
         print(f"Error: service manifest already exists: {manifest} (pass --force to replace it)")
         return 1
-    program = shutil.which("ppx") or sys.executable
+    program = shutil.which(PRODUCT.cli_command) or sys.executable
     command_args = ["node", "run", "--node-root", str(args.node_root)]
     if program == sys.executable:
         command_args = ["-m", "openppx.cli", *command_args]
     logs = args.node_root / "logs"
     if manager == "launchd":
         content = render_launchd_plist(
-            label=f"ai.openppx.{name}",
+            label=f"{PRODUCT.service_namespace}.node",
             program=program,
             args=command_args,
             working_directory=args.node_root,
@@ -53,7 +54,7 @@ def install_node_service(args: Any) -> int:
         )
     else:
         content = render_systemd_unit(
-            description="OpenPPX Node",
+            description=f"{PRODUCT.display_name} Node",
             exec_start=shlex.join([program, *command_args]),
             working_directory=args.node_root,
         )
@@ -76,8 +77,8 @@ def node_service_status(args: Any) -> int:
         print(json.dumps(payload, ensure_ascii=False, indent=2))
     elif payload["supported"]:
         state = "installed" if payload.get("installed") else "not installed"
-        print(f"OpenPPX Node service: {state}")
+        print(f"{PRODUCT.display_name} Node service: {state}")
         print(f"Manifest: {payload.get('manifest')}")
     else:
-        print("OpenPPX Node service: unsupported platform")
+        print(f"{PRODUCT.display_name} Node service: unsupported platform")
     return 0 if payload["supported"] else 2

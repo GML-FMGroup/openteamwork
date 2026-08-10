@@ -1,10 +1,15 @@
 {
-  "name": "@openppx/desktop",
+  "name": "@openteamwork/desktop",
   "version": "0.6.0",
   "private": true,
-  "description": "Local-first desktop workbench for OpenPPX agents",
-  "author": "OpenPPX Contributors",
+  "description": "Local-first desktop workbench for OpenTeamwork agents",
+  "author": "OpenTeamwork Contributors",
   "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/pipixia-labs/openteamwork.git",
+    "directory": "apps/desktop"
+  },
   "main": "dist-electron/main/index.js",
   "type": "module",
   "scripts": {
@@ -16,7 +21,7 @@
     "package": "npm run build && electron-builder --mac --arm64 --publish never && npm run verify:package",
     "package:dir": "npm run build && electron-builder --dir --mac --arm64 && npm run verify:package",
     "verify:preload": "node scripts/verify-preload.mjs dist-electron/preload/index.cjs",
-    "verify:package": "node scripts/verify-preload.mjs --asar \"release/mac-arm64/OpenPPX Desktop.app/Contents/Resources/app.asar\" dist-electron/preload/index.cjs",
+    "verify:package": "node scripts/verify-preload.mjs --asar \"release/mac-arm64/OpenTeamwork Desktop.app/Contents/Resources/app.asar\" dist-electron/preload/index.cjs",
     "checksum": "node scripts/checksum-release.mjs"
   },
   "dependencies": {

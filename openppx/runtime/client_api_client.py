@@ -7,12 +7,14 @@ from dataclasses import dataclass
 from typing import Any
 from urllib import error, parse, request
 
+from ..product import PRODUCT
+
 
 @dataclass(slots=True)
 class ClientApiClient:
     """Call the local HTTP + SSE client API with stable typed helpers."""
 
-    base_url: str = "http://127.0.0.1:18765"
+    base_url: str = f"http://127.0.0.1:{PRODUCT.default_client_api_port}"
     timeout_seconds: float = 10.0
     access_token: str = ""
 

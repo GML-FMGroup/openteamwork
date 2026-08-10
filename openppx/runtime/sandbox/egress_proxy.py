@@ -19,6 +19,8 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
 
+from openppx.product import PRODUCT
+
 from .egress_policy import (
     classify_proxy_visibility,
     proxy_policy_allows,
@@ -308,7 +310,7 @@ def _relay_bidirectional(client: socket.socket, upstream: socket.socket) -> None
 def main() -> None:
     """Run the trusted egress proxy service."""
 
-    parser = argparse.ArgumentParser(description="OpenPPX revision-aware egress proxy")
+    parser = argparse.ArgumentParser(description=f"{PRODUCT.display_name} revision-aware egress proxy")
     parser.add_argument("--listen", default="0.0.0.0")
     parser.add_argument("--port", type=int, default=3128)
     parser.add_argument("--policy-directory", type=Path, required=True)

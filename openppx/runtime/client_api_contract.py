@@ -5,6 +5,8 @@ from __future__ import annotations
 from importlib.metadata import PackageNotFoundError, version
 from typing import Any
 
+from ..product import PRODUCT
+
 
 CLIENT_API_SERVICE = "openppx-client-api"
 CLIENT_API_PROTOCOL_VERSION = 1
@@ -16,10 +18,10 @@ CLIENT_API_CAPABILITIES = (
 
 
 def get_openppx_product_version() -> str:
-    """Return the installed OpenPPX version without requiring package imports."""
+    """Return the installed product version without changing the shared protocol identity."""
 
     try:
-        return version("openppx")
+        return version(PRODUCT.python_distribution_name)
     except PackageNotFoundError:
         return "unknown"
 

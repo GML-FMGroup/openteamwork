@@ -55,6 +55,8 @@ def test_catalog_payloads_never_contain_credential_values() -> None:
     collect_keys(payload)
 
     assert {"secretValues", "credentialValues", "accessToken", "refreshToken", "password"}.isdisjoint(keys)
+    assert "OpenPPX" not in str(payload)
+    assert "OpenTeamwork" in str(payload)
 
 
 def test_app_and_mcp_starters_publish_explicit_local_icon_identity() -> None:

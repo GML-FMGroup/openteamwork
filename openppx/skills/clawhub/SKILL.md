@@ -27,21 +27,21 @@ npx --yes clawhub@latest search "web scraping" --limit 5
 ## Install
 
 ```bash
-npx --yes clawhub@latest install <slug> --workdir ~/.openppx/<agent_name>
+npx --yes clawhub@latest install <slug> --workdir ~/.openteamwork/<agent_name>
 ```
 
-Replace `<slug>` with the skill name from search results. This places the skill into `~/.openppx/<agent_name>/skills/`, where openppx loads per-agent local skills from. Always include `--workdir`.
+Replace `<slug>` with the skill name from search results. This places the skill into `~/.openteamwork/<agent_name>/skills/`, where the shared runtime loads per-agent local skills from. Always include `--workdir`.
 
 ## Update
 
 ```bash
-npx --yes clawhub@latest update --all --workdir ~/.openppx/<agent_name>
+npx --yes clawhub@latest update --all --workdir ~/.openteamwork/<agent_name>
 ```
 
 ## List installed
 
 ```bash
-npx --yes clawhub@latest list --workdir ~/.openppx/<agent_name>
+npx --yes clawhub@latest list --workdir ~/.openteamwork/<agent_name>
 ```
 
 ## Notes
@@ -49,5 +49,5 @@ npx --yes clawhub@latest list --workdir ~/.openppx/<agent_name>
 - Requires Node.js (`npx` comes with it).
 - No API key needed for search and install.
 - Login (`npx --yes clawhub@latest login`) is only required for publishing.
-- `--workdir ~/.openppx/<agent_name>` is critical — without it, skills install to the current directory instead of the target agent home.
+- `--workdir ~/.openteamwork/<agent_name>` is critical — without it, skills install to the current directory instead of the target agent home.
 - After install, remind the user to start a new session to load the skill.

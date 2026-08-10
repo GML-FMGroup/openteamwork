@@ -1,6 +1,6 @@
-# OpenPPX Client API contract
+# OpenTeamwork Client API contract
 
-This directory is the versioned boundary between OpenPPX Node and its clients, including OpenPPX Desktop.
+This directory is the versioned boundary between the shared Client API runtime and OpenTeamwork clients, including OpenTeamwork Desktop.
 
 - `protocol-v1.md` defines transport, authentication, Action, setup, Run-event, and future compatibility rules.
 - `fixtures/health-v1.json` is a canonical compatible health handshake.

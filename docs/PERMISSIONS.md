@@ -1,6 +1,6 @@
 # Static execution permissions
 
-OpenPPX compiles each Agent's privilege preset, Node-owned ceilings, Agent-owned rules, and rollout settings into one content-addressed permission snapshot. A Runtime retains its Agent and Workspace identity boundary, while compatible permission-only updates are re-resolved before every new Tool Action and side effect. Model arguments never select the effective privilege level.
+OpenTeamwork compiles each Agent's privilege preset, Node-owned ceilings, Agent-owned rules, and rollout settings into one content-addressed permission snapshot. A Runtime retains its Agent and Workspace identity boundary, while compatible permission-only updates are re-resolved before every new Tool Action and side effect. Model arguments never select the effective privilege level.
 
 This version covers five execution surfaces: the Agent Workspace, external paths, Command/Process, Network, and Tool/Action. Delegation, secrets, high-risk confirmation, task ownership, and future dynamic elevation remain separate controls and are intersected with this matrix.
 
@@ -50,7 +50,7 @@ sqlite3 <node-root>/database/permission_audit.db \
 The same redacted records are available through the authenticated Control Plane Action:
 
 ```bash
-ppx action invoke permissions.audit.list --input-json '{"limit":50}'
+otw action invoke permissions.audit.list --input-json '{"limit":50}'
 ```
 
 ## Enforcement boundaries
@@ -67,7 +67,7 @@ For HTTPS, the proxy can inspect the destination but not the encrypted HTTP meth
 
 ## Runtime update and revocation semantics
 
-Before every new Tool invocation, OpenPPX resolves the current Agent permission snapshot from the trusted Config service. Built-in side-effect adapters use the same snapshot pinned for that one Tool Action. The ADK authorization Plugin also reauthorizes extension, MCP, App, and built-in Tool calls with the current revision. If Config storage is unavailable, or the Agent/Workspace identity no longer matches the assembled Runtime, the invocation fails closed.
+Before every new Tool invocation, OpenTeamwork resolves the current Agent permission snapshot from the trusted Config service. Built-in side-effect adapters use the same snapshot pinned for that one Tool Action. The ADK authorization Plugin also reauthorizes extension, MCP, App, and built-in Tool calls with the current revision. If Config storage is unavailable, or the Agent/Workspace identity no longer matches the assembled Runtime, the invocation fails closed.
 
 Permission tightening therefore blocks the next Tool Action even in a long-lived Runtime. A process that has already started is not retroactively erased, but its next view, input, wait, stop, or cleanup request is authorized against the current Process policy and immutable process provenance. A newly started proxy-backed command publishes and uses the current Network policy revision.
 

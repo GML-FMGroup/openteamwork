@@ -5,7 +5,7 @@ import type { PendingAttachment } from "../../hooks/use-desktop-workspace";
 import { ATTACHMENT_ACCEPT } from "../../attachment-policy";
 import { GoalStatusBar } from "./GoalStatusBar";
 
-const RECENT_COMMANDS_KEY = "openppx.desktop.recentSlashCommands.v1";
+const RECENT_COMMANDS_KEY = "openteamwork.desktop.recentSlashCommands.v1";
 
 /** Detect both standards-compliant composition events and the WebKit/IME fallback signal. */
 function isImeCompositionEvent(event: KeyboardEvent<HTMLTextAreaElement>): boolean {

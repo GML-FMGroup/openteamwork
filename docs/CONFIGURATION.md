@@ -1,10 +1,10 @@
 # Configuration and Model Profiles
 
-OpenPPX configuration is a Node-owned set of strict, versioned resources. CLI, Desktop, and future clients validate and apply the same resource models through Actions; they do not implement their own persistence rules.
+OpenTeamwork configuration is a Node-owned set of strict, versioned resources. CLI, Desktop, and future clients validate and apply the same resource models through Actions; they do not implement their own persistence rules.
 
 ## Node root
 
-The default local Node root is `~/.openppx`. Every Node process owns one explicit root, selected with `--node-root` or `OPENPPX_NODE_ROOT` at the Desktop process boundary.
+The default local Node root is `~/.openteamwork`. Every Node process owns one explicit root, selected with `--node-root` or `OPENTEAMWORK_NODE_ROOT` at the Desktop process boundary.
 
 Important locations:
 
@@ -40,8 +40,8 @@ There is no alternate JSON or environment-based business configuration source.
 The preferred way to create the first resources is:
 
 ```bash
-ppx setup \
-  --node-root ~/.openppx \
+otw setup \
+  --node-root ~/.openteamwork \
   --provider google \
   --model <provider-model-id> \
   --agent-id main \
@@ -68,7 +68,7 @@ Minimal example:
   "kind": "NodeConfig",
   "metadata": {"name": "local-node"},
   "spec": {
-    "displayName": "My OpenPPX Node",
+    "displayName": "My OpenTeamwork Node",
     "enabledAgents": ["main"],
     "clientApi": {
       "listenHost": "127.0.0.1",
@@ -89,7 +89,7 @@ Minimal example:
 }
 ```
 
-A non-loopback listener must use `authentication: required`, and the running process must receive a bearer token. Listener overrides passed to `ppx node run` are process-level deployment inputs; they do not silently rewrite `node.json`.
+A non-loopback listener must use `authentication: required`, and the running process must receive a bearer token. Listener overrides passed to `otw node run` are process-level deployment inputs; they do not silently rewrite `node.json`.
 
 ## AgentConfig
 
@@ -226,21 +226,21 @@ Persisted resources contain only a `SecretRef`:
 {"store": "system", "name": "primary-model-api-key"}
 ```
 
-The local production backend uses the system credential store. If a secure backend is unavailable, readiness reports that state and fails closed; OpenPPX does not store the value in ordinary JSON.
+The local production backend uses the system credential store. If a secure backend is unavailable, readiness reports that state and fails closed; OpenTeamwork does not store the value in ordinary JSON.
 
-Secret values may enter `ppx setup` or a protected Secret Action, but they are excluded from Config reads, diffs, diagnostics, audit facts, error text, and client responses.
+Secret values may enter `otw setup` or a protected Secret Action, but they are excluded from Config reads, diffs, diagnostics, audit facts, error text, and client responses.
 
 ## Read, validate, preview, and apply
 
 Commands operate on the running Node through the shared Action boundary:
 
 ```bash
-ppx config read
-ppx config read --agent main
+otw config read
+otw config read --agent main
 
-ppx config validate candidate-node.json
-ppx config preview candidate-node.json --expected-revision <revision>
-ppx config apply candidate-node.json --expected-revision <revision>
+otw config validate candidate-node.json
+otw config preview candidate-node.json --expected-revision <revision>
+otw config apply candidate-node.json --expected-revision <revision>
 ```
 
 For an Agent resource, add `--agent <agent-id>`. Preview returns a redacted structural diff and lifecycle effects. Apply revalidates the candidate and expected revision, performs an atomic replace, and reports whether future Runs, a reload, or a Node restart is required. A permission change still reports `next_run` when a fresh Runtime is needed to finish catalog or identity changes; compatible permission tightening is additionally rechecked by an existing Runtime before its next Tool Action.
@@ -248,11 +248,11 @@ For an Agent resource, add `--agent <agent-id>`. Preview returns a redacted stru
 ## Model commands
 
 ```bash
-ppx model list
-ppx model read primary
-ppx model readiness main --role reasoning
-ppx model select main --role reasoning
-ppx model apply primary profile.json --expected-revision <revision>
+otw model list
+otw model read primary
+otw model readiness main --role reasoning
+otw model select main --role reasoning
+otw model apply primary profile.json --expected-revision <revision>
 ```
 
 Use `--url`, `--token`, and `--json` when managing another Node or automating the command.

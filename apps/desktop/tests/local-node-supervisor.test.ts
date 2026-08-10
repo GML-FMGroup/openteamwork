@@ -67,7 +67,7 @@ describe("LocalNodeSupervisor", () => {
       ],
       expect.objectContaining({
         cwd: "/repo/openppx",
-        env: expect.objectContaining({ OPENPPX_CLIENT_API_TOKEN: "secret" }),
+        env: expect.objectContaining({ OPENTEAMWORK_CLIENT_API_TOKEN: "secret" }),
       }),
     );
     expect(wait).toHaveBeenCalledTimes(2);

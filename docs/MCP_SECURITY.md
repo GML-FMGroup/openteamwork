@@ -1,6 +1,6 @@
 # Extension and MCP Security
 
-OpenPPX treats Plugin, App, MCP, and Skill installation as governed Node mutations. A resource becoming discoverable does not make it trusted, installed, enabled, or available to an active Run.
+OpenTeamwork treats Plugin, App, MCP, and Skill installation as governed Node mutations. A resource becoming discoverable does not make it trusted, installed, enabled, or available to an active Run.
 
 ## Lifecycle
 
@@ -48,7 +48,7 @@ Sensitive values use `SecretRef` bindings:
 
 The Secret is resolved only when constructing the ADK MCP toolset. The persisted resource, extension inventory, readiness output, diagnostics, audit rows, and Runtime metadata contain only status or a reference-safe projection.
 
-Remote URLs cannot contain user information, query credentials, or fragments. STDIO execution is argv-only; OpenPPX does not pass the declaration through a shell.
+Remote URLs cannot contain user information, query credentials, or fragments. STDIO execution is argv-only; OpenTeamwork does not pass the declaration through a shell.
 
 ## MCP tool policy
 
@@ -64,7 +64,7 @@ Each MCP resource can define:
 
 Tool prefixes must remain unique across direct MCP, Apps, and Product Plugins enabled for one Agent. A collision is rejected before ADK assembly.
 
-OpenPPX does not infer remote-job semantics from arbitrary provider payloads. Long-task controls appear only when the resource declares the corresponding protocol and the contract probe succeeds.
+OpenTeamwork does not infer remote-job semantics from arbitrary provider payloads. Long-task controls appear only when the resource declares the corresponding protocol and the contract probe succeeds.
 
 ## MCP Resources
 
@@ -79,11 +79,11 @@ MCP Resource access is disabled by default. Enabling it requires both fields in 
 }
 ```
 
-The allowlist contains at most 256 unique absolute URIs and uses exact matching. OpenPPX filters both Resource discovery and Resource reads, so a model cannot bypass discovery by constructing a known Resource name. The generated ADK Tool remains namespaced with the MCP prefix, for example `mcp_docs_load_mcp_resource`, and therefore also passes through the ordinary Tool permission gate.
+The allowlist contains at most 256 unique absolute URIs and uses exact matching. OpenTeamwork filters both Resource discovery and Resource reads, so a model cannot bypass discovery by constructing a known Resource name. The generated ADK Tool remains namespaced with the MCP prefix, for example `mcp_docs_load_mcp_resource`, and therefore also passes through the ordinary Tool permission gate.
 
-OpenPPX reuses the authenticated Google ADK MCP session. Static transport Secrets, the previously authorized Network endpoint, and dynamic user/session/tenant headers remain in force for Resource list and read operations. Resource access does not create a second ungoverned client.
+OpenTeamwork reuses the authenticated Google ADK MCP session. Static transport Secrets, the previously authorized Network endpoint, and dynamic user/session/tenant headers remain in force for Resource list and read operations. Resource access does not create a second ungoverned client.
 
-The current safe projection accepts text Resources up to 1 MB per read. Binary Resource content is rejected before model-context insertion. A provider should return downloadable binary content from an MCP Tool so OpenPPX can validate and persist it as an Artifact instead.
+The current safe projection accepts text Resources up to 1 MB per read. Binary Resource content is rejected before model-context insertion. A provider should return downloadable binary content from an MCP Tool so OpenTeamwork can validate and persist it as an Artifact instead.
 
 ## MCP binary results
 
@@ -110,7 +110,7 @@ Native adapter names in configuration never load arbitrary code. Only adapters e
 
 ## Product Plugins
 
-OpenPPX uses the Codex Plugin package contract with one portable root alias: the manifest is `.agent-plugin/plugin.json` instead of `.codex-plugin/plugin.json`. All manifest fields and component formats otherwise follow the Codex Plugin standard. A Plugin may contain:
+OpenTeamwork uses the Codex Plugin package contract with one portable root alias: the manifest is `.agent-plugin/plugin.json` instead of `.codex-plugin/plugin.json`. All manifest fields and component formats otherwise follow the Codex Plugin standard. A Plugin may contain:
 
 - `skills/` with standard `SKILL.md` packages;
 - `.mcp.json` with standard MCP server definitions;
@@ -118,7 +118,7 @@ OpenPPX uses the Codex Plugin package contract with one portable root alias: the
 - `hooks/` declarations;
 - `assets/` referenced by Plugin metadata.
 
-The package is not allowed to use the removed OpenPPX-private schema, inject arbitrary Python or ADK initialization code, or persist credential values. Referenced files must be safe relative paths below the Plugin root. Hooks are parsed and reported as unsupported until a reviewed hook runtime is available; they are never executed implicitly.
+The package is not allowed to use the removed product-private schema, inject arbitrary Python or ADK initialization code, or persist credential values. Referenced files must be safe relative paths below the Plugin root. Hooks are parsed and reported as unsupported until a reviewed hook runtime is available; they are never executed implicitly.
 
 Plugin components are projected from immutable installed content into internal Skill, MCP, and registered-App views. Internal resource IDs are namespaced without rewriting the portable package on disk.
 

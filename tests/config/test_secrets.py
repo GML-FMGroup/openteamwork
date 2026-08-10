@@ -94,7 +94,7 @@ def test_system_store_uses_fixed_service_and_validated_account() -> None:
 
     store.put(ref, SecretValue("sk-system"))
 
-    assert adapter.values[("openppx", "openai-primary")] == "sk-system"
+    assert adapter.values[("openteamwork", "openai-primary")] == "sk-system"
     assert store.resolve(ref).reveal() == "sk-system"
     assert store.status(ref).state == "available"
 

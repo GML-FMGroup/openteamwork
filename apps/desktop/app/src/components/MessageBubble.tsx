@@ -4,6 +4,7 @@ import remarkGfm from "remark-gfm";
 import type { ChatMessage, MessagePart } from "../types";
 import { projectActivityGroups, type ActivityGroup } from "../lib/activity-presentation";
 import { ActivityDisclosure, type ActivityNarrativeItem } from "./ActivityDisclosure";
+import { productProfile } from "../../../product";
 
 function roleLabel(role: ChatMessage["role"]): string {
   if (role === "user") {
@@ -60,7 +61,7 @@ function explainError(errorCode: string | undefined, text: string): { title: str
   if (normalized.includes("network") || normalized.includes("connection") || normalized.includes("unreachable")) {
     return {
       title: "Connection failed",
-      hint: "Check the Node address, network connectivity, and whether OpenPPX Node is running.",
+      hint: `Check the Node address, network connectivity, and whether ${productProfile.displayName} Node is running.`,
     };
   }
   return {

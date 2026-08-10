@@ -248,7 +248,7 @@ def test_mcp_oauth_callback_is_public_but_state_gated(tmp_path: Path) -> None:
     handler.path = "/api/v1/mcp/oauth/callback?code=code-value&state=expected-state"
     handler.do_GET()
     assert responses[-1][0] == 200
-    assert "Connected to OpenPPX" in responses[-1][1]
+    assert "Connected to OpenTeamwork" in responses[-1][1]
     assert oauth.calls == [("code-value", "expected-state", "")]
 
     handler.path = "/api/v1/mcp/oauth/callback?code=other-code&state=wrong-state"

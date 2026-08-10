@@ -1,6 +1,6 @@
 # Office connectors
 
-OpenPPX uses a breadth-first first wave of office integrations to validate three reusable execution paths: an official remote MCP service, a fixed native REST adapter, and a restricted standard-protocol adapter. Each integration is intentionally shallow and read-only. Deeper provider-specific capabilities can be added after installation, authorization, permission, Runtime assembly, and audit behavior have been exercised with real accounts.
+OpenTeamwork uses a breadth-first first wave of office integrations to validate three reusable execution paths: an official remote MCP service, a fixed native REST adapter, and a restricted standard-protocol adapter. Each integration is intentionally shallow and read-only. Deeper provider-specific capabilities can be added after installation, authorization, permission, Runtime assembly, and audit behavior have been exercised with real accounts.
 
 ## First wave
 
@@ -39,17 +39,17 @@ The App definition declares the complete reviewed tool set. An App connection ma
 The first-party definitions can be installed from Desktop Extensions settings or through the common Action boundary:
 
 ```bash
-ppx action invoke app.starter.install --input-json '{"starterId":"app-wps-cloud-docs"}'
-ppx action invoke app.starter.install --input-json '{"starterId":"app-feishu-docs"}'
-ppx action invoke app.starter.install --input-json '{"starterId":"app-notion"}'
-ppx action invoke app.starter.install --input-json '{"starterId":"app-email"}'
+otw action invoke app.starter.install --input-json '{"starterId":"app-wps-cloud-docs"}'
+otw action invoke app.starter.install --input-json '{"starterId":"app-feishu-docs"}'
+otw action invoke app.starter.install --input-json '{"starterId":"app-notion"}'
+otw action invoke app.starter.install --input-json '{"starterId":"app-email"}'
 ```
 
 Installation alone does not grant an Agent access. Create a connection, store its declared credentials through the protected Secret Action or Desktop, test the connection, and explicitly enable it for the target Agent. A newly enabled App appears in a newly assembled Runtime; it is not injected into an already active Runtime.
 
 ## Permission intersection
 
-Provider authorization and OpenPPX authorization are independent. A call succeeds only if all applicable layers allow it:
+Provider authorization and OpenTeamwork authorization are independent. A call succeeds only if all applicable layers allow it:
 
 1. The App definition exposes the Tool.
 2. The connection keeps the Tool enabled and is assigned to the Agent.
@@ -75,13 +75,13 @@ The matching read-only Network rules allow `connect` and `read`, never `write` o
 
 ## Provider-specific boundaries
 
-WPS currently requires the provider scope `delegated:kso.mcp_yundoc.readwrite`. Because that provider scope is wider than this first release, OpenPPX independently filters MCP discovery to the four reviewed read Tools and marks the remote MCP policy as logical read access. Provider write Tools remain unavailable even when the token could call them.
+WPS currently requires the provider scope `delegated:kso.mcp_yundoc.readwrite`. Because that provider scope is wider than this first release, OpenTeamwork independently filters MCP discovery to the four reviewed read Tools and marks the remote MCP policy as logical read access. Provider write Tools remain unavailable even when the token could call them.
 
-Feishu uses the stable developer endpoint `https://mcp.feishu.cn/mcp` and the `X-Lark-MCP-UAT` authentication header. This first release deliberately uses only user access tokens because `search-doc` is user-token-only and the product goal is access to documents visible to the connected user. The token is stored through a Secret reference and must currently be refreshed manually when it expires. OpenPPX sends `X-Lark-MCP-Allowed-Tools` with exactly `search-doc`, `fetch-doc`, `list-docs`, and `get-comments`; the local MCP Tool filter independently enforces the same set. Omitting either layer does not broaden access.
+Feishu uses the stable developer endpoint `https://mcp.feishu.cn/mcp` and the `X-Lark-MCP-UAT` authentication header. This first release deliberately uses only user access tokens because `search-doc` is user-token-only and the product goal is access to documents visible to the connected user. The token is stored through a Secret reference and must currently be refreshed manually when it expires. OpenTeamwork sends `X-Lark-MCP-Allowed-Tools` with exactly `search-doc`, `fetch-doc`, `list-docs`, and `get-comments`; the local MCP Tool filter independently enforces the same set. Omitting either layer does not broaden access.
 
 Feishu tenant access tokens, managed OAuth consent and refresh, document mutation, comment mutation, and `fetch-file` remain future work. They require lifecycle and artifact controls that should be shared by multiple providers rather than embedded as Feishu-only exceptions.
 
-Notion sends the provider's current `Notion-Version` header and uses fixed official API paths. Search is a logical read even though the official API represents it as HTTP `POST`; OpenPPX authorizes it as Network `connect` plus `read`.
+Notion sends the provider's current `Notion-Version` header and uses fixed official API paths. Search is a logical read even though the official API represents it as HTTP `POST`; OpenTeamwork authorizes it as Network `connect` plus `read`.
 
 IMAPS does not accept a model-supplied server, port, mailbox, command, or fetch expression. The email domain selects a compiled endpoint, and model input is limited to a bounded result count, bounded ASCII search text, or a numeric UID returned by the adapter.
 
@@ -91,7 +91,7 @@ Automated tests cover catalog validation, common starter installation, Secret re
 
 The remaining acceptance step is live testing with user-owned provider accounts. It must verify connection readiness, one representative read per App, permission-denied behavior after revocation, and absence of write effects in the provider audit/history. For Feishu, the account must provide a UAT issued to a self-built App with the official scopes required by the four selected tools. Live account success is not inferred from mocked transport tests.
 
-Tencent Docs is not included in this release. Its public official materials expose enterprise-edition APIs, but OpenPPX does not yet have a verified general-purpose personal-document API or official remote MCP contract. Browser automation is not used as a connector substitute. A future Tencent Docs adapter should enter through the same AppDefinition, Secret, Tool, Network, Runtime, and audit boundaries after an enterprise tenant and API contract are available.
+Tencent Docs is not included in this release. Its public official materials expose enterprise-edition APIs, but OpenTeamwork does not yet have a verified general-purpose personal-document API or official remote MCP contract. Browser automation is not used as a connector substitute. A future Tencent Docs adapter should enter through the same AppDefinition, Secret, Tool, Network, Runtime, and audit boundaries after an enterprise tenant and API contract are available.
 
 Official references:
 

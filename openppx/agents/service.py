@@ -14,6 +14,7 @@ from openppx.config import (
     config_revision,
 )
 from openppx.modeling import ModelProfileRepository
+from openppx.product import PRODUCT
 
 
 class AgentLifecycleError(RuntimeError):
@@ -229,7 +230,7 @@ class AgentLifecycleService:
             if exc.kind == "not_found":
                 raise AgentLifecycleError(
                     "node_not_configured",
-                    "Configure the OpenPPX Node before creating another Agent.",
+                    f"Configure the {PRODUCT.display_name} Node before creating another Agent.",
                 ) from None
             raise
 

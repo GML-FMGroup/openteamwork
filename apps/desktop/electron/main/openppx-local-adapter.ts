@@ -24,6 +24,7 @@ import {
 import { normalizeClientApiRuntime } from "../../app/src/lib/client-api-projection";
 import { normalizeAgentProfile, normalizeWorkspaceAgents } from "../../app/src/lib/agent-projection";
 import { isLoopbackClientApiHostname } from "../../app/src/lib/connection-profile";
+import { productProfile } from "../../product";
 import type {
   AgentProfile,
   AgentCreateRequest,
@@ -279,8 +280,12 @@ function emptyBootstrap(runtime: RuntimeStatus): BootstrapPayload {
 }
 
 function clientDebugEnabled(): boolean {
-  const raw = process.env.OPENPPX_CLIENT_DEBUG ?? process.env.PPX_CLIENT_DEBUG ?? "";
+  const raw = productEnvironment("CLIENT_DEBUG") ?? "";
   return ["1", "true", "yes", "on"].includes(raw.trim().toLowerCase());
+}
+
+function productEnvironment(suffix: string): string | undefined {
+  return process.env[`${productProfile.environmentPrefix}_${suffix}`];
 }
 
 function clientDebugLog(tag: string, payload: unknown): void {
@@ -291,18 +296,19 @@ function clientDebugLog(tag: string, payload: unknown): void {
 }
 
 function detectOpenPpxRoot(): string {
-  if (process.env.OPENPPX_ROOT?.trim()) {
-    return path.resolve(process.env.OPENPPX_ROOT);
+  const configured = productEnvironment("ROOT")?.trim();
+  if (configured) {
+    return path.resolve(configured);
   }
   return path.resolve(process.cwd(), "../..");
 }
 
 function dataRootPath(): string {
-  const configured = process.env.OPENPPX_NODE_ROOT?.trim();
+  const configured = productEnvironment("NODE_ROOT")?.trim();
   if (configured) {
     return path.resolve(configured);
   }
-  return path.join(os.homedir(), ".openppx");
+  return path.join(os.homedir(), productProfile.nodeRootDirectory);
 }
 
 function resolvePythonBin(openppxRoot: string): string {
@@ -323,15 +329,17 @@ export class OpenPpxLocalAdapter implements Omit<
 
   private readonly pythonBin = resolvePythonBin(this.openppxRoot);
 
-  private readonly configuredClientApiBaseUrl = process.env.OPENPPX_CLIENT_API_BASE_URL?.trim() || "";
+  private readonly configuredClientApiBaseUrl = productEnvironment("CLIENT_API_BASE_URL")?.trim() || "";
 
-  private readonly configuredClientApiAccessToken = process.env.OPENPPX_CLIENT_API_TOKEN?.trim() || "";
+  private readonly configuredClientApiAccessToken = productEnvironment("CLIENT_API_TOKEN")?.trim() || "";
 
   private readonly managedLocalAccessToken = randomBytes(32).toString("base64url");
 
-  private readonly clientApiHost = process.env.OPENPPX_CLIENT_API_HOST?.trim() || "127.0.0.1";
+  private readonly clientApiHost = productEnvironment("CLIENT_API_HOST")?.trim() || "127.0.0.1";
 
-  private readonly clientApiPort = Number(process.env.OPENPPX_CLIENT_API_PORT?.trim() || "18765");
+  private readonly clientApiPort = Number(
+    productEnvironment("CLIENT_API_PORT")?.trim() || productProfile.defaultClientApiPort,
+  );
 
   private target: ConnectionTarget;
 
@@ -412,18 +420,18 @@ export class OpenPpxLocalAdapter implements Omit<
   }
 
   private buildTarget(): ConnectionTarget {
-    const rawType = process.env.OPENPPX_TARGET_TYPE?.trim().toLowerCase() || "local";
+    const rawType = productEnvironment("TARGET_TYPE")?.trim().toLowerCase() || "local";
     if (rawType === "remote" || rawType === "lan") {
       return {
-        id: process.env.OPENPPX_TARGET_ID?.trim() || "remote-default",
+        id: productEnvironment("TARGET_ID")?.trim() || "remote-default",
         type: "remote",
-        name: process.env.OPENPPX_TARGET_NAME?.trim() || "Remote Node",
+        name: productEnvironment("TARGET_NAME")?.trim() || "Remote Node",
       };
     }
     return {
-      id: process.env.OPENPPX_TARGET_ID?.trim() || "local-default",
+      id: productEnvironment("TARGET_ID")?.trim() || "local-default",
       type: "local",
-      name: process.env.OPENPPX_TARGET_NAME?.trim() || "This Mac",
+      name: productEnvironment("TARGET_NAME")?.trim() || "This Mac",
     };
   }
 
@@ -439,7 +447,7 @@ export class OpenPpxLocalAdapter implements Omit<
     this.target = {
       id: settings.targetId.trim() || (isLan ? "lan-default" : "local-default"),
       type: isLan ? "remote" : "local",
-      name: settings.targetName.trim() || (isLan ? "LAN OpenPPX Node" : "This Mac"),
+      name: settings.targetName.trim() || (isLan ? `LAN ${productProfile.displayName} Node` : "This Mac"),
     };
     this.connection.configure({
       baseUrl: nextBaseUrl,
@@ -568,7 +576,7 @@ export class OpenPpxLocalAdapter implements Omit<
       return {
         target: this.target,
         state: "error",
-        summary: "Remote OpenPPX Node is unavailable.",
+        summary: `Remote ${productProfile.displayName} Node is unavailable.`,
         detail: connection.lastError || `Check the remote Node at ${connection.baseUrl}.`,
         lastError: "REMOTE_NODE_UNAVAILABLE",
       };
@@ -577,16 +585,16 @@ export class OpenPpxLocalAdapter implements Omit<
       return {
         target: this.target,
         state: "error",
-        summary: "openppx root was not found.",
-        detail: "Set OPENPPX_ROOT or run Desktop from apps/desktop in the OpenPPX repository.",
-        lastError: "OPENPPX_ROOT_NOT_FOUND",
+        summary: `${productProfile.displayName} source root was not found.`,
+        detail: `Set ${productProfile.environmentPrefix}_ROOT or run Desktop from apps/desktop in this repository.`,
+        lastError: `${productProfile.environmentPrefix}_ROOT_NOT_FOUND`,
       };
     }
     return {
       target: this.target,
       state: "error",
-      summary: "OpenPPX Client API is unavailable.",
-      detail: connection.lastError || `Start a compatible OpenPPX Node using protocol v${CLIENT_API_PROTOCOL_VERSION}.`,
+      summary: `${productProfile.displayName} Client API is unavailable.`,
+      detail: connection.lastError || `Start a compatible ${productProfile.displayName} Node using protocol v${CLIENT_API_PROTOCOL_VERSION}.`,
       lastError:
         connection.handshake?.compatibility === "incompatible"
           ? "CLIENT_API_PROTOCOL_INCOMPATIBLE"

@@ -1,10 +1,10 @@
-# OpenPPX
+# OpenTeamwork
 
 **An open-source Agent OS for secure, persistent, real-world AI work.**
 
 Run and manage AI agents from one Node, with durable sessions, skills, automation, extensions, permissions, and audit built on Google ADK.
 
-If OpenPPX is useful to you, give it a ⭐ so more builders can discover it.
+If OpenTeamwork is useful to you, give it a ⭐ so more builders can discover it.
 
 > Developer preview — not yet production-ready.
 
@@ -19,14 +19,14 @@ If OpenPPX is useful to you, give it a ⭐ so more builders can discover it.
 ## Architecture
 
 ```text
-CLI          OpenPPX Desktop          Future clients
+CLI          OpenTeamwork Desktop       Future clients
  |                  |                       |
  +------------------+-----------------------+
                     |
            Shared Client Contract
              HTTP + SSE + Actions
                     |
-              OpenPPX Node
+              OpenTeamwork Node
   Config / Models / Extensions / Operations / Audit
                     |
        Runtime Supervisor + immutable snapshots
@@ -73,10 +73,10 @@ python -m pip install --no-build-isolation -e .
 
 ## First setup
 
-`ppx setup` configures a Node, one Agent, one Model Profile, protected credentials, and a real first model turn. By default it uses `~/.openppx` as the Node root and asks for an API key with a hidden prompt when the provider requires one.
+`otw setup` configures a Node, one Agent, one Model Profile, protected credentials, and a real first model turn. By default it uses `~/.openteamwork` as the Node root and asks for an API key with a hidden prompt when the provider requires one.
 
 ```bash
-ppx setup \
+otw setup \
   --provider google \
   --model <provider-model-id> \
   --agent-id main \
@@ -88,7 +88,7 @@ Use `--no-hello` only when configuration must be saved before the model is reach
 Start the Node:
 
 ```bash
-ppx node run
+otw node run
 ```
 
 The default local endpoint is `http://127.0.0.1:18765`.
@@ -102,7 +102,7 @@ pnpm install
 pnpm desktop:dev
 ```
 
-OpenPPX Desktop can supervise a local Node or connect to an already-running Node. The packaged Desktop remains a thin client; Python, model credentials, Agent data, and Node databases are installed and operated separately.
+OpenTeamwork Desktop can supervise a local Node or connect to an already-running Node. The packaged Desktop remains a thin client; Python, model credentials, Agent data, and Node databases are installed and operated separately.
 
 See [apps/desktop/README.md](./apps/desktop/README.md) for development, packaging, and LAN instructions.
 
@@ -111,7 +111,7 @@ See [apps/desktop/README.md](./apps/desktop/README.md) for development, packagin
 On the machine that runs the agents, configure a non-loopback listener and required authentication during setup:
 
 ```bash
-ppx setup \
+otw setup \
   --listen-host 0.0.0.0 \
   --listen-port 18765 \
   --authentication required \
@@ -122,47 +122,50 @@ ppx setup \
 Then start the Node with a strong bearer token:
 
 ```bash
-export OPENPPX_CLIENT_API_TOKEN='<random-secret>'
-ppx node run
+export OPENTEAMWORK_CLIENT_API_TOKEN='<random-secret>'
+otw node run
 ```
 
 Connect Desktop or CLI to `http://<node-lan-address>:18765` with the same token. A non-loopback bind without a token is rejected. This mode is intended only for a trusted LAN; do not expose the HTTP endpoint directly to the public internet.
 
 ## CLI
 
+`otw` is the documented terminal command. The installed `openteamwork` command is an equivalent long-form entry point.
+
 The stable top-level groups are deliberately small:
 
 ```text
-ppx setup
-ppx node run|service
-ppx action list|invoke
-ppx command
-ppx config read|validate|preview|apply
-ppx model list|read|readiness|select|apply
-ppx extension list|get|readiness|preview|install|enable|disable|remove
-ppx operations status|health|tasks|cron|heartbeat|usage|audit
+otw status
+otw setup
+otw node run|service
+otw action list|invoke
+otw command
+otw config read|validate|preview|apply
+otw model list|read|readiness|select|apply
+otw extension list|get|readiness|preview|install|enable|disable|remove
+otw operations status|health|tasks|cron|heartbeat|usage|audit
 ```
 
-Commands that manage a running Node accept `--url` and `--token`. Add `--json` for machine-readable output. Use `ppx <group> --help` for exact inputs and optimistic-revision requirements.
+Commands that manage a running Node accept `--url` and `--token`. Add `--json` for machine-readable output. Use `otw <group> --help` for exact inputs and optimistic-revision requirements.
 
 Action discovery and direct invocation are useful for debugging shared client behavior:
 
 ```bash
-ppx action list --projection cli
-ppx action invoke system.status --input-json '{}'
+otw action list --projection cli
+otw action invoke system.status --input-json '{}'
 ```
 
 Slash commands use the same Action catalog:
 
 ```bash
-ppx command '/status'
-ppx command '/skills' --agent main
-ppx command '/history' --agent main --session <session-id>
+otw command '/status'
+otw command '/skills' --agent main
+otw command '/history' --agent main --session <session-id>
 ```
 
 ## Extensions
 
-OpenPPX uses four product-level extension types:
+OpenTeamwork uses four product-level extension types:
 
 - **Plugin:** a versioned declarative bundle that can provide Skills, App definitions, MCP templates, Agent templates, schemas, and documentation.
 - **App:** a managed external-service integration with product identity, authorization state, grants, and tool policy.
@@ -178,22 +181,25 @@ discover -> stage -> validate -> preview -> confirm -> install -> enable -> test
 Preview first, retain the returned digest, then install with that exact digest. Installed content is immutable and an active Run keeps its pinned extension snapshot.
 
 ```bash
-ppx extension list --agent main
-ppx extension preview skill local_directory <source-directory>
-ppx extension install skill local_directory <source-directory> <expected-digest>
+otw extension list --agent main
+otw extension preview skill local_directory <source-directory>
+otw extension install skill local_directory <source-directory> <expected-digest>
 ```
 
 ## Operations
 
 ```bash
-ppx operations status
-ppx operations health
-ppx operations tasks --limit 20
-ppx operations cron list
-ppx operations heartbeat status
-ppx operations usage --limit 20
-ppx operations audit --limit 50
+otw status
+otw operations status
+otw operations health
+otw operations tasks --limit 20
+otw operations cron list
+otw operations heartbeat status
+otw operations usage --limit 20
+otw operations audit --limit 50
 ```
+
+`otw status` is a shortcut for `otw operations status`.
 
 Cron and Heartbeat are owned by the long-lived Node process. Their actions, failures, and TaskRuns appear in the same Operations and audit surfaces used by Desktop.
 

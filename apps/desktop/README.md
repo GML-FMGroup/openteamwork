@@ -1,6 +1,6 @@
-# OpenPPX Desktop
+# OpenTeamwork Desktop
 
-OpenPPX Desktop is the Electron/React client for OpenPPX. It manages one or more Agents on a local Node or connects to a Node running on another machine in a trusted LAN.
+OpenTeamwork Desktop is the Electron/React client for OpenTeamwork. It manages one or more Agents on a local Node or connects to a Node running on another machine in a trusted LAN.
 
 The current application is a developer preview. It is a thin client: packaged Desktop artifacts do not contain the Python backend, model credentials, Node Config, or user databases.
 
@@ -11,8 +11,8 @@ React Renderer
   -> typed preload IPC
   -> Electron Main
   -> @openppx/client
-  -> OpenPPX Client API (HTTP, SSE, Actions)
-  -> OpenPPX Node
+  -> OpenTeamwork Client API (HTTP, SSE, Actions)
+  -> OpenTeamwork Node
   -> Google ADK runtimes
 ```
 
@@ -39,7 +39,7 @@ If the Client API is unavailable, unauthorized, or incompatible, Desktop reports
 - Node.js
 - pnpm
 - Python 3.14
-- OpenPPX installed in the repository virtual environment
+- OpenTeamwork installed in the repository virtual environment
 
 Install JavaScript dependencies from the repository root:
 
@@ -62,13 +62,13 @@ From the repository root:
 pnpm desktop:dev
 ```
 
-The local adapter looks for the source checkout through `OPENPPX_ROOT`, then uses `<root>/.venv/bin/python` when present. The Node root defaults to `~/.openppx` and can be overridden with `OPENPPX_NODE_ROOT`.
+The local adapter looks for the source checkout through `OPENTEAMWORK_ROOT`, then uses `<root>/.venv/bin/python` when present. The Node root defaults to `~/.openteamwork` and can be overridden with `OPENTEAMWORK_NODE_ROOT`.
 
 For deterministic debugging, start the backend yourself first:
 
 ```bash
 source .venv/bin/activate
-ppx node run --node-root ~/.openppx
+otw node run --node-root ~/.openteamwork
 ```
 
 The canonical local endpoint is `http://127.0.0.1:18765`. Desktop can also start a managed local Node when local mode is selected and no compatible process is already reachable.
@@ -104,7 +104,7 @@ Complete setup once:
 
 ```bash
 source .venv/bin/activate
-ppx setup \
+otw setup \
   --provider google \
   --model <provider-model-id> \
   --workspace <workspace-directory>
@@ -119,7 +119,7 @@ The local Electron process creates a random per-process bearer token when it sup
 On the machine that runs the Agents, configure a non-loopback listener and authentication:
 
 ```bash
-ppx setup \
+otw setup \
   --listen-host 0.0.0.0 \
   --listen-port 18765 \
   --authentication required \
@@ -130,8 +130,8 @@ ppx setup \
 Generate and retain a strong token, then start the Node:
 
 ```bash
-export OPENPPX_CLIENT_API_TOKEN='<random-secret>'
-ppx node run
+export OPENTEAMWORK_CLIENT_API_TOKEN='<random-secret>'
+otw node run
 ```
 
 In Desktop Settings select the LAN run location and enter:
@@ -179,13 +179,13 @@ These are process startup and connection inputs, not Node business configuration
 
 | Variable | Purpose |
 |---|---|
-| `OPENPPX_ROOT` | Source checkout used to locate the Python virtual environment. |
-| `OPENPPX_NODE_ROOT` | Explicit local Node root; defaults to `~/.openppx`. |
-| `OPENPPX_CLIENT_API_BASE_URL` | Explicit Node endpoint for development. |
-| `OPENPPX_CLIENT_API_TOKEN` | Bearer token for the selected endpoint. |
-| `OPENPPX_CLIENT_API_HOST` | Managed local bind host; defaults to `127.0.0.1`. |
-| `OPENPPX_CLIENT_API_PORT` | Managed local port; defaults to `18765`. |
-| `OPENPPX_CLIENT_DEBUG` | Enable bounded client connection diagnostics. |
+| `OPENTEAMWORK_ROOT` | Source checkout used to locate the Python virtual environment. |
+| `OPENTEAMWORK_NODE_ROOT` | Explicit local Node root; defaults to `~/.openteamwork`. |
+| `OPENTEAMWORK_CLIENT_API_BASE_URL` | Explicit Node endpoint for development. |
+| `OPENTEAMWORK_CLIENT_API_TOKEN` | Bearer token for the selected endpoint. |
+| `OPENTEAMWORK_CLIENT_API_HOST` | Managed local bind host; defaults to `127.0.0.1`. |
+| `OPENTEAMWORK_CLIENT_API_PORT` | Managed local port; defaults to `18765`. |
+| `OPENTEAMWORK_CLIENT_DEBUG` | Enable bounded client connection diagnostics. |
 
 ## Packaging
 
@@ -202,7 +202,7 @@ Artifacts are written below `apps/desktop/release/` and are not committed. Verif
 ```bash
 cd apps/desktop
 npm run verify:package
-hdiutil verify release/OpenPPX-Desktop-0.6.0-mac-arm64.dmg
+hdiutil verify release/OpenTeamwork-Desktop-0.6.0-mac-arm64.dmg
 cd release
 shasum -a 256 -c SHA256SUMS.txt
 ```
@@ -238,7 +238,7 @@ Stop the unintended process or configure one consistent port in Node setup and D
 Check the backend independently:
 
 ```bash
-ppx operations health --url http://127.0.0.1:18765
+otw operations health --url http://127.0.0.1:18765
 ```
 
 For LAN mode, add `--token '<token>'`, verify the host firewall, and confirm the configured Node identity before saving the target. The current development build exposes the returned identity but does not yet implement a cryptographic pairing ceremony.

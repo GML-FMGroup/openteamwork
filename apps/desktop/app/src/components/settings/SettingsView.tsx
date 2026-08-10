@@ -21,6 +21,7 @@ import {
   type ModelProviderAuthCheck,
 } from "./model-profile-access";
 import type { DesktopPreferenceChanges, DesktopPreferences } from "../../lib/desktop-preferences";
+import { productProfile } from "../../../../product";
 
 export type SettingsSection = "general" | "models" | "operations" | "agent" | "preferences";
 type ControlPanelArea = "settings" | "extensions";
@@ -270,7 +271,7 @@ export function SettingsView(props: SettingsViewProps) {
               <section className="settings-card settings-card-paths">
                 <h3>Paths</h3>
                 <dl className="diagnostics-stack settings-paths-grid">
-                  <div><dt>OpenPPX root</dt><dd>{props.diagnostics?.openppxRoot || "-"}</dd></div>
+                  <div><dt>{productProfile.displayName} root</dt><dd>{props.diagnostics?.openppxRoot || "-"}</dd></div>
                   <div><dt>Python</dt><dd>{props.diagnostics?.pythonBin || "-"}</dd></div>
                   <div><dt>Client API</dt><dd>{props.diagnostics?.clientApiBaseUrl || "-"}</dd></div>
                 </dl>

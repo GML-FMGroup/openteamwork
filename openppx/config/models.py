@@ -20,6 +20,7 @@ from pydantic import (
 from pydantic.alias_generators import to_camel
 
 from openppx.permissions.models import AgentPermissionSpec, NodePermissionSpec
+from openppx.product import PRODUCT
 
 
 ResourceName: TypeAlias = Annotated[
@@ -105,7 +106,7 @@ class NodeClientApiSpec(StrictConfigModel):
     """Client API listener settings for one Node."""
 
     listen_host: Annotated[str, StringConstraints(min_length=1, max_length=253)] = "127.0.0.1"
-    port: StrictInt = Field(default=18765, ge=1, le=65535)
+    port: StrictInt = Field(default=PRODUCT.default_client_api_port, ge=1, le=65535)
     authentication: Literal["required", "disabled"] = "required"
 
     @field_validator("listen_host")

@@ -1,6 +1,6 @@
 # Project Architecture
 
-OpenPPX is a Node-centered personal Agent platform built on Google ADK. The architecture separates durable backend facts from client interaction so a Desktop on one machine can manage Agents running on another trusted machine.
+OpenTeamwork is a Node-centered Agent platform built on Google ADK. The architecture separates durable backend facts from client interaction so a Desktop on one machine can manage Agents running on another trusted machine.
 
 ## Product boundary
 
@@ -11,7 +11,7 @@ Clients
 Shared Client Contract
   identity | auth | actions | content | events
              |
-OpenPPX Node
+OpenTeamwork Node
   Control Plane | Config | Models | Extensions | Operations
              |
 Runtime Supervisor

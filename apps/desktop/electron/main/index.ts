@@ -2,6 +2,7 @@ import { app, BrowserWindow, dialog, ipcMain, Notification, shell } from "electr
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import type { ClientDiagnostics, DesktopHostPreferences } from "../../app/src/types";
+import { productProfile } from "../../product";
 import {
   validateConnectionSettings,
   validateAutomationCreateInput,
@@ -72,7 +73,8 @@ let hostPreferences: DesktopHostPreferences = {
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-app.setName("OpenPPX Desktop");
+app.setName(`${productProfile.displayName} Desktop`);
+app.setPath("userData", path.join(app.getPath("appData"), productProfile.desktopUserDataDirectory));
 
 /** Attach the packaged Desktop version to Main-owned runtime diagnostics. */
 function withDesktopVersion(diagnostics: ClientDiagnostics): ClientDiagnostics {
@@ -89,7 +91,7 @@ function createWindow(): void {
     minWidth: 960,
     minHeight: 760,
     backgroundColor: "#f5f6f7",
-    title: "OpenPPX Desktop",
+    title: `${productProfile.displayName} Desktop`,
     titleBarStyle: isMac ? "hiddenInset" : "default",
     trafficLightPosition: isMac ? { x: 22, y: 22 } : undefined,
     webPreferences: {
@@ -110,7 +112,7 @@ function createWindow(): void {
       && !mainWindow?.isFocused()
     ) {
       new Notification({
-        title: "OpenPPX",
+        title: productProfile.displayName,
         body: event.status === "failed"
           ? "Agent run failed."
           : event.status === "cancelled"
@@ -133,7 +135,7 @@ function createWindow(): void {
       buttons: ["Keep Open", "Close Desktop"],
       defaultId: 0,
       cancelId: 0,
-      title: "Close OpenPPX Desktop?",
+      title: `Close ${productProfile.displayName} Desktop?`,
       message: "Close the Desktop window?",
       detail: "Active Node work is not treated as cancelled, but this Desktop connection will close.",
       noLink: true,

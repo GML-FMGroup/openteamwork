@@ -1,6 +1,6 @@
-appId: com.openppx.desktop
-productName: OpenPPX Desktop
-artifactName: OpenPPX-Desktop-${version}-${os}-${arch}.${ext}
+appId: com.openteamwork.desktop
+productName: OpenTeamwork Desktop
+artifactName: OpenTeamwork-Desktop-${version}-${os}-${arch}.${ext}
 
 directories:
   buildResources: build
@@ -23,7 +23,7 @@ mac:
         - arm64
 
 dmg:
-  title: OpenPPX Desktop ${version}
+  title: OpenTeamwork Desktop ${version}
   iconSize: 112
   contents:
     - x: 140

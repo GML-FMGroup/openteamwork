@@ -1,4 +1,4 @@
-"""Stable thin CLI entry point for OpenPPX Node Actions."""
+"""Stable thin CLI entry point for OpenTeamwork Node Actions."""
 
 from __future__ import annotations
 

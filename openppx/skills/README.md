@@ -1,6 +1,6 @@
-# openppx Skills
+# OpenTeamwork Skills
 
-This directory contains built-in skills that extend openppx's capabilities.
+This directory contains built-in skills that extend OpenTeamwork's capabilities.
 
 ## Skill Format
 
@@ -22,4 +22,4 @@ The skill format and metadata structure follow OpenClaw's conventions to maintai
 | `summarize` | Summarize URLs, files, and YouTube videos |
 | `tmux` | Remote-control tmux sessions |
 | `skill-creator` | Create new skills |
-| `self-observe` | Inspect openppx runtime health, token usage, and error logs |
+| `self-observe` | Inspect OpenTeamwork runtime health, token usage, and error logs |

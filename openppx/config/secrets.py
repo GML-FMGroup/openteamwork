@@ -5,6 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Literal, Protocol
 
+from openppx.product import PRODUCT
+
 from .models import ResourceName, StrictConfigModel
 
 
@@ -116,13 +118,19 @@ class InMemorySecretStore:
 class SystemCredentialSecretStore:
     """SecretStore backed by the operating system credential service."""
 
-    def __init__(self, *, adapter: CredentialAdapter | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        adapter: CredentialAdapter | None = None,
+        service_name: str = PRODUCT.credential_service,
+    ) -> None:
         self._adapter = adapter if adapter is not None else _load_keyring_adapter()
+        self._service_name = service_name
 
     def put(self, ref: SecretRef, value: SecretValue) -> SecretStatus:
         adapter = self._require_adapter(ref)
         try:
-            adapter.set_password("openppx", ref.name, value.reveal())
+            adapter.set_password(self._service_name, ref.name, value.reveal())
         except Exception:
             raise SecretBackendUnavailable(ref, "System credential backend is unavailable") from None
         return SecretStatus(ref=ref, state="available", backend="system")
@@ -132,7 +140,7 @@ class SystemCredentialSecretStore:
         if adapter is None or not _adapter_available(adapter):
             return SecretStatus(ref=ref, state="backend_unavailable", backend="system")
         try:
-            value = adapter.get_password("openppx", ref.name)
+            value = adapter.get_password(self._service_name, ref.name)
         except Exception:
             return SecretStatus(ref=ref, state="backend_unavailable", backend="system")
         state: SecretState = "available" if value is not None else "missing"
@@ -141,7 +149,7 @@ class SystemCredentialSecretStore:
     def resolve(self, ref: SecretRef) -> SecretValue:
         adapter = self._require_adapter(ref)
         try:
-            value = adapter.get_password("openppx", ref.name)
+            value = adapter.get_password(self._service_name, ref.name)
         except Exception:
             raise SecretBackendUnavailable(ref, "System credential backend is unavailable") from None
         if value is None:
@@ -153,7 +161,7 @@ class SystemCredentialSecretStore:
         if self.status(ref).state == "missing":
             return SecretStatus(ref=ref, state="missing", backend="system")
         try:
-            adapter.delete_password("openppx", ref.name)
+            adapter.delete_password(self._service_name, ref.name)
         except Exception:
             raise SecretBackendUnavailable(ref, "System credential backend is unavailable") from None
         return SecretStatus(ref=ref, state="missing", backend="system")

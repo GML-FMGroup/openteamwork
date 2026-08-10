@@ -1,4 +1,7 @@
 import type { ConnectionSettings } from "../types";
+import { productProfile } from "../../../product";
+
+const DEFAULT_LOCAL_CLIENT_API_URL = `http://127.0.0.1:${productProfile.defaultClientApiPort}`;
 
 export interface StoredConnectionSettings {
   schemaVersion: 1;
@@ -52,7 +55,7 @@ export function isLoopbackClientApiHostname(hostname: string): boolean {
 
 /** Validate a Client API origin without allowing credentials or URL suffixes. */
 export function normalizeClientApiBaseUrl(rawValue: string, targetType: "local" | "lan"): string {
-  const rawBaseUrl = rawValue.trim() || "http://127.0.0.1:18765";
+  const rawBaseUrl = rawValue.trim() || DEFAULT_LOCAL_CLIENT_API_URL;
   const parsedBaseUrl = new URL(rawBaseUrl);
   if (!["http:", "https:"].includes(parsedBaseUrl.protocol)) {
     throw new Error("Node URL must use http:// or https://.");
@@ -78,7 +81,7 @@ export function normalizeConnectionSettings(settings: ConnectionSettings): Conne
     throw new Error("Run location must be this computer or a LAN node.");
   }
   const targetType = settings.targetType;
-  const targetName = settings.targetName.trim() || (targetType === "lan" ? "LAN OpenPPX Node" : "This Mac");
+  const targetName = settings.targetName.trim() || (targetType === "lan" ? `LAN ${productProfile.displayName} Node` : "This Mac");
   const normalizedName =
     targetName
       .toLowerCase()
@@ -164,8 +167,8 @@ export function parseStoredConnectionSettings(payload: unknown): StoredConnectio
     schemaVersion: 1,
     targetType,
     targetId: String(record.targetId ?? (targetType === "lan" ? "lan-default" : "local-default")),
-    targetName: String(record.targetName ?? (targetType === "lan" ? "LAN OpenPPX Node" : "This Mac")),
-    clientApiBaseUrl: String(record.clientApiBaseUrl ?? "http://127.0.0.1:18765"),
+    targetName: String(record.targetName ?? (targetType === "lan" ? `LAN ${productProfile.displayName} Node` : "This Mac")),
+    clientApiBaseUrl: String(record.clientApiBaseUrl ?? DEFAULT_LOCAL_CLIENT_API_URL),
     secretRef: typeof record.secretRef === "string" && record.secretRef.trim() ? record.secretRef.trim() : undefined,
   };
 }

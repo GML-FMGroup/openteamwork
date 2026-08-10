@@ -1,18 +1,22 @@
 {
-  "name": "openppx",
+  "name": "openteamwork",
   "private": true,
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/pipixia-labs/openteamwork.git"
+  },
   "packageManager": "pnpm@10.30.3",
   "scripts": {
     "client:test": "pnpm --filter @openppx/client test",
     "client:typecheck": "pnpm --filter @openppx/client typecheck",
-    "desktop:dev": "pnpm --filter @openppx/desktop dev",
-    "desktop:test": "pnpm --filter @openppx/desktop test",
-    "desktop:typecheck": "pnpm --filter @openppx/desktop exec tsc --noEmit",
-    "desktop:build": "pnpm --filter @openppx/desktop build",
-    "desktop:preview": "pnpm --filter @openppx/desktop preview",
-    "desktop:package": "pnpm --filter @openppx/desktop package",
-    "desktop:package:dir": "pnpm --filter @openppx/desktop package:dir",
-    "desktop:checksum": "pnpm --filter @openppx/desktop checksum",
+    "desktop:dev": "pnpm --filter @openteamwork/desktop dev",
+    "desktop:test": "pnpm --filter @openteamwork/desktop test",
+    "desktop:typecheck": "pnpm --filter @openteamwork/desktop exec tsc --noEmit",
+    "desktop:build": "pnpm --filter @openteamwork/desktop build",
+    "desktop:preview": "pnpm --filter @openteamwork/desktop preview",
+    "desktop:package": "pnpm --filter @openteamwork/desktop package",
+    "desktop:package:dir": "pnpm --filter @openteamwork/desktop package:dir",
+    "desktop:checksum": "pnpm --filter @openteamwork/desktop checksum",
     "test": "pnpm client:test && pnpm desktop:test",
     "typecheck": "pnpm client:typecheck && pnpm desktop:typecheck"
   }

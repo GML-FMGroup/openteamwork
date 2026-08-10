@@ -7,8 +7,9 @@ import os
 import secrets
 from dataclasses import dataclass
 
+from ..product import PRODUCT
 
-CLIENT_API_TOKEN_ENV = "OPENPPX_CLIENT_API_TOKEN"
+CLIENT_API_TOKEN_ENV = f"{PRODUCT.environment_prefix}_CLIENT_API_TOKEN"
 
 
 def is_loopback_bind_host(host: str) -> bool:

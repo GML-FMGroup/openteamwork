@@ -9,7 +9,7 @@
     <script>
       (() => {
         try {
-          const raw = localStorage.getItem("openppx.desktop.preferences.v1");
+          const raw = localStorage.getItem("openteamwork.desktop.preferences.v1");
           const preference = raw ? JSON.parse(raw).theme : "system";
           const dark = preference === "dark" || (preference !== "light" && matchMedia("(prefers-color-scheme: dark)").matches);
           document.documentElement.dataset.theme = dark ? "dark" : "light";
@@ -19,7 +19,7 @@
         }
       })();
     </script>
-    <title>OpenPPX Desktop</title>
+    <title>OpenTeamwork Desktop</title>
   </head>
   <body>
     <div id="root"></div>

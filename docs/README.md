@@ -1,4 +1,4 @@
-# OpenPPX Documentation
+# OpenTeamwork Documentation
 
 - [PROJECT_OVERVIEW.md](./PROJECT_OVERVIEW.md): Node-centered product architecture and dependency direction
 - [CONFIGURATION.md](./CONFIGURATION.md): strict Node, Agent, Model Profile, Secret, revision, and apply semantics

@@ -28,7 +28,7 @@ class SessionServiceFactoryTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             with patch("openppx.runtime.paths.Path.home", return_value=Path(tmp)):
                 cfg = load_session_config()
-            self.assertIn(".openppx/database/sessions.db", cfg.db_url)
+            self.assertIn(".openteamwork/database/sessions.db", cfg.db_url)
 
     def test_create_sqlite_backend_uses_db_url(self) -> None:
         db_url = "sqlite+aiosqlite:////tmp/sessions.db"

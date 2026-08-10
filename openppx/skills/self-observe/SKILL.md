@@ -1,6 +1,6 @@
 ---
 name: self-observe
-description: Observe OpenPPX Node health with usage, automation status, audit facts, logs, and quick diagnostics.
+description: Observe OpenTeamwork Node health with usage, automation status, audit facts, logs, and quick diagnostics.
 ---
 
 # Self Observe Skill
@@ -11,29 +11,29 @@ Use this skill when the user asks for agent self-inspection, runtime health chec
 
 1. Token usage:
 ```bash
-ppx operations usage --json
-ppx operations usage --provider google --limit 50 --json
-ppx operations usage --provider openai --limit 50 --json
+otw operations usage --json
+otw operations usage --provider google --limit 50 --json
+otw operations usage --provider openai --limit 50 --json
 ```
 
 2. Runtime status:
 ```bash
-ppx operations status --json
-ppx operations health --json
-ppx operations heartbeat status --json
-ppx operations cron list --json
+otw operations status --json
+otw operations health --json
+otw operations heartbeat status --json
+otw operations cron list --json
 ```
 
 3. Error logs (read-only):
 ```bash
-tail -n 200 ~/.openppx/logs/node.err.log
-rg -n "ERROR|Error|Traceback|Exception|failed|timeout" ~/.openppx/logs/node.err.log ~/.openppx/logs/node.out.log
+tail -n 200 ~/.openteamwork/logs/node.err.log
+rg -n "ERROR|Error|Traceback|Exception|failed|timeout" ~/.openteamwork/logs/node.err.log ~/.openteamwork/logs/node.out.log
 ```
 
 4. SQLite quick verification (if `sqlite3` exists):
 ```bash
-sqlite3 ~/.openppx/database/token_usage.db "SELECT provider, COUNT(*) AS requests, SUM(total_tokens) AS total_tokens FROM llm_token_usage_events GROUP BY provider ORDER BY total_tokens DESC;"
-sqlite3 ~/.openppx/database/token_usage.db "SELECT response_at, provider, model, request_tokens, response_tokens, total_tokens FROM llm_token_usage_events ORDER BY response_at_ms DESC LIMIT 20;"
+sqlite3 ~/.openteamwork/database/token_usage.db "SELECT provider, COUNT(*) AS requests, SUM(total_tokens) AS total_tokens FROM llm_token_usage_events GROUP BY provider ORDER BY total_tokens DESC;"
+sqlite3 ~/.openteamwork/database/token_usage.db "SELECT response_at, provider, model, request_tokens, response_tokens, total_tokens FROM llm_token_usage_events ORDER BY response_at_ms DESC LIMIT 20;"
 ```
 
 ## Fast Path

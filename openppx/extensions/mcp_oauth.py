@@ -22,6 +22,7 @@ from mcp.shared._httpx_utils import create_mcp_http_client
 from mcp.shared.auth import OAuthClientInformationFull, OAuthClientMetadata, OAuthToken
 
 from openppx.config import SecretBackendUnavailable, SecretNotFound, SecretRef, SecretStore, SecretValue
+from openppx.product import PRODUCT
 
 from .errors import ExtensionError
 
@@ -201,7 +202,7 @@ class McpOAuthService:
         provider = self._provider(
             server_id,
             server_url,
-            "http://127.0.0.1:18765",
+            f"http://127.0.0.1:{PRODUCT.default_client_api_port}",
             redirect_handler=_refuse_redirect,
             callback_handler=_refuse_callback,
         )
@@ -241,7 +242,7 @@ class McpOAuthService:
     def _provider(self, server_id, server_url, callback_base, *, redirect_handler, callback_handler):
         metadata = OAuthClientMetadata.model_validate(
             {
-                "client_name": "OpenPPX",
+                "client_name": PRODUCT.display_name,
                 "redirect_uris": [callback_base.rstrip("/") + CALLBACK_PATH],
                 "grant_types": ["authorization_code", "refresh_token"],
                 "response_types": ["code"],

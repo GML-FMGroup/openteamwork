@@ -8,6 +8,7 @@ from pathlib import Path
 from openppx.agents import AgentLifecycleService
 from openppx.config import ConfigService, FilesystemConfigRepository, SecretStore, SystemCredentialSecretStore
 from openppx.modeling import ModelCatalog, ModelProfileLifecycleService, ModelProfileRepository, ModelProfileSelector, ProviderAccessService
+from openppx.product import PRODUCT
 from openppx.setup import SetupService
 from openppx.governance import ActionAuditStore
 
@@ -68,6 +69,6 @@ def build_control_plane(
 
 def _product_version() -> str:
     try:
-        return version("openppx")
+        return version(PRODUCT.python_distribution_name)
     except PackageNotFoundError:
         return "unknown"

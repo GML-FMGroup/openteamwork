@@ -45,6 +45,7 @@ from ..gui.executor import execute_gui_action
 from ..gui.job_coordinator import submit_gui_task_job
 from ..gui.task_runner import execute_gui_task
 from ..core.logging_utils import debug_logging_enabled, emit_debug
+from ..product import PRODUCT
 from ..runtime.cron_helpers import format_schedule
 from ..runtime.cron_schedule_parser import parse_schedule_input
 from ..runtime.cron_service import CronService
@@ -5814,9 +5815,9 @@ def _append_subagent_record(record: dict[str, Any]) -> Path:
     """Append one sub-agent spawn record to local JSONL log.
 
     The record is written only when ``spawn_subagent`` successfully dispatches
-    the task. The log is used by CLI introspection (`ppx spawn`).
+    the task. The log is used by CLI introspection.
     """
-    log_path = _workspace() / ".openppx" / "subagents.log"
+    log_path = _workspace() / PRODUCT.workspace_state_directory / "subagents.log"
     log_path.parent.mkdir(parents=True, exist_ok=True)
     ts = dt.datetime.now().isoformat(timespec="seconds")
     line = json.dumps({"timestamp": ts, **record}, ensure_ascii=False)

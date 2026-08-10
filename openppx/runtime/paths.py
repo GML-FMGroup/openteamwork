@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from openppx.product import PRODUCT
+
 _configured_node_root: Path | None = None
 
 
@@ -26,7 +28,7 @@ def default_node_root() -> Path:
     """Return the conventional Node root used only when no root is supplied."""
     if _configured_node_root is not None:
         return _configured_node_root
-    return Path.home() / ".openppx"
+    return Path.home() / PRODUCT.node_root_directory
 
 
 def resolve_node_root(node_root: Path | None = None) -> Path:

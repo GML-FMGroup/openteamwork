@@ -115,7 +115,7 @@ def test_browser_relative_paths_use_active_agent_workspace(
         uploads = validate_browser_upload_paths(["inputs/brief.pdf"])
 
     assert artifact == str(
-        workspace / ".openppx" / "browser_artifacts" / "captures" / "page.png"
+        workspace / ".openteamwork" / "browser_artifacts" / "captures" / "page.png"
     )
     assert uploads == [str(upload)]
     assert current_tool_execution_context() is None

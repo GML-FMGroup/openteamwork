@@ -782,7 +782,7 @@ describe("App sending state", () => {
     expect(applySetup).toHaveBeenCalledWith(expect.objectContaining({
       secret: { ref: { store: "system", name: "primary-model-api-key" }, value: "test-api-key" },
     }));
-    expect(runSetupHello).toHaveBeenCalledWith("main", "ppx-client-user", "Hello OpenPPX");
+    expect(runSetupHello).toHaveBeenCalledWith("main", "ppx-client-user", "Hello OpenTeamwork");
     expect(await screen.findByRole("button", { name: "Send" })).toBeInTheDocument();
   });
 
@@ -818,7 +818,7 @@ describe("App sending state", () => {
     expect(await screen.findByText("Connection failed")).toBeInTheDocument();
     const alert = screen.getByRole("alert");
     expect(alert).toHaveTextContent(
-      "Couldn’t reach an OpenPPX Node at http://127.0.0.1:18764. Check the URL and make sure the Node is running, then try again.",
+      "Couldn’t reach an OpenTeamwork Node at http://127.0.0.1:18764. Check the URL and make sure the Node is running, then try again.",
     );
     expect(alert).not.toHaveTextContent(/Error invoking remote method|test-connection-settings|fetch failed/);
 
@@ -850,7 +850,7 @@ describe("App sending state", () => {
 
     await waitFor(() => expect(runSetupHello).toHaveBeenCalledTimes(1));
     expect(applySetup).not.toHaveBeenCalled();
-    expect(runSetupHello).toHaveBeenCalledWith("main", "ppx-client-user", "Hello OpenPPX");
+    expect(runSetupHello).toHaveBeenCalledWith("main", "ppx-client-user", "Hello OpenTeamwork");
     expect(await screen.findByRole("button", { name: "Send" })).toBeInTheDocument();
   });
 
@@ -1231,7 +1231,7 @@ describe("App sending state", () => {
     const search = await screen.findByPlaceholderText("Search sessions");
     const collapseSidebar = screen.getByRole("button", { name: "Collapse sidebar" });
     const closeTaskPanel = screen.getByRole("button", { name: "Close task panel" });
-    const sidebarHeader = screen.getByLabelText("OpenPPX navigation").querySelector(".sidebar-brand-row");
+    const sidebarHeader = screen.getByLabelText("OpenTeamwork navigation").querySelector(".sidebar-brand-row");
     expect(sidebarHeader).not.toBeNull();
     expect(within(sidebarHeader as HTMLElement).getAllByRole("button")[0]).toHaveAccessibleName("Collapse sidebar");
     expect(sidebarHeader?.querySelector(".brand-lockup")).not.toBeInTheDocument();
@@ -1241,14 +1241,14 @@ describe("App sending state", () => {
     expect(search).toHaveFocus();
 
     fireEvent.keyDown(window, { key: "b", metaKey: true });
-    expect(screen.queryByLabelText("OpenPPX navigation")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("OpenTeamwork navigation")).not.toBeInTheDocument();
     const openSidebar = await screen.findByRole("button", { name: "Open sidebar" });
     expect(openSidebar.querySelector('[data-icon="sidebar"]')).toBeInTheDocument();
     await screen.findByRole("button", { name: "New session" });
     const searchSessions = await screen.findByRole("button", { name: "Search sessions" });
 
     fireEvent.click(searchSessions);
-    await screen.findByLabelText("OpenPPX navigation");
+    await screen.findByLabelText("OpenTeamwork navigation");
     expect(screen.getByPlaceholderText("Search sessions")).toHaveFocus();
     expect(screen.queryByRole("button", { name: "Open sidebar" })).not.toBeInTheDocument();
 
@@ -1283,8 +1283,8 @@ describe("App sending state", () => {
       fireEvent(window, new MouseEvent("pointermove", { bubbles: true, clientX: 1_044 }));
       fireEvent(window, new MouseEvent("pointerup", { bubbles: true, clientX: 1_044 }));
       expect(shell.style.getPropertyValue("--right-column-custom")).toBe("396px");
-      expect(storage.getItem("openppx.desktop.column-widths.v1")).toContain('"left":332');
-      expect(storage.getItem("openppx.desktop.column-widths.v1")).toContain('"right":396');
+      expect(storage.getItem("openteamwork.desktop.column-widths.v1")).toContain('"left":332');
+      expect(storage.getItem("openteamwork.desktop.column-widths.v1")).toContain('"right":396');
 
       fireEvent.click(screen.getByRole("button", { name: "Collapse sidebar" }));
       expect(screen.queryByRole("separator", { name: "Resize navigation sidebar" })).not.toBeInTheDocument();
@@ -1332,7 +1332,7 @@ describe("App sending state", () => {
     await openSettings();
     fireEvent.keyDown(window, { key: "b", metaKey: true });
 
-    expect(screen.queryByLabelText("OpenPPX navigation")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("OpenTeamwork navigation")).not.toBeInTheDocument();
     expect(await screen.findByRole("button", { name: "Open sidebar" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "New session" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Search sessions" })).toBeInTheDocument();
@@ -1377,7 +1377,7 @@ describe("App sending state", () => {
       installClient();
       render(<App />);
 
-      expect(screen.queryByLabelText("OpenPPX navigation")).not.toBeInTheDocument();
+      expect(screen.queryByLabelText("OpenTeamwork navigation")).not.toBeInTheDocument();
       await screen.findByRole("button", { name: "Open sidebar" });
       await screen.findByRole("button", { name: "Open task panel" });
       expect(screen.queryByRole("separator", { name: "Resize navigation sidebar" })).not.toBeInTheDocument();
@@ -1412,7 +1412,7 @@ describe("App sending state", () => {
       fireEvent.click(await screen.findByRole("button", { name: "Open sidebar" }));
       await openSettings();
 
-      expect(screen.queryByLabelText("OpenPPX navigation")).not.toBeInTheDocument();
+      expect(screen.queryByLabelText("OpenTeamwork navigation")).not.toBeInTheDocument();
       expect(await screen.findByRole("button", { name: "Open sidebar" })).toBeInTheDocument();
       expect(await screen.findByRole("heading", { name: "Connection" })).toBeInTheDocument();
     } finally {
@@ -1822,7 +1822,7 @@ describe("App sending state", () => {
 
   it("orders recent commands first and explains unavailable commands", async () => {
     const local = installLocalStorage();
-    local.storage.setItem("openppx.desktop.recentSlashCommands.v1", JSON.stringify(["/status"]));
+    local.storage.setItem("openteamwork.desktop.recentSlashCommands.v1", JSON.stringify(["/status"]));
     const commands = buildSlashCommands();
     commands[0] = {
       ...commands[0],
@@ -2526,7 +2526,7 @@ describe("App sending state", () => {
     await openSettings();
     await screen.findByRole("heading", { name: "Connection" });
 
-    const navigation = screen.getByLabelText("OpenPPX navigation");
+    const navigation = screen.getByLabelText("OpenTeamwork navigation");
     fireEvent.click(navigation.querySelector(".node-card") as HTMLElement);
 
     expect(await screen.findByRole("button", { name: "Send" })).toBeInTheDocument();
@@ -2548,7 +2548,7 @@ describe("App sending state", () => {
     await screen.findByRole("button", { name: "Send" });
     await openSettings();
     await screen.findByRole("heading", { name: "Connection" });
-    const navigation = screen.getByLabelText("OpenPPX navigation");
+    const navigation = screen.getByLabelText("OpenTeamwork navigation");
     fireEvent.click(within(navigation).getByTitle("New session"));
 
     await waitFor(() => expect(createSession).toHaveBeenCalledWith("agent-1"));

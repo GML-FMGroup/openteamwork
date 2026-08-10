@@ -12,6 +12,7 @@ from typing import Any, Callable
 
 from openppx.actions import ActionContext
 from openppx.client_api.contracts import ContractMapper
+from openppx.product import PRODUCT
 from openppx.runtime.client_api_client import ClientApiClient
 from openppx.runtime.node_host import build_node_composition
 
@@ -76,7 +77,7 @@ def _apply_input(args: Any, status: dict[str, Any], *, api_key: str | None) -> d
     """Build one complete strict setup request from CLI values and server facts."""
     provider = _provider(status, args.provider)
     if provider is None:
-        raise ValueError(f"Provider '{args.provider}' is not available on this OpenPPX Node")
+        raise ValueError(f"Provider '{args.provider}' is not available on this {PRODUCT.display_name} Node")
     model = args.model or str(provider.get("defaultModel") or "").strip()
     if not model:
         raise ValueError(f"Provider '{args.provider}' has no default model; pass --model")
@@ -155,7 +156,7 @@ def run_setup(args: Any) -> int:
             return render_envelope(before_envelope, output_json=args.output_json)
         provider = _provider(before, args.provider)
         if provider is None:
-            print(f"Error: Provider '{args.provider}' is not available on this OpenPPX Node")
+            print(f"Error: Provider '{args.provider}' is not available on this {PRODUCT.display_name} Node")
             return 2
         api_key = args.api_key
         if provider.get("credentialMode") == "api_key" and not api_key:
@@ -185,7 +186,7 @@ def run_setup(args: Any) -> int:
             return render_envelope(after_envelope, output_json=args.output_json)
     except (OSError, TimeoutError, ValueError) as exc:
         endpoint = args.client_api_url or str(args.node_root)
-        print(f"Error: setup could not use OpenPPX Node at {endpoint}: {exc}")
+        print(f"Error: setup could not use {PRODUCT.display_name} Node at {endpoint}: {exc}")
         return 1
     finally:
         if composition is not None:

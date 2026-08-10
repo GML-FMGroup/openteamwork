@@ -17,6 +17,7 @@ import { useDesktopWorkspace } from "./hooks/use-desktop-workspace";
 import { useDesktopPreferences } from "./hooks/use-desktop-preferences";
 import { useTranscriptFollow } from "./hooks/use-transcript-follow";
 import type { ExtensionSummary } from "./types";
+import { productProfile } from "../../product";
 
 type NavView = "chat" | "settings" | "automations";
 type SettingsDestination =
@@ -143,8 +144,8 @@ export function App() {
     return (
       <div className="loading-shell">
         <div>
-          <span className="loading-brand" aria-hidden="true">P</span>
-          <strong>ppx-client failed to initialize</strong>
+          <span className="loading-brand" aria-hidden="true">K</span>
+          <strong>{productProfile.displayName} failed to initialize</strong>
           <p>{workspace.bootstrapError}</p>
         </div>
       </div>
@@ -155,8 +156,8 @@ export function App() {
     return (
       <div className="loading-shell" aria-live="polite">
         <div>
-          <span className="loading-brand" aria-hidden="true">P</span>
-          <span className="loading-caption">Opening OpenPPX workspace…</span>
+          <span className="loading-brand" aria-hidden="true">K</span>
+          <span className="loading-caption">Opening {productProfile.displayName} workspace…</span>
         </div>
       </div>
     );
@@ -192,11 +193,11 @@ export function App() {
   }
 
   const runtime = workspace.runtime;
-  const workspaceAgentName = workspace.selectedAgent?.name ?? "OpenPPX";
+  const workspaceAgentName = workspace.selectedAgent?.name ?? productProfile.displayName;
   const titlebarTitle = view === "chat"
     ? workspace.selectedSession?.title ?? workspace.selectedAgent?.name ?? "No session"
     : view === "automations" ? "Automations" : settingsDestination.area === "extensions" ? "Extensions" : "Settings";
-  const titlebarSubtitle = view === "chat" ? workspace.selectedAgent?.name ?? "No agent selected" : "ppx-client";
+  const titlebarSubtitle = view === "chat" ? workspace.selectedAgent?.name ?? "No agent selected" : productProfile.cliCommand;
   const canSend = Boolean(workspace.composer.trim() || workspace.attachments.length) && Boolean(workspace.selectedAgentId) && !workspace.selectedAgentBusy;
   const suggestedAgentId = (() => {
     let index = workspace.agents.length + 1;

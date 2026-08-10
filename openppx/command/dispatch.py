@@ -395,6 +395,8 @@ def dispatch(args: Any) -> int:
             },
         )
     try:
+        if args.command == "status":
+            return invoke_action(args, "operations.overview", {})
         if args.command == "config":
             return _dispatch_config(args)
         if args.command == "model":

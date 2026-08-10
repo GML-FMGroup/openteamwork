@@ -10,7 +10,7 @@ import {
 
 export type WorkspaceColumn = "left" | "right";
 
-export const COLUMN_WIDTH_STORAGE_KEY = "openppx.desktop.column-widths.v1";
+export const COLUMN_WIDTH_STORAGE_KEY = "openteamwork.desktop.column-widths.v1";
 export const COLUMN_WIDTH_LIMITS = {
   left: { min: 220, max: 420 },
   right: { min: 260, max: 520 },

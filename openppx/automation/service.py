@@ -13,6 +13,7 @@ from typing import Any
 
 from openppx.config import ConfigError, FilesystemConfigRepository
 from openppx.modeling import ModelProfileRepository
+from openppx.product import PRODUCT
 from openppx.runtime.cron_service import (
     CronJob,
     CronSchedule,
@@ -746,7 +747,7 @@ class AutomationService:
         requirements = "\n".join(f"- {item}" for item in definition.get("outputRequirements", []))
         input_text = repr(run.input_snapshot) if run.input_snapshot else "{}"
         return (
-            "You are executing a user-created OpenPPX Automation as an independent Google ADK Agent Run.\n"
+            f"You are executing a user-created {PRODUCT.display_name} Automation as an independent Google ADK Agent Run.\n"
             f"Automation: {definition.get('name', '')}\nInstructions:\n{definition.get('instructions', '')}\n"
             f"Output requirements:\n{requirements or '- Return a clear result.'}\n"
             f"Typed input snapshot: {input_text}\n"

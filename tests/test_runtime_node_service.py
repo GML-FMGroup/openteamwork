@@ -15,6 +15,7 @@ def test_detect_service_manager_by_platform_name() -> None:
 
 
 def test_node_service_name_normalization() -> None:
+    assert node_service_name() == "openteamwork-node"
     assert node_service_name("openppx") == "openppx-node"
     assert node_service_name("  openppx dev ") == "openppx-dev-node"
 

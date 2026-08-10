@@ -24,6 +24,7 @@ from openppx.extensions import (
 from openppx.extensions.indexes import ExtensionReferenceIndex, ResourceIdentityIndex
 from openppx.extensions.prefixes import ToolPrefixIndex
 from openppx.operations import NodeAutomationExecutor, NodeOperationsRuntime, OperationsService
+from openppx.product import PRODUCT
 from openppx.skill_authoring import MakeSkillService
 from openppx.tooling.registry import configure_subagent_dispatcher
 
@@ -337,7 +338,7 @@ class OpenPpxNodeHost:
             node_resource = None
         if node_resource is None:
             resolved_host = host or "127.0.0.1"
-            resolved_port = port or 18765
+            resolved_port = port or PRODUCT.default_client_api_port
             resolved_token = resolve_client_api_access_token(access_token)
             authentication_required = bool(resolved_token)
         else:

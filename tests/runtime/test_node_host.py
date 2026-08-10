@@ -220,7 +220,7 @@ def test_unconfigured_node_starts_safe_loopback_bootstrap_surface(tmp_path: Path
 def test_unconfigured_non_loopback_bootstrap_requires_token(tmp_path: Path) -> None:
     import pytest
 
-    with pytest.raises(ValueError, match="OPENPPX_CLIENT_API_TOKEN"):
+    with pytest.raises(ValueError, match="OPENTEAMWORK_CLIENT_API_TOKEN"):
         OpenPpxNodeHost.build(
             tmp_path,
             host="0.0.0.0",

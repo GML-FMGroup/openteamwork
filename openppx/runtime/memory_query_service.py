@@ -13,6 +13,7 @@ from typing import Any
 
 from google.adk.memory.memory_entry import MemoryEntry
 
+from ..product import PRODUCT
 from .access_decision import AccessDecision
 from .access_policy import AccessPolicy
 from .identity_store import IdentityStore, create_identity_store
@@ -58,7 +59,7 @@ def _connect(db_path: Path) -> sqlite3.Connection:
 
 def _workspace_fallback_db_path(db_path: Path) -> Path:
     """Return the workspace-local fallback path for one SQLite database."""
-    fallback = (Path.cwd() / ".openppx" / "database" / db_path.name).resolve(strict=False)
+    fallback = (Path.cwd() / PRODUCT.workspace_state_directory / "database" / db_path.name).resolve(strict=False)
     fallback.parent.mkdir(parents=True, exist_ok=True)
     return fallback
 

@@ -25,6 +25,7 @@ from ..config import ConfigError
 from ..control_plane import CONTROL_PLANE_CAPABILITIES, ControlPlaneApplication, build_control_plane
 from ..core.logging_utils import debug_logging_enabled, emit_debug
 from ..extensions.mcp_oauth import CALLBACK_PATH
+from ..product import PRODUCT
 from .access_policy import AccessPolicy
 from .agent_access_runtime import ensure_access_principal
 from .agent_access_store import AgentAccessStore, AgentMembership, AgentRecord
@@ -1171,7 +1172,7 @@ class ClientApiCoordinator:
         capabilities = tuple(dict.fromkeys((*CONTROL_PLANE_CAPABILITIES, *CLIENT_API_CAPABILITIES)))
         return _ok(build_client_api_node_data(
             node_id=str(node.get("id") or ""),
-            display_name=str(node.get("displayName") or "OpenPPX Node"),
+            display_name=str(node.get("displayName") or f"{PRODUCT.display_name} Node"),
             agents=int(agents.get("enabled") or 0),
             authentication_required=authentication_required,
             capabilities=capabilities,
@@ -1188,10 +1189,14 @@ class ClientApiCoordinator:
             "target": {
                 "id": str(node.get("id") or "unconfigured-node"),
                 "type": "local",
-                "name": str(node.get("displayName") or "OpenPPX Node"),
+                "name": str(node.get("displayName") or f"{PRODUCT.display_name} Node"),
             },
             "state": "healthy" if ready else "error",
-            "summary": "OpenPPX Node is ready." if ready else "OpenPPX Node needs configuration.",
+            "summary": (
+                f"{PRODUCT.display_name} Node is ready."
+                if ready
+                else f"{PRODUCT.display_name} Node needs configuration."
+            ),
             "detail": "The Client API delegates system state to the Control Plane.",
         })
 
@@ -2765,14 +2770,14 @@ class _ClientApiHandler(BaseHTTPRequestHandler):
             if accepted:
                 self._send_html(
                     200,
-                    "<!doctype html><meta charset='utf-8'><title>OpenPPX connected</title>"
-                    "<main><h1>Connected to OpenPPX</h1><p>You can close this window and return to the Desktop app.</p></main>",
+                    f"<!doctype html><meta charset='utf-8'><title>{PRODUCT.display_name} connected</title>"
+                    f"<main><h1>Connected to {PRODUCT.display_name}</h1><p>You can close this window and return to the Desktop app.</p></main>",
                 )
             else:
                 self._send_html(
                     400,
-                    "<!doctype html><meta charset='utf-8'><title>OpenPPX sign-in expired</title>"
-                    "<main><h1>Sign-in could not be completed</h1><p>Return to OpenPPX and start Connect again.</p></main>",
+                    f"<!doctype html><meta charset='utf-8'><title>{PRODUCT.display_name} sign-in expired</title>"
+                    f"<main><h1>Sign-in could not be completed</h1><p>Return to {PRODUCT.display_name} and start Connect again.</p></main>",
                 )
             return
         if path == "/api/v1/health":

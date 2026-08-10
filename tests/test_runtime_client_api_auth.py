@@ -31,7 +31,7 @@ def test_non_loopback_bind_requires_a_token() -> None:
 
 
 def test_token_resolution_rejects_whitespace(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("OPENPPX_CLIENT_API_TOKEN", "bad token")
+    monkeypatch.setenv("OPENTEAMWORK_CLIENT_API_TOKEN", "bad token")
 
     with pytest.raises(ValueError, match="must not contain whitespace"):
         resolve_client_api_access_token()

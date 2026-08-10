@@ -1,4 +1,4 @@
-"""Argument parser for the converged OpenPPX command surface."""
+"""Argument parser for the converged OpenTeamwork command surface."""
 
 from __future__ import annotations
 
@@ -6,7 +6,13 @@ import argparse
 import os
 from pathlib import Path
 
+from openppx.product import PRODUCT
 from openppx.runtime.paths import default_node_root
+
+
+_CLIENT_API_URL_ENV = f"{PRODUCT.environment_prefix}_CLIENT_API_URL"
+_CLIENT_API_TOKEN_ENV = f"{PRODUCT.environment_prefix}_CLIENT_API_TOKEN"
+_DEFAULT_CLIENT_API_URL = f"http://127.0.0.1:{PRODUCT.default_client_api_port}"
 
 
 def _transport_parent() -> argparse.ArgumentParser:
@@ -14,13 +20,13 @@ def _transport_parent() -> argparse.ArgumentParser:
     parser.add_argument(
         "--url",
         dest="client_api_url",
-        default=os.getenv("OPENPPX_CLIENT_API_URL", "http://127.0.0.1:18765"),
-        help="OpenPPX Node URL (default: http://127.0.0.1:18765).",
+        default=os.getenv(_CLIENT_API_URL_ENV, _DEFAULT_CLIENT_API_URL),
+        help=f"{PRODUCT.display_name} Node URL (default: {_DEFAULT_CLIENT_API_URL}).",
     )
     parser.add_argument(
         "--token",
         dest="access_token",
-        default=os.getenv("OPENPPX_CLIENT_API_TOKEN", ""),
+        default=os.getenv(_CLIENT_API_TOKEN_ENV, ""),
         help="Bearer token for a protected Node.",
     )
     parser.add_argument("--json", dest="output_json", action="store_true", help="Emit machine-readable JSON.")
@@ -40,20 +46,33 @@ def _add_source_arguments(parser: argparse.ArgumentParser) -> None:
 def build_parser() -> argparse.ArgumentParser:
     """Build the small stable CLI parser without importing business services."""
     transport = _transport_parent()
-    parser = argparse.ArgumentParser(prog="ppx", description="Operate OpenPPX Nodes and Agents.")
+    parser = argparse.ArgumentParser(
+        prog=PRODUCT.cli_command,
+        description=f"Operate {PRODUCT.display_name} Nodes and Agents.",
+    )
     subparsers = parser.add_subparsers(dest="command", required=True)
+
+    subparsers.add_parser(
+        "status",
+        parents=[transport],
+        help="Show the same Node overview as 'operations status'.",
+    )
 
     setup = subparsers.add_parser("setup", help="Configure a Node, Agent, Model Profile, and first Hello.")
     setup.add_argument("--node-root", type=Path, default=default_node_root())
     setup.add_argument("--url", dest="client_api_url", default="", help="Configure a running Node instead of a local root.")
-    setup.add_argument("--token", dest="access_token", default=os.getenv("OPENPPX_CLIENT_API_TOKEN", ""))
+    setup.add_argument("--token", dest="access_token", default=os.getenv(_CLIENT_API_TOKEN_ENV, ""))
     setup.add_argument("--node-id", default="local-node")
     setup.add_argument("--node-name", default="")
-    setup.add_argument("--agent-id", default="main")
-    setup.add_argument("--agent-name", default="Main")
+    setup.add_argument("--agent-id", default=PRODUCT.default_agent_id)
+    setup.add_argument("--agent-name", default=PRODUCT.default_agent_display_name)
     setup.add_argument("--user-id", default="ppx-client-user")
     setup.add_argument("--workspace", default="")
-    setup.add_argument("--privilege-level", choices=["low", "medium", "high", "root"], default="medium")
+    setup.add_argument(
+        "--privilege-level",
+        choices=PRODUCT.allowed_agent_privilege_levels,
+        default=PRODUCT.default_agent_privilege_level,
+    )
     setup.add_argument("--profile-id", default="primary")
     setup.add_argument("--provider", default="google")
     setup.add_argument("--model", default="")
@@ -61,13 +80,13 @@ def build_parser() -> argparse.ArgumentParser:
     setup.add_argument("--credential-name", default="primary-model-api-key")
     setup.add_argument("--api-key", default="", help="Provider API key; prefer the hidden interactive prompt.")
     setup.add_argument("--listen-host", default="127.0.0.1")
-    setup.add_argument("--listen-port", type=int, default=18765)
+    setup.add_argument("--listen-port", type=int, default=PRODUCT.default_client_api_port)
     setup.add_argument("--authentication", choices=["required", "disabled"], default="disabled")
-    setup.add_argument("--hello", default="Hello OpenPPX")
+    setup.add_argument("--hello", default=f"Hello {PRODUCT.display_name}")
     setup.add_argument("--no-hello", action="store_true")
     setup.add_argument("--json", dest="output_json", action="store_true")
 
-    node = subparsers.add_parser("node", help="Run or install the long-lived OpenPPX Node.")
+    node = subparsers.add_parser("node", help=f"Run or install the long-lived {PRODUCT.display_name} Node.")
     node_sub = node.add_subparsers(dest="node_command", required=True)
     node_run = node_sub.add_parser("run", help="Run the Node in the foreground.")
     node_run.add_argument("--node-root", type=Path, default=default_node_root())
@@ -273,7 +292,7 @@ def build_parser() -> argparse.ArgumentParser:
     author_scaffold.add_argument("--destination", type=Path, default=Path.cwd())
     author_scaffold.add_argument("--description", required=True)
     author_scaffold.add_argument("--display-name", default=None)
-    author_scaffold.add_argument("--developer", default="OpenPPX Developer")
+    author_scaffold.add_argument("--developer", default=f"{PRODUCT.display_name} Developer")
     author_scaffold.add_argument("--json", dest="output_json", action="store_true")
     author_validate = author_sub.add_parser("validate", help="Validate with production extension parsers.")
     author_validate.add_argument("kind", choices=["skill", "plugin", "app"])

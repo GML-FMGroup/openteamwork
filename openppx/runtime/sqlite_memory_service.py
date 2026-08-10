@@ -18,6 +18,7 @@ from google.adk.memory.base_memory_service import BaseMemoryService, SearchMemor
 from google.adk.memory.memory_entry import MemoryEntry
 from google.genai import types
 
+from ..product import PRODUCT
 from .adk_storage_meta import ensure_adk_storage_meta_for_sqlite_path
 from .memory_shared import (
     build_fact_key,
@@ -53,7 +54,7 @@ def _connect(db_path: Path) -> sqlite3.Connection:
 
 def _workspace_fallback_db_path(db_path: Path) -> Path:
     """Return the workspace-local fallback path for one SQLite database."""
-    fallback = (Path.cwd() / ".openppx" / "database" / db_path.name).resolve(strict=False)
+    fallback = (Path.cwd() / PRODUCT.workspace_state_directory / "database" / db_path.name).resolve(strict=False)
     fallback.parent.mkdir(parents=True, exist_ok=True)
     return fallback
 

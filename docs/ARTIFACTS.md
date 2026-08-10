@@ -1,6 +1,6 @@
 # Sessions, Attachments, and Artifacts
 
-OpenPPX stores Session lifecycle metadata and Artifact content on the Node. Desktop, CLI, and future clients operate through the Client API; they never pass an arbitrary client filesystem path to the Agent runtime.
+OpenTeamwork stores Session lifecycle metadata and Artifact content on the Node. Desktop, CLI, and future clients operate through the Client API; they never pass an arbitrary client filesystem path to the Agent runtime.
 
 ## Session lifecycle
 

@@ -1,5 +1,5 @@
 [project]
-name = "openppx"
+name = "openteamwork"
 version = "0.6.0"
 description = "A lightweight skills-first agent built with Google ADK"
 requires-python = ">=3.11"
@@ -25,9 +25,15 @@ eval = [
     "google-adk[eval]>=2.1.0",
 ]
 
+[project.urls]
+Homepage = "https://github.com/pipixia-labs/openteamwork"
+Repository = "https://github.com/pipixia-labs/openteamwork.git"
+Issues = "https://github.com/pipixia-labs/openteamwork/issues"
+
 [project.scripts]
-ppx = "openppx.cli:main"
-ppx-egress-proxy = "openppx.runtime.sandbox.egress_proxy:main"
+otw = "openppx.cli:main"
+openteamwork = "openppx.cli:main"
+otw-egress-proxy = "openppx.runtime.sandbox.egress_proxy:main"
 
 [build-system]
 requires = ["hatchling"]
@@ -40,6 +46,7 @@ packages = ["openppx"]
 include = [
     "docker/**",
     "openppx/**/*.py",
+    "openppx/product.json",
     "openppx/extensions/data/**",
     "openppx/permissions/presets/**",
     "openppx/skills/**",

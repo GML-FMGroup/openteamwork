@@ -7,6 +7,8 @@ import re
 from pathlib import Path
 from typing import Literal
 
+from openppx.product import PRODUCT
+
 ServiceManager = Literal["launchd", "systemd", "unsupported"]
 
 
@@ -22,9 +24,9 @@ def detect_service_manager(platform_name: str | None = None) -> ServiceManager:
     return "unsupported"
 
 
-def node_service_name(app_name: str = "openppx") -> str:
-    """Return a normalized user-service name for one OpenPPX Node."""
-    normalized = re.sub(r"[^a-zA-Z0-9._-]+", "-", app_name.strip()).strip("-.") or "openppx"
+def node_service_name(app_name: str = PRODUCT.product_id) -> str:
+    """Return a normalized user-service name for one product Node."""
+    normalized = re.sub(r"[^a-zA-Z0-9._-]+", "-", app_name.strip()).strip("-.") or PRODUCT.product_id
     return f"{normalized}-node"
 
 

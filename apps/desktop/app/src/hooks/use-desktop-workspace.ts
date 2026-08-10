@@ -40,6 +40,7 @@ import { sortSessionsByRecency } from "../lib/session-order";
 import { LOCAL_USER_ID } from "../types";
 import { useActiveRuns } from "./use-active-runs";
 import { useConnectionRecovery } from "./use-connection-recovery";
+import { productProfile } from "../../../product";
 
 function mergeMessages(current: ChatMessage[], incoming: ChatMessage): ChatMessage[] {
   return current.some((item) => item.id === incoming.id) ? current : [...current, incoming];
@@ -87,7 +88,7 @@ function buildConnectionSettings(diagnostics: ClientDiagnostics | null): Connect
     targetType: diagnostics?.mode === "lan" ? "lan" : "local",
     targetId: diagnostics?.target.id ?? "local-default",
     targetName: diagnostics?.target.name ?? "This Mac",
-    clientApiBaseUrl: diagnostics?.clientApiBaseUrl ?? "http://127.0.0.1:18765",
+    clientApiBaseUrl: diagnostics?.clientApiBaseUrl ?? `http://127.0.0.1:${productProfile.defaultClientApiPort}`,
     accessToken: "",
   };
 }
@@ -117,8 +118,8 @@ function onboardingBootstrap(diagnostics: ClientDiagnostics): BootstrapPayload {
       target: diagnostics.target,
       state: diagnostics.clientApiHealthy ? "needs_configuration" : "error",
       summary: diagnostics.clientApiHealthy
-        ? "OpenPPX Node needs configuration."
-        : "OpenPPX Node is unavailable.",
+        ? `${productProfile.displayName} Node needs configuration.`
+        : `${productProfile.displayName} Node is unavailable.`,
       detail: diagnostics.clientApiHealthy
         ? "Repair or complete the Node configuration to load the workspace."
         : diagnostics.clientApiLastError,
@@ -135,18 +136,18 @@ function initialSetupForm(): SetupForm {
   return {
     nodeId: "local-node",
     nodeName: "This Mac",
-    agentId: "main",
-    agentName: "Main",
+    agentId: productProfile.defaultAgentId,
+    agentName: productProfile.defaultAgentDisplayName,
     workspace: "",
     ownerPrincipalId: LOCAL_USER_ID,
-    privilegeLevel: "medium",
+    privilegeLevel: productProfile.defaultAgentPrivilegeLevel,
     profileId: "primary",
     provider: "google",
     model: "",
     executionLocation: "remote",
     credentialName: "primary-model-api-key",
     apiKey: "",
-    hello: "Hello OpenPPX",
+    hello: `Hello ${productProfile.displayName}`,
   };
 }
 
@@ -263,7 +264,7 @@ function formatSlashCommandResult(outcome: SlashCommandResult): string {
   const result = record(outcome.result);
   if (outcome.targetActionId === "system.status") {
     const node = record(result.node);
-    return `Node status: ${String(result.state ?? "unknown")} · ${String(node.displayName ?? node.id ?? "OpenPPX Node")}`;
+    return `Node status: ${String(result.state ?? "unknown")} · ${String(node.displayName ?? node.id ?? `${productProfile.displayName} Node`)}`;
   }
   if (outcome.targetActionId === "system.help") {
     const commands = (Array.isArray(result.items) ? result.items : []).flatMap((item) => {
@@ -866,7 +867,7 @@ export function useDesktopWorkspace() {
           ? {
               ...current,
               state: "reconnecting",
-              summary: "Reconnecting to OpenPPX Node...",
+              summary: `Reconnecting to ${productProfile.displayName} Node...`,
               detail: diagnostics?.clientApiLastError ?? "The connection will be retried automatically.",
             }
           : current,

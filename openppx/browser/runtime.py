@@ -18,6 +18,7 @@ import uuid
 from .schema import apply_status_metadata, make_profile_entry, make_runtime_capability
 from ..core.security import validate_network_url
 from ..core.env_utils import env_enabled
+from ..product import PRODUCT
 
 
 _SUPPORTED_SCHEMES = {"http", "https", "about"}
@@ -218,7 +219,9 @@ def _resolve_artifact_root() -> str:
         return os.path.realpath(os.path.abspath(os.path.expanduser(configured)))
     workspace = _active_workspace()
     base = workspace or os.getcwd()
-    return os.path.realpath(os.path.abspath(os.path.join(base, ".openppx", "browser_artifacts")))
+    return os.path.realpath(
+        os.path.abspath(os.path.join(base, PRODUCT.workspace_state_directory, "browser_artifacts"))
+    )
 
 
 def resolve_browser_artifact_path(out_path: str | None, *, default_filename: str) -> str:
@@ -420,7 +423,7 @@ class InMemoryBrowserRuntime:
         tab = BrowserTab(
             target_id=f"tab-{uuid.uuid4().hex[:8]}",
             url=url,
-            title=f"OpenPPX: {url}",
+            title=f"{PRODUCT.display_name}: {url}",
         )
         self._tabs.append(tab)
         self._last_target_id = tab.target_id
@@ -511,7 +514,7 @@ class InMemoryBrowserRuntime:
         tab = self._resolve_tab(target_id)
         validate_browser_url(url)
         tab.url = url
-        tab.title = f"OpenPPX: {url}"
+        tab.title = f"{PRODUCT.display_name}: {url}"
         self._last_target_id = tab.target_id
         self._record_console_message(tab.target_id, "info", f"navigated to {url}")
         return {

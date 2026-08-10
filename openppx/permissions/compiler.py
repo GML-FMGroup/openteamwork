@@ -9,6 +9,8 @@ from importlib.resources import files
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Literal, Mapping
 
+from openppx.product import PRODUCT
+
 from .models import (
     AgentWorkspaceBoundary,
     ExternalPathSelector,
@@ -55,7 +57,22 @@ def _load_permission_template_catalog() -> PermissionTemplateCatalog:
 
     resource = files("openppx.permissions").joinpath("presets", "v1alpha1.json")
     payload = json.loads(resource.read_text(encoding="utf-8"))
+    payload["templates"] = [
+        _productize_permission_copy(template)
+        for template in payload.get("templates", [])
+    ]
     return PermissionTemplateCatalog.model_validate(payload)
+
+
+def _productize_permission_copy(value: object) -> object:
+    """Replace product copy while preserving shared permission identifiers."""
+    if isinstance(value, str):
+        return value.replace("OpenPPX", PRODUCT.display_name)
+    if isinstance(value, list):
+        return [_productize_permission_copy(item) for item in value]
+    if isinstance(value, dict):
+        return {key: _productize_permission_copy(item) for key, item in value.items()}
+    return value
 
 
 def load_permission_templates() -> Mapping[str, PermissionTemplate]:
@@ -146,7 +163,7 @@ def _node_safe_root_rules(node: NodeConfig, *, preset: str) -> tuple[PermissionR
                 object="external_path",
                 actions=["create", "write", "edit", "rename", "delete", "execute"],
                 selector=ExternalPathSelector(paths=list(permissions.high_protected_write_roots)),
-                description="OpenPPX and OS roots that high Agents cannot modify or execute.",
+                description=f"{PRODUCT.display_name} and OS roots that high Agents cannot modify or execute.",
             )
         )
     return tuple(rules)

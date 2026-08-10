@@ -11,6 +11,7 @@ from typing import Any
 
 from loguru import logger
 
+from ..product import PRODUCT
 from ..runtime.paths import default_node_root
 from ..core.env_utils import env_enabled
 
@@ -47,7 +48,7 @@ class SkillRegistry:
             self.builtin_skills_dirs = [builtin_skills_dir.resolve()]
         else:
             dirs: list[Path] = [package_builtin_dir.resolve()]
-            openppx_builtin_dir = Path.home() / ".openppx" / "skills"
+            openppx_builtin_dir = Path.home() / PRODUCT.node_root_directory / "skills"
             if openppx_builtin_dir.resolve() not in dirs:
                 dirs.append(openppx_builtin_dir.resolve())
             self.builtin_skills_dirs = dirs

@@ -15,6 +15,7 @@ from google.adk.evaluation.agent_evaluator import AgentEvaluator
 from google.adk.evaluation.eval_set import EvalSet
 
 from openppx.config.secrets import InMemorySecretStore
+from openppx.product import PRODUCT
 
 from .app_models import AppDefinition
 from .models import ExtensionSourceRef
@@ -38,7 +39,7 @@ def scaffold_extension(
     *,
     description: str,
     display_name: str | None = None,
-    developer: str = "OpenPPX Developer",
+    developer: str = f"{PRODUCT.display_name} Developer",
 ) -> dict[str, Any]:
     """Create one minimal standards-compliant extension source tree.
 

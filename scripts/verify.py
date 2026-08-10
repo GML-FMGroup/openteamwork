@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run the canonical OpenPPX verification gate without a Corepack download."""
+"""Run the canonical OpenTeamwork verification gate without a Corepack download."""
 
 from __future__ import annotations
 
@@ -80,7 +80,7 @@ def verification_steps(
                         "node",
                         "scripts/verify-preload.mjs",
                         "--asar",
-                        "release/mac-arm64/OpenPPX Desktop.app/Contents/Resources/app.asar",
+                        "release/mac-arm64/OpenTeamwork Desktop.app/Contents/Resources/app.asar",
                         "dist-electron/preload/index.cjs",
                     ),
                 ),

@@ -26,8 +26,8 @@ class MemoryServiceFactoryTests(unittest.TestCase):
 
         self.assertTrue(cfg.enabled)
         self.assertEqual(cfg.backend, "sqlite")
-        self.assertIn(".openppx/database/memory.db", cfg.sqlite_db_path)
-        self.assertIn(".openppx/memory", cfg.markdown_dir)
+        self.assertIn(".openteamwork/database/memory.db", cfg.sqlite_db_path)
+        self.assertIn(".openteamwork/memory", cfg.markdown_dir)
 
     def test_load_memory_config_uses_explicit_node_root(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

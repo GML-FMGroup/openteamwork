@@ -1,6 +1,6 @@
 # Sandbox
 
-OpenPPX provides a Docker execution backend for dangerous local commands and declarative Skill APIs. Sandbox policy is a trusted Node deployment concern; model-authored recipes may request stricter isolation but cannot silently weaken the configured baseline.
+OpenTeamwork provides a Docker execution backend for dangerous local commands and declarative Skill APIs. Sandbox policy is a trusted Node deployment concern; model-authored recipes may request stricter isolation but cannot silently weaken the configured baseline.
 
 Docker is a pragmatic isolation layer, not a perfect security boundary. Anyone who controls the Docker daemon is effectively host-privileged.
 
@@ -47,7 +47,7 @@ Set the minimum backend before starting the Node:
 ```bash
 export OPENPPX_SANDBOX_BACKEND=docker
 export OPENPPX_SANDBOX_IMAGE=openppx-sandbox:dev
-ppx node run
+otw node run
 ```
 
 `OPENPPX_SANDBOX_BACKEND=docker` prevents a tool request from downgrading to a weaker backend without the normal confirmation path.
@@ -82,19 +82,19 @@ When static Command permissions are enforced, `low`, `medium`, and `high` cannot
 
 - `low` runs its reviewed `grep`/`rg` commands in a read-only Workspace mount with network disabled;
 - `medium` and `high` attach only to a Node-configured Docker `--internal` network;
-- a trusted OpenPPX egress proxy is the only service connected to both that internal network and an external network;
+- a trusted OpenTeamwork egress proxy is the only service connected to both that internal network and an external network;
 - the proxy loads a revision-addressed, network-only policy and verifies a high-entropy credential for that exact revision;
 - the task container receives its own proxy credential but cannot read the policy directory or select another revision without that revision's credential.
 
 The Runtime publishes the current compatible permission revision immediately before each new proxy-backed command. A permission update therefore cannot reuse an older, wider egress policy for a later command.
 
-Provisioning is an operator action. OpenPPX verifies the network but never creates or weakens it during an Agent call:
+Provisioning is an operator action. OpenTeamwork verifies the network but never creates or weakens it during an Agent call:
 
 ```bash
 docker network create --internal openppx-egress-internal
 ```
 
-Run `ppx-egress-proxy` from a reviewed service image that has OpenPPX installed. Mount the Node-owned policy directory read-only, start the proxy on an external network, and then attach only that trusted proxy container to the internal network:
+Run `otw-egress-proxy` from a reviewed service image that has OpenTeamwork installed. Mount the Node-owned policy directory read-only, start the proxy on an external network, and then attach only that trusted proxy container to the internal network:
 
 ```bash
 docker build \
@@ -206,5 +206,5 @@ The test removes its named containers and networks in a `finally` block.
 - Review every host path made visible to a container.
 - Keep the Docker socket outside the sandbox.
 - Treat an enabled network and a writable workspace as meaningful privileges.
-- Remove leaked containers by their OpenPPX labels only after inspecting active tasks.
+- Remove leaked containers by their OpenTeamwork labels only after inspecting active tasks.
 - Sandbox evidence complements Action policy, confirmation, extension trust, and audit; it does not replace them.

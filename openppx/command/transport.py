@@ -6,6 +6,7 @@ import json
 import uuid
 from typing import Any
 
+from openppx.product import PRODUCT
 from openppx.runtime.client_api_client import ClientApiClient
 
 
@@ -40,7 +41,7 @@ def render_envelope(payload: dict[str, Any], *, output_json: bool) -> int:
         print(json.dumps(result, ensure_ascii=False, indent=2))
         return 0
     error = payload.get("error") if isinstance(payload.get("error"), dict) else {}
-    message = str(error.get("message") or "OpenPPX Node rejected the request.")
+    message = str(error.get("message") or f"{PRODUCT.display_name} Node rejected the request.")
     code = str(error.get("code") or "unknown_error")
     print(f"Error [{code}]: {message}")
     return 1
@@ -68,7 +69,7 @@ def invoke_action(
             request_id=request_id,
         )
     except (OSError, TimeoutError, ValueError) as exc:
-        print(f"Error: unable to reach OpenPPX Node at {args.client_api_url}: {exc}")
+        print(f"Error: unable to reach {PRODUCT.display_name} Node at {args.client_api_url}: {exc}")
         return 1
     return render_envelope(payload, output_json=args.output_json)
 
@@ -78,6 +79,6 @@ def action_catalog(args: Any) -> int:
     try:
         payload = client_for(args).action_catalog(namespace=args.namespace, projection=args.projection)
     except (OSError, TimeoutError, ValueError) as exc:
-        print(f"Error: unable to reach OpenPPX Node at {args.client_api_url}: {exc}")
+        print(f"Error: unable to reach {PRODUCT.display_name} Node at {args.client_api_url}: {exc}")
         return 1
     return render_envelope(payload, output_json=args.output_json)

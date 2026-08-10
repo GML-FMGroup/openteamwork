@@ -7,6 +7,7 @@ import {
   type ClientApiHandshake,
   type ClientApiNodeInfo,
 } from "@openppx/client";
+import { productProfile } from "../../product";
 
 export type ClientApiAuthState = "authenticated" | "not-required" | "missing" | "unauthorized" | "unknown";
 
@@ -33,7 +34,7 @@ export interface ClientApiHealthOptions {
 }
 
 /**
- * Owns the mutable HTTP/protocol health state for one OpenPPX Client API endpoint.
+ * Owns the mutable HTTP/protocol health state for one product Client API endpoint.
  *
  * The service never persists credentials and never starts local processes. Those
  * responsibilities stay in the Electron host so this boundary can later be reused
@@ -127,7 +128,7 @@ export class ClientApiConnection {
 
   public unavailableError(operation: string): Error {
     const reason = this.lastError || `No compatible protocol v${CLIENT_API_PROTOCOL_VERSION} Node is ready.`;
-    return new Error(`${operation} requires the OpenPPX Client API. ${reason}`);
+    return new Error(`${operation} requires the ${productProfile.displayName} Client API. ${reason}`);
   }
 
   public request(pathname: string, init?: RequestInit): Promise<Response> {

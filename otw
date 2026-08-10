@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Script entrypoint to support: python ppx -m '...'."""
+"""Convenience source-checkout entry point for the otw CLI."""
 
 from openppx.cli import main
 

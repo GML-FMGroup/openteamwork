@@ -6,6 +6,8 @@ import json
 from pathlib import Path
 from typing import Any
 
+from openppx.product import PRODUCT
+
 from .models import (
     ActionCatalogItem,
     ActionCatalogPayload,
@@ -68,7 +70,7 @@ def export_client_contract(output_dir: Path) -> tuple[Path, ...]:
         fixtures_dir / "action-invoke-setup-hello.json": _invoke_fixture(
             request_id="req_setup_hello_fixture",
             action_id="setup.hello",
-            input={"agentId": "main", "userId": "user_fixture", "text": "Hello OpenPPX"},
+            input={"agentId": "main", "userId": "user_fixture", "text": f"Hello {PRODUCT.display_name}"},
         ),
         fixtures_dir / "action-invoke-operations-overview.json": _invoke_fixture(
             request_id="req_operations_overview_fixture",
@@ -140,7 +142,11 @@ def export_client_contract(output_dir: Path) -> tuple[Path, ...]:
         ),
         fixtures_dir / "envelope-setup-hello.json": _domain_success_fixture(
             request_id="req_setup_hello_fixture",
-            result={"state": "ready", "sessionId": "session_fixture", "reply": "Hello from OpenPPX"},
+            result={
+                "state": "ready",
+                "sessionId": "session_fixture",
+                "reply": f"Hello from {PRODUCT.display_name}",
+            },
         ),
         fixtures_dir / "envelope-operations-overview.json": _domain_success_fixture(
             request_id="req_operations_overview_fixture",

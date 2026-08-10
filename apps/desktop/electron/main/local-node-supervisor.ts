@@ -1,4 +1,5 @@
 import type { spawn } from "node:child_process";
+import { productProfile } from "../../product";
 
 export interface LocalNodeSupervisorOptions {
   openppxRoot: string;
@@ -21,7 +22,7 @@ export interface EnsureLocalNodeReadyOptions {
   intervalMs?: number;
 }
 
-/** Own the lifecycle of the Desktop-managed local OpenPPX Node process. */
+/** Own the lifecycle of the Desktop-managed local product Node process. */
 export class LocalNodeSupervisor {
   private readonly openppxRoot: string;
 
@@ -145,7 +146,7 @@ export class LocalNodeSupervisor {
         cwd: this.openppxRoot,
         env: {
           ...process.env,
-          OPENPPX_CLIENT_API_TOKEN: options.accessToken,
+          [`${productProfile.environmentPrefix}_CLIENT_API_TOKEN`]: options.accessToken,
         },
         stdio: ["ignore", "pipe", "pipe"],
       },

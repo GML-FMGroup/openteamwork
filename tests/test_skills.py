@@ -144,10 +144,10 @@ class SkillRegistryTests(unittest.TestCase):
     def test_default_user_global_skills_use_openppx_dir_not_codex_dir(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             home = Path(tmp)
-            openppx_skill = home / ".openppx" / "skills" / "openppx-global-demo" / "SKILL.md"
-            openppx_skill.parent.mkdir(parents=True, exist_ok=True)
-            openppx_skill.write_text(
-                "---\nname: openppx-global-demo\ndescription: openppx global skill\n---\n\n# OpenPPX Global\n",
+            openteamwork_skill = home / ".openteamwork" / "skills" / "openteamwork-global-demo" / "SKILL.md"
+            openteamwork_skill.parent.mkdir(parents=True, exist_ok=True)
+            openteamwork_skill.write_text(
+                "---\nname: openteamwork-global-demo\ndescription: openteamwork global skill\n---\n\n# OpenTeamwork Global\n",
                 encoding="utf-8",
             )
             codex_skill = home / ".codex" / "skills" / "codex-global-demo" / "SKILL.md"
@@ -161,7 +161,7 @@ class SkillRegistryTests(unittest.TestCase):
             registry = SkillRegistry(workspace=Path("/tmp/nonexistent-openppx-workspace"))
             names = {item.name for item in registry.list_skills()}
 
-        self.assertIn("openppx-global-demo", names)
+        self.assertIn("openteamwork-global-demo", names)
         self.assertNotIn("codex-global-demo", names)
 
 

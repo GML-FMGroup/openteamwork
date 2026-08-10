@@ -1,13 +1,13 @@
 # Node Operations
 
-One long-lived OpenPPX Node owns the Client API, Runtime Supervisor, Task scheduler, Cron, Heartbeat, usage facts, and Action audit lifecycle.
+One long-lived OpenTeamwork Node owns the Client API, Runtime Supervisor, Task scheduler, Cron, Heartbeat, usage facts, and Action audit lifecycle.
 
 ## Start a Node
 
 Foreground operation:
 
 ```bash
-ppx node run --node-root ~/.openppx
+otw node run --node-root ~/.openteamwork
 ```
 
 The listener comes from `node.json` unless `--host` or `--port` is supplied as an explicit deployment override. The conventional local endpoint is `http://127.0.0.1:18765`.
@@ -15,25 +15,28 @@ The listener comes from `node.json` unless `--host` or `--port` is supplied as a
 Check the shared Operations projection from another terminal:
 
 ```bash
-ppx operations status
-ppx operations health
+otw status
+otw operations status
+otw operations health
 ```
+
+`otw status` is a shortcut for `otw operations status`. The installed `openteamwork` command is an equivalent long-form CLI entry point.
 
 For a protected or remote Node:
 
 ```bash
-ppx operations health \
+otw operations health \
   --url http://<node-address>:18765 \
   --token '<bearer-token>'
 ```
 
 ## User service
 
-OpenPPX can write a launchd user manifest on macOS or a systemd user unit on Linux:
+OpenTeamwork can write a launchd user manifest on macOS or a systemd user unit on Linux:
 
 ```bash
-ppx node service install --node-root ~/.openppx
-ppx node service status
+otw node service install --node-root ~/.openteamwork
+otw node service status
 ```
 
 The installer does not silently enable or start the service. Review the generated manifest, then use `launchctl` or `systemctl --user` explicitly. Logs are written below `<node-root>/logs/`.
@@ -43,8 +46,8 @@ The installer does not silently enable or start the service. Review the generate
 `operations.status` reports Node identity, setup state, Runtime state, enabled Agents, extension readiness, and automation lifecycle. `operations.health` reports bounded component health without exposing paths or credentials.
 
 ```bash
-ppx operations status --json
-ppx operations health --json
+otw operations status --json
+otw operations health --json
 ```
 
 The Desktop Operations screen consumes these exact Actions. It provides Task inspection and supported controls, Cron create/edit/enable/disable/run/remove, Heartbeat status and run-now, and the same usage/audit facts without maintaining a separate scheduler.
@@ -54,8 +57,8 @@ The Desktop Operations screen consumes these exact Actions. It provides Task ins
 Persistent `TaskRun` facts represent supervised background work, subagents, Cron turns, remote jobs, and other long operations.
 
 ```bash
-ppx operations tasks --limit 20
-ppx operations tasks --session <session-id> --limit 50
+otw operations tasks --limit 20
+otw operations tasks --session <session-id> --limit 50
 ```
 
 Task state, events, artifacts, checkpoints, cancellation controls, and delivery facts remain durable below the Node root. A terminal state is based on runner evidence, not a model claim.
@@ -72,7 +75,7 @@ Task state, events, artifacts, checkpoints, cancellation controls, and delivery 
 
 The worker fails closed before starting if any captured revision is stale. If the permission revision changes while it is running, its next Tool Action is rejected instead of inheriting expanded authority. A parent Session can have at most four active Subagents, and retrying the same function call resolves to the same deterministic Task rather than launching a duplicate.
 
-On completion, OpenPPX retains a bounded Task result and appends a native ADK `FunctionResponse` to the parent Session. The original conversation is not blocked while the worker runs. Task inspection, output, and cooperative cancellation are supported. Interrupt, pause, rejoin, and restart-resume are not advertised because this worker has no durable checkpoint boundary; a Node process loss makes an attached running worker non-resumable.
+On completion, OpenTeamwork retains a bounded Task result and appends a native ADK `FunctionResponse` to the parent Session. The original conversation is not blocked while the worker runs. Task inspection, output, and cooperative cancellation are supported. Interrupt, pause, rejoin, and restart-resume are not advertised because this worker has no durable checkpoint boundary; a Node process loss makes an attached running worker non-resumable.
 
 ## Cron
 
@@ -81,13 +84,13 @@ Cron belongs to the Node process. Jobs execute only while Node automation is run
 List jobs and recent history:
 
 ```bash
-ppx operations cron list --history-limit 20
+otw operations cron list --history-limit 20
 ```
 
 Create one interval job:
 
 ```bash
-ppx operations cron create \
+otw operations cron create \
   --name daily-review \
   --agent main \
   --message 'Review open tasks and summarize blockers.' \
@@ -98,7 +101,7 @@ ppx operations cron create \
 Other schedules:
 
 ```bash
-ppx operations cron create \
+otw operations cron create \
   --name weekday-review \
   --agent main \
   --message 'Review open tasks.' \
@@ -106,7 +109,7 @@ ppx operations cron create \
   --timezone Asia/Shanghai \
   --yes
 
-ppx operations cron create \
+otw operations cron create \
   --name one-time \
   --agent main \
   --message 'Prepare the release checklist.' \
@@ -118,10 +121,10 @@ ppx operations cron create \
 Lifecycle controls:
 
 ```bash
-ppx operations cron disable <job-id> --yes
-ppx operations cron enable <job-id> --yes
-ppx operations cron run <job-id> --force --yes
-ppx operations cron remove <job-id> --yes
+otw operations cron disable <job-id> --yes
+otw operations cron enable <job-id> --yes
+otw operations cron run <job-id> --force --yes
+otw operations cron remove <job-id> --yes
 ```
 
 The stored job payload contains only message, Agent, and user identity. Execution and results appear as Node-owned Task and audit facts.
@@ -131,8 +134,8 @@ The stored job payload contains only message, Agent, and user identity. Executio
 Heartbeat periodically asks the configured Agent to inspect current work and report only items that need operator attention. Its schedule and prompt come from `NodeConfig.spec.operations.heartbeat`.
 
 ```bash
-ppx operations heartbeat status
-ppx operations heartbeat run --reason manual
+otw operations heartbeat status
+otw operations heartbeat run --reason manual
 ```
 
 Heartbeat can be disabled, interval-bounded, and restricted to configured active hours. It skips work when the runtime reports that it is busy.
@@ -140,8 +143,8 @@ Heartbeat can be disabled, interval-bounded, and restricted to configured active
 ## Usage
 
 ```bash
-ppx operations usage --limit 20
-ppx operations usage --provider google --limit 100
+otw operations usage --limit 20
+otw operations usage --provider google --limit 100
 ```
 
 Usage facts are operational observations. They do not include model credentials or message bodies.
@@ -149,11 +152,11 @@ Usage facts are operational observations. They do not include model credentials 
 ## Action audit
 
 ```bash
-ppx operations audit --limit 50
-ppx operations audit --actor <principal-id>
-ppx operations audit --agent main
-ppx operations audit --action extension.install
-ppx operations audit --outcome denied
+otw operations audit --limit 50
+otw operations audit --actor <principal-id>
+otw operations audit --agent main
+otw operations audit --action extension.install
+otw operations audit --outcome denied
 ```
 
 Audit rows contain bounded Action identity, actor, policy decision, targets, timestamps, and outcome. Inputs, outputs, Secrets, prompts, and model text are deliberately excluded. High-risk mutations fail closed if the audit start record cannot be written; read-only queries remain fault tolerant.
@@ -185,17 +188,17 @@ Keep exactly one process bound to a Node root and listener. Do not start a secon
 ### Node needs configuration
 
 ```bash
-ppx setup
+otw setup
 ```
 
-If setup is intentionally incomplete, inspect the state with Desktop onboarding or `setup.status` through `ppx action invoke`.
+If setup is intentionally incomplete, inspect the state with Desktop onboarding or `setup.status` through `otw action invoke`.
 
 ### Node is configured but not ready
 
 Run the first real Hello again after fixing model readiness:
 
 ```bash
-ppx setup --provider <provider> --model <model-id>
+otw setup --provider <provider> --model <model-id>
 ```
 
 ### LAN request is unauthorized

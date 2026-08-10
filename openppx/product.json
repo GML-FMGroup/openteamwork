@@ -1,0 +1,31 @@
+{
+  "productId": "openteamwork",
+  "displayName": "OpenTeamwork",
+  "pythonDistributionName": "openteamwork",
+  "cliCommand": "otw",
+  "cliAliases": [
+    "openteamwork"
+  ],
+  "egressProxyCommand": "otw-egress-proxy",
+  "npmWorkspaceName": "openteamwork",
+  "desktopPackageName": "@openteamwork/desktop",
+  "desktopAppId": "com.openteamwork.desktop",
+  "desktopArtifactName": "OpenTeamwork-Desktop",
+  "nodeRootDirectory": ".openteamwork",
+  "workspaceStateDirectory": ".openteamwork",
+  "credentialService": "openteamwork",
+  "serviceNamespace": "ai.openteamwork",
+  "defaultClientApiPort": 18765,
+  "environmentPrefix": "OPENTEAMWORK",
+  "defaultAgentId": "main",
+  "defaultAgentDisplayName": "Main",
+  "allowedAgentPrivilegeLevels": [
+    "low",
+    "medium",
+    "high",
+    "root"
+  ],
+  "defaultAgentPrivilegeLevel": "medium",
+  "desktopAgentCreationEnabled": true,
+  "desktopUserDataDirectory": "OpenTeamwork Desktop"
+}

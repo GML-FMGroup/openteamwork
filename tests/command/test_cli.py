@@ -15,7 +15,19 @@ def test_help_exposes_only_converged_product_groups(capsys) -> None:
         cli.main(["--help"])
     assert raised.value.code == 0
     output = capsys.readouterr().out
-    for command in ("setup", "node", "action", "command", "goal", "config", "model", "extension", "operations"):
+    commands = (
+        "status",
+        "setup",
+        "node",
+        "action",
+        "command",
+        "goal",
+        "config",
+        "model",
+        "extension",
+        "operations",
+    )
+    for command in commands:
         assert command in output
     assert "client-api" not in output
     assert "gateway" not in output
@@ -27,6 +39,20 @@ def test_main_dispatches_one_parsed_command() -> None:
             cli.main(["operations", "status"])
     assert raised.value.code == 0
     assert mocked.call_args.args[0].operations_command == "status"
+
+
+def test_top_level_status_routes_to_operations_overview() -> None:
+    args = build_parser().parse_args(["status", "--json"])
+    with patch("openppx.command.dispatch.invoke_action", return_value=0) as invoke:
+        assert dispatch(args) == 0
+    invoke.assert_called_once_with(args, "operations.overview", {})
+
+
+def test_operations_status_keeps_the_full_command() -> None:
+    args = build_parser().parse_args(["operations", "status", "--json"])
+    with patch("openppx.command.dispatch.invoke_action", return_value=0) as invoke:
+        assert dispatch(args) == 0
+    invoke.assert_called_once_with(args, "operations.overview", {})
 
 
 def test_action_invoke_requires_json_object(capsys) -> None:

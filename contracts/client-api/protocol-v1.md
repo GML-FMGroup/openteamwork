@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Client API v1 is the versioned network boundary between one OpenPPX Node and CLI, Desktop, or a future client. The client can run on the same computer or connect over a trusted LAN.
+Client API v1 is the versioned network boundary between one shared Node runtime and OpenTeamwork CLI, Desktop, or a future client. The client can run on the same computer or connect over a trusted LAN.
 
 The project has not published a stable compatibility promise yet. The current v1 development baseline is the contract from which future version guarantees will begin.
 

@@ -14,6 +14,8 @@ from pathlib import Path
 from subprocess import PIPE, Popen as _PlatformCommand, TimeoutExpired
 from typing import Any
 
+from openppx.product import PRODUCT
+
 
 _NODE_IDENTITY_FILE = "node.json"
 
@@ -33,11 +35,11 @@ class NodeIdentity:
 
 def _parse_identity(payload: Any, *, path: Path) -> NodeIdentity:
     if not isinstance(payload, dict):
-        raise ValueError(f"Invalid OpenPPX Node identity file: {path}")
+        raise ValueError(f"Invalid {PRODUCT.display_name} Node identity file: {path}")
     node_id = str(payload.get("node_id") or "").strip()
     display_name = str(payload.get("display_name") or "").strip()
     if not node_id.startswith("node_") or len(node_id) <= len("node_") or not display_name:
-        raise ValueError(f"Invalid OpenPPX Node identity file: {path}")
+        raise ValueError(f"Invalid {PRODUCT.display_name} Node identity file: {path}")
     return NodeIdentity(node_id=node_id, display_name=display_name)
 
 
@@ -95,7 +97,7 @@ def _default_node_display_name() -> str:
         short_hostname = hostname.split(".", 1)[0].strip()
         if short_hostname and not _is_ip_address(short_hostname):
             return short_hostname
-    return "OpenPPX Node"
+    return f"{PRODUCT.display_name} Node"
 
 
 def _is_legacy_ip_prefix_identity(identity: NodeIdentity) -> bool:

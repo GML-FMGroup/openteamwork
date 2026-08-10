@@ -1,23 +1,23 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-DATA_DIR="${HOME}/.openppx"
+DATA_DIR="${HOME}/.openteamwork"
 LOG_DIR="${DATA_DIR}/logs"
 TOKEN_DB="${DATA_DIR}/database/token_usage.db"
 
-echo "=== OpenPPX Self Status Report ==="
+echo "=== OpenTeamwork Self Status Report ==="
 date '+generated_at=%Y-%m-%dT%H:%M:%S%z'
 
 echo
 echo "[1] Runtime status"
-ppx operations status --json 2>/dev/null || echo '{"node":"unavailable"}'
-ppx operations health --json 2>/dev/null || echo '{"health":"unavailable"}'
-ppx operations heartbeat status --json 2>/dev/null || echo '{"heartbeat":"unavailable"}'
-ppx operations cron list --json 2>/dev/null || echo '{"cron":"unavailable"}'
+otw operations status --json 2>/dev/null || echo '{"node":"unavailable"}'
+otw operations health --json 2>/dev/null || echo '{"health":"unavailable"}'
+otw operations heartbeat status --json 2>/dev/null || echo '{"heartbeat":"unavailable"}'
+otw operations cron list --json 2>/dev/null || echo '{"cron":"unavailable"}'
 
 echo
 echo "[2] Token usage"
-ppx operations usage --json 2>/dev/null || echo '{"usage":"unavailable"}'
+otw operations usage --json 2>/dev/null || echo '{"usage":"unavailable"}'
 
 echo
 echo "[3] Recent errors"

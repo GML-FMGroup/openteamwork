@@ -779,7 +779,7 @@ describe("OpenPPX Client public contract", () => {
 
     await expect(client.setup.status()).resolves.toEqual(setupStatusSuccess);
     await expect(client.setup.apply(actionInvokeSetupApply.input.request as SetupApplyRequest)).resolves.toEqual(setupApplySuccess);
-    await expect(client.setup.hello("main", "user_fixture", "Hello OpenPPX")).resolves.toEqual(setupHelloSuccess);
+    await expect(client.setup.hello("main", "user_fixture", "Hello OpenTeamwork")).resolves.toEqual(setupHelloSuccess);
 
     for (const [index, expected] of requests.entries()) {
       const [url, init] = fetchMock.mock.calls[index] as unknown as [string, RequestInit];

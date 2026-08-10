@@ -4,7 +4,7 @@
   "correlationId": "req_setup_hello_fixture",
   "input": {
     "agentId": "main",
-    "text": "Hello OpenPPX",
+    "text": "Hello OpenTeamwork",
     "userId": "user_fixture"
   },
   "requestId": "req_setup_hello_fixture"

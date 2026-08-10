@@ -15,6 +15,7 @@ import type {
   SessionSummary,
   UserProfile,
 } from "../../types";
+import { productProfile } from "../../../../product";
 
 function runtimeStateLabel(state: RuntimeStatus["state"]): string {
   switch (state) {
@@ -390,7 +391,7 @@ export function ContextSidebar({
   }
 
   return (
-    <aside className={`context-sidebar platform-${platform}`} aria-label="OpenPPX navigation">
+    <aside className={`context-sidebar platform-${platform}`} aria-label={`${productProfile.displayName} navigation`}>
       <div className="sidebar-brand-row">
         <button
           className="quiet-icon-button"
@@ -594,7 +595,7 @@ export function ContextSidebar({
                 </span>
                 <span className="profile-menu-copy">
                   <strong>{userProfile.displayName}</strong>
-                  <small>{userProfile.accountKind === "local" ? "Local account" : "OpenPPX account"}</small>
+                  <small>{userProfile.accountKind === "local" ? "Local account" : `${productProfile.displayName} account`}</small>
                 </span>
               </div>
               <div className="profile-menu-divider" />

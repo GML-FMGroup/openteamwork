@@ -8,6 +8,7 @@ import type {
   SetupForm,
   SetupStatusResult,
 } from "../../types";
+import { productProfile } from "../../../../product";
 
 interface OnboardingViewProps {
   platform: DesktopPlatform;
@@ -95,7 +96,7 @@ function CodexAuthControl({
         <div>
           <strong>{auth?.state === "authenticated" ? "Authenticated on this Node" : auth?.state === "pending" ? "Waiting for sign-in" : "ChatGPT sign-in required"}</strong>
           <p>{auth?.state === "authenticated"
-            ? "OpenPPX will use this Node's Codex CLI login. Credentials stay on the Node."
+            ? `${productProfile.displayName} will use this Node's Codex CLI login. Credentials stay on the Node.`
             : "Use device-code sign-in so this also works when the Node is on another machine."}</p>
         </div>
       </div>
@@ -278,8 +279,8 @@ export function OnboardingView({
   return (
     <main ref={shellRef} className={`onboarding-shell platform-${platform}`}>
       <header className="onboarding-brand">
-        <span className="onboarding-mark" aria-hidden="true">P</span>
-        <span>OpenPPX</span>
+        <span className="onboarding-mark" aria-hidden="true">K</span>
+        <span>{productProfile.displayName}</span>
       </header>
       <div className="onboarding-layout">
         <aside className="onboarding-intro">
@@ -326,7 +327,7 @@ export function OnboardingView({
                     })}
                   >
                     <option value="local">This computer</option>
-                    <option value="lan">OpenPPX Node on LAN</option>
+                    <option value="lan">{productProfile.displayName} Node on LAN</option>
                   </select>
                 </label>
                 <label>
@@ -467,9 +468,9 @@ export function OnboardingView({
             <p>{configurationDiagnostic
               ? "Repair the invalid Node configuration, then retry."
               : configured && configurationDirty
-                ? "Your changes will be saved before OpenPPX verifies the Agent."
+                ? `Your changes will be saved before ${productProfile.displayName} verifies the Agent.`
               : configured
-                ? "Saved configuration will not be changed. OpenPPX will create one Session and verify the Agent."
+                ? `Saved configuration will not be changed. ${productProfile.displayName} will create one Session and verify the Agent.`
                 : "A real Agent response is required before the workspace opens."}</p>
             <button type="submit" disabled={!canSubmit || submitting}>
               {submitting

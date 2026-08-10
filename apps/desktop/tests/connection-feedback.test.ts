@@ -16,7 +16,7 @@ describe("connectionFailureMessage", () => {
     );
 
     expect(connectionFailureMessage(error, localSettings)).toBe(
-      "Couldn’t reach an OpenPPX Node at http://127.0.0.1:18764. Check the URL and make sure the Node is running, then try again.",
+      "Couldn’t reach an OpenTeamwork Node at http://127.0.0.1:18764. Check the URL and make sure the Node is running, then try again.",
     );
   });
 
@@ -34,7 +34,7 @@ describe("connectionFailureMessage", () => {
       "The Node rejected the access token. Check the token and try again.",
     );
     expect(connectionFailureMessage(new Error("protocol version incompatible"), lanSettings)).toContain(
-      "not compatible with this version of OpenPPX Desktop",
+      "not compatible with this version of OpenTeamwork Desktop",
     );
   });
 
