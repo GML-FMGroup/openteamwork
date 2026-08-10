@@ -184,6 +184,8 @@ function installClient(overrides: Partial<PpxClientApi> = {}): { client: PpxClie
       displayName: "Wenhao Jiang",
       accountKind: "local",
     }),
+    login: async () => ({ id: "user-test", displayName: "user@example.com", accountKind: "product", privilegeLevel: "high" }),
+    logout: async () => undefined,
     getDiagnostics: async () => buildDiagnostics(),
     setDesktopHostPreferences: async () => undefined,
     testConnectionSettings: async () => buildDiagnostics(),
@@ -689,6 +691,59 @@ function configuredSetupStatus() {
 }
 
 describe("App sending state", () => {
+  it("signs a remote product user in with Node URL, email, and transient secret", async () => {
+    const login = vi.fn(async () => ({
+      id: "user-jiang",
+      displayName: "jiang@example.com",
+      accountKind: "product" as const,
+      email: "jiang@example.com",
+      privilegeLevel: "high" as const,
+    }));
+    installClient({
+      getUserProfile: async () => { throw new Error("A valid user session token is required."); },
+      login,
+    });
+    render(<App />);
+
+    await screen.findByRole("heading", { name: "Connect to a Node" });
+    fireEvent.click(screen.getByRole("button", { name: "Remote Node" }));
+    fireEvent.change(screen.getByLabelText("Node URL"), { target: { value: "https://team.example.com" } });
+    fireEvent.change(screen.getByLabelText("Email"), { target: { value: "jiang@example.com" } });
+    fireEvent.change(screen.getByLabelText("Secret"), { target: { value: "private secret" } });
+    fireEvent.click(screen.getByRole("button", { name: "Sign in to OpenTeamwork" }));
+
+    await screen.findByRole("button", { name: "Send" });
+    expect(login).toHaveBeenCalledWith({
+      connection: expect.objectContaining({
+        targetType: "lan",
+        clientApiBaseUrl: "https://team.example.com",
+        accessToken: "",
+      }),
+      email: "jiang@example.com",
+      secret: "private secret",
+    });
+    expect(screen.queryByDisplayValue("private secret")).not.toBeInTheDocument();
+  });
+
+  it("refuses a plaintext remote login before sending credentials", async () => {
+    const login = vi.fn();
+    installClient({
+      getUserProfile: async () => { throw new Error("A valid user session token is required."); },
+      login,
+    });
+    render(<App />);
+
+    await screen.findByRole("heading", { name: "Connect to a Node" });
+    fireEvent.click(screen.getByRole("button", { name: "Remote Node" }));
+    fireEvent.change(screen.getByLabelText("Node URL"), { target: { value: "http://team.example.com:18765" } });
+    fireEvent.change(screen.getByLabelText("Email"), { target: { value: "jiang@example.com" } });
+    fireEvent.change(screen.getByLabelText("Secret"), { target: { value: "private secret" } });
+    fireEvent.click(screen.getByRole("button", { name: "Sign in to OpenTeamwork" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("requires an HTTPS Node URL");
+    expect(login).not.toHaveBeenCalled();
+  });
+
   it("completes first-run setup only after a real Hello is verified", async () => {
     const needsConfiguration = {
       state: "needs_configuration" as const,
@@ -2486,6 +2541,7 @@ describe("App sending state", () => {
       "Automations",
       "Extensions",
       "Settings",
+      "Sign out",
     ]);
     fireEvent.click(within(menu).getByRole("menuitem", { name: "Settings" }));
 
@@ -2500,6 +2556,57 @@ describe("App sending state", () => {
     ]);
     expect(within(settingsNav).queryByRole("button", { name: "Extensions" })).not.toBeInTheDocument();
     expect(screen.queryByRole("menu", { name: "User menu" })).not.toBeInTheDocument();
+  });
+
+  it("limits a product user to account, Agent, and personal workspace controls", async () => {
+    const listExtensions = vi.fn(async () => ({ extensions: [] }));
+    installClient({
+      getUserProfile: async () => ({
+        id: "user-high",
+        displayName: "jiang@example.com",
+        accountKind: "product",
+        email: "jiang@example.com",
+        privilegeLevel: "high",
+      }),
+      listExtensions,
+    });
+    render(<App />);
+
+    await screen.findByRole("button", { name: "Send" });
+    fireEvent.click(screen.getByRole("button", { name: "User profile" }));
+    const menu = await screen.findByRole("menu", { name: "User menu" });
+    expect(within(menu).getAllByRole("menuitem").map((item) => item.textContent)).toEqual([
+      "Automations",
+      "Settings",
+      "Sign out",
+    ]);
+    expect(within(menu).queryByRole("menuitem", { name: "Extensions" })).not.toBeInTheDocument();
+    fireEvent.click(within(menu).getByRole("menuitem", { name: "Settings" }));
+
+    const settingsNav = await screen.findByRole("navigation", { name: "Settings sections" });
+    expect(within(settingsNav).getAllByRole("button").map((item) => item.textContent)).toEqual([
+      "General",
+      "Agent",
+      "Preferences",
+    ]);
+    expect(screen.getByRole("heading", { name: "Account" })).toBeInTheDocument();
+    expect(screen.getAllByText("jiang@example.com")).toHaveLength(2);
+    expect(screen.getByText("high")).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Connection" })).not.toBeInTheDocument();
+
+    fireEvent.click(within(settingsNav).getByRole("button", { name: "Agent" }));
+    const agentSettings = (await screen.findByRole("heading", { name: "Agents" })).closest("section");
+    expect(agentSettings).not.toBeNull();
+    fireEvent.click(within(agentSettings as HTMLElement).getByRole("button", { name: "New Agent" }));
+    const privilege = within(agentSettings as HTMLElement).getByLabelText("Privilege");
+    expect(within(privilege).getAllByRole("option").map((item) => item.textContent)).toEqual([
+      "Low",
+      "Medium",
+      "High",
+    ]);
+    expect(screen.queryByRole("option", { name: "Root" })).not.toBeInTheDocument();
+    expect(screen.getByText("Your Agent workspace is allocated automatically.")).toBeInTheDocument();
+    expect(listExtensions).not.toHaveBeenCalled();
   });
 
   it("opens Extensions with its types in the middle navigation column", async () => {

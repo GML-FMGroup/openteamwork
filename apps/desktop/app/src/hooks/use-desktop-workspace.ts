@@ -28,6 +28,7 @@ import type {
   SetupStatusResult,
   SlashCommandResult,
   UserProfile,
+  UserLoginRequest,
 } from "../types";
 import {
   attachmentPreflightError,
@@ -134,14 +135,14 @@ function onboardingBootstrap(diagnostics: ClientDiagnostics): BootstrapPayload {
   };
 }
 
-function initialSetupForm(): SetupForm {
+function initialSetupForm(ownerPrincipalId = LOCAL_USER_ID): SetupForm {
   return {
     nodeId: "local-node",
     nodeName: "This Mac",
     agentId: productProfile.defaultAgentId,
     agentName: productProfile.defaultAgentDisplayName,
     workspace: "",
-    ownerPrincipalId: LOCAL_USER_ID,
+    ownerPrincipalId,
     privilegeLevel: productProfile.defaultAgentPrivilegeLevel,
     profileId: "primary",
     provider: "google",
@@ -153,8 +154,12 @@ function initialSetupForm(): SetupForm {
   };
 }
 
-function setupFormFromStatus(status: SetupStatusResult, diagnostics: ClientDiagnostics): SetupForm {
-  const current = initialSetupForm();
+function setupFormFromStatus(
+  status: SetupStatusResult,
+  diagnostics: ClientDiagnostics,
+  ownerPrincipalId = LOCAL_USER_ID,
+): SetupForm {
+  const current = initialSetupForm(ownerPrincipalId);
   const node = record(status.current.node);
   const nodeMetadata = record(node.metadata);
   const nodeSpec = record(node.spec);
@@ -259,6 +264,10 @@ function clientErrorMessage(error: unknown): string {
     .replace(/^Error invoking remote method '[^']+':\s*/, "")
     .replace(/^ClientApiRequestError:\s*/, "")
     .trim();
+}
+
+function hasRootAccess(profile: UserProfile): boolean {
+  return profile.accountKind === "local" || profile.privilegeLevel === "root";
 }
 
 /** Render structured command data only at the Desktop presentation boundary. */
@@ -403,6 +412,9 @@ function formatSlashCommandResult(outcome: SlashCommandResult): string {
 /** Own Desktop bootstrap, connection, Agent/Session, message, and active-Run state. */
 export function useDesktopWorkspace() {
   const [ready, setReady] = useState(false);
+  const [authenticationRequired, setAuthenticationRequired] = useState(false);
+  const [authenticating, setAuthenticating] = useState(false);
+  const [authenticationError, setAuthenticationError] = useState<string | null>(null);
   const [bootstrapError, setBootstrapError] = useState<string | null>(null);
   const [runtime, setRuntime] = useState<RuntimeStatus | null>(null);
   const [diagnostics, setDiagnostics] = useState<ClientDiagnostics | null>(null);
@@ -685,7 +697,7 @@ export function useDesktopWorkspace() {
         setUserProfile(nextUserProfile);
         if (!setupFormInitializedRef.current) {
           setupFormInitializedRef.current = true;
-          setSetupForm(setupFormFromStatus(nextSetupStatus, nextDiagnostics));
+          setSetupForm(setupFormFromStatus(nextSetupStatus, nextDiagnostics, nextUserProfile.id));
         }
         setAgents(payload.agents);
         setSessions(payload.sessions);
@@ -694,7 +706,7 @@ export function useDesktopWorkspace() {
         selectSessionId(payload.selectedSessionId);
         setReady(true);
         setBootstrapError(null);
-        if (nextSetupStatus.state === "ready") void window.ppxClient
+        if (nextSetupStatus.state === "ready" && hasRootAccess(nextUserProfile)) void window.ppxClient
           .listExtensions()
           .then((result) => {
             if (mounted) {
@@ -729,7 +741,7 @@ export function useDesktopWorkspace() {
           .catch(() => {
             if (mounted) setModelProfiles([]);
           });
-        if (nextSetupStatus.state === "ready") void Promise.all([
+        if (nextSetupStatus.state === "ready" && hasRootAccess(nextUserProfile)) void Promise.all([
           window.ppxClient.getOperationsOverview(),
           window.ppxClient.listOperationsAudit(20),
         ])
@@ -744,9 +756,12 @@ export function useDesktopWorkspace() {
             if (mounted) setOperationsError(error instanceof Error ? error.message : String(error));
           });
       })
-      .catch((error: unknown) => {
+      .catch(() => {
         if (mounted) {
-          setBootstrapError(error instanceof Error ? error.message : String(error));
+          setAuthenticationRequired(true);
+          setAuthenticationError(null);
+          setBootstrapError(null);
+          setReady(true);
         }
       });
 
@@ -953,6 +968,59 @@ export function useDesktopWorkspace() {
     selectAgentId(payload.selectedAgentId);
     selectSessionId(payload.selectedSessionId);
     setDiagnostics(await window.ppxClient.getDiagnostics());
+  }
+
+  async function login(email: string, secret: string): Promise<boolean> {
+    setAuthenticating(true);
+    setAuthenticationError(null);
+    try {
+      const connection = normalizeConnectionSettings({ ...connectionForm, accessToken: "" });
+      if (connection.targetType === "lan" && new URL(connection.clientApiBaseUrl).protocol !== "https:") {
+        throw new Error("Remote user login requires an HTTPS Node URL.");
+      }
+      const request: UserLoginRequest = { connection, email, secret };
+      const profile = await window.ppxClient.login(request);
+      setUserProfile(profile);
+      setAuthenticationRequired(false);
+      const [nextSetupStatus, nextDiagnostics] = await Promise.all([
+        window.ppxClient.getSetupStatus(),
+        window.ppxClient.getDiagnostics(),
+      ]);
+      setSetupStatus(nextSetupStatus);
+      setDiagnostics(nextDiagnostics);
+      setupFormInitializedRef.current = true;
+      setSetupForm(setupFormFromStatus(nextSetupStatus, nextDiagnostics, profile.id));
+      await reloadWorkspace();
+      setSlashCommands((await window.ppxClient.listSlashCommands()).commands);
+      if (nextSetupStatus.state === "ready") {
+        await refreshModelProfiles();
+        if (hasRootAccess(profile)) await refreshExtensions();
+        if (hasRootAccess(profile)) await refreshOperations();
+      }
+      return true;
+    } catch (error) {
+      setAuthenticationRequired(true);
+      setAuthenticationError(error instanceof Error ? error.message : String(error));
+      return false;
+    } finally {
+      setAuthenticating(false);
+    }
+  }
+
+  async function logout(): Promise<void> {
+    await window.ppxClient.logout();
+    setAuthenticationRequired(true);
+    setAuthenticationError(null);
+    setUserProfile({ id: "", displayName: "Signed out", accountKind: "product" });
+    setRuntime(null);
+    setDiagnostics(null);
+    setSetupStatus(null);
+    setAgents([]);
+    setSessions([]);
+    replaceMessages([]);
+    setExtensions([]);
+    setModelProfiles([]);
+    setSlashCommands([]);
   }
 
   async function switchSession(session: SessionSummary): Promise<void> {
@@ -1166,7 +1234,7 @@ export function useDesktopWorkspace() {
         const nextSetupStatus = await window.ppxClient.getSetupStatus();
         setSetupStatus(nextSetupStatus);
         setupFormInitializedRef.current = true;
-        setSetupForm(setupFormFromStatus(nextSetupStatus, nextDiagnostics));
+        setSetupForm(setupFormFromStatus(nextSetupStatus, nextDiagnostics, userProfile.id));
       } catch {
         setAgents([]);
         setSessions([]);
@@ -1557,10 +1625,15 @@ export function useDesktopWorkspace() {
 
   return {
     ready,
+    authenticationRequired,
+    authenticating,
+    authenticationError,
     bootstrapError,
     runtime,
     diagnostics,
     userProfile,
+    login,
+    logout,
     agents,
     agentCreating,
     agentCreateError,

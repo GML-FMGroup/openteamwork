@@ -10,14 +10,13 @@ import type {
   RuntimeState,
   RuntimeStatus,
 } from "../../types";
-import { LOCAL_USER_ID } from "../../types";
-
 type OperationsSection = "overview" | "tasks" | "automations" | "usage" | "audit";
 
 interface OperationsSettingsProps {
   runtime: RuntimeStatus;
   agents: AgentProfile[];
   selectedAgentId: string;
+  userId: string;
   onRuntimeAction: () => void;
   onStopRuntime: () => void;
 }
@@ -178,7 +177,7 @@ export function OperationsSettings(props: OperationsSettingsProps) {
       const input: CronCreateInput = {
         name: cronDraft.name.trim(),
         agentId: selectedAgent.id,
-        userId: LOCAL_USER_ID,
+        userId: props.userId,
         message: cronDraft.message.trim(),
         schedule,
         deleteAfterRun: cronDraft.kind === "at",

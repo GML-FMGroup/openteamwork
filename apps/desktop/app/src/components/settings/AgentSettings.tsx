@@ -12,6 +12,7 @@ interface AgentSettingsProps {
   onClearCreateError: () => void;
   onCreateAgent: (input: AgentCreateRequest) => Promise<boolean>;
   onWorkspaceChanged: () => Promise<void>;
+  maxPrivilegeLevel: "low" | "medium" | "high" | "root";
 }
 
 type AgentOperation = "refresh" | "save" | "toggle" | "duplicate" | "remove";
@@ -29,12 +30,13 @@ function agentSlug(value: string): string {
 function initialCreateDraft(
   suggestedAgentId: string,
   modelProfiles: ModelProfileSummary[],
+  maxPrivilegeLevel: AgentSettingsProps["maxPrivilegeLevel"],
 ): AgentCreateRequest {
   return {
     agentId: suggestedAgentId,
     displayName: "",
     workspace: null,
-    privilegeLevel: "medium",
+    privilegeLevel: maxPrivilegeLevel === "low" ? "low" : "medium",
     modelProfileId: modelProfiles.find((profile) => profile.enabled)?.id ?? "",
     instruction: "",
   };
@@ -52,12 +54,13 @@ export function AgentSettings({
   onClearCreateError,
   onCreateAgent,
   onWorkspaceChanged,
+  maxPrivilegeLevel,
 }: AgentSettingsProps) {
   const [agents, setAgents] = useState<AgentResourceSummary[]>([]);
   const [activeId, setActiveId] = useState(selectedAgentId);
   const [draft, setDraft] = useState<AgentUpdateInput | null>(null);
   const [creatingNew, setCreatingNew] = useState(false);
-  const [createDraft, setCreateDraft] = useState<AgentCreateRequest>(() => initialCreateDraft(suggestedAgentId, modelProfiles));
+  const [createDraft, setCreateDraft] = useState<AgentCreateRequest>(() => initialCreateDraft(suggestedAgentId, modelProfiles, maxPrivilegeLevel));
   const [createIdEdited, setCreateIdEdited] = useState(false);
   const [operation, setOperation] = useState<AgentOperation | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -68,6 +71,10 @@ export function AgentSettings({
   const current = useMemo(() => agents.find((agent) => agent.id === activeId) ?? agents[0] ?? null, [activeId, agents]);
   const busy = operation !== null;
   const enabledProfiles = useMemo(() => modelProfiles.filter((profile) => profile.enabled), [modelProfiles]);
+  const privilegeLevels = (["low", "medium", "high", "root"] as const).slice(
+    0,
+    (["low", "medium", "high", "root"] as const).indexOf(maxPrivilegeLevel) + 1,
+  );
   const createIdExists = agents.some((agent) => agent.id === createDraft.agentId);
   const canCreate = Boolean(
     createDraft.displayName.trim()
@@ -97,14 +104,14 @@ export function AgentSettings({
 
   useEffect(() => {
     if (!createRequested) return;
-    setCreateDraft(initialCreateDraft(suggestedAgentId, modelProfiles));
+    setCreateDraft(initialCreateDraft(suggestedAgentId, modelProfiles, maxPrivilegeLevel));
     setCreateIdEdited(false);
     setCreatingNew(true);
     setError(null);
     setNotice(null);
     onClearCreateError();
     onCreateRequestHandled();
-  }, [createRequested]);
+  }, [createRequested, maxPrivilegeLevel]);
 
   useEffect(() => {
     if (creatingNew) createNameRef.current?.focus();
@@ -145,7 +152,7 @@ export function AgentSettings({
   }
 
   function beginCreate(): void {
-    setCreateDraft(initialCreateDraft(suggestedAgentId, modelProfiles));
+    setCreateDraft(initialCreateDraft(suggestedAgentId, modelProfiles, maxPrivilegeLevel));
     setCreateIdEdited(false);
     setCreatingNew(true);
     setError(null);
@@ -297,20 +304,20 @@ export function AgentSettings({
               <label className="settings-field">
                 <span>Privilege</span>
                 <select value={createDraft.privilegeLevel} onChange={(event) => patchCreateDraft({ privilegeLevel: event.target.value as AgentCreateRequest["privilegeLevel"] })}>
-                  <option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option><option value="root">Root</option>
+                  {privilegeLevels.map((level) => <option key={level} value={level}>{level[0].toUpperCase() + level.slice(1)}</option>)}
                 </select>
               </label>
               <label className="settings-field agent-workspace-field">
                 <span>Workspace</span>
-                <input
+                {maxPrivilegeLevel === "root" ? <input
                   aria-label="Workspace"
                   value={createDraft.workspace ?? ""}
                   maxLength={1_024}
                   spellCheck={false}
                   placeholder={`Node managed · workspaces/${createDraft.agentId || suggestedAgentId}`}
                   onChange={(event) => patchCreateDraft({ workspace: event.target.value })}
-                />
-                <small>Optional. A custom location must be an absolute path on the Agent machine.</small>
+                /> : <p>Node managed · users/{`<your-user>`}/agents/{createDraft.agentId || suggestedAgentId}/workspace</p>}
+                <small>{maxPrivilegeLevel === "root" ? "Optional. A custom location must be an absolute path on the Agent machine." : "Your Agent workspace is allocated automatically."}</small>
               </label>
               <label className="settings-field agent-instruction-field">
                 <span>Agent instruction</span>
@@ -341,8 +348,8 @@ export function AgentSettings({
             <div className="settings-form settings-form-grid">
               <label className="settings-field"><span>Name</span><input value={draft.displayName} maxLength={80} onChange={(event) => patchDraft({ displayName: event.target.value })} /></label>
               <label className="settings-field"><span>Model Profile</span><select value={draft.modelProfileId} onChange={(event) => patchDraft({ modelProfileId: event.target.value })}>{modelProfiles.filter((profile) => profile.enabled).map((profile) => <option key={profile.id} value={profile.id}>{profile.displayName} · {profile.model}</option>)}</select></label>
-              <label className="settings-field"><span>Privilege</span><select value={draft.privilegeLevel} onChange={(event) => patchDraft({ privilegeLevel: event.target.value as AgentUpdateInput["privilegeLevel"] })}><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option><option value="root">Root</option></select></label>
-              <label className="settings-field agent-workspace-field"><span>Workspace</span><input value={draft.workspace} spellCheck={false} onChange={(event) => patchDraft({ workspace: event.target.value })} /></label>
+              <label className="settings-field"><span>Privilege</span><select value={draft.privilegeLevel} onChange={(event) => patchDraft({ privilegeLevel: event.target.value as AgentUpdateInput["privilegeLevel"] })}>{privilegeLevels.map((level) => <option key={level} value={level}>{level[0].toUpperCase() + level.slice(1)}</option>)}</select></label>
+              <label className="settings-field agent-workspace-field"><span>Workspace</span><input value={draft.workspace} readOnly={maxPrivilegeLevel !== "root"} spellCheck={false} onChange={(event) => patchDraft({ workspace: event.target.value })} /></label>
               <label className="settings-field agent-instruction-field"><span>Agent instruction</span><textarea value={draft.instruction} maxLength={16_384} placeholder="Optional role, output, or operating guidance for this Agent." onChange={(event) => patchDraft({ instruction: event.target.value })} /></label>
             </div>
             {error ? <p className="settings-inline-error" role="alert">{error}</p> : null}

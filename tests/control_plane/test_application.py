@@ -85,13 +85,26 @@ def profile_payload() -> dict[str, object]:
 
 
 def context(*, write: bool = True, request_id: str = "req_control_plane") -> ActionContext:
-    capabilities = frozenset({"system.read", "config.read", "config.write", "flow.read", "flow.write", "goal.read", "goal.write", "model.read", "model.write", "model.use"})
-    permissions = capabilities if write else frozenset({"system.read", "config.read", "flow.read", "goal.read", "model.read", "model.use"})
+    capabilities = frozenset({"system.read", "agent.read", "agent.write", "config.read", "config.write", "flow.read", "flow.write", "goal.read", "goal.write", "model.read", "model.write", "model.use"})
+    permissions = capabilities if write else frozenset({"system.read", "agent.read", "config.read", "flow.read", "goal.read", "model.read", "model.use"})
     return ActionContext(
         request_id=request_id,
         correlation_id="corr_control_plane",
         actor_id="local:test",
         capabilities=capabilities,
+        permissions=permissions,
+    )
+
+
+def user_context(user_id: str, privilege_level: str) -> ActionContext:
+    permissions = frozenset({"system.read", "agent.read", "agent.write", "model.read", "model.use"})
+    return ActionContext(
+        request_id=f"req_{user_id}",
+        correlation_id=f"corr_{user_id}",
+        actor_id=f"principal:{user_id}",
+        principal_id=user_id,
+        privilege_level=privilege_level,
+        capabilities=permissions,
         permissions=permissions,
     )
 
@@ -625,6 +638,127 @@ def test_agent_create_action_publishes_safe_profile_without_owner_projection(tmp
     assert "owner" not in str(created.data).lower()
     assert [item["id"] for item in listed.data["items"]] == ["low-main", "research"]
     assert application.registry.resolve("agent.create").spec.scope == "node"
+
+
+def test_authenticated_agent_creation_binds_owner_workspace_and_privilege_ceiling(tmp_path: Path) -> None:
+    application = configured_application(tmp_path)
+    high_user = user_context("user_high", "high")
+
+    created = application.invoke(
+        "agent.create",
+        {
+            "agentId": "research",
+            "displayName": "Research",
+            "workspace": None,
+            "privilegeLevel": "medium",
+            "modelProfileId": "primary",
+        },
+        high_user,
+    )
+    denied_level = application.invoke(
+        "agent.create",
+        {
+            "agentId": "root-agent",
+            "displayName": "Root Agent",
+            "workspace": None,
+            "privilegeLevel": "root",
+            "modelProfileId": "primary",
+        },
+        high_user,
+    )
+    denied_owner = application.invoke(
+        "agent.create",
+        {
+            "agentId": "spoofed",
+            "displayName": "Spoofed",
+            "workspace": None,
+            "ownerPrincipalId": "another-user",
+            "privilegeLevel": "low",
+            "modelProfileId": "primary",
+        },
+        high_user,
+    )
+    resource = application.config_repository.read_agent("research").document
+
+    assert created.ok is True
+    assert resource.spec.owner_principal_id == "user_high"
+    assert resource.spec.workspace == str(
+        tmp_path / "users" / "user_high" / "agents" / "research" / "workspace"
+    )
+    assert denied_level.error.code == "agent_privilege_exceeds_user"  # type: ignore[union-attr]
+    assert denied_owner.error.code == "identity_mismatch"  # type: ignore[union-attr]
+
+
+def test_authenticated_agent_lifecycle_is_owner_scoped_and_root_can_list_all(tmp_path: Path) -> None:
+    application = configured_application(tmp_path)
+    owner = user_context("local:owner", "medium")
+    other = user_context("user_other", "high")
+    root = user_context("user_root", "root")
+
+    owner_list = application.invoke("agent.list", {}, owner)
+    other_list = application.invoke("agent.list", {}, other)
+    root_list = application.invoke("agent.list", {}, root)
+    denied_update = application.invoke(
+        "agent.update",
+        {
+            "agentId": "low-main",
+            "displayName": "Taken Over",
+            "workspace": str(tmp_path / "outside"),
+            "privilegeLevel": "low",
+            "modelProfileId": "primary",
+            "instruction": "",
+            "expectedRevision": application.config_repository.read_agent("low-main").revision,
+        },
+        other,
+    )
+
+    assert [item["id"] for item in owner_list.data["items"]] == ["low-main"]  # type: ignore[index]
+    assert other_list.data == {"items": []}
+    assert [item["id"] for item in root_list.data["items"]] == ["low-main"]  # type: ignore[index]
+    assert denied_update.error.code == "agent_access_denied"  # type: ignore[union-attr]
+
+
+def test_authenticated_agent_update_enforces_the_user_privilege_ceiling(tmp_path: Path) -> None:
+    application = configured_application(tmp_path)
+    owner = user_context("local:owner", "medium")
+    current = application.config_repository.read_agent("low-main")
+
+    denied = application.invoke(
+        "agent.update",
+        {
+            "agentId": "low-main",
+            "displayName": "Low main",
+            "workspace": current.document.spec.workspace,
+            "privilegeLevel": "high",
+            "modelProfileId": "primary",
+            "instruction": "",
+            "expectedRevision": current.revision,
+        },
+        owner,
+    )
+
+    assert denied.error.code == "agent_privilege_exceeds_user"  # type: ignore[union-attr]
+    assert application.config_repository.read_agent("low-main").revision == current.revision
+
+
+def test_non_root_cannot_create_or_move_agent_to_custom_workspace(tmp_path: Path) -> None:
+    application = configured_application(tmp_path)
+    user = user_context("user_medium", "medium")
+
+    denied = application.invoke(
+        "agent.create",
+        {
+            "agentId": "custom",
+            "displayName": "Custom",
+            "workspace": str(tmp_path / "host-data"),
+            "privilegeLevel": "low",
+            "modelProfileId": "primary",
+        },
+        user,
+    )
+
+    assert denied.error.code == "custom_workspace_requires_root"  # type: ignore[union-attr]
+    assert not (tmp_path / "host-data").exists()
 
 
 def test_slash_command_catalog_and_invocation_share_action_authorization(tmp_path: Path) -> None:

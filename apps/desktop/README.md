@@ -114,45 +114,31 @@ Desktop onboarding uses the same `setup.status`, `setup.apply`, and `setup.hello
 
 The local Electron process creates a random per-process bearer token when it supervises a Node. That token remains in Electron Main and is not returned through Renderer diagnostics.
 
-## Trusted LAN Node
+## Remote Node users
 
-On the machine that runs the Agents, configure a non-loopback listener and authentication:
-
-```bash
-otw setup \
-  --listen-host 0.0.0.0 \
-  --listen-port 18765 \
-  --authentication required \
-  --provider google \
-  --model <provider-model-id>
-```
-
-Generate and retain a strong token, then start the Node:
+The Node administrator provisions product accounts locally:
 
 ```bash
-export OPENTEAMWORK_CLIENT_API_TOKEN='<random-secret>'
-otw node run
+otw user add admin@example.com --privilege root
+otw user add jiang@example.com --privilege high
 ```
 
-In Desktop Settings select the LAN run location and enter:
+Remote Desktop login uses an administrator-provided HTTPS origin. The Python Node must remain on loopback behind a reverse proxy on the same host, with deployment authentication enabled. See [Users and Remote App Access](../../docs/USERS.md) for the exact Node, proxy, account, and backup procedure.
 
-- a human-readable target name;
-- `http://<node-lan-address>:18765`;
-- the same bearer token.
-
-Test the connection before applying it. Electron Main encrypts the token through `safeStorage`; the ordinary connection JSON contains only a credential reference bound to that exact endpoint.
+In Desktop, choose **Remote Node** and enter the HTTPS origin, account email, and account secret. The secret is not saved. Electron Main encrypts the returned opaque session token through `safeStorage`; ordinary connection JSON contains only public account metadata and a credential reference bound to the exact endpoint and user.
 
 Each saved LAN target has its own encrypted, endpoint-bound credential. The General settings page can switch among saved targets and remove an inactive target. Switching performs a real connection test before changing the active Client API adapter.
 
-LAN rules:
+Remote connection rules:
 
-- HTTP requests and SSE use the same bearer token.
+- Remote login requires HTTPS; plaintext remote login is rejected before the secret body is read.
+- HTTP requests and SSE use the same opaque App session token after login.
 - A LAN target is never started or stopped by the Desktop machine.
 - Local mode accepts only loopback hostnames; another machine must use LAN mode.
-- URLs may contain only scheme, host, and explicit port—no credentials, path, query, or fragment.
-- Do not forward the current HTTP endpoint directly to the public internet.
+- URLs may contain only scheme, host, and optional HTTPS port—no credentials, path, query, or fragment.
+- Do not expose the Python Client API port directly to a LAN or the public internet.
 
-Automatic TLS, discovery, identity pairing, token rotation/revocation, SSH/Tailnet configuration, and a public relay are future work.
+Automatic TLS provisioning, discovery, SSO, password reset, SSH/Tailnet configuration, and a public relay are future work.
 
 ## Attachments and Artifacts
 

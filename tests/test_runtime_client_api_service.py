@@ -169,6 +169,24 @@ def _memory(text: str, *, timestamp: str) -> MemoryEntry:
     )
 
 
+def _set_writer_owner(root: Path, *, owner_principal_id: str, privilege_level: str = "low") -> None:
+    """Rewrite the seeded Agent owner/level through the strict Config repository."""
+
+    repository = FilesystemConfigRepository(root)
+    current = repository.read_agent("writer")
+    updated_spec = current.document.spec.model_copy(
+        update={
+            "owner_principal_id": owner_principal_id,
+            "privilege_level": privilege_level,
+        }
+    )
+    repository.write_agent(
+        "writer",
+        current.document.model_copy(update={"spec": updated_spec}),
+        expected_revision=current.revision,
+    )
+
+
 @pytest.fixture(autouse=True)
 def _strict_control_plane_resources(request: pytest.FixtureRequest) -> None:
     """Seed strict Node/Agent truth for tests that use an isolated data root."""
@@ -225,6 +243,129 @@ def test_list_agents_uses_strict_control_plane_resources(tmp_path: Path) -> None
     assert payload["data"]["items"][0]["id"] == "writer"
     assert payload["data"]["items"][0]["workspace"] == "workspace/writer"
     assert "Workspace:" in payload["data"]["items"][0]["description"]
+
+
+def test_product_users_only_list_and_use_owned_agents_while_root_is_global(tmp_path: Path) -> None:
+    coordinator, _runtime = _coordinator_with_runtime(tmp_path)
+    owner = coordinator.user_accounts.add_user(
+        email="owner@example.com",
+        secret="owner secret value",
+        privilege_level="medium",
+    )
+    other = coordinator.user_accounts.add_user(
+        email="other@example.com",
+        secret="other secret value",
+        privilege_level="high",
+    )
+    root = coordinator.user_accounts.add_user(
+        email="root@example.com",
+        secret="root secret value",
+        privilege_level="root",
+    )
+    _set_writer_owner(tmp_path, owner_principal_id=owner.user_id)
+    coordinator._ensure_agent_access_state("writer")
+    coordinator._agent_access_store.upsert_membership(
+        AgentMembership(agent_id="writer", principal_id=other.user_id, relation="participant")
+    )
+
+    assert [item["id"] for item in coordinator.list_agents(requester=owner)["data"]["items"]] == ["writer"]
+    assert coordinator.list_agents(requester=other)["data"]["items"] == []
+    assert [item["id"] for item in coordinator.list_agents(requester=root)["data"]["items"]] == ["writer"]
+
+    created = coordinator.create_session("writer", user_id=owner.user_id)
+    denied = coordinator.create_session("writer", user_id=other.user_id)
+    root_view = coordinator.list_sessions("writer", user_id=root.user_id)
+
+    assert created["ok"] is True
+    assert created["data"]["session"]["subject_principal_id"] == owner.user_id
+    assert denied["error"]["code"] == "ACCESS_DENIED"
+    assert denied["error"]["details"]["reason"] == "agent_ownership_required"
+    assert [item["id"] for item in root_view["data"]["items"]] == [created["data"]["session"]["id"]]
+
+
+def test_product_user_cannot_use_owned_agent_above_own_privilege(tmp_path: Path) -> None:
+    coordinator, _runtime = _coordinator_with_runtime(tmp_path)
+    owner = coordinator.user_accounts.add_user(
+        email="owner@example.com",
+        secret="owner secret value",
+        privilege_level="low",
+    )
+    _set_writer_owner(
+        tmp_path,
+        owner_principal_id=owner.user_id,
+        privilege_level="medium",
+    )
+
+    denied = coordinator.create_session("writer", user_id=owner.user_id)
+
+    assert denied["error"]["code"] == "ACCESS_DENIED"
+    assert denied["error"]["details"]["reason"] == "agent_privilege_exceeds_user"
+
+
+def test_product_action_cannot_target_an_unowned_agent(tmp_path: Path) -> None:
+    coordinator, _runtime = _coordinator_with_runtime(tmp_path)
+    owner = coordinator.user_accounts.add_user(
+        email="owner@example.com",
+        secret="owner secret value",
+        privilege_level="medium",
+    )
+    other = coordinator.user_accounts.add_user(
+        email="other@example.com",
+        secret="other secret value",
+        privilege_level="high",
+    )
+    _set_writer_owner(tmp_path, owner_principal_id=owner.user_id)
+
+    denied = coordinator.invoke_action(
+        "goal.create",
+        {
+            "userId": other.user_id,
+            "agentId": "writer",
+            "sessionId": "session_foreign",
+            "objective": "Attempt foreign work",
+        },
+        request_id="req_foreign_agent",
+        correlation_id="corr_foreign_agent",
+        confirmed=False,
+        requester=other,
+    )
+
+    assert denied["ok"] is False
+    assert denied["error"]["code"] == "agent_access_denied"
+    assert denied["error"]["details"]["reason"] == "agent_ownership_required"
+
+
+def test_run_read_cancel_and_stream_hide_foreign_user_ids_but_allow_root(tmp_path: Path) -> None:
+    coordinator, _runtime = _coordinator_with_runtime(tmp_path)
+    owner = coordinator.user_accounts.add_user(
+        email="owner@example.com",
+        secret="owner secret value",
+        privilege_level="medium",
+    )
+    other = coordinator.user_accounts.add_user(
+        email="other@example.com",
+        secret="other secret value",
+        privilege_level="medium",
+    )
+    root = coordinator.user_accounts.add_user(
+        email="root@example.com",
+        secret="root secret value",
+        privilege_level="root",
+    )
+    handle = RunHandle(
+        run_id="run_private",
+        agent_id="writer",
+        session_id="session_private",
+        user_id=owner.user_id,
+    )
+    coordinator._runs[handle.run_id] = handle
+
+    assert coordinator.get_run(handle.run_id, user_id=owner.user_id)["ok"] is True
+    assert coordinator.get_run(handle.run_id, user_id=other.user_id)["error"]["code"] == "RUN_NOT_FOUND"
+    assert coordinator.cancel_run(handle.run_id, user_id=other.user_id)["error"]["code"] == "RUN_NOT_FOUND"
+    assert coordinator.stream_run_events(handle.run_id, user_id=other.user_id) is None
+    assert coordinator.get_run(handle.run_id, user_id=root.user_id)["ok"] is True
+    assert coordinator.stream_run_events(handle.run_id, user_id=root.user_id) is not None
 
 
 def test_mcp_oauth_callback_is_public_but_state_gated(tmp_path: Path) -> None:

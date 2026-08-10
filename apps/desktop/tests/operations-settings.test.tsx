@@ -58,6 +58,7 @@ describe("Operations settings", () => {
       runtime={{ target: { id: "local", type: "local", name: "This Mac" }, state: "healthy", summary: "Ready" }}
       agents={[{ id: "main", name: "Main", description: "Primary", enabled: true, status: "healthy", tags: [] }]}
       selectedAgentId="main"
+      userId="ppx-client-user"
       onRuntimeAction={vi.fn()}
       onStopRuntime={vi.fn()}
     />);
@@ -75,6 +76,7 @@ describe("Operations settings", () => {
       runtime={{ target: { id: "local", type: "local", name: "This Mac" }, state: "healthy", summary: "Ready" }}
       agents={[{ id: "main", name: "Main", description: "Primary", enabled: true, status: "healthy", tags: [] }]}
       selectedAgentId="main"
+      userId="ppx-client-user"
       onRuntimeAction={vi.fn()}
       onStopRuntime={vi.fn()}
     />);
@@ -98,6 +100,7 @@ describe("Operations settings", () => {
       runtime={{ target: { id: "local", type: "local", name: "This Mac" }, state: "healthy", summary: "Ready" }}
       agents={[{ id: "main", name: "Main", description: "Primary", enabled: true, status: "healthy", tags: [] }]}
       selectedAgentId="main"
+      userId="ppx-client-user"
       onRuntimeAction={vi.fn()}
       onStopRuntime={vi.fn()}
     />);

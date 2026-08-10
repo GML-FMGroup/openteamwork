@@ -22,6 +22,7 @@ import {
   validateSetupApplyRequest,
   validateSetupHelloText,
   validateSlashCommandRequest,
+  validateUserLoginRequest,
 } from "../electron/main/ipc-validation";
 
 function setupRequest() {
@@ -160,6 +161,16 @@ describe("Electron IPC validation", () => {
       clientApiBaseUrl: "http://192.168.1.8:8765",
       accessToken: "secret",
     });
+    expect(validateUserLoginRequest({
+      connection: {
+        targetType: "lan",
+        targetId: "team-node",
+        targetName: "Team Node",
+        clientApiBaseUrl: "https://node.example.com",
+      },
+      email: "user@example.com",
+      secret: "correct horse battery staple",
+    }).email).toBe("user@example.com");
     expect(validateSetupHelloText("Hello OpenPPX")).toBe("Hello OpenPPX");
     expect(validateSetupApplyRequest(setupRequest())).toEqual(setupRequest());
     expect(validateAgentCreateRequest({
@@ -350,6 +361,16 @@ describe("Electron IPC validation", () => {
       dataBase64: "x".repeat(28_000_001),
     })).toThrow("Artifact content");
     expect(() => validateConnectionSettings({ targetType: "internet" })).toThrow("targetType");
+    expect(() => validateUserLoginRequest({
+      connection: {
+        targetType: "lan",
+        targetId: "team-node",
+        targetName: "Team Node",
+        clientApiBaseUrl: "http://node.example.com:18765",
+      },
+      email: "user@example.com",
+      secret: "correct horse battery staple",
+    })).toThrow("requires an HTTPS Node URL");
     expect(() => validateSlashCommandRequest({ rawCommand: "status" })).toThrow("start with '/'");
     expect(() => validateSetupHelloText("")).toThrow("Setup Hello is required");
     expect(() => validateSetupApplyRequest({ ...setupRequest(), secret: { ref: { store: "system", name: "Primary Key" }, value: "secret" } })).toThrow("lowercase resource name");

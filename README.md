@@ -46,6 +46,7 @@ The Node is the source of truth. Clients may keep device-local preferences such 
 - Persistent sessions, artifacts, memory, TaskRuns, checkpoints, supervised long tasks, and workflow facts.
 - Node-owned Task scheduling, Cron, Heartbeat, usage, health, and redacted Action audit facts.
 - A thin TypeScript client and an Electron/React Desktop workspace that can save and switch between a local Node and multiple trusted-LAN Nodes without exposing their bearer tokens to the Renderer.
+- Node-local product accounts with Argon2id secrets, revocable App sessions, owner-scoped Agents and work, and a shared `low < medium < high < root` privilege ceiling.
 - Desktop lifecycle management for Extensions, Operations, Agents, and Sessions, plus Session-scoped document, spreadsheet, PDF, presentation, text/code, and image upload/download with durable Artifact references.
 - Node-authoritative attachment policy with extension, MIME, magic-byte, archive, XML, page, cell, character, image-pixel, per-file, per-message, and Session-ownership limits. Original bytes remain downloadable while bounded deterministic projections are supplied to the model.
 - Google ADK-native Agent, Runner, Session, Artifact, Memory, MCP, confirmation, rewind, compaction, and evaluation integration.
@@ -106,27 +107,19 @@ OpenTeamwork Desktop can supervise a local Node or connect to an already-running
 
 See [apps/desktop/README.md](./apps/desktop/README.md) for development, packaging, and LAN instructions.
 
-## Trusted LAN operation
+## Remote Desktop users
 
-On the machine that runs the agents, configure a non-loopback listener and required authentication during setup:
-
-```bash
-otw setup \
-  --listen-host 0.0.0.0 \
-  --listen-port 18765 \
-  --authentication required \
-  --provider google \
-  --model <provider-model-id>
-```
-
-Then start the Node with a strong bearer token:
+Provision App accounts locally on the Node machine:
 
 ```bash
-export OPENTEAMWORK_CLIENT_API_TOKEN='<random-secret>'
-otw node run
+otw user add admin@example.com --privilege root
+otw user add jiang@example.com --privilege high
+otw user list
 ```
 
-Connect Desktop or CLI to `http://<node-lan-address>:18765` with the same token. A non-loopback bind without a token is rejected. This mode is intended only for a trusted LAN; do not expose the HTTP endpoint directly to the public internet.
+For remote login, keep the Client API on `127.0.0.1`, require deployment authentication, and expose it only through a same-host HTTPS reverse proxy. Desktop users sign in with their own email and secret; they do not receive the deployment bearer token.
+
+See [Users and remote App access](./docs/USERS.md) for the complete machine-A/machine-B procedure, HTTPS proxy boundary, service-manager note, authorization rules, and backup guidance.
 
 ## CLI
 
@@ -137,6 +130,7 @@ The stable top-level groups are deliberately small:
 ```text
 otw status
 otw setup
+otw user add|list|disable
 otw node run|service
 otw action list|invoke
 otw command
@@ -206,7 +200,8 @@ Cron and Heartbeat are owned by the long-lived Node process. Their actions, fail
 ## Security model
 
 - Secrets are represented by `SecretRef`; ordinary resource JSON, diagnostics, audit, and client responses never contain secret values.
-- Non-loopback Client API access requires bearer authentication.
+- Remote App login requires HTTPS terminated by a reverse proxy on the Node host; the Python Client API remains loopback-only.
+- App users receive revocable opaque sessions and cannot select another user's identity, Agent, Session, Run, or Artifact.
 - High-risk Actions require both policy permission and explicit confirmation.
 - Action audits store bounded identities, decisions, and outcomes rather than request or response payloads.
 - Extensions are staged and validated before activation; declarative Product Plugins cannot execute arbitrary host initialization code.
@@ -247,6 +242,7 @@ Use `--list`, `--skip-python`, or `--skip-build` only for diagnostics; the full 
 - [Configuration and models](./docs/CONFIGURATION.md)
 - [Static execution permissions](./docs/PERMISSIONS.md)
 - [Operations](./docs/OPERATIONS.md)
+- [Users and remote App access](./docs/USERS.md)
 - [Sessions, attachments, and artifacts](./docs/ARTIFACTS.md)
 - [Client API contract](./contracts/client-api/README.md)
 - [Desktop](./apps/desktop/README.md)
@@ -258,7 +254,7 @@ Use `--list`, `--skip-python`, or `--skip-build` only for diagnostics; the full 
 ## Current boundaries
 
 - CLI and Desktop are first-class clients; a mobile client is a future consumer of the same contract, not part of the current build.
-- Multiple trusted-LAN targets and encrypted endpoint-bound tokens are implemented. Automatic TLS, discovery, identity pairing, token rotation/revocation, SSH/Tailnet setup, and a public relay are future work.
+- Multiple Node targets and encrypted endpoint/user-bound App session tokens are implemented. TLS termination is an administrator-provided reverse proxy; automatic certificates, discovery, SSO, password reset, account privilege changes, SSH/Tailnet setup, and a public relay are future work.
 - Message attachments currently support modern DOCX, XLSX, CSV, text-based PDF, PPTX, PNG, JPEG, WebP, and a bounded set of UTF-8 text/code formats. Legacy `.doc`, `.xls`, and `.ppt`, scanned-PDF OCR, encrypted PDFs, and arbitrary binary files are deliberately rejected with a conversion or capability message.
 - Public extension catalogs, cloud hosting, improved memory, self-evolution, and deeper long-task intelligence remain later product layers over the current Node foundation.
 - The current macOS Desktop artifact is a developer preview and is not signed or notarized.

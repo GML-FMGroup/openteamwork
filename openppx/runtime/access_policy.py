@@ -87,6 +87,15 @@ class AccessPolicy:
                 visible_principal_ids=visible_principal_ids,
             )
 
+        if principal.account_kind == "product_user":
+            return AccessDecision.deny(
+                reason="agent_ownership_required",
+                access_kind=access_kind,
+                requester_principal_id=requester_principal_id,
+                agent_id=agent_id,
+                relation_to_agent=relation,
+            )
+
         return AccessDecision.allow_scope(
             reason="self_scope",
             access_kind=access_kind,

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { SettingsView, type SettingsSection } from "./components/settings/SettingsView";
 import { OnboardingView } from "./components/setup/OnboardingView";
+import { LoginView } from "./components/auth/LoginView";
 import { ModelProfileDialog } from "./components/models/ModelProfileDialog";
 import { AutomationsPage } from "./components/automations/AutomationsPage";
 import { Composer } from "./components/workspace/Composer";
@@ -156,7 +157,7 @@ export function App() {
     );
   }
 
-  if (!workspace.ready || !workspace.runtime || !workspace.setupStatus) {
+  if (!workspace.ready) {
     return (
       <div className="loading-shell" aria-live="polite">
         <div>
@@ -167,7 +168,36 @@ export function App() {
     );
   }
 
+  if (workspace.authenticationRequired) {
+    return (
+      <LoginView
+        platform={window.ppxClient.platform}
+        connection={workspace.connectionForm}
+        busy={workspace.authenticating}
+        error={workspace.authenticationError}
+        setConnection={workspace.setConnectionForm}
+        onLogin={workspace.login}
+      />
+    );
+  }
+
+  if (!workspace.runtime || !workspace.setupStatus) {
+    return <div className="loading-shell" aria-live="polite"><div><span className="loading-brand" aria-hidden="true">OT</span><span className="loading-caption">Loading authenticated workspace…</span></div></div>;
+  }
+
   if (workspace.setupStatus.state !== "ready") {
+    if (workspace.userProfile.accountKind === "product" && workspace.userProfile.privilegeLevel !== "root") {
+      return (
+        <div className="loading-shell">
+          <div>
+            <span className="loading-brand" aria-hidden="true">OT</span>
+            <strong>This Node needs administrator setup</strong>
+            <p>Ask a root user to finish the Node, Agent, and model configuration, then sign in again.</p>
+            <button type="button" onClick={() => void workspace.logout()}>Sign out</button>
+          </div>
+        </div>
+      );
+    }
     return (
       <OnboardingView
         platform={window.ppxClient.platform}
@@ -265,6 +295,7 @@ export function App() {
         onOpenSettings={openSettings}
         onOpenExtensions={openExtensions}
         onOpenAutomations={openAutomations}
+        onLogout={() => void workspace.logout()}
         onSelectAgent={selectAgentFromSidebar}
         onSelectSession={selectSessionFromSidebar}
         onRenameSession={(session, title) => void workspace.renameSession(session, title)}
@@ -386,6 +417,7 @@ export function App() {
           initialExtensionKind={settingsDestination.area === "extensions" ? settingsDestination.extensionKind : undefined}
           runtime={runtime}
           diagnostics={workspace.diagnostics}
+          userProfile={workspace.userProfile}
           connectionForm={workspace.connectionForm}
           savingConnection={workspace.savingConnection}
           testingConnection={workspace.testingConnection}

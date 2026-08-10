@@ -199,6 +199,8 @@ class ActionContext:
     permissions: frozenset[str]
     client_id: str | None = None
     device_id: str | None = None
+    principal_id: str | None = None
+    privilege_level: str | None = None
     confirmed: bool = False
     node_id: str | None = None
     agent_id: str | None = None
@@ -212,7 +214,7 @@ class ActionContext:
             value = getattr(self, field_name)
             if not value.strip() or any(ord(character) < 32 for character in value):
                 raise ValueError(f"{field_name} must contain visible text")
-        for field_name in ("client_id", "device_id"):
+        for field_name in ("client_id", "device_id", "principal_id", "privilege_level"):
             value = getattr(self, field_name)
             if value is not None and (not value.strip() or any(ord(character) < 32 for character in value)):
                 raise ValueError(f"{field_name} must contain visible text when provided")

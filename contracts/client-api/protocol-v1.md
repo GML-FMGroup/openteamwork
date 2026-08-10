@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Client API v1 is the versioned network boundary between one shared Node runtime and OpenTeamwork CLI, Desktop, or a future client. The client can run on the same computer or connect over a trusted LAN.
+Client API v1 is the versioned network boundary between one shared Node runtime and OpenTeamwork CLI, Desktop, or a future client. A user client can run on the same computer or connect through a same-host HTTPS reverse proxy.
 
 The project has not published a stable compatibility promise yet. The current v1 development baseline is the contract from which future version guarantees will begin.
 
@@ -33,12 +33,28 @@ An unconfigured loopback Node exposes the minimum setup surface so Desktop and C
 
 ## Authentication
 
-- Every operation except the minimal public health projection is protected when a bearer token is configured.
-- JSON and SSE use the same bearer header.
+The transport recognizes two separate credentials:
+
+- a deployment bearer token for trusted Node operators and runtime clients;
+- an opaque product-user session token for Desktop requests.
+
+Deployment-token rules:
+
+- Every operation except the minimal public health projection is protected when a deployment token is configured.
 - Non-loopback binds are rejected unless authentication is required and a non-empty process token is available.
-- Token comparison is constant-time.
-- Authentication failures return HTTP 401 with a stable error and never echo the credential.
-- Manual loopback development may disable authentication. Desktop-supervised local Nodes use a random per-process token.
+- Token comparison is constant-time. Manual loopback development may disable deployment authentication; Desktop-supervised local Nodes use a random per-process token.
+
+Product-user login uses:
+
+- `POST /api/v1/auth/login` with bounded `email` and `secret` JSON. It returns `accessToken`, `expiresAtMs`, and credential-free user metadata.
+- `GET /api/v1/auth/me` to resolve the current token to `userId`, normalized email, privilege level, and active status.
+- `POST /api/v1/auth/logout` to revoke the presented session.
+
+Login and product session tokens are accepted only when the Node sees a loopback TCP peer. A remote Desktop therefore connects over HTTPS terminated by a reverse proxy on the Node host. Direct remote plaintext login is rejected before the request body is read.
+
+Secrets are Argon2id-hashed. Product session tokens are random, stored only as SHA-256 digests on the Node, expire after 30 days, and are revoked by logout or account disable. Repeated failed login attempts receive bounded per-caller/account rate limiting. Authentication failures are generic and never echo a credential or reveal whether an email exists.
+
+Both JSON and SSE use the same bearer header after authentication. The authenticated product user is transport-bound: non-root callers cannot replace `userId`, access another user's Agent or Run, or create an Agent above their own `low < medium < high < root` ceiling. Root product users have global Agent visibility, but App login never grants the deployment token.
 
 ## Common Action contract
 

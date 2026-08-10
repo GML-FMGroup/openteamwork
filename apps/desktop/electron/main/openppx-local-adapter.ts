@@ -100,14 +100,13 @@ import type {
   SetupHelloResult,
   SetupStatusResult,
   UserProfile,
+  UserLoginRequest,
 } from "../../app/src/types";
 import { shouldStartManagedNode } from "./node-start-policy";
-import { LOCAL_USER_ID } from "../../app/src/types";
 import { ClientApiConnection } from "./client-api-connection";
 import { ClientApiRunStream } from "./client-api-run-stream";
 import { ClientApiSessionCache } from "./client-api-session-cache";
 import { LocalNodeSupervisor } from "./local-node-supervisor";
-import { resolveLocalUserProfile } from "./local-user-profile";
 import {
   findLatestPersistedRunMessage,
   isTerminalRunStatus,
@@ -377,6 +376,8 @@ export class OpenPpxLocalAdapter implements Omit<
 
   private readonly activeRunStreams = new Map<string, AbortController>();
 
+  private authenticatedUser: UserProfile | null = null;
+
   private inflightHealthCheck: Promise<boolean> | null = null;
 
   public constructor(initialSettings?: ConnectionSettings) {
@@ -451,10 +452,21 @@ export class OpenPpxLocalAdapter implements Omit<
     };
     this.connection.configure({
       baseUrl: nextBaseUrl,
-      accessToken: isLan
-        ? settings.accessToken?.trim() || this.configuredClientApiAccessToken
-        : this.configuredClientApiAccessToken || this.managedLocalAccessToken,
+      accessToken: settings.accessToken?.trim() || (
+        isLan
+          ? this.configuredClientApiAccessToken
+          : this.configuredClientApiAccessToken || this.managedLocalAccessToken
+      ),
     });
+    this.authenticatedUser = settings.userId && settings.userEmail && settings.userPrivilegeLevel
+      ? {
+          id: settings.userId,
+          displayName: settings.userEmail,
+          accountKind: "product",
+          email: settings.userEmail,
+          privilegeLevel: settings.userPrivilegeLevel,
+        }
+      : null;
     this.sessionCache.clear();
     if (shouldStopManagedProcess) {
       this.stopManagedClientApiImmediately();
@@ -465,6 +477,13 @@ export class OpenPpxLocalAdapter implements Omit<
   private emit(event: RunEvent): void {
     this.sessionCache.applyEvent(event);
     this.listeners.forEach((listener) => listener(event));
+  }
+
+  private requireUserId(): string {
+    if (!this.authenticatedUser?.id) {
+      throw new Error("Sign in to the OpenTeamwork Node first.");
+    }
+    return this.authenticatedUser.id;
   }
 
   private async fetchClientApiJson(pathname: string, init?: RequestInit): Promise<Record<string, unknown>> {
@@ -657,7 +676,63 @@ export class OpenPpxLocalAdapter implements Omit<
   }
 
   public async getUserProfile(): Promise<UserProfile> {
-    return resolveLocalUserProfile();
+    const user = await this.connection.getAuthenticatedUser();
+    const profile: UserProfile = {
+      id: user.userId,
+      displayName: user.email,
+      accountKind: "product",
+      email: user.email,
+      privilegeLevel: user.privilegeLevel,
+    };
+    this.authenticatedUser = profile;
+    return profile;
+  }
+
+  public async login(request: UserLoginRequest): Promise<UserProfile> {
+    this.applyConnectionSettings({ ...request.connection, accessToken: "" });
+    const login = await this.connection.login(request.email.trim(), request.secret);
+    const authenticatedSettings: ConnectionSettings = {
+      ...request.connection,
+      accessToken: login.accessToken,
+      userId: login.user.userId,
+      userEmail: login.user.email,
+      userPrivilegeLevel: login.user.privilegeLevel,
+    };
+    this.applyConnectionSettings(authenticatedSettings);
+    const profile: UserProfile = {
+      id: login.user.userId,
+      displayName: login.user.email,
+      accountKind: "product",
+      email: login.user.email,
+      privilegeLevel: login.user.privilegeLevel,
+    };
+    this.authenticatedUser = profile;
+    return profile;
+  }
+
+  public authenticatedConnectionSettings(): ConnectionSettings {
+    const profile = this.authenticatedUser;
+    if (!profile) throw new Error("No authenticated user session is available.");
+    return {
+      targetType: this.isRemoteTarget() ? "lan" : "local",
+      targetId: this.target.id,
+      targetName: this.target.name,
+      clientApiBaseUrl: this.connection.baseUrl,
+      accessToken: this.connection.accessToken,
+      userId: profile.id,
+      userEmail: profile.email,
+      userPrivilegeLevel: profile.privilegeLevel,
+    };
+  }
+
+  public async logout(): Promise<void> {
+    try {
+      await this.connection.logout();
+    } finally {
+      this.authenticatedUser = null;
+      this.abortActiveRunStreams();
+      this.sessionCache.clear();
+    }
   }
 
   public async getDiagnostics(): Promise<ClientDiagnostics> {
@@ -693,7 +768,7 @@ export class OpenPpxLocalAdapter implements Omit<
     await this.ensureClientApiAvailable();
     const result = (await this.agentManagement.create({
       ...input,
-      ownerPrincipalId: LOCAL_USER_ID,
+      ownerPrincipalId: this.requireUserId(),
     })).result;
     return {
       ...result,
@@ -895,7 +970,7 @@ export class OpenPpxLocalAdapter implements Omit<
   /** Read the unfinished Goal bound to one Session from the Node-owned Goal store. */
   public async getCurrentGoal(sessionId: string): Promise<{ goal: GoalDetail | null }> {
     await this.ensureClientApiAvailable();
-    const listed = await this.goals.list(LOCAL_USER_ID, {
+    const listed = await this.goals.list(this.requireUserId(), {
       sessionId,
       statuses: ["active", "waiting", "paused", "blocked"],
       limit: 1,
@@ -904,13 +979,13 @@ export class OpenPpxLocalAdapter implements Omit<
     if (!summary) {
       return { goal: null };
     }
-    return { goal: (await this.goals.read(summary.goalId, LOCAL_USER_ID)).result };
+    return { goal: (await this.goals.read(summary.goalId, this.requireUserId())).result };
   }
 
   /** Update one unfinished Goal without letting the Renderer choose its owner. */
   public async updateGoal(input: GoalUpdateRequest): Promise<GoalDetail> {
     await this.ensureClientApiAvailable();
-    return (await this.goals.update({ ...input, userId: LOCAL_USER_ID })).result;
+    return (await this.goals.update({ ...input, userId: this.requireUserId() })).result;
   }
 
   /** Apply one explicit Goal lifecycle transition under optimistic concurrency. */
@@ -922,7 +997,7 @@ export class OpenPpxLocalAdapter implements Omit<
     await this.ensureClientApiAvailable();
     return (await this.goals.transition(operation, {
       goalId,
-      userId: LOCAL_USER_ID,
+      userId: this.requireUserId(),
       expectedRevision,
     })).result;
   }
@@ -936,7 +1011,7 @@ export class OpenPpxLocalAdapter implements Omit<
     await this.ensureClientApiAvailable();
     return (await this.goals.retryStep({
       goalId,
-      userId: LOCAL_USER_ID,
+      userId: this.requireUserId(),
       expectedRevision,
       stepId,
     })).result;
@@ -945,23 +1020,23 @@ export class OpenPpxLocalAdapter implements Omit<
   /** List visible user Automations without exposing internal Cron records. */
   public async listAutomations(statuses: AutomationStatus[] = []): Promise<{ automations: AutomationSummary[] }> {
     await this.ensureClientApiAvailable();
-    const envelope = await this.automations.list(LOCAL_USER_ID, statuses);
+    const envelope = await this.automations.list(this.requireUserId(), statuses);
     return { automations: envelope.result.items };
   }
 
   public async getAutomation(automationId: string): Promise<AutomationDetail> {
     await this.ensureClientApiAvailable();
-    return (await this.automations.read(automationId, LOCAL_USER_ID)).result;
+    return (await this.automations.read(automationId, this.requireUserId())).result;
   }
 
   public async createAutomation(input: AutomationCreateInput): Promise<AutomationDetail> {
     await this.ensureClientApiAvailable();
-    return (await this.automations.create({ ...input, userId: LOCAL_USER_ID })).result;
+    return (await this.automations.create({ ...input, userId: this.requireUserId() })).result;
   }
 
   public async updateAutomation(input: AutomationUpdateRequest): Promise<AutomationDetail> {
     await this.ensureClientApiAvailable();
-    return (await this.automations.update({ ...input, userId: LOCAL_USER_ID })).result;
+    return (await this.automations.update({ ...input, userId: this.requireUserId() })).result;
   }
 
   public async transitionAutomation(
@@ -972,19 +1047,19 @@ export class OpenPpxLocalAdapter implements Omit<
     await this.ensureClientApiAvailable();
     return (await this.automations.transition(
       operation,
-      { automationId, userId: LOCAL_USER_ID, expectedRevision },
+      { automationId, userId: this.requireUserId(), expectedRevision },
       operation === "delete",
     )).result;
   }
 
   public async runAutomation(automationId: string, input: Record<string, unknown> = {}): Promise<AutomationRunSummary> {
     await this.ensureClientApiAvailable();
-    return (await this.automations.run(automationId, LOCAL_USER_ID, input)).result.run;
+    return (await this.automations.run(automationId, this.requireUserId(), input)).result.run;
   }
 
   public async getAutomationHistory(automationId: string): Promise<Record<string, unknown>> {
     await this.ensureClientApiAvailable();
-    return (await this.automations.history(automationId, LOCAL_USER_ID)).result;
+    return (await this.automations.history(automationId, this.requireUserId())).result;
   }
 
   public async listAutomationTemplates(): Promise<{ templates: AutomationTemplateSummary[] }> {
@@ -1436,7 +1511,7 @@ export class OpenPpxLocalAdapter implements Omit<
       const outcome = await this.actions.invoke<
         { agentId: string; userId: string },
         { session: Record<string, unknown> }
-      >("session.new", { agentId, userId: LOCAL_USER_ID });
+      >("session.new", { agentId, userId: this.requireUserId() });
       const session = normalizeClientApiSession(outcome.result.session);
       if (!session) {
         throw new Error("Node returned an invalid session payload.");
@@ -1451,21 +1526,21 @@ export class OpenPpxLocalAdapter implements Omit<
 
   public async renameSession(input: SessionMutationRequest & { title: string }): Promise<Record<string, unknown>> {
     await this.ensureClientApiAvailable();
-    const result = (await this.sessions.rename(input.agentId, LOCAL_USER_ID, input.sessionId, input.title)).result;
+    const result = (await this.sessions.rename(input.agentId, this.requireUserId(), input.sessionId, input.title)).result;
     this.sessionCache.invalidate(input.agentId, input.sessionId);
     return result;
   }
 
   public async archiveSession(input: SessionMutationRequest & { archived: boolean }): Promise<Record<string, unknown>> {
     await this.ensureClientApiAvailable();
-    const result = (await this.sessions.archive(input.agentId, LOCAL_USER_ID, input.sessionId, input.archived)).result;
+    const result = (await this.sessions.archive(input.agentId, this.requireUserId(), input.sessionId, input.archived)).result;
     this.sessionCache.invalidate(input.agentId, input.sessionId);
     return result;
   }
 
   public async forkSession(input: SessionMutationRequest): Promise<{ session: SessionSummary }> {
     await this.ensureClientApiAvailable();
-    const result = (await this.sessions.fork(input.agentId, LOCAL_USER_ID, input.sessionId)).result;
+    const result = (await this.sessions.fork(input.agentId, this.requireUserId(), input.sessionId)).result;
     const session = normalizeClientApiSession(result.session);
     if (!session) throw new Error("Node returned an invalid forked Session.");
     this.sessionCache.invalidate(input.agentId);
@@ -1474,12 +1549,12 @@ export class OpenPpxLocalAdapter implements Omit<
 
   public async exportSession(input: SessionMutationRequest): Promise<Record<string, unknown>> {
     await this.ensureClientApiAvailable();
-    return (await this.sessions.export(input.agentId, LOCAL_USER_ID, input.sessionId)).result;
+    return (await this.sessions.export(input.agentId, this.requireUserId(), input.sessionId)).result;
   }
 
   public async deleteSession(input: SessionMutationRequest): Promise<Record<string, unknown>> {
     await this.ensureClientApiAvailable();
-    const result = (await this.sessions.remove(input.agentId, LOCAL_USER_ID, input.sessionId)).result;
+    const result = (await this.sessions.remove(input.agentId, this.requireUserId(), input.sessionId)).result;
     this.sessionCache.invalidate(input.agentId, input.sessionId);
     return result;
   }
@@ -1832,7 +1907,7 @@ export class OpenPpxLocalAdapter implements Omit<
   public async invokeSlashCommand(input: SlashCommandRequest): Promise<SlashCommandResult> {
     await this.ensureClientApiAvailable();
     const envelope = await this.commands.invoke(input.rawCommand, {
-      userId: LOCAL_USER_ID,
+      userId: this.requireUserId(),
       agentId: input.agentId,
       sessionId: input.sessionId,
       runId: input.runId,

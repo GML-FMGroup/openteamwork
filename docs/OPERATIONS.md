@@ -41,6 +41,8 @@ otw node service status
 
 The installer does not silently enable or start the service. Review the generated manifest, then use `launchctl` or `systemctl --user` explicitly. Logs are written below `<node-root>/logs/`.
 
+For a protected multi-user Node, the service manager must supply `OPENTEAMWORK_CLIENT_API_TOKEN` through its own protected secret/environment mechanism. The generated base manifest intentionally does not persist the value from the installer's shell. See [Users and Remote App Access](./USERS.md) for the full HTTPS deployment topology and account commands.
+
 ## Unified status and health
 
 `operations.status` reports Node identity, setup state, Runtime state, enabled Agents, extension readiness, and automation lifecycle. `operations.health` reports bounded component health without exposing paths or credentials.

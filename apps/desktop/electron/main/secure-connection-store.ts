@@ -75,7 +75,7 @@ function readStoredProfiles(): StoredConnectionProfileCollection | null {
   }
 }
 
-function readSecret(secretRef: string | undefined, clientApiBaseUrl: string): string {
+function readSecret(secretRef: string | undefined, clientApiBaseUrl: string, userId: string | undefined): string {
   if (!secretRef || !secureStorageAvailable()) {
     return "";
   }
@@ -87,20 +87,26 @@ function readSecret(secretRef: string | undefined, clientApiBaseUrl: string): st
     return parseBoundConnectionCredential(
       safeStorage.decryptString(fs.readFileSync(filePath)),
       clientApiBaseUrl,
+      userId || "",
     );
   } catch {
     return "";
   }
 }
 
-function writeSecret(accessToken: string, clientApiBaseUrl: string, targetId: string): string {
+function writeSecret(
+  accessToken: string,
+  clientApiBaseUrl: string,
+  targetId: string,
+  userId: string,
+): string {
   if (!secureStorageAvailable()) {
     throw new Error("Secure credential storage is unavailable on this system.");
   }
   const secretRef = `client-api-token-v2-${createHash("sha256").update(`${targetId}:${randomUUID()}`).digest("hex").slice(0, 20)}`;
   atomicWrite(
     secretPath(secretRef),
-    safeStorage.encryptString(serializeBoundConnectionCredential(clientApiBaseUrl, accessToken)),
+    safeStorage.encryptString(serializeBoundConnectionCredential(clientApiBaseUrl, accessToken, userId)),
   );
   return secretRef;
 }
@@ -128,10 +134,7 @@ export function readSecureConnectionSettings(): ConnectionSettings | null {
     const normalized = normalizeConnectionSettings(hydrateConnectionSettings(stored));
     return {
       ...normalized,
-      accessToken:
-        normalized.targetType === "lan"
-          ? readSecret(stored.secretRef, normalized.clientApiBaseUrl)
-          : "",
+      accessToken: readSecret(stored.secretRef, normalized.clientApiBaseUrl, stored.userId),
     };
   } catch {
     return null;
@@ -141,7 +144,7 @@ export function readSecureConnectionSettings(): ConnectionSettings | null {
 /** Reuse an encrypted LAN credential when the user leaves the password field blank. */
 export function resolveCandidateConnectionSettings(settings: ConnectionSettings): ConnectionSettings {
   const candidate = normalizeConnectionSettings(settings);
-  if (candidate.targetType === "local" || candidate.accessToken) {
+  if (candidate.accessToken) {
     return candidate;
   }
   const collection = readStoredProfiles();
@@ -150,10 +153,10 @@ export function resolveCandidateConnectionSettings(settings: ConnectionSettings)
   ) ?? null;
   const accessToken =
     stored && canReuseStoredCredential(stored, candidate)
-      ? readSecret(stored.secretRef, candidate.clientApiBaseUrl)
+      ? readSecret(stored.secretRef, candidate.clientApiBaseUrl, stored.userId)
       : "";
   if (!accessToken) {
-    throw new Error("A Client API token is required for a new LAN endpoint.");
+    throw new Error("Sign in before using a new Node endpoint.");
   }
   return {
     ...candidate,
@@ -167,12 +170,14 @@ export function writeSecureConnectionSettings(settings: ConnectionSettings): voi
   const collection = readStoredProfiles();
   const previous = collection?.items.find((item) => item.targetId === normalizedSettings.targetId);
   let secretRef: string | undefined;
-  if (normalizedSettings.targetType === "lan") {
-    const accessToken = normalizedSettings.accessToken || "";
-    if (!accessToken) {
-      throw new Error("A Client API token is required for a LAN connection.");
-    }
-    secretRef = writeSecret(accessToken, normalizedSettings.clientApiBaseUrl, normalizedSettings.targetId);
+  const accessToken = normalizedSettings.accessToken || "";
+  if (accessToken) {
+    secretRef = writeSecret(
+      accessToken,
+      normalizedSettings.clientApiBaseUrl,
+      normalizedSettings.targetId,
+      normalizedSettings.userId || "",
+    );
   }
   const next = upsertStoredConnectionProfile(
     collection,
@@ -214,8 +219,24 @@ export function readSecureConnectionProfile(targetId: string): ConnectionSetting
   if (!stored) throw new Error("The saved Node target was not found.");
   return {
     ...hydrateConnectionSettings(stored),
-    accessToken: stored.targetType === "lan" ? readSecret(stored.secretRef, stored.clientApiBaseUrl) : "",
+    accessToken: readSecret(stored.secretRef, stored.clientApiBaseUrl, stored.userId),
   };
+}
+
+/** Remove the active encrypted user session while retaining public Node metadata. */
+export function clearActiveSecureConnectionCredential(): void {
+  const collection = readStoredProfiles();
+  if (!collection) return;
+  const active = collection.items.find((item) => item.targetId === collection.activeTargetId);
+  if (!active) return;
+  const next = {
+    ...collection,
+    items: collection.items.map((item) => item.targetId === active.targetId
+      ? { ...item, secretRef: undefined, userId: undefined, userEmail: undefined, userPrivilegeLevel: undefined }
+      : item),
+  };
+  atomicWrite(settingsPath(), JSON.stringify(next, null, 2));
+  deleteSecret(active.secretRef);
 }
 
 /** Persist only the active target pointer after a successful connection test. */

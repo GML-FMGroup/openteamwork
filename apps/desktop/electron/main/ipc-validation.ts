@@ -1,4 +1,4 @@
-import type { AgentCreateRequest, AgentUpdateInput, AppConnectionEnablementRequest, AppConnectionRemoveRequest, AppConnectionSaveRequest, ArtifactSummary, ArtifactUploadInput, AutomationCreateInput, AutomationStatus, AutomationUpdateRequest, ConnectionSettings, CronCreateInput, CronUpdateInput, ExtensionEnablementRequest, ExtensionInstallRequest, ExtensionPreviewRequest, ExtensionRemoveRequest, GoalTransitionOperation, GoalUpdateRequest, HeartbeatConfiguration, McpMutationRequest, McpServerResource, McpValueBinding, ModelCapability, ModelProfileCreateInput, ModelProfileUpdateInput, OperationsTaskControlInput, PluginMarketplaceSourceSpec, RuntimeCommand, SendMessageInput, SessionMutationRequest, SetupApplyRequest, SlashCommandRequest } from "../../app/src/types";
+import type { AgentCreateRequest, AgentUpdateInput, AppConnectionEnablementRequest, AppConnectionRemoveRequest, AppConnectionSaveRequest, ArtifactSummary, ArtifactUploadInput, AutomationCreateInput, AutomationStatus, AutomationUpdateRequest, ConnectionSettings, CronCreateInput, CronUpdateInput, ExtensionEnablementRequest, ExtensionInstallRequest, ExtensionPreviewRequest, ExtensionRemoveRequest, GoalTransitionOperation, GoalUpdateRequest, HeartbeatConfiguration, McpMutationRequest, McpServerResource, McpValueBinding, ModelCapability, ModelProfileCreateInput, ModelProfileUpdateInput, OperationsTaskControlInput, PluginMarketplaceSourceSpec, RuntimeCommand, SendMessageInput, SessionMutationRequest, SetupApplyRequest, SlashCommandRequest, UserLoginRequest } from "../../app/src/types";
 
 function record(value: unknown, label: string): Record<string, unknown> {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
@@ -41,6 +41,31 @@ export function validateConnectionSettings(value: unknown): ConnectionSettings {
     clientApiBaseUrl: string(input.clientApiBaseUrl, "Client API URL", 2_048),
     accessToken:
       input.accessToken === undefined ? undefined : string(input.accessToken, "Access token", 16_384, true),
+    userId: input.userId === undefined ? undefined : string(input.userId, "User id", 128, true),
+    userEmail: input.userEmail === undefined ? undefined : string(input.userEmail, "User email", 254, true),
+    userPrivilegeLevel: ["low", "medium", "high", "root"].includes(String(input.userPrivilegeLevel))
+      ? input.userPrivilegeLevel as ConnectionSettings["userPrivilegeLevel"]
+      : undefined,
+  };
+}
+
+/** Validate transient login credentials without persisting them in Renderer state stores. */
+export function validateUserLoginRequest(value: unknown): UserLoginRequest {
+  const input = record(value, "User login");
+  const email = string(input.email, "Email", 254).trim();
+  const secret = string(input.secret, "Secret", 4_096);
+  const connection = validateConnectionSettings(input.connection);
+  if (!email.includes("@")) throw new TypeError("Enter a valid email address.");
+  if (new TextEncoder().encode(secret).length < 8) {
+    throw new TypeError("Secret must contain at least 8 UTF-8 bytes.");
+  }
+  if (connection.targetType === "lan" && new URL(connection.clientApiBaseUrl).protocol !== "https:") {
+    throw new TypeError("Remote user login requires an HTTPS Node URL.");
+  }
+  return {
+    connection,
+    email,
+    secret,
   };
 }
 

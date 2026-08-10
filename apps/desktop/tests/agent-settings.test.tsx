@@ -57,6 +57,7 @@ describe("AgentSettings", () => {
         onClearCreateError={() => undefined}
         onCreateAgent={vi.fn(async () => false)}
         onWorkspaceChanged={onWorkspaceChanged}
+        maxPrivilegeLevel="root"
       />,
     );
 
@@ -97,6 +98,7 @@ describe("AgentSettings", () => {
         onClearCreateError={() => undefined}
         onCreateAgent={vi.fn(async () => false)}
         onWorkspaceChanged={vi.fn(async () => undefined)}
+        maxPrivilegeLevel="root"
       />,
     );
 

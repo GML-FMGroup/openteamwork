@@ -6,12 +6,18 @@ from openppx.runtime.identity_models import ResolvedPrincipal
 from openppx.runtime.identity_store import IdentityStore
 
 
-def _principal(*, principal_id: str, privilege_level: str = "minimal", principal_type: str = "human") -> ResolvedPrincipal:
+def _principal(
+    *,
+    principal_id: str,
+    privilege_level: str = "minimal",
+    principal_type: str = "human",
+    account_kind: str = "local",
+) -> ResolvedPrincipal:
     return ResolvedPrincipal(
         principal_id=principal_id,
         principal_type=principal_type,
         privilege_level=privilege_level,
-        account_kind="local",
+        account_kind=account_kind,
         display_name=principal_id,
         authenticated=True,
     )
@@ -69,6 +75,28 @@ def test_access_policy_participant_stays_self_scoped(tmp_path) -> None:
     assert scope.visible_principal_ids == {"participant"}
     assert denied.allow is False
     assert denied.reason == "target_principal_outside_visible_scope"
+
+
+def test_access_policy_product_user_participant_cannot_use_unowned_agent(tmp_path) -> None:
+    db_path = tmp_path / "identity.db"
+    identity_store = IdentityStore(db_path=db_path)
+    access_store = AgentAccessStore(db_path=db_path)
+    participant = identity_store.put_principal(
+        _principal(principal_id="participant", account_kind="product_user")
+    )
+    access_store.upsert_membership(
+        AgentMembership(agent_id="writer", principal_id=participant.principal_id, relation="participant")
+    )
+
+    policy = AccessPolicy(identity_store=identity_store, agent_access_store=access_store)
+    decision = policy.decide_agent_scope(
+        requester_principal_id=participant.principal_id,
+        agent_id="writer",
+        access_kind="session_list",
+    )
+
+    assert decision.allow is False
+    assert decision.reason == "agent_ownership_required"
 
 
 def test_access_policy_root_gets_global_scope(tmp_path) -> None:

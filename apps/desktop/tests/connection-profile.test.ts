@@ -30,6 +30,9 @@ describe("connection profile persistence", () => {
         targetName: "Studio",
         clientApiBaseUrl: "http://192.168.1.10:8765",
         accessToken: "super-secret",
+        userId: "user_jiang",
+        userEmail: "jiang@example.com",
+        userPrivilegeLevel: "high",
       },
       "client-api-token-v1",
     );
@@ -129,11 +132,16 @@ describe("connection profile persistence", () => {
   });
 
   it("binds the encrypted credential payload to its LAN endpoint", () => {
-    const payload = serializeBoundConnectionCredential("http://studio.local:8765/", "secret");
+    const payload = serializeBoundConnectionCredential(
+      "http://studio.local:8765/",
+      "secret",
+      "user_jiang",
+    );
 
-    expect(parseBoundConnectionCredential(payload, "http://studio.local:8765")).toBe("secret");
-    expect(parseBoundConnectionCredential(payload, "http://other.local:8765")).toBe("");
-    expect(parseBoundConnectionCredential("not-json", "http://studio.local:8765")).toBe("");
+    expect(parseBoundConnectionCredential(payload, "http://studio.local:8765", "user_jiang")).toBe("secret");
+    expect(parseBoundConnectionCredential(payload, "http://studio.local:8765", "user_other")).toBe("");
+    expect(parseBoundConnectionCredential(payload, "http://other.local:8765", "user_jiang")).toBe("");
+    expect(parseBoundConnectionCredential("not-json", "http://studio.local:8765", "user_jiang")).toBe("");
     expect(payload).toContain("http://studio.local:8765");
   });
 

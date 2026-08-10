@@ -10,6 +10,7 @@ import type {
   ProviderAuthStatus,
   RuntimeStatus,
   SetupProvider,
+  UserProfile,
 } from "../../types";
 import { CollapsedSidebarTools } from "../workspace/ContextSidebar";
 import { ExtensionsSettings } from "./ExtensionsSettings";
@@ -35,6 +36,7 @@ interface SettingsViewProps {
   initialExtensionKind?: ExtensionSummary["kind"];
   runtime: RuntimeStatus;
   diagnostics: ClientDiagnostics | null;
+  userProfile: UserProfile;
   connectionForm: ConnectionSettings;
   savingConnection: boolean;
   testingConnection: boolean;
@@ -90,6 +92,10 @@ export function SettingsView(props: SettingsViewProps) {
   const [section, setSection] = useState<SettingsSection>(props.initialSection ?? "general");
   const [extensionKind, setExtensionKind] = useState<ExtensionSummary["kind"]>(props.initialExtensionKind ?? "plugin");
   const extensionsArea = props.area === "extensions";
+  const rootAccess = props.userProfile.accountKind === "local" || props.userProfile.privilegeLevel === "root";
+  const settingsSections = rootAccess
+    ? SETTINGS_SECTIONS
+    : SETTINGS_SECTIONS.filter((item) => item !== "models" && item !== "operations");
   const [connectionProfiles, setConnectionProfiles] = useState<ConnectionProfileSummary[]>([]);
   const [profileWorkingId, setProfileWorkingId] = useState<string | null>(null);
   const [profileError, setProfileError] = useState<string | null>(null);
@@ -210,7 +216,7 @@ export function SettingsView(props: SettingsViewProps) {
             <button key={kind} className={extensionKind === kind ? "active" : ""} onClick={() => setExtensionKind(kind)}>
               {extensionSectionTitle(kind)}
             </button>
-          )) : SETTINGS_SECTIONS.map((item) => (
+          )) : settingsSections.map((item) => (
             <button key={item} className={section === item ? "active" : ""} onClick={() => setSection(item)}>
               {sectionTitle(item)}
             </button>
@@ -219,6 +225,7 @@ export function SettingsView(props: SettingsViewProps) {
         <main className="settings-page">
           {!extensionsArea && section === "general" ? (
             <>
+              {rootAccess ? <>
               <section className="settings-card settings-card-targets">
                 <div className="settings-card-heading"><div><h3>Saved Nodes</h3><p>Switch between local and trusted LAN Nodes without re-entering their address.</p></div></div>
                 {profileError ? <p className="settings-inline-error">{profileError}</p> : null}
@@ -247,7 +254,7 @@ export function SettingsView(props: SettingsViewProps) {
                   </label>
                   <label className="settings-field"><span>Target name</span><input value={props.connectionForm.targetName} onChange={(event) => props.setConnectionForm((current) => ({ ...current, targetName: event.target.value }))} /></label>
                   <label className="settings-field"><span>Node URL</span><input value={props.connectionForm.clientApiBaseUrl} onChange={(event) => props.setConnectionForm((current) => ({ ...current, clientApiBaseUrl: event.target.value }))} spellCheck={false} /></label>
-                  {props.connectionForm.targetType === "lan" ? (
+                  {props.connectionForm.targetType === "lan" && props.userProfile.accountKind === "local" ? (
                     <label className="settings-field settings-field-token"><span>Access token</span><input type="password" autoComplete="new-password" value={props.connectionForm.accessToken ?? ""} onChange={(event) => props.setConnectionForm((current) => ({ ...current, accessToken: event.target.value }))} placeholder={props.diagnostics?.clientApiCredentialConfigured ? "Saved securely; leave blank to keep it" : "Bearer token"} /></label>
                   ) : null}
                 </div>
@@ -257,6 +264,17 @@ export function SettingsView(props: SettingsViewProps) {
                 </div>
                 {props.connectionFeedback ? <small>{props.connectionFeedback}</small> : null}
               </section>
+              </> : (
+                <section className="settings-card settings-card-connection">
+                  <h3>Account</h3>
+                  <dl className="diagnostics-grid">
+                    <div><dt>Email</dt><dd>{props.userProfile.email ?? props.userProfile.displayName}</dd></div>
+                    <div><dt>Privilege ceiling</dt><dd>{props.userProfile.privilegeLevel ?? "-"}</dd></div>
+                    <div><dt>Node</dt><dd>{props.diagnostics?.nodeName ?? props.diagnostics?.target.name ?? "-"}</dd></div>
+                  </dl>
+                  <p className="extension-empty">Sign out to connect with a different account or Node.</p>
+                </section>
+              )}
               <section className="settings-card settings-card-connection">
                 <h3>Device</h3>
                 <dl className="diagnostics-grid">
@@ -268,18 +286,18 @@ export function SettingsView(props: SettingsViewProps) {
                   <div><dt>Node version</dt><dd>{props.diagnostics?.clientApiProductVersion ?? "-"}</dd></div>
                 </dl>
               </section>
-              <section className="settings-card settings-card-paths">
+              {rootAccess ? <section className="settings-card settings-card-paths">
                 <h3>Paths</h3>
                 <dl className="diagnostics-stack settings-paths-grid">
                   <div><dt>{productProfile.displayName} root</dt><dd>{props.diagnostics?.openppxRoot || "-"}</dd></div>
                   <div><dt>Python</dt><dd>{props.diagnostics?.pythonBin || "-"}</dd></div>
                   <div><dt>Client API</dt><dd>{props.diagnostics?.clientApiBaseUrl || "-"}</dd></div>
                 </dl>
-              </section>
+              </section> : null}
             </>
           ) : null}
 
-          {!extensionsArea && section === "models" ? (
+          {rootAccess && !extensionsArea && section === "models" ? (
             <section className="settings-card settings-card-models">
               <div className="settings-card-heading"><div><h3>Model Profiles</h3><p>Reusable provider, model, access, and fallback policies for Agents on this Node.</p></div><div className="settings-heading-actions"><button className="secondary settings-quiet-button" onClick={() => void refreshModels()}>Refresh</button><button onClick={props.onNewModelProfile}>New Profile</button></div></div>
               <div className="settings-resource-list">
@@ -297,7 +315,7 @@ export function SettingsView(props: SettingsViewProps) {
             </section>
           ) : null}
 
-          {extensionsArea ? (
+          {rootAccess && extensionsArea ? (
             <ExtensionsSettings
               key={extensionKind}
               kind={extensionKind}
@@ -312,11 +330,12 @@ export function SettingsView(props: SettingsViewProps) {
             />
           ) : null}
 
-          {!extensionsArea && section === "operations" ? (
+          {rootAccess && !extensionsArea && section === "operations" ? (
             <OperationsSettings
               runtime={props.runtime}
               agents={props.agents}
               selectedAgentId={props.selectedAgentId}
+              userId={props.userProfile.id}
               onRuntimeAction={props.onRuntimeAction}
               onStopRuntime={props.onStopRuntime}
             />
@@ -334,6 +353,7 @@ export function SettingsView(props: SettingsViewProps) {
               onClearCreateError={props.onClearAgentCreateError}
               onCreateAgent={props.onCreateAgent}
               onWorkspaceChanged={props.onWorkspaceChanged}
+              maxPrivilegeLevel={props.userProfile.privilegeLevel ?? "root"}
             />
           ) : null}
 

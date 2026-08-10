@@ -34,7 +34,7 @@ function runtimeStateLabel(state: RuntimeStatus["state"]): string {
   }
 }
 
-type ShellIconName = "settings" | "extensions" | "automations" | "expand" | "search" | "plus" | "sidebar" | "sidebar-right" | "more";
+type ShellIconName = "settings" | "extensions" | "automations" | "logout" | "expand" | "search" | "plus" | "sidebar" | "sidebar-right" | "more";
 
 export function ShellIcon({ name }: { name: ShellIconName }) {
   const paths: Record<ShellIconName, ReactNode> = {
@@ -58,6 +58,7 @@ export function ShellIcon({ name }: { name: ShellIconName }) {
         <path d="M12 8v4.5l3 1.8M7 3.8 4.8 6M17 3.8 19.2 6" />
       </>
     ),
+    logout: <><path d="M10 5H6.5A1.5 1.5 0 0 0 5 6.5v11A1.5 1.5 0 0 0 6.5 19H10" /><path d="m15 8 4 4-4 4M19 12H9" /></>,
     expand: <path d="m10 6 6 6-6 6" />,
     search: (
       <>
@@ -189,6 +190,7 @@ interface ContextSidebarProps {
   onOpenSettings: () => void;
   onOpenExtensions: () => void;
   onOpenAutomations: () => void;
+  onLogout: () => void;
   onSelectAgent: (agentId: string) => void;
   onSelectSession: (session: SessionSummary) => void;
   onRenameSession: (session: SessionSummary, title: string) => void;
@@ -220,6 +222,7 @@ export function ContextSidebar({
   onOpenSettings,
   onOpenExtensions,
   onOpenAutomations,
+  onLogout,
   onSelectAgent,
   onSelectSession,
   onRenameSession,
@@ -620,7 +623,7 @@ export function ContextSidebar({
                 <ShellIcon name="automations" />
                 <span>Automations</span>
               </button>
-              <button
+              {userProfile.accountKind === "local" || userProfile.privilegeLevel === "root" ? <button
                 className={view === "settings" && controlArea === "extensions" ? "profile-menu-item active" : "profile-menu-item"}
                 type="button"
                 role="menuitem"
@@ -631,7 +634,7 @@ export function ContextSidebar({
               >
                 <ShellIcon name="extensions" />
                 <span>Extensions</span>
-              </button>
+              </button> : null}
               <div className="profile-menu-divider profile-menu-settings-divider" role="separator" />
               <button
                 className={view === "settings" && controlArea === "settings" ? "profile-menu-item active" : "profile-menu-item"}
@@ -644,6 +647,10 @@ export function ContextSidebar({
               >
                 <ShellIcon name="settings" />
                 <span>Settings</span>
+              </button>
+              <button className="profile-menu-item" type="button" role="menuitem" onClick={() => { setProfileMenuOpen(false); onLogout(); }}>
+                <ShellIcon name="logout" />
+                <span>Sign out</span>
               </button>
             </div>
           ) : null}

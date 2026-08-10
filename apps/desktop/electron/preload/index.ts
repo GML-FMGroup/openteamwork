@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from "electron";
-import type { AgentCreateRequest, AgentUpdateInput, AppConnectionEnablementRequest, AppConnectionRemoveRequest, AppConnectionSaveRequest, ArtifactSummary, ArtifactUploadInput, AutomationCreateInput, AutomationStatus, AutomationUpdateRequest, ConnectionSettings, CronCreateInput, CronUpdateInput, DesktopHostPreferences, DesktopPlatform, ExtensionEnablementRequest, ExtensionInstallRequest, ExtensionPreviewRequest, ExtensionRemoveRequest, GoalTransitionOperation, GoalUpdateRequest, HeartbeatConfiguration, McpMutationRequest, ModelProfileCreateInput, ModelProfileUpdateInput, OperationsTaskControlInput, PluginMarketplaceSourceSpec, PpxClientApi, RunEvent, RuntimeCommand, SendMessageInput, SessionMutationRequest, SetupApplyRequest, SlashCommandRequest } from "../../app/src/types";
+import type { AgentCreateRequest, AgentUpdateInput, AppConnectionEnablementRequest, AppConnectionRemoveRequest, AppConnectionSaveRequest, ArtifactSummary, ArtifactUploadInput, AutomationCreateInput, AutomationStatus, AutomationUpdateRequest, ConnectionSettings, CronCreateInput, CronUpdateInput, DesktopHostPreferences, DesktopPlatform, ExtensionEnablementRequest, ExtensionInstallRequest, ExtensionPreviewRequest, ExtensionRemoveRequest, GoalTransitionOperation, GoalUpdateRequest, HeartbeatConfiguration, McpMutationRequest, ModelProfileCreateInput, ModelProfileUpdateInput, OperationsTaskControlInput, PluginMarketplaceSourceSpec, PpxClientApi, RunEvent, RuntimeCommand, SendMessageInput, SessionMutationRequest, SetupApplyRequest, SlashCommandRequest, UserLoginRequest } from "../../app/src/types";
 
 function desktopPlatform(): DesktopPlatform {
   if (process.platform === "darwin") {
@@ -18,6 +18,8 @@ const api: PpxClientApi = {
   platform: desktopPlatform(),
   bootstrap: () => ipcRenderer.invoke("ppx-client:bootstrap"),
   getUserProfile: () => ipcRenderer.invoke("ppx-client:get-user-profile"),
+  login: (request: UserLoginRequest) => ipcRenderer.invoke("ppx-client:login", request),
+  logout: () => ipcRenderer.invoke("ppx-client:logout"),
   getDiagnostics: () => ipcRenderer.invoke("ppx-client:get-diagnostics"),
   setDesktopHostPreferences: (preferences: DesktopHostPreferences) => ipcRenderer.invoke("ppx-client:set-desktop-host-preferences", preferences),
   testConnectionSettings: (settings: ConnectionSettings) => ipcRenderer.invoke("ppx-client:test-connection-settings", settings),

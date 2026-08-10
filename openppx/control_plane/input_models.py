@@ -521,7 +521,7 @@ class AgentCreateInput(AgentReadInput):
 
     display_name: Annotated[str, StringConstraints(min_length=1, max_length=80)]
     workspace: Annotated[str, StringConstraints(max_length=1024)] | None = None
-    owner_principal_id: PrincipalId
+    owner_principal_id: PrincipalId | None = None
     privilege_level: Literal["low", "medium", "high", "root"] = "medium"
     model_profile_id: ResourceId
     instruction: Annotated[str, StringConstraints(max_length=16_384)] = ""

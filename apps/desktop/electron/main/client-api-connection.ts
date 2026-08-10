@@ -33,6 +33,49 @@ export interface ClientApiHealthOptions {
   timeoutMs: number;
 }
 
+export type ClientApiUserPrivilege = "low" | "medium" | "high" | "root";
+
+export interface ClientApiAuthenticatedUser {
+  userId: string;
+  email: string;
+  privilegeLevel: ClientApiUserPrivilege;
+  status: "active";
+}
+
+export interface ClientApiLoginResult {
+  accessToken: string;
+  expiresAtMs: number;
+  user: ClientApiAuthenticatedUser;
+}
+
+function record(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : null;
+}
+
+function authenticatedUser(value: unknown): ClientApiAuthenticatedUser {
+  const user = record(value);
+  const privilegeLevel = String(user?.privilegeLevel ?? "");
+  if (
+    !user
+    || typeof user.userId !== "string"
+    || !user.userId
+    || typeof user.email !== "string"
+    || !user.email
+    || !["low", "medium", "high", "root"].includes(privilegeLevel)
+    || user.status !== "active"
+  ) {
+    throw new Error("Node returned an invalid authenticated user.");
+  }
+  return {
+    userId: user.userId,
+    email: user.email,
+    privilegeLevel: privilegeLevel as ClientApiUserPrivilege,
+    status: "active",
+  };
+}
+
 /**
  * Owns the mutable HTTP/protocol health state for one product Client API endpoint.
  *
@@ -137,6 +180,46 @@ export class ClientApiConnection {
 
   public requestJson(pathname: string, init?: RequestInit): Promise<Record<string, unknown>> {
     return this.transport().requestJson(pathname, init);
+  }
+
+  /** Exchange a user secret once for a revocable opaque session token. */
+  public async login(email: string, secret: string): Promise<ClientApiLoginResult> {
+    const payload = await new ClientApiHttpTransport({
+      baseUrl: this.baseUrlValue,
+      fetch: this.fetcher,
+    }).requestJson("/api/v1/auth/login", {
+      method: "POST",
+      body: JSON.stringify({ email, secret }),
+    });
+    const data = record(payload.data);
+    const accessToken = typeof data?.accessToken === "string" ? data.accessToken.trim() : "";
+    const expiresAtMs = Number(data?.expiresAtMs);
+    if (!accessToken || !Number.isSafeInteger(expiresAtMs) || expiresAtMs <= 0) {
+      throw new Error("Node returned an invalid user session.");
+    }
+    const result = {
+      accessToken,
+      expiresAtMs,
+      user: authenticatedUser(data?.user),
+    };
+    this.configure({ baseUrl: this.baseUrlValue, accessToken });
+    return result;
+  }
+
+  /** Resolve the current opaque session to its server-authenticated user. */
+  public async getAuthenticatedUser(): Promise<ClientApiAuthenticatedUser> {
+    const payload = await this.requestJson("/api/v1/auth/me");
+    return authenticatedUser(record(payload.data)?.user);
+  }
+
+  /** Revoke the current user session and clear it from this connection. */
+  public async logout(): Promise<boolean> {
+    try {
+      const payload = await this.requestJson("/api/v1/auth/logout", { method: "POST", body: "{}" });
+      return record(payload.data)?.loggedOut === true;
+    } finally {
+      this.configure({ baseUrl: this.baseUrlValue, accessToken: "" });
+    }
   }
 
   /** Check health once per TTL and share an in-flight probe between concurrent callers. */

@@ -2,9 +2,11 @@ import { app, BrowserWindow, dialog, ipcMain, Notification, shell } from "electr
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import type { ClientDiagnostics, DesktopHostPreferences } from "../../app/src/types";
+import { normalizeConnectionSettings } from "../../app/src/lib/connection-profile";
 import { productProfile } from "../../product";
 import {
   validateConnectionSettings,
+  validateUserLoginRequest,
   validateAutomationCreateInput,
   validateAutomationInput,
   validateAutomationOperation,
@@ -52,6 +54,7 @@ import {
 } from "./ipc-validation";
 import { OpenPpxLocalAdapter } from "./openppx-local-adapter";
 import {
+  clearActiveSecureConnectionCredential,
   readSecureConnectionSettings,
   listSecureConnectionProfiles,
   readSecureConnectionProfile,
@@ -153,6 +156,24 @@ function createWindow(): void {
 app.whenReady().then(() => {
   ipcMain.handle("ppx-client:bootstrap", async () => adapter!.bootstrap());
   ipcMain.handle("ppx-client:get-user-profile", () => adapter!.getUserProfile());
+  ipcMain.handle("ppx-client:login", async (_event, input: unknown) => {
+    const request = validateUserLoginRequest(input);
+    const profile = await adapter!.login({
+      ...request,
+      connection: normalizeConnectionSettings({ ...request.connection, accessToken: "" }),
+    });
+    try {
+      writeSecureConnectionSettings(adapter!.authenticatedConnectionSettings());
+    } catch (error) {
+      await adapter!.logout();
+      throw error;
+    }
+    return profile;
+  });
+  ipcMain.handle("ppx-client:logout", async () => {
+    await adapter!.logout();
+    clearActiveSecureConnectionCredential();
+  });
   ipcMain.handle("ppx-client:get-diagnostics", async () => withDesktopVersion(await adapter!.getDiagnostics()));
   ipcMain.handle("ppx-client:set-desktop-host-preferences", (_event, preferences: DesktopHostPreferences) => {
     if (

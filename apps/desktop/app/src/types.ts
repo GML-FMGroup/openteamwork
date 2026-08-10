@@ -153,7 +153,9 @@ export const LOCAL_USER_ID = "ppx-client-user";
 export interface UserProfile {
   id: string;
   displayName: string;
-  accountKind: "local" | "remote";
+  accountKind: "local" | "remote" | "product";
+  email?: string;
+  privilegeLevel?: "low" | "medium" | "high" | "root";
   avatarUrl?: string;
 }
 
@@ -202,6 +204,15 @@ export interface ConnectionSettings {
   targetName: string;
   clientApiBaseUrl: string;
   accessToken?: string;
+  userId?: string;
+  userEmail?: string;
+  userPrivilegeLevel?: "low" | "medium" | "high" | "root";
+}
+
+export interface UserLoginRequest {
+  connection: ConnectionSettings;
+  email: string;
+  secret: string;
 }
 
 /** Validation state for the connection candidate currently shown in the form. */
@@ -386,6 +397,8 @@ export interface PpxClientApi {
   readonly platform: DesktopPlatform;
   bootstrap(): Promise<BootstrapPayload>;
   getUserProfile(): Promise<UserProfile>;
+  login(request: UserLoginRequest): Promise<UserProfile>;
+  logout(): Promise<void>;
   getDiagnostics(): Promise<ClientDiagnostics>;
   setDesktopHostPreferences(preferences: DesktopHostPreferences): Promise<void>;
   testConnectionSettings(settings: ConnectionSettings): Promise<ClientDiagnostics>;

@@ -4,6 +4,7 @@
 - [CONFIGURATION.md](./CONFIGURATION.md): strict Node, Agent, Model Profile, Secret, revision, and apply semantics
 - [PERMISSIONS.md](./PERMISSIONS.md): static execution matrix, enforcement boundaries, rollout, and migration
 - [OPERATIONS.md](./OPERATIONS.md): Node lifecycle, Tasks, Cron, Heartbeat, usage, audit, and troubleshooting
+- [USERS.md](./USERS.md): account provisioning, privilege ceilings, HTTPS reverse proxy deployment, Desktop login, and recovery boundaries
 - [ARTIFACTS.md](./ARTIFACTS.md): Session lifecycle, attachment upload, Artifact references, preview, download, and security limits
 - [MCP_SECURITY.md](./MCP_SECURITY.md): Plugin/App/MCP/Skill lifecycle and security boundaries
 - [OFFICE_CONNECTORS.md](./OFFICE_CONNECTORS.md): breadth-first office App adapters, permissions, and first-wave boundaries

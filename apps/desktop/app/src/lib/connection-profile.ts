@@ -10,6 +10,9 @@ export interface StoredConnectionSettings {
   targetName: string;
   clientApiBaseUrl: string;
   secretRef?: string;
+  userId?: string;
+  userEmail?: string;
+  userPrivilegeLevel?: "low" | "medium" | "high" | "root";
 }
 
 export interface StoredConnectionProfileCollection {
@@ -19,8 +22,9 @@ export interface StoredConnectionProfileCollection {
 }
 
 interface BoundConnectionCredential {
-  schemaVersion: 1;
+  schemaVersion: 2;
   clientApiBaseUrl: string;
+  userId: string;
   accessToken: string;
 }
 
@@ -66,8 +70,8 @@ export function normalizeClientApiBaseUrl(rawValue: string, targetType: "local" 
   if (parsedBaseUrl.pathname !== "/") {
     throw new Error("Node URL can only contain the protocol, host, and port; paths are not allowed.");
   }
-  if (targetType === "lan" && !parsedBaseUrl.port) {
-    throw new Error("A LAN Node URL must include an explicit port.");
+  if (targetType === "lan" && parsedBaseUrl.protocol === "http:" && !parsedBaseUrl.port) {
+    throw new Error("A plaintext LAN Node URL must include an explicit port.");
   }
   if (targetType === "local" && !isLoopbackClientApiHostname(parsedBaseUrl.hostname)) {
     throw new Error("Local mode can only connect to localhost or a loopback IP. Use LAN mode for another machine.");
@@ -102,36 +106,57 @@ export function normalizeConnectionSettings(settings: ConnectionSettings): Conne
     targetName,
     clientApiBaseUrl: normalizeClientApiBaseUrl(settings.clientApiBaseUrl, targetType),
     accessToken: normalizeAccessToken(settings.accessToken),
+    ...(settings.userId?.trim() ? { userId: settings.userId.trim() } : {}),
+    ...(settings.userEmail?.trim() ? { userEmail: settings.userEmail.trim() } : {}),
+    ...(settings.userPrivilegeLevel ? { userPrivilegeLevel: settings.userPrivilegeLevel } : {}),
   };
 }
 
 /** Serialize a credential payload before Electron safeStorage encryption. */
-export function serializeBoundConnectionCredential(clientApiBaseUrl: string, accessToken: string): string {
+export function serializeBoundConnectionCredential(
+  clientApiBaseUrl: string,
+  accessToken: string,
+  userId: string,
+): string {
   const normalizedToken = normalizeAccessToken(accessToken);
   if (!normalizedToken) {
-    throw new Error("A Client API token is required for a LAN connection.");
+    throw new Error("An authenticated user session is required.");
+  }
+  const normalizedUserId = userId.trim();
+  if (!normalizedUserId) {
+    throw new Error("An authenticated user ID is required for a saved session.");
   }
   const payload: BoundConnectionCredential = {
-    schemaVersion: 1,
-    clientApiBaseUrl: normalizeClientApiBaseUrl(clientApiBaseUrl, "lan"),
+    schemaVersion: 2,
+    clientApiBaseUrl: new URL(clientApiBaseUrl).origin,
+    userId: normalizedUserId,
     accessToken: normalizedToken,
   };
   return JSON.stringify(payload);
 }
 
 /** Read an encrypted credential only when it is bound to the expected LAN endpoint. */
-export function parseBoundConnectionCredential(payload: string, expectedBaseUrl: string): string {
+export function parseBoundConnectionCredential(
+  payload: string,
+  expectedBaseUrl: string,
+  expectedUserId: string,
+): string {
   try {
     const record = asRecord(JSON.parse(payload));
-    if (!record || record.schemaVersion !== 1 || typeof record.clientApiBaseUrl !== "string") {
+    if (
+      !record
+      || record.schemaVersion !== 2
+      || typeof record.clientApiBaseUrl !== "string"
+      || record.userId !== expectedUserId
+    ) {
       return "";
     }
     const accessToken = normalizeAccessToken(typeof record.accessToken === "string" ? record.accessToken : "");
     if (!accessToken) {
       return "";
     }
-    const boundOrigin = normalizeClientApiBaseUrl(record.clientApiBaseUrl, "lan");
-    const expectedOrigin = normalizeClientApiBaseUrl(expectedBaseUrl, "lan");
+    const boundOrigin = new URL(record.clientApiBaseUrl).origin;
+    const expectedOrigin = new URL(expectedBaseUrl).origin;
     return boundOrigin === expectedOrigin ? accessToken : "";
   } catch {
     return "";
@@ -143,7 +168,7 @@ export function canReuseStoredCredential(
   stored: StoredConnectionSettings | null,
   candidate: ConnectionSettings,
 ): boolean {
-  if (!stored?.secretRef || stored.targetType !== "lan" || candidate.targetType !== "lan") {
+  if (!stored?.secretRef || stored.targetType !== candidate.targetType) {
     return false;
   }
   try {
@@ -170,6 +195,11 @@ export function parseStoredConnectionSettings(payload: unknown): StoredConnectio
     targetName: String(record.targetName ?? (targetType === "lan" ? `LAN ${productProfile.displayName} Node` : "This Mac")),
     clientApiBaseUrl: String(record.clientApiBaseUrl ?? DEFAULT_LOCAL_CLIENT_API_URL),
     secretRef: typeof record.secretRef === "string" && record.secretRef.trim() ? record.secretRef.trim() : undefined,
+    userId: typeof record.userId === "string" && record.userId.trim() ? record.userId.trim() : undefined,
+    userEmail: typeof record.userEmail === "string" && record.userEmail.trim() ? record.userEmail.trim() : undefined,
+    userPrivilegeLevel: ["low", "medium", "high", "root"].includes(String(record.userPrivilegeLevel))
+      ? record.userPrivilegeLevel as StoredConnectionSettings["userPrivilegeLevel"]
+      : undefined,
   };
 }
 
@@ -221,7 +251,10 @@ export function toStoredConnectionSettings(
     targetId: settings.targetId,
     targetName: settings.targetName,
     clientApiBaseUrl: settings.clientApiBaseUrl,
-    secretRef: settings.targetType === "lan" ? secretRef : undefined,
+    secretRef,
+    userId: settings.userId,
+    userEmail: settings.userEmail,
+    userPrivilegeLevel: settings.userPrivilegeLevel,
   };
 }
 
@@ -236,5 +269,8 @@ export function hydrateConnectionSettings(
     targetName: stored.targetName,
     clientApiBaseUrl: stored.clientApiBaseUrl,
     accessToken,
+    userId: stored.userId,
+    userEmail: stored.userEmail,
+    userPrivilegeLevel: stored.userPrivilegeLevel,
   };
 }

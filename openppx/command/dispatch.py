@@ -10,6 +10,7 @@ from openppx.runtime.node_host import run_node
 from .service import install_node_service, node_service_status
 from .setup import run_setup
 from .transport import action_catalog, invoke_action, parse_json_object, read_json_object
+from .user import run_user_command
 
 
 def _parse_json_list(raw: str, *, label: str) -> list[object]:
@@ -373,6 +374,8 @@ def dispatch(args: Any) -> int:
         if args.service_command == "install":
             return install_node_service(args)
         return node_service_status(args)
+    if args.command == "user":
+        return run_user_command(args)
     if args.command == "action":
         if args.action_command == "list":
             return action_catalog(args)

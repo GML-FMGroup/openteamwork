@@ -6,7 +6,9 @@ import datetime as dt
 import asyncio
 import base64
 import binascii
+import hashlib
 import json
+import ipaddress
 import os
 import queue
 import threading
@@ -52,6 +54,13 @@ from .memory_shared import memory_entry_text
 from .paths import default_node_root
 from .sqlite_memory_service import SQLiteMemoryService
 from .session_metadata_store import SessionMetadataStore
+from .user_accounts import (
+    LoginRateLimiter,
+    UserAccount,
+    UserAccountError,
+    UserAccountService,
+    privilege_allows,
+)
 
 
 _MAX_JSON_BODY_BYTES = 30 * 1024 * 1024
@@ -542,10 +551,12 @@ class RunHandle:
         run_id: str,
         agent_id: str,
         session_id: str,
+        user_id: str = "",
     ) -> None:
         self.run_id = run_id
         self.agent_id = agent_id
         self.session_id = session_id
+        self.user_id = user_id
         self.assistant_message_id = f"msg_{run_id}_assistant"
         self._history: list[RunEnvelope] = []
         self._subscribers: list[queue.Queue[RunEnvelope | None]] = []
@@ -643,6 +654,7 @@ class ClientApiCoordinator:
         control_plane: ControlPlaneApplication | None = None,
         runtime_supervisor: Any | None = None,
         session_metadata: SessionMetadataStore | None = None,
+        user_accounts: UserAccountService | None = None,
     ) -> None:
         self.data_dir = data_dir or default_node_root()
         default_identity_db_path = self.data_dir / "database" / "identity.db"
@@ -673,6 +685,11 @@ class ClientApiCoordinator:
         self._session_metadata = session_metadata or SessionMetadataStore(
             self.data_dir / "database" / "sessions.db"
         )
+        self.user_accounts = user_accounts or UserAccountService(
+            db_path=default_identity_db_path,
+            identity_store=self._identity_store,
+        )
+        self.login_rate_limiter = LoginRateLimiter()
         if runtime_supervisor is not None:
             attached = self._control_plane.runtime_supervisor
             if attached is None:
@@ -690,11 +707,14 @@ class ClientApiCoordinator:
         correlation_id: str | None = None,
         actor_id: str = "service:client-api",
         confirmed: bool = False,
+        requester: UserAccount | None = None,
     ) -> ActionContext:
         """Build the trusted transport-service context for current Client API projections."""
         permissions = frozenset(
             {
                 "system.read",
+                "agent.read",
+                "agent.write",
                 "config.read",
                 "config.write",
                 "extension.auth",
@@ -725,13 +745,39 @@ class ClientApiCoordinator:
                 "task.control",
             }
         )
+        if requester is not None and requester.privilege_level != "root":
+            permissions = frozenset(
+                {
+                    "system.read",
+                    "agent.read",
+                    "agent.write",
+                    "extension.read",
+                    "flow.read",
+                    "flow.write",
+                    "goal.read",
+                    "goal.write",
+                    "model.read",
+                    "model.use",
+                    "automation.read",
+                    "automation.run",
+                    "automation.write",
+                    "session.read",
+                    "session.write",
+                    "run.control",
+                    "run.start",
+                    "task.read",
+                    "task.control",
+                }
+            )
         return ActionContext(
             request_id=request_id,
             correlation_id=correlation_id or request_id,
-            actor_id=actor_id,
+            actor_id=(f"principal:{requester.user_id}" if requester is not None else actor_id),
             client_id="client-api",
             capabilities=permissions,
             permissions=permissions,
+            principal_id=requester.user_id if requester is not None else None,
+            privilege_level=requester.privilege_level if requester is not None else None,
             confirmed=confirmed,
         )
 
@@ -779,6 +825,7 @@ class ClientApiCoordinator:
         projection: str | None = None,
         request_id: str | None = None,
         correlation_id: str | None = None,
+        requester: UserAccount | None = None,
     ) -> dict[str, Any]:
         """Return the final caller-aware Action catalog envelope."""
         resolved_request_id = _wire_id(request_id, prefix="req")
@@ -786,6 +833,7 @@ class ClientApiCoordinator:
         context = self._control_context(
             request_id=resolved_request_id,
             correlation_id=resolved_correlation_id,
+            requester=requester,
         )
         outcome = self._control_plane.catalog(
             context,
@@ -807,6 +855,7 @@ class ClientApiCoordinator:
         request_id: str,
         correlation_id: str,
         confirmed: bool,
+        requester: UserAccount | None = None,
     ) -> dict[str, Any]:
         """Invoke one final product Action and return the common contract envelope."""
         context = self._control_context(
@@ -814,8 +863,31 @@ class ClientApiCoordinator:
             correlation_id=correlation_id,
             actor_id="principal:client-api",
             confirmed=confirmed,
+            requester=requester,
         )
-        outcome = self._control_plane.invoke(action_id, raw_input, context)
+        outcome: ActionOutcome
+        agent_id = str(raw_input.get("agentId") or "").strip()
+        if requester is not None and agent_id and action_id != "agent.create":
+            principal = self._identity_store.get_principal(requester.user_id)
+            access_error = (
+                self._agent_use_error(requester=principal, agent_id=agent_id)
+                if principal is not None
+                else _error("ACCESS_DENIED", "The authenticated user cannot access this Agent.")
+            )
+            if access_error is not None:
+                error = access_error["error"]
+                outcome = ActionOutcome.failure(
+                    action_id,
+                    ActionError(
+                        "agent_access_denied",
+                        str(error["message"]),
+                        dict(error.get("details") or {}),
+                    ),
+                )
+            else:
+                outcome = self._control_plane.invoke(action_id, raw_input, context)
+        else:
+            outcome = self._control_plane.invoke(action_id, raw_input, context)
         if outcome.ok and action_id in {
             "session.rename",
             "session.archive",
@@ -901,6 +973,40 @@ class ClientApiCoordinator:
             )
         )
         return resource.source.path
+
+    def _agent_use_error(
+        self,
+        *,
+        requester: ResolvedPrincipal,
+        agent_id: str,
+    ) -> dict[str, Any] | None:
+        """Return an ownership or privilege denial for a product user."""
+
+        if self._ensure_agent_access_state(agent_id) is None:
+            return _error("AGENT_NOT_FOUND", f"Agent '{agent_id}' was not found.")
+        if requester.account_kind != "product_user" or requester.privilege_level == "root":
+            return None
+        relation = self._access_policy.relation_to_agent(
+            requester_principal_id=requester.principal_id,
+            agent_id=agent_id,
+        )
+        if relation != "owner":
+            return _error(
+                "ACCESS_DENIED",
+                "The authenticated user cannot access this Agent.",
+                {"reason": "agent_ownership_required"},
+            )
+        record = self._agent_access_store.get_agent_record(agent_id)
+        if record is not None and not privilege_allows(
+            requester.privilege_level,
+            record.privilege_level,
+        ):
+            return _error(
+                "ACCESS_DENIED",
+                "The Agent privilege level exceeds the authenticated user's level.",
+                {"reason": "agent_privilege_exceeds_user"},
+            )
+        return None
 
     def _visible_principal_ids(self, requester_principal_id: str, *, agent_id: str, access_kind: str) -> tuple[Any, tuple[str, ...]]:
         """Resolve the effective visible principal ids for one request."""
@@ -1200,12 +1306,18 @@ class ClientApiCoordinator:
             "detail": "The Client API delegates system state to the Control Plane.",
         })
 
-    def list_agents(self) -> dict[str, Any]:
-        """Return enabled local agent profiles."""
+    def list_agents(self, *, requester: UserAccount | None = None) -> dict[str, Any]:
+        """Return enabled Agent profiles visible to the authenticated requester."""
 
-        outcome = self._invoke_control("config.agent.list")
+        outcome = self._control_plane.invoke(
+            "agent.list",
+            {},
+            self._control_context(request_id="client_api_agent_list", requester=requester),
+        )
         if outcome.ok and outcome.data is not None:
-            return _ok(outcome.data)
+            items = outcome.data.get("items")
+            visible = [item for item in items if isinstance(item, dict) and item.get("enabled")] if isinstance(items, list) else []
+            return _ok({"items": visible})
         assert outcome.error is not None
         return _error(outcome.error.code.upper(), outcome.error.message, outcome.error.details)
 
@@ -1213,6 +1325,9 @@ class ClientApiCoordinator:
         """Return projected session summaries for one agent."""
 
         requester = self._ensure_requester_principal(user_id)
+        access_error = self._agent_use_error(requester=requester, agent_id=agent_id)
+        if access_error is not None:
+            return access_error
         if agent_id not in self._enabled_agent_ids():
             return _error("AGENT_NOT_FOUND", f"Agent '{agent_id}' was not found.")
         config_path = self._ensure_agent_access_state(agent_id)
@@ -1270,6 +1385,9 @@ class ClientApiCoordinator:
         """Create one Session through the shared Control Plane Action."""
 
         requester = self._ensure_requester_principal(user_id)
+        access_error = self._agent_use_error(requester=requester, agent_id=agent_id)
+        if access_error is not None:
+            return access_error
         if self._ensure_agent_access_state(agent_id) is None:
             return _error("AGENT_NOT_FOUND", f"Agent '{agent_id}' was not found.")
         outcome = self._invoke_control(
@@ -2135,6 +2253,9 @@ class ClientApiCoordinator:
         """Create one streaming Run inside the shared Node Runtime Supervisor."""
 
         requester = self._ensure_requester_principal(user_id)
+        access_error = self._agent_use_error(requester=requester, agent_id=agent_id)
+        if access_error is not None:
+            return access_error
         resolved_artifact_parts, artifact_error = self._resolve_artifact_parts(
             agent_id,
             session_id,
@@ -2170,7 +2291,12 @@ class ClientApiCoordinator:
                 {"reason": "archived_session_is_read_only"},
             )
         run_id = f"run_{os.urandom(8).hex()}"
-        handle = RunHandle(run_id=run_id, agent_id=agent_id, session_id=session_id)
+        handle = RunHandle(
+            run_id=run_id,
+            agent_id=agent_id,
+            session_id=session_id,
+            user_id=requester.principal_id,
+        )
         with self._lock:
             self._runs[run_id] = handle
         self._session_agents[session_id] = agent_id
@@ -2637,21 +2763,25 @@ class ClientApiCoordinator:
         )
         handle.finish(status=status)
 
-    def get_run(self, run_id: str) -> dict[str, Any]:
+    def get_run(self, run_id: str, *, user_id: str | None = None) -> dict[str, Any]:
         """Return the Node-owned lifecycle state for one outer client Run."""
 
         with self._lock:
             handle = self._runs.get(run_id)
         if handle is None:
             return _error("RUN_NOT_FOUND", f"Run '{run_id}' was not found.")
+        if not self._run_visible_to(handle, user_id=user_id):
+            return _error("RUN_NOT_FOUND", f"Run '{run_id}' was not found.")
         return _ok({"run": handle.snapshot()})
 
-    def cancel_run(self, run_id: str) -> dict[str, Any]:
+    def cancel_run(self, run_id: str, *, user_id: str | None = None) -> dict[str, Any]:
         """Cancel one active Run through the shared Control Plane Action."""
 
         with self._lock:
             handle = self._runs.get(run_id)
         if handle is None:
+            return _error("RUN_NOT_FOUND", f"Run '{run_id}' was not found.")
+        if not self._run_visible_to(handle, user_id=user_id):
             return _error("RUN_NOT_FOUND", f"Run '{run_id}' was not found.")
         outcome = self._invoke_control("run.stop", {"runId": run_id})
         if not outcome.ok:
@@ -2664,14 +2794,30 @@ class ClientApiCoordinator:
         _debug("client_api.cancel_run", {"run_id": run_id})
         return _ok({"run": {"id": run_id, "status": "cancelled"}})
 
-    def stream_run_events(self, run_id: str, *, last_event_id: str | None = None) -> queue.Queue[RunEnvelope | None] | None:
+    def stream_run_events(
+        self,
+        run_id: str,
+        *,
+        last_event_id: str | None = None,
+        user_id: str | None = None,
+    ) -> queue.Queue[RunEnvelope | None] | None:
         """Return one subscriber queue for SSE streaming."""
 
         with self._lock:
             handle = self._runs.get(run_id)
-        if handle is None:
+        if handle is None or not self._run_visible_to(handle, user_id=user_id):
             return None
         return handle.subscribe(last_event_id=last_event_id)
+
+    def _run_visible_to(self, handle: RunHandle, *, user_id: str | None) -> bool:
+        """Hide Run identifiers across product-user boundaries."""
+
+        if user_id is None:
+            return True
+        requester = self._identity_store.get_principal(user_id)
+        if requester is None:
+            return False
+        return requester.privilege_level == "root" or handle.user_id == requester.principal_id
 
 
 class _ClientApiHandler(BaseHTTPRequestHandler):
@@ -2726,7 +2872,8 @@ class _ClientApiHandler(BaseHTTPRequestHandler):
     def _require_authorization(self) -> bool:
         """Authorize one protected request or emit a standard 401 response."""
 
-        if self.auth_policy.authorizes(self.headers.get("Authorization")):
+        authorization = self.headers.get("Authorization")
+        if self.auth_policy.authorizes(authorization) or self._resolve_user_session(authorization) is not None:
             return True
         _debug(
             "client_api.auth_failed",
@@ -2742,6 +2889,143 @@ class _ClientApiHandler(BaseHTTPRequestHandler):
             extra_headers={"WWW-Authenticate": 'Bearer realm="openppx-client-api"'},
         )
         return False
+
+    def _loopback_client(self) -> bool:
+        """Return whether the direct TCP peer is local or a local TLS proxy."""
+
+        try:
+            return ipaddress.ip_address(str(self.client_address[0])).is_loopback
+        except ValueError:
+            return False
+
+    def _login_rate_key(self, email: object) -> str:
+        """Build an opaque rate-limit key without retaining the login email."""
+
+        source = str(self.client_address[0])
+        normalized_email = str(email or "").strip().casefold()
+        return hashlib.sha256(f"{source}\0{normalized_email}".encode("utf-8")).hexdigest()
+
+    @staticmethod
+    def _bearer_token(authorization_header: str | None) -> str:
+        """Extract one syntactically valid bearer candidate without logging it."""
+
+        scheme, separator, candidate = str(authorization_header or "").partition(" ")
+        if not separator or scheme.lower() != "bearer":
+            return ""
+        return candidate.strip()
+
+    def _resolve_user_session(self, authorization_header: str | None = None) -> UserAccount | None:
+        """Resolve a user token only across loopback or a local TLS proxy hop."""
+
+        if not self._loopback_client():
+            return None
+        server = getattr(self, "server", None)
+        coordinator = getattr(server, "coordinator", None)
+        service = getattr(coordinator, "user_accounts", None)
+        if service is None:
+            return None
+        token = self._bearer_token(
+            authorization_header if authorization_header is not None else self.headers.get("Authorization")
+        )
+        return service.resolve_session(token) if token else None
+
+    def _require_user_session(self) -> UserAccount | None:
+        """Require an authenticated product user rather than a deployment token."""
+
+        account = self._resolve_user_session()
+        if account is not None:
+            return account
+        self._send_json(
+            401,
+            _error("UNAUTHORIZED", "A valid user session token is required."),
+            extra_headers={"WWW-Authenticate": 'Bearer realm="openteamwork-user"'},
+        )
+        return None
+
+    def _request_user_id(self, supplied_user_id: object) -> str | None:
+        """Bind a legacy userId field to the authenticated Principal or reject spoofing."""
+
+        account = self._resolve_user_session()
+        supplied = str(supplied_user_id or "").strip()
+        if account is None:
+            return supplied or "ppx-client-user"
+        if account.privilege_level == "root":
+            return supplied or account.user_id
+        if supplied and supplied != account.user_id:
+            self._send_json(
+                403,
+                _error("IDENTITY_MISMATCH", "The request user ID does not match the authenticated user."),
+            )
+            return None
+        return account.user_id
+
+    def _reject_product_access_mutation(self) -> bool:
+        """Keep Agent ownership immutable while sharing is outside the product MVP."""
+
+        if self._resolve_user_session() is None:
+            return False
+        self._send_json(
+            403,
+            _error(
+                "AGENT_SHARING_UNSUPPORTED",
+                "Changing Agent ownership or memberships is not supported for App users.",
+            ),
+        )
+        return True
+
+    def _bind_action_identity(
+        self,
+        action_id: str,
+        raw_input: dict[str, object],
+        account: UserAccount | None,
+    ) -> dict[str, object] | None:
+        """Inject authenticated caller fields before Action schema validation."""
+
+        if account is None:
+            return raw_input
+        bound = dict(raw_input)
+        supplied_user_id = str(bound.get("userId") or "").strip()
+        if (
+            account.privilege_level != "root"
+            and supplied_user_id
+            and supplied_user_id != account.user_id
+        ):
+            self._send_json(
+                403,
+                _error("IDENTITY_MISMATCH", "The request user ID does not match the authenticated user."),
+            )
+            return None
+        supplied_owner = str(bound.get("ownerPrincipalId") or "").strip()
+        if action_id == "agent.create" and supplied_owner and supplied_owner != account.user_id:
+            self._send_json(
+                403,
+                _error("IDENTITY_MISMATCH", "Agent ownership must match the authenticated user."),
+            )
+            return None
+        if (
+            "userId" in bound
+            or action_id.startswith(("session.", "goal.", "automation."))
+            or action_id in {"system.command.invoke", "setup.hello", "skill.make"}
+        ):
+            bound["userId"] = (
+                supplied_user_id
+                if account.privilege_level == "root" and supplied_user_id
+                else account.user_id
+            )
+        if action_id == "agent.create":
+            bound["ownerPrincipalId"] = account.user_id
+        return bound
+
+    @staticmethod
+    def _project_user(account: UserAccount) -> dict[str, object]:
+        """Project the authenticated account without credential metadata."""
+
+        return {
+            "userId": account.user_id,
+            "email": account.email,
+            "privilegeLevel": account.privilege_level,
+            "status": account.status,
+        }
 
     def _read_json_body(self) -> dict[str, Any]:
         length = int(self.headers.get("Content-Length", "0") or 0)
@@ -2787,8 +3071,14 @@ class _ClientApiHandler(BaseHTTPRequestHandler):
                 )
             return
         if path == "/api/v1/health":
-            authenticated = self.auth_policy.authorizes(self.headers.get("Authorization"))
+            authorization = self.headers.get("Authorization")
+            authenticated = self.auth_policy.authorizes(authorization) or self._resolve_user_session(authorization) is not None
             self._send_json(200, self.coordinator.health(public=self.auth_policy.required and not authenticated))
+            return
+        if path == "/api/v1/auth/me":
+            account = self._require_user_session()
+            if account is not None:
+                self._send_json(200, _ok({"user": self._project_user(account)}))
             return
         if not self._require_authorization():
             return
@@ -2796,7 +3086,7 @@ class _ClientApiHandler(BaseHTTPRequestHandler):
             self._send_json(200, self.coordinator.node_info(authentication_required=self.auth_policy.required))
             return
         if path == "/api/v1/agents":
-            self._send_json(200, self.coordinator.list_agents())
+            self._send_json(200, self.coordinator.list_agents(requester=self._resolve_user_session()))
             return
         if path == "/api/v1/runtime/status":
             self._send_json(200, self.coordinator.runtime_status())
@@ -2809,16 +3099,21 @@ class _ClientApiHandler(BaseHTTPRequestHandler):
                     projection=query.get("projection"),
                     request_id=self.headers.get("X-Request-ID"),
                     correlation_id=self.headers.get("X-Correlation-ID"),
+                    requester=self._resolve_user_session(),
                 ),
             )
             return
         if len(segments) == 7 and segments[:3] == ["api", "v1", "agents"] and segments[4] == "sessions" and segments[6] == "artifacts":
-            user_id = str(query.get("user_id") or "ppx-client-user")
+            user_id = self._request_user_id(query.get("user_id"))
+            if user_id is None:
+                return
             payload = self.coordinator.list_artifacts(segments[3], segments[5], user_id=user_id)
             self._send_json(200 if payload.get("ok") else 404, payload)
             return
         if len(segments) == 7 and segments[:3] == ["api", "v1", "agents"] and segments[4] == "sessions" and segments[6] == "artifact-content":
-            user_id = str(query.get("user_id") or "ppx-client-user")
+            user_id = self._request_user_id(query.get("user_id"))
+            if user_id is None:
+                return
             key = str(query.get("key") or "")
             try:
                 version = int(query["version"]) if "version" in query else None
@@ -2838,17 +3133,23 @@ class _ClientApiHandler(BaseHTTPRequestHandler):
             self._send_bytes(200, data, mime_type=str(payload["data"]["mime_type"]))
             return
         if len(segments) == 5 and segments[:3] == ["api", "v1", "agents"] and segments[4] == "sessions":
-            user_id = str(query.get("user_id") or "ppx-client-user")
+            user_id = self._request_user_id(query.get("user_id"))
+            if user_id is None:
+                return
             payload = self.coordinator.list_sessions(segments[3], user_id=user_id)
             self._send_json(200 if payload.get("ok") else 404, payload)
             return
         if len(segments) == 5 and segments[:3] == ["api", "v1", "agents"] and segments[4] == "access":
-            user_id = str(query.get("user_id") or "ppx-client-user")
+            user_id = self._request_user_id(query.get("user_id"))
+            if user_id is None:
+                return
             payload = self.coordinator.get_agent_access(segments[3], user_id=user_id)
             self._send_json(200 if payload.get("ok") else 404, payload)
             return
         if len(segments) == 6 and segments[:3] == ["api", "v1", "agents"] and segments[4] == "access" and segments[5] == "audit":
-            user_id = str(query.get("user_id") or "ppx-client-user")
+            user_id = self._request_user_id(query.get("user_id"))
+            if user_id is None:
+                return
             raw_limit = str(query.get("limit") or "50").strip()
             category = str(query.get("category") or "all")
             try:
@@ -2870,13 +3171,17 @@ class _ClientApiHandler(BaseHTTPRequestHandler):
             self._send_json(status, payload)
             return
         if len(segments) == 5 and segments[:3] == ["api", "v1", "sessions"] and segments[4] == "messages":
-            user_id = str(query.get("user_id") or "ppx-client-user")
+            user_id = self._request_user_id(query.get("user_id"))
+            if user_id is None:
+                return
             payload = self.coordinator.get_session_messages(segments[3], user_id=user_id)
             self._send_json(200 if payload.get("ok") else 404, payload)
             return
         if len(segments) == 6 and segments[:3] == ["api", "v1", "agents"] and segments[4] == "memory" and segments[5] == "search":
             query_text = str(query.get("q") or "").strip()
-            user_id = str(query.get("user_id") or "ppx-client-user")
+            user_id = self._request_user_id(query.get("user_id"))
+            if user_id is None:
+                return
             if not query_text:
                 self._send_json(400, _error("INVALID_REQUEST", "Query parameter 'q' is required."))
                 return
@@ -2884,7 +3189,9 @@ class _ClientApiHandler(BaseHTTPRequestHandler):
             self._send_json(200 if payload.get("ok") else 404, payload)
             return
         if len(segments) == 6 and segments[:3] == ["api", "v1", "agents"] and segments[4] == "memory" and segments[5] == "audit":
-            user_id = str(query.get("user_id") or "ppx-client-user")
+            user_id = self._request_user_id(query.get("user_id"))
+            if user_id is None:
+                return
             raw_limit = str(query.get("limit") or "50").strip()
             try:
                 limit = int(raw_limit)
@@ -2895,12 +3202,21 @@ class _ClientApiHandler(BaseHTTPRequestHandler):
             self._send_json(200 if payload.get("ok") else 404, payload)
             return
         if len(segments) == 4 and segments[:3] == ["api", "v1", "runs"]:
-            payload = self.coordinator.get_run(segments[3])
+            account = self._resolve_user_session()
+            payload = self.coordinator.get_run(
+                segments[3],
+                user_id=account.user_id if account is not None else None,
+            )
             self._send_json(200 if payload.get("ok") else 404, payload)
             return
         if len(segments) == 5 and segments[:3] == ["api", "v1", "runs"] and segments[4] == "events":
             run_id = segments[3]
-            subscriber = self.coordinator.stream_run_events(run_id, last_event_id=self.headers.get("Last-Event-ID"))
+            account = self._resolve_user_session()
+            subscriber = self.coordinator.stream_run_events(
+                run_id,
+                last_event_id=self.headers.get("Last-Event-ID"),
+                user_id=account.user_id if account is not None else None,
+            )
             if subscriber is None:
                 self._send_json(404, _error("RUN_NOT_FOUND", f"Run '{run_id}' was not found."))
                 return
@@ -2919,6 +3235,60 @@ class _ClientApiHandler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:  # noqa: N802
         path, segments, _query = self._parse()
+        if path == "/api/v1/auth/login":
+            if not self._loopback_client():
+                self._send_json(
+                    426,
+                    _error(
+                        "HTTPS_REQUIRED",
+                        "User login requires HTTPS through a local reverse proxy.",
+                    ),
+                )
+                return
+            try:
+                body = self._read_json_body()
+            except (ValueError, json.JSONDecodeError, UnicodeDecodeError) as exc:
+                self._send_json(413 if "exceeds" in str(exc) else 400, _error("INVALID_REQUEST", str(exc)))
+                return
+            rate_key = self._login_rate_key(body.get("email"))
+            limiter = getattr(self.coordinator, "login_rate_limiter", None)
+            if limiter is not None and limiter.is_blocked(rate_key):
+                self._send_json(
+                    429,
+                    _error("LOGIN_RATE_LIMITED", "Too many login attempts. Try again later."),
+                    extra_headers={"Retry-After": str(limiter.retry_after_seconds(rate_key))},
+                )
+                return
+            try:
+                login = self.coordinator.user_accounts.authenticate(
+                    str(body.get("email") or ""),
+                    str(body.get("secret") or ""),
+                )
+            except UserAccountError:
+                if limiter is not None:
+                    limiter.record_failure(rate_key)
+                self._send_json(401, _error("INVALID_CREDENTIALS", "The email or secret is invalid."))
+                return
+            if limiter is not None:
+                limiter.clear(rate_key)
+            self._send_json(
+                200,
+                _ok(
+                    {
+                        "accessToken": login.access_token,
+                        "expiresAtMs": login.expires_at_ms,
+                        "user": self._project_user(login.account),
+                    }
+                ),
+            )
+            return
+        if path == "/api/v1/auth/logout":
+            account = self._require_user_session()
+            if account is None:
+                return
+            token = self._bearer_token(self.headers.get("Authorization"))
+            self._send_json(200, _ok({"loggedOut": self.coordinator.user_accounts.logout(token)}))
+            return
         if not self._require_authorization():
             return
         try:
@@ -2943,18 +3313,27 @@ class _ClientApiHandler(BaseHTTPRequestHandler):
                 )
                 self._send_json(400, envelope.model_dump(mode="json", by_alias=True))
                 return
+            requester = self._resolve_user_session()
+            bound_input = self._bind_action_identity(request.action_id, request.input, requester)
+            if bound_input is None:
+                return
             payload = self.coordinator.invoke_action(
                 request.action_id,
-                request.input,
+                bound_input,
                 request_id=request.request_id,
                 correlation_id=request.correlation_id,
                 confirmed=request.confirmed,
+                requester=requester,
             )
             error_code = str(payload.get("error", {}).get("code") or "") if not payload.get("ok") else ""
             status = {
                 "action_not_found": 404,
                 "capability_required": 403,
                 "permission_denied": 403,
+                "agent_access_denied": 403,
+                "agent_privilege_exceeds_user": 403,
+                "custom_workspace_requires_root": 403,
+                "identity_mismatch": 403,
                 "confirmation_required": 409,
                 "revision_conflict": 409,
                 "resource_not_found": 404,
@@ -2972,7 +3351,11 @@ class _ClientApiHandler(BaseHTTPRequestHandler):
             self._send_json(status, payload)
             return
         if len(segments) == 6 and segments[:3] == ["api", "v1", "agents"] and segments[4] == "access" and segments[5] == "owner":
-            user_id = str(body.get("user_id") or "ppx-client-user")
+            if self._reject_product_access_mutation():
+                return
+            user_id = self._request_user_id(body.get("user_id"))
+            if user_id is None:
+                return
             owner_principal_id = str(body.get("owner_principal_id") or "").strip()
             if not owner_principal_id:
                 self._send_json(400, _error("INVALID_REQUEST", "Field 'owner_principal_id' is required."))
@@ -2981,7 +3364,11 @@ class _ClientApiHandler(BaseHTTPRequestHandler):
             self._send_json(200 if payload.get("ok") else 403, payload)
             return
         if len(segments) == 6 and segments[:3] == ["api", "v1", "agents"] and segments[4] == "access" and segments[5] == "memberships":
-            user_id = str(body.get("user_id") or "ppx-client-user")
+            if self._reject_product_access_mutation():
+                return
+            user_id = self._request_user_id(body.get("user_id"))
+            if user_id is None:
+                return
             principal_id = str(body.get("principal_id") or "").strip()
             relation = str(body.get("relation") or "participant").strip()
             if not principal_id:
@@ -2996,7 +3383,11 @@ class _ClientApiHandler(BaseHTTPRequestHandler):
             self._send_json(200 if payload.get("ok") else 403, payload)
             return
         if len(segments) == 7 and segments[:3] == ["api", "v1", "agents"] and segments[4] == "access" and segments[5] == "memberships" and segments[6] == "batch":
-            user_id = str(body.get("user_id") or "ppx-client-user")
+            if self._reject_product_access_mutation():
+                return
+            user_id = self._request_user_id(body.get("user_id"))
+            if user_id is None:
+                return
             operation = str(body.get("operation") or "").strip().lower()
             dry_run = bool(body.get("dry_run"))
             raw_principal_ids = body.get("principal_ids")
@@ -3036,12 +3427,16 @@ class _ClientApiHandler(BaseHTTPRequestHandler):
             self._send_json(status, payload)
             return
         if len(segments) == 5 and segments[:3] == ["api", "v1", "agents"] and segments[4] == "sessions":
-            user_id = str(body.get("user_id") or "ppx-client-user")
+            user_id = self._request_user_id(body.get("user_id"))
+            if user_id is None:
+                return
             payload = self.coordinator.create_session(segments[3], user_id=user_id)
             self._send_json(200 if payload.get("ok") else 404, payload)
             return
         if len(segments) == 7 and segments[:3] == ["api", "v1", "agents"] and segments[4] == "sessions" and segments[6] == "artifacts":
-            user_id = str(body.get("user_id") or "ppx-client-user")
+            user_id = self._request_user_id(body.get("user_id"))
+            if user_id is None:
+                return
             payload = self.coordinator.upload_artifact(
                 segments[3],
                 segments[5],
@@ -3056,7 +3451,9 @@ class _ClientApiHandler(BaseHTTPRequestHandler):
             return
         if len(segments) == 7 and segments[:3] == ["api", "v1", "agents"] and segments[4] == "sessions" and segments[6] == "runs":
             text = str(body.get("text") or "").strip()
-            user_id = str(body.get("user_id") or "ppx-client-user")
+            user_id = self._request_user_id(body.get("user_id"))
+            if user_id is None:
+                return
             raw_artifact_refs = body.get("artifact_refs") or []
             if not isinstance(raw_artifact_refs, list) or not all(isinstance(item, dict) for item in raw_artifact_refs):
                 self._send_json(400, _error("INVALID_REQUEST", "Field 'artifact_refs' must be a JSON object array."))
@@ -3076,7 +3473,11 @@ class _ClientApiHandler(BaseHTTPRequestHandler):
             self._send_json(status, payload)
             return
         if len(segments) == 5 and segments[:3] == ["api", "v1", "runs"] and segments[4] == "cancel":
-            payload = self.coordinator.cancel_run(segments[3])
+            account = self._resolve_user_session()
+            payload = self.coordinator.cancel_run(
+                segments[3],
+                user_id=account.user_id if account is not None else None,
+            )
             self._send_json(200 if payload.get("ok") else 404, payload)
             return
         self._send_json(404, _error("NOT_FOUND", f"Unknown path: {path}"))
@@ -3086,7 +3487,11 @@ class _ClientApiHandler(BaseHTTPRequestHandler):
         if not self._require_authorization():
             return
         if len(segments) == 7 and segments[:3] == ["api", "v1", "agents"] and segments[4] == "access" and segments[5] == "memberships":
-            user_id = str(query.get("user_id") or "ppx-client-user")
+            if self._reject_product_access_mutation():
+                return
+            user_id = self._request_user_id(query.get("user_id"))
+            if user_id is None:
+                return
             payload = self.coordinator.delete_agent_membership(
                 segments[3],
                 segments[6],

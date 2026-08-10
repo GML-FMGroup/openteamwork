@@ -44,6 +44,72 @@ function nodePayload(): Record<string, unknown> {
 }
 
 describe("ClientApiConnection", () => {
+  it("logs in without a deployment token and resolves the authenticated user", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith("/api/v1/auth/login")) {
+        expect(new Headers(init?.headers).get("Authorization")).toBeNull();
+        expect(JSON.parse(String(init?.body))).toEqual({
+          email: "jiang@example.com",
+          secret: "secret value",
+        });
+        return jsonResponse({
+          ok: true,
+          data: {
+            accessToken: "otw_session_token",
+            expiresAtMs: 1_800_000_000_000,
+            user: {
+              userId: "user_jiang",
+              email: "jiang@example.com",
+              privilegeLevel: "high",
+              status: "active",
+            },
+          },
+        });
+      }
+      expect(new Headers(init?.headers).get("Authorization")).toBe("Bearer otw_session_token");
+      return jsonResponse({
+        ok: true,
+        data: {
+          user: {
+            userId: "user_jiang",
+            email: "jiang@example.com",
+            privilegeLevel: "high",
+            status: "active",
+          },
+        },
+      });
+    });
+    const connection = new ClientApiConnection({
+      baseUrl: "https://team.example.com",
+      accessToken: "deployment-token",
+      fetch: fetchMock as typeof fetch,
+    });
+
+    const login = await connection.login("jiang@example.com", "secret value");
+    const current = await connection.getAuthenticatedUser();
+
+    expect(login.accessToken).toBe("otw_session_token");
+    expect(login.user).toMatchObject({ userId: "user_jiang", privilegeLevel: "high" });
+    expect(current).toEqual(login.user);
+    expect(connection.accessToken).toBe("otw_session_token");
+  });
+
+  it("clears the user session token after logout", async () => {
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+      expect(new Headers(init?.headers).get("Authorization")).toBe("Bearer otw_session_token");
+      return jsonResponse({ ok: true, data: { loggedOut: true } });
+    });
+    const connection = new ClientApiConnection({
+      baseUrl: "https://team.example.com",
+      accessToken: "otw_session_token",
+      fetch: fetchMock as typeof fetch,
+    });
+
+    await expect(connection.logout()).resolves.toBe(true);
+    expect(connection.accessToken).toBe("");
+  });
+
   it("caches compatible health and exposes a stable snapshot", async () => {
     let currentTime = 1_000;
     const fetchMock = vi.fn(async (input: RequestInfo | URL) =>
