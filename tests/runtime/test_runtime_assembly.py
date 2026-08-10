@@ -1045,11 +1045,14 @@ def test_supervisor_owns_run_stop_state_and_close_is_idempotent(tmp_path: Path) 
         snapshot_revision="sha256:" + "2" * 64,
         cancel=lambda: cancelled.append("run-1"),
     )
+    assert supervisor.has_active_run(session_id="session-1") is True
 
     stopped = supervisor.stop_run("run-1")
     assert stopped.state == "cancelling"
+    assert supervisor.has_active_run(session_id="session-1") is True
     assert cancelled == ["run-1"]
     supervisor.complete_run("run-1", state="cancelled")
+    assert supervisor.has_active_run(session_id="session-1") is False
     with pytest.raises(RunNotActiveError):
         supervisor.stop_run("run-1")
     with pytest.raises(RunNotFoundError):
@@ -1200,6 +1203,30 @@ def test_session_lifecycle_has_deterministic_goal_semantics(tmp_path: Path) -> N
         action_context,
     )
     assert goal.ok is True
+
+    supervisor.register_run(
+        run_id="run-session-archive",
+        agent_id="low-main",
+        session_id=session_id,
+        snapshot_revision="sha256:" + "3" * 64,
+        cancel=lambda: None,
+    )
+    blocked_archive = application.invoke(
+        "session.archive",
+        {
+            "userId": "local:test",
+            "agentId": "low-main",
+            "sessionId": session_id,
+            "archived": True,
+        },
+        action_context,
+    )
+    assert blocked_archive.ok is False
+    assert blocked_archive.error is not None
+    assert blocked_archive.error.code == "session_run_active"
+    active_goal = application.goal_store.current_goal(session_id)
+    assert active_goal is not None and active_goal.status == "active"
+    supervisor.complete_run("run-session-archive", state="completed")
 
     archived = application.invoke(
         "session.archive",

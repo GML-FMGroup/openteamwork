@@ -580,6 +580,14 @@ def _archive_session(
     context: ActionContext | None = None,
 ) -> dict[str, object]:
     _require_session(supervisor, input_data)
+    if input_data.archived and supervisor.has_active_run(session_id=input_data.session_id):
+        raise ActionFailure(
+            ActionError(
+                "session_run_active",
+                "Wait for the current Run to finish before archiving this Session.",
+                retryable=True,
+            )
+        )
     if input_data.archived:
         _settle_session_goal(
             supervisor,

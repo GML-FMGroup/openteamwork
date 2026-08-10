@@ -2162,6 +2162,13 @@ class ClientApiCoordinator:
                 f"Principal '{requester.principal_id}' cannot start a run in session '{session_id}'.",
                 {"reason": "run_requires_session_owner"},
             )
+        session_metadata = self._session_metadata.get(session_id)
+        if session_metadata is not None and session_metadata.archived:
+            return _error(
+                "SESSION_ARCHIVED",
+                "Restore this Session before starting a new Run.",
+                {"reason": "archived_session_is_read_only"},
+            )
         run_id = f"run_{os.urandom(8).hex()}"
         handle = RunHandle(run_id=run_id, agent_id=agent_id, session_id=session_id)
         with self._lock:
@@ -2208,7 +2215,6 @@ class ClientApiCoordinator:
             },
         )
         try:
-            session_metadata = self._session_metadata.get(session_id)
             self._runtime_supervisor.start_run(
                 run_id=run_id,
                 agent_id=agent_id,
@@ -3065,7 +3071,9 @@ class _ClientApiHandler(BaseHTTPRequestHandler):
                 artifact_refs=raw_artifact_refs,
                 user_id=user_id,
             )
-            self._send_json(200 if payload.get("ok") else 404, payload)
+            error_code = str(payload.get("error", {}).get("code") or "")
+            status = 200 if payload.get("ok") else (409 if error_code == "SESSION_ARCHIVED" else 404)
+            self._send_json(status, payload)
             return
         if len(segments) == 5 and segments[:3] == ["api", "v1", "runs"] and segments[4] == "cancel":
             payload = self.coordinator.cancel_run(segments[3])

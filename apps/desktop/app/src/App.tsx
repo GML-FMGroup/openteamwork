@@ -13,7 +13,7 @@ import { Transcript } from "./components/workspace/Transcript";
 import { WorkspaceInspector } from "./components/workspace/WorkspaceInspector";
 import { ColumnResizeHandle } from "./components/workspace/ColumnResizeHandle";
 import { COLUMN_WIDTH_LIMITS, useColumnLayout } from "./hooks/use-column-layout";
-import { useDesktopWorkspace } from "./hooks/use-desktop-workspace";
+import { ARCHIVED_SESSION_GUIDANCE, useDesktopWorkspace } from "./hooks/use-desktop-workspace";
 import { useDesktopPreferences } from "./hooks/use-desktop-preferences";
 import { useTranscriptFollow } from "./hooks/use-transcript-follow";
 import type { ExtensionSummary } from "./types";
@@ -85,7 +85,11 @@ export function App() {
       return;
     }
     event.preventDefault();
-    if (workspace.selectedAgentBusy || (!workspace.composer.trim() && workspace.attachments.length === 0)) {
+    if (
+      workspace.selectedSession?.archived
+      || workspace.selectedAgentBusy
+      || (!workspace.composer.trim() && workspace.attachments.length === 0)
+    ) {
       return;
     }
     transcript.followLatest();
@@ -198,7 +202,11 @@ export function App() {
     ? workspace.selectedSession?.title ?? workspace.selectedAgent?.name ?? "No session"
     : view === "automations" ? "Automations" : settingsDestination.area === "extensions" ? "Extensions" : "Settings";
   const titlebarSubtitle = view === "chat" ? workspace.selectedAgent?.name ?? "No agent selected" : productProfile.cliCommand;
-  const canSend = Boolean(workspace.composer.trim() || workspace.attachments.length) && Boolean(workspace.selectedAgentId) && !workspace.selectedAgentBusy;
+  const sessionReadOnly = Boolean(workspace.selectedSession?.archived);
+  const canSend = Boolean(workspace.composer.trim() || workspace.attachments.length)
+    && Boolean(workspace.selectedAgentId)
+    && !workspace.selectedAgentBusy
+    && !sessionReadOnly;
   const suggestedAgentId = (() => {
     let index = workspace.agents.length + 1;
     while (workspace.agents.some((agent) => agent.id === `agent-${index}`)) index += 1;
@@ -325,9 +333,10 @@ export function App() {
                   textareaRef={composerRef}
                   canSend={canSend}
                   busy={workspace.selectedAgentBusy}
+                  readOnly={sessionReadOnly}
                   canStop={Boolean(workspace.activeRunId)}
                   stopping={workspace.cancellingCurrentRun}
-                  helperText={workspace.sendError ?? ""}
+                  helperText={sessionReadOnly ? ARCHIVED_SESSION_GUIDANCE : workspace.sendError ?? ""}
                   agentName={workspaceAgentName}
                   goal={workspace.currentGoal}
                   goalMutation={workspace.goalMutation}

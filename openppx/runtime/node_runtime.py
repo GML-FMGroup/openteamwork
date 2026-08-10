@@ -1178,6 +1178,15 @@ class NodeRuntimeSupervisor:
                 raise RunNotFoundError(f"Run '{run_id}' was not found.")
             return managed.snapshot
 
+    def has_active_run(self, *, session_id: str) -> bool:
+        """Return whether a Session owns a running or cancelling Run."""
+        with self._lock:
+            return any(
+                managed.snapshot.session_id == session_id
+                and managed.snapshot.state in {"running", "cancelling"}
+                for managed in self._runs.values()
+            )
+
     def inspect(
         self,
         *,

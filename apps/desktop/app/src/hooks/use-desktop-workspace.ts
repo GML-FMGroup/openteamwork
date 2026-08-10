@@ -42,6 +42,8 @@ import { useActiveRuns } from "./use-active-runs";
 import { useConnectionRecovery } from "./use-connection-recovery";
 import { productProfile } from "../../../product";
 
+export const ARCHIVED_SESSION_GUIDANCE = "Restore this session to continue.";
+
 function mergeMessages(current: ChatMessage[], incoming: ChatMessage): ChatMessage[] {
   return current.some((item) => item.id === incoming.id) ? current : [...current, incoming];
 }
@@ -1246,6 +1248,9 @@ export function useDesktopWorkspace() {
   }
 
   async function archiveSession(session: SessionSummary): Promise<void> {
+    if (!session.archived && activeRuns.isSessionRunning(session.id)) {
+      throw new Error("Wait for the current Run to finish before archiving.");
+    }
     await window.ppxClient.archiveSession({ agentId: session.agentId, sessionId: session.id, archived: !session.archived });
     await refreshSelectedAgentSessions(session.archived ? session.id : "");
   }
@@ -1274,11 +1279,14 @@ export function useDesktopWorkspace() {
   async function ensureActiveSession(agentId: string, preferredSessionId: string): Promise<SessionSummary> {
     const existing = sessions.find((session) => session.id === preferredSessionId && session.agentId === agentId);
     if (existing) {
+      if (existing.archived) {
+        throw new Error(ARCHIVED_SESSION_GUIDANCE);
+      }
       return existing;
     }
     const listed = await window.ppxClient.listSessions(agentId);
-    if (listed.sessions[0]) {
-      const firstSession = listed.sessions[0];
+    const firstSession = listed.sessions.find((session) => !session.archived);
+    if (firstSession) {
       setSessions(listed.sessions);
       selectSessionId(firstSession.id);
       if (firstSession.id !== preferredSessionId) {
@@ -1385,6 +1393,11 @@ export function useDesktopWorkspace() {
     if ((!text && queuedAttachments.length === 0) || !selectedAgentId) {
       return;
     }
+    const targetSession = sessions.find((session) => session.id === selectedSessionIdRef.current);
+    if (targetSession?.archived) {
+      setSendError(ARCHIVED_SESSION_GUIDANCE);
+      return;
+    }
     if (text.startsWith("/") && queuedAttachments.length === 0) {
       await executeSlashCommand(text);
       return;
@@ -1475,6 +1488,11 @@ export function useDesktopWorkspace() {
 
   async function addAttachments(files: File[]): Promise<void> {
     if (!files.length) return;
+    const targetSession = sessions.find((session) => session.id === selectedSessionIdRef.current);
+    if (targetSession?.archived) {
+      setSendError(ARCHIVED_SESSION_GUIDANCE);
+      return;
+    }
     if (attachments.length + files.length > MAX_MESSAGE_ATTACHMENTS) {
       setSendError(`A message can include at most ${MAX_MESSAGE_ATTACHMENTS} files.`);
       return;

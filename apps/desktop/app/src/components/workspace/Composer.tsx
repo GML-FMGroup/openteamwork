@@ -26,6 +26,7 @@ interface ComposerProps {
   textareaRef: RefObject<HTMLTextAreaElement | null>;
   canSend: boolean;
   busy: boolean;
+  readOnly: boolean;
   canStop: boolean;
   stopping: boolean;
   helperText: string;
@@ -52,6 +53,7 @@ export function Composer({
   textareaRef,
   canSend,
   busy,
+  readOnly,
   canStop,
   stopping,
   helperText,
@@ -98,7 +100,8 @@ export function Composer({
     [commandToken, commands, recentCommands],
   );
   const commandMenuOpen =
-    !commandArgumentsStarted
+    !readOnly
+    && !commandArgumentsStarted
     && matchingCommands.length > 0
     && dismissedValue !== value;
 
@@ -113,7 +116,7 @@ export function Composer({
   }, [dismissedValue, value]);
 
   function chooseCommand(command: ProjectedSlashCommand): void {
-    if (!command.available) return;
+    if (readOnly || !command.available) return;
     const nextValue = `${command.command}${command.acceptsArgs ? " " : ""}`;
     onChange(nextValue);
     setDismissedValue(nextValue);
@@ -169,14 +172,16 @@ export function Composer({
   const actionLabel = busy ? (stopping ? "Stopping" : canStop ? "Stop" : "Running") : "Send";
   const actionEnabled = busy ? canStop && !stopping : canSend;
   function addFiles(files: FileList | null): void {
-    if (files?.length) onAddAttachments(Array.from(files));
+    if (!readOnly && files?.length) onAddAttachments(Array.from(files));
   }
   function handleDrop(event: DragEvent<HTMLElement>): void {
     event.preventDefault();
     setDraggingFiles(false);
+    if (readOnly) return;
     addFiles(event.dataTransfer.files);
   }
   function handlePaste(event: ClipboardEvent<HTMLTextAreaElement>): void {
+    if (readOnly) return;
     const files = Array.from(event.clipboardData.items)
       .filter((item) => item.kind === "file")
       .map((item) => item.getAsFile())
@@ -188,8 +193,8 @@ export function Composer({
   }
   return (
     <footer
-      className={draggingFiles ? "composer-shell dragging-files" : "composer-shell"}
-      onDragEnter={(event) => { event.preventDefault(); setDraggingFiles(true); }}
+      className={`composer-shell${draggingFiles ? " dragging-files" : ""}${readOnly ? " read-only" : ""}`}
+      onDragEnter={(event) => { event.preventDefault(); if (!readOnly) setDraggingFiles(true); }}
       onDragOver={(event) => event.preventDefault()}
       onDragLeave={(event) => {
         if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDraggingFiles(false);
@@ -201,6 +206,7 @@ export function Composer({
           goal={goal}
           mutation={goalMutation}
           error={goalMutationError}
+          disabled={readOnly}
           onUpdate={onUpdateGoal}
           onTransition={onTransitionGoal}
           onRetry={onRetryGoal}
@@ -250,7 +256,7 @@ export function Composer({
                 <strong>{attachment.fileName}</strong>
                 <small>{attachment.status === "uploading" ? "Uploading…" : `${Math.max(1, Math.round(attachment.sizeBytes / 1024))} KB`}</small>
               </span>
-              <button type="button" aria-label={`Remove ${attachment.fileName}`} disabled={attachment.status === "uploading"} onClick={() => onRemoveAttachment(attachment.id)}>×</button>
+              <button type="button" aria-label={`Remove ${attachment.fileName}`} disabled={readOnly || attachment.status === "uploading"} onClick={() => onRemoveAttachment(attachment.id)}>×</button>
             </div>
           ))}
         </div>
@@ -261,7 +267,8 @@ export function Composer({
         onChange={(event) => onChange(event.target.value)}
         onKeyDown={handleKeyDown}
         onPaste={handlePaste}
-        placeholder="Describe the outcome you want..."
+        placeholder={readOnly ? "Restore this session to continue." : "Describe the outcome you want..."}
+        disabled={readOnly}
         rows={2}
       />
       <div className="composer-actions">
@@ -272,10 +279,11 @@ export function Composer({
             type="file"
             multiple
             accept={ATTACHMENT_ACCEPT}
+            disabled={readOnly}
             onChange={(event) => { addFiles(event.target.files); event.currentTarget.value = ""; }}
           />
-          <button type="button" className="composer-attach-button" aria-label="Attach files" title="Attach files" disabled={busy} onClick={() => fileInputRef.current?.click()}>+</button>
-          <span className={helperText ? "composer-helper" : undefined}>
+          <button type="button" className="composer-attach-button" aria-label="Attach files" title={readOnly ? "Restore this session to attach files" : "Attach files"} disabled={busy || readOnly} onClick={() => fileInputRef.current?.click()}>+</button>
+          <span className={helperText ? readOnly ? "composer-helper read-only" : "composer-helper" : undefined}>
             {helperText || "Enter to send · Shift+Enter for a new line"}
           </span>
         </span>
@@ -284,7 +292,7 @@ export function Composer({
           disabled={!actionEnabled}
           onClick={busy ? onStop : onSend}
           aria-label={actionLabel}
-          title={busy ? (canStop ? "Stop the current Run" : "The current Agent is starting") : "Send"}
+          title={busy ? (canStop ? "Stop the current Run" : "The current Agent is starting") : readOnly ? "Restore this session to continue" : "Send"}
         >
           <svg viewBox="0 0 20 20" aria-hidden="true">
             {busy ? (

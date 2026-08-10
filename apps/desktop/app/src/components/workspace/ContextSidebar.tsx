@@ -267,6 +267,9 @@ export function ContextSidebar({
   const connectionMode = diagnostics?.mode === "lan" ? "LAN" : "LOCAL";
 
   async function updateSessionArchiveState(session: SessionSummary): Promise<void> {
+    if (!session.archived && sendingSessionIds.includes(session.id)) {
+      return;
+    }
     const action = session.archived ? "restore" : "archive";
     setSessionMenuId(null);
     setSessionMutationError(null);
@@ -565,7 +568,13 @@ export function ContextSidebar({
               </button>
               {sessionMenuId === session.id ? <div className="session-action-menu" role="menu">
                 <button onClick={() => { const title = window.prompt("Rename session", session.title)?.trim(); setSessionMenuId(null); if (title && title !== session.title) onRenameSession(session, title); }}>Rename</button>
-                <button onClick={() => void updateSessionArchiveState(session)}>{session.archived ? "Restore" : "Archive"}</button>
+                <button
+                  disabled={!session.archived && running}
+                  title={!session.archived && running ? "Wait for the current Run to finish before archiving." : undefined}
+                  onClick={() => void updateSessionArchiveState(session)}
+                >
+                  {session.archived ? "Restore" : "Archive"}
+                </button>
                 <button onClick={() => { setSessionMenuId(null); onForkSession(session); }}>Duplicate</button>
                 <button onClick={() => { setSessionMenuId(null); onExportSession(session); }}>Export JSON</button>
                 <button className="danger" onClick={() => { setSessionMenuId(null); if (window.confirm(`Delete ${session.title}? Its conversation and Session files will be permanently removed.`)) onDeleteSession(session); }}>Delete</button>

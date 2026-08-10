@@ -401,8 +401,13 @@
   font-size: 12px;
 }
 
-.session-action-menu button:hover {
+.session-action-menu button:hover:not(:disabled) {
   background: var(--surface-soft);
+}
+
+.session-action-menu button:disabled {
+  cursor: default;
+  opacity: 0.45;
 }
 
 .session-action-menu button.danger {
@@ -1914,6 +1919,16 @@
   box-shadow: var(--shadow-composer), 0 0 0 3px var(--focus-surface);
 }
 
+.composer-shell.read-only {
+  background: color-mix(in srgb, var(--surface-elevated-glass) 84%, var(--paper-deep));
+  box-shadow: none;
+}
+
+.composer-shell.read-only:focus-within {
+  border-color: var(--hairline-strong);
+  box-shadow: none;
+}
+
 .goal-status-bar {
   display: grid;
   min-width: 0;
@@ -2297,6 +2312,11 @@
   color: var(--ink-faint);
 }
 
+.composer-shell textarea:disabled {
+  cursor: default;
+  opacity: 1;
+}
+
 .composer-actions {
   margin-top: 7px;
   color: var(--ink-faint);
@@ -2332,8 +2352,17 @@
   color: var(--ink);
 }
 
+.composer-attach-button:disabled {
+  cursor: default;
+  opacity: 0.45;
+}
+
 .composer-helper {
   color: var(--danger);
+}
+
+.composer-helper.read-only {
+  color: var(--ink-faint);
 }
 
 .send-button {

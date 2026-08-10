@@ -5,6 +5,7 @@ interface GoalStatusBarProps {
   goal: GoalDetail;
   mutation: GoalMutationOperation | null;
   error: string | null;
+  disabled?: boolean;
   onUpdate: (objective: string) => Promise<boolean>;
   onTransition: (operation: GoalTransitionOperation) => Promise<boolean>;
   onRetry: () => Promise<boolean>;
@@ -36,12 +37,13 @@ function GoalIcon({ name }: { name: "goal" | "edit" | "pause" | "resume" | "retr
 }
 
 /** Compact, durable Goal status and controls integrated with the chat composer. */
-export function GoalStatusBar({ goal, mutation, error, onUpdate, onTransition, onRetry }: GoalStatusBarProps) {
+export function GoalStatusBar({ goal, mutation, error, disabled = false, onUpdate, onTransition, onRetry }: GoalStatusBarProps) {
   const [editing, setEditing] = useState(false);
   const [confirmingCancel, setConfirmingCancel] = useState(false);
   const [objective, setObjective] = useState(goal.objective);
   const inputRef = useRef<HTMLInputElement | null>(null);
   const busy = mutation !== null;
+  const controlsDisabled = busy || disabled;
   const canPause = goal.status === "active";
   const canResume = goal.status === "waiting" || goal.status === "paused";
   const canRetry = goal.status === "blocked" && goal.flow?.waitReason.canRetry !== false;
@@ -57,13 +59,20 @@ export function GoalStatusBar({ goal, mutation, error, onUpdate, onTransition, o
     if (editing) inputRef.current?.focus();
   }, [editing]);
 
+  useEffect(() => {
+    if (disabled) {
+      setEditing(false);
+      setConfirmingCancel(false);
+    }
+  }, [disabled]);
+
   async function saveObjective(): Promise<void> {
-    if (!objective.trim() || busy) return;
+    if (!objective.trim() || controlsDisabled) return;
     if (await onUpdate(objective)) setEditing(false);
   }
 
   return (
-    <section className={`goal-status-bar ${goal.status}`} aria-label="Current Goal">
+    <section className={`goal-status-bar ${goal.status}`} aria-label="Current Goal" aria-disabled={disabled}>
       {editing ? (
         <div className="goal-status-editor">
           <span className="goal-status-symbol"><GoalIcon name="goal" /></span>
@@ -72,23 +81,23 @@ export function GoalStatusBar({ goal, mutation, error, onUpdate, onTransition, o
             value={objective}
             maxLength={16_384}
             aria-label="Goal objective"
-            disabled={busy}
+            disabled={controlsDisabled}
             onChange={(event) => setObjective(event.target.value)}
             onKeyDown={(event) => {
               if (event.key === "Enter") { event.preventDefault(); void saveObjective(); }
               if (event.key === "Escape") { setObjective(goal.objective); setEditing(false); }
             }}
           />
-          <button type="button" className="goal-text-action" disabled={busy || !objective.trim()} onClick={() => void saveObjective()}>
+          <button type="button" className="goal-text-action" disabled={controlsDisabled || !objective.trim()} onClick={() => void saveObjective()}>
             {mutation === "update" ? "Saving…" : "Save"}
           </button>
-          <button type="button" className="goal-text-action quiet" disabled={busy} onClick={() => { setObjective(goal.objective); setEditing(false); }}>Cancel</button>
+          <button type="button" className="goal-text-action quiet" disabled={controlsDisabled} onClick={() => { setObjective(goal.objective); setEditing(false); }}>Cancel</button>
         </div>
       ) : confirmingCancel ? (
         <div className="goal-cancel-confirmation" role="alertdialog" aria-label="Cancel this Goal?">
           <span><strong>Cancel this Goal?</strong><small>This stops the current work and cannot be resumed.</small></span>
-          <button type="button" className="goal-text-action quiet" disabled={busy} onClick={() => setConfirmingCancel(false)}>Keep</button>
-          <button type="button" className="goal-text-action danger" disabled={busy} onClick={() => void onTransition("cancel")}>
+          <button type="button" className="goal-text-action quiet" disabled={controlsDisabled} onClick={() => setConfirmingCancel(false)}>Keep</button>
+          <button type="button" className="goal-text-action danger" disabled={controlsDisabled} onClick={() => void onTransition("cancel")}>
             {mutation === "cancel" ? "Cancelling…" : "Cancel Goal"}
           </button>
         </div>
@@ -101,25 +110,25 @@ export function GoalStatusBar({ goal, mutation, error, onUpdate, onTransition, o
             {waitMessage ? <small className="goal-status-reason" title={waitMessage}>{waitMessage}</small> : null}
           </div>
           <div className="goal-status-actions">
-            <button type="button" disabled={busy} onClick={() => setEditing(true)} title="Edit Goal">
+            <button type="button" disabled={controlsDisabled} onClick={() => setEditing(true)} title="Edit Goal">
               <GoalIcon name="edit" /><span>Edit</span>
             </button>
             {canPause ? (
-              <button type="button" disabled={busy} onClick={() => void onTransition("pause")} title="Pause Goal">
+              <button type="button" disabled={controlsDisabled} onClick={() => void onTransition("pause")} title="Pause Goal">
                 <GoalIcon name="pause" /><span>{mutation === "pause" ? "Pausing…" : "Pause"}</span>
               </button>
             ) : null}
             {canResume ? (
-              <button type="button" disabled={busy} onClick={() => void onTransition("resume")} title="Resume Goal">
+              <button type="button" disabled={controlsDisabled} onClick={() => void onTransition("resume")} title="Resume Goal">
                 <GoalIcon name="resume" /><span>{mutation === "resume" ? "Resuming…" : "Resume"}</span>
               </button>
             ) : null}
             {canRetry ? (
-              <button type="button" disabled={busy} onClick={() => void onRetry()} title="Retry blocked step">
+              <button type="button" disabled={controlsDisabled} onClick={() => void onRetry()} title="Retry blocked step">
                 <GoalIcon name="retry" /><span>{mutation === "retry" ? "Retrying…" : "Retry"}</span>
               </button>
             ) : null}
-            <button type="button" disabled={busy} onClick={() => setConfirmingCancel(true)} title="Cancel Goal">
+            <button type="button" disabled={controlsDisabled} onClick={() => setConfirmingCancel(true)} title="Cancel Goal">
               <GoalIcon name="cancel" /><span>Cancel</span>
             </button>
           </div>

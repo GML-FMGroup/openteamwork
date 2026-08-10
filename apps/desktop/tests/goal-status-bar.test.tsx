@@ -84,6 +84,27 @@ describe("GoalStatusBar", () => {
     expect(onTransition).toHaveBeenCalledWith("cancel");
   });
 
+  it("keeps Goal controls read-only for an archived Session", () => {
+    const onTransition = vi.fn(async () => true);
+    render(
+      <GoalStatusBar
+        goal={goal()}
+        mutation={null}
+        error={null}
+        disabled
+        onUpdate={vi.fn(async () => true)}
+        onTransition={onTransition}
+        onRetry={vi.fn(async () => true)}
+      />,
+    );
+
+    expect(screen.getByRole("region", { name: "Current Goal" })).toHaveAttribute("aria-disabled", "true");
+    expect(screen.getByRole("button", { name: "Edit" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Pause" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Cancel" })).toBeDisabled();
+    expect(onTransition).not.toHaveBeenCalled();
+  });
+
   it("retries a blocked Goal instead of presenting a generic resume action", () => {
     const onRetry = vi.fn(async () => true);
     const blocked = goal("blocked");

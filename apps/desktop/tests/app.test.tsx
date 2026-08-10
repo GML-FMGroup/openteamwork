@@ -2014,7 +2014,7 @@ describe("App sending state", () => {
     expect(screen.getByText("Preview B should stay hidden")).toBeInTheDocument();
   });
 
-  it("separates active and archived sessions and supports restoring them", async () => {
+  it("separates active and archived sessions and requires restore before continuing", async () => {
     let sessions = buildBootstrapPayload().sessions.map((session) => ({ ...session, archived: false }));
     const archiveSession = vi.fn(async ({ sessionId, archived }: { sessionId: string; archived: boolean }) => {
       sessions = sessions.map((session) => session.id === sessionId ? { ...session, archived } : session);
@@ -2041,11 +2041,20 @@ describe("App sending state", () => {
 
     const archivedSessionA = await screen.findByRole("button", { name: /Session A/ });
     expect(screen.queryByRole("button", { name: /Session B/ })).not.toBeInTheDocument();
+    fireEvent.click(archivedSessionA);
+
+    const archivedComposer = await screen.findByPlaceholderText("Restore this session to continue.");
+    expect(archivedComposer).toBeDisabled();
+    expect(screen.getByText("Restore this session to continue.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Attach files" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Send" })).toBeDisabled();
+
     const archivedShell = archivedSessionA.closest(".session-row-shell") as HTMLElement;
     fireEvent.click(within(archivedShell).getByRole("button", { name: "Session actions" }));
     fireEvent.click(within(archivedShell).getByRole("button", { name: "Restore" }));
 
     expect(await screen.findByText("No archived sessions.")).toBeInTheDocument();
+    expect(await screen.findByPlaceholderText("Describe the outcome you want...")).toBeEnabled();
     expect(archiveSession).toHaveBeenNthCalledWith(1, {
       agentId: "agent-1",
       sessionId: "session-a",
@@ -2076,6 +2085,34 @@ describe("App sending state", () => {
       "Couldn’t archive Session A. The session was not changed. Try again.",
     );
     expect(screen.getByRole("button", { name: /Session A/ })).toBeInTheDocument();
+  });
+
+  it("disables Archive while the session has an active Run", async () => {
+    const archiveSession = vi.fn(async ({ sessionId, archived }: { sessionId: string; archived: boolean }) => ({
+      sessionId,
+      archived,
+    }));
+    installClient({
+      archiveSession,
+      sendMessage: async () => ({ runId: "run-archive-guard" }),
+    });
+
+    render(<App />);
+
+    const composer = await screen.findByPlaceholderText("Describe the outcome you want...");
+    fireEvent.change(composer, { target: { value: "Keep this session running" } });
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+    await screen.findByRole("button", { name: "Stop" });
+
+    const sessionA = screen.getByRole("button", { name: /Keep this session running/ });
+    const sessionAShell = sessionA.closest(".session-row-shell") as HTMLElement;
+    fireEvent.click(within(sessionAShell).getByRole("button", { name: "Session actions" }));
+
+    const archive = within(sessionAShell).getByRole("button", { name: "Archive" });
+    expect(archive).toBeDisabled();
+    expect(archive).toHaveAttribute("title", "Wait for the current Run to finish before archiving.");
+    fireEvent.click(archive);
+    expect(archiveSession).not.toHaveBeenCalled();
   });
 
   it("hides the generic OpenPPX session preview", async () => {
