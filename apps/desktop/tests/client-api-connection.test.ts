@@ -95,6 +95,21 @@ describe("ClientApiConnection", () => {
     expect(connection.accessToken).toBe("otw_session_token");
   });
 
+  it("projects a nested TLS validation failure into safe recovery guidance", async () => {
+    const cause = Object.assign(new Error("unable to verify the first certificate"), {
+      code: "UNABLE_TO_VERIFY_LEAF_SIGNATURE",
+    });
+    const failure = Object.assign(new TypeError("fetch failed"), { cause });
+    const connection = new ClientApiConnection({
+      baseUrl: "https://team.example.com",
+      fetch: vi.fn(async () => { throw failure; }) as typeof fetch,
+    });
+
+    await expect(connection.login("jiang@example.com", "secret value")).rejects.toThrow(
+      "The Node HTTPS certificate could not be verified. Make sure it is trusted, valid, and issued for this Node URL.",
+    );
+  });
+
   it("clears the user session token after logout", async () => {
     const fetchMock = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
       expect(new Headers(init?.headers).get("Authorization")).toBe("Bearer otw_session_token");

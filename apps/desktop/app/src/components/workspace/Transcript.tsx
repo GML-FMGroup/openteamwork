@@ -161,6 +161,7 @@ export function Transcript({
                 <MessageBubble
                   key={message.id}
                   message={message}
+                  agentName={agentName}
                   showIdentity={showIdentity}
                   activityStreaming={message.status === "streaming"}
                   activityStartedAt={row.startedAt}

@@ -721,7 +721,9 @@ describe("App sending state", () => {
     render(<App />);
 
     await screen.findByRole("heading", { name: "Connect to a Node" });
-    fireEvent.click(screen.getByRole("button", { name: "Remote Node" }));
+    expect(screen.queryByRole("group", { name: "Node location" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "This computer" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Remote Node" })).not.toBeInTheDocument();
     fireEvent.change(screen.getByLabelText("Node URL"), { target: { value: "https://team.example.com" } });
     fireEvent.change(screen.getByLabelText("Email"), { target: { value: "jiang@example.com" } });
     fireEvent.change(screen.getByLabelText("Secret"), { target: { value: "private secret" } });
@@ -751,7 +753,6 @@ describe("App sending state", () => {
     render(<App />);
 
     await screen.findByRole("heading", { name: "Connect to a Node" });
-    fireEvent.click(screen.getByRole("button", { name: "Remote Node" }));
     fireEvent.change(screen.getByLabelText("Node URL"), { target: { value: "http://team.example.com:18765" } });
     fireEvent.change(screen.getByLabelText("Email"), { target: { value: "jiang@example.com" } });
     fireEvent.change(screen.getByLabelText("Secret"), { target: { value: "private secret" } });
@@ -759,6 +760,30 @@ describe("App sending state", () => {
 
     expect(await screen.findByRole("alert")).toHaveTextContent("requires an HTTPS Node URL");
     expect(login).not.toHaveBeenCalled();
+  });
+
+  it("shows actionable certificate guidance without Electron IPC wording", async () => {
+    installClient({
+      getUserProfile: async () => { throw new Error("A valid user session token is required."); },
+      login: async () => {
+        throw new Error(
+          "Error invoking remote method 'ppx-client:login': Error: The Node HTTPS certificate could not be verified. Make sure it is trusted, valid, and issued for this Node URL.",
+        );
+      },
+    });
+    render(<App />);
+
+    await screen.findByRole("heading", { name: "Connect to a Node" });
+    fireEvent.change(screen.getByLabelText("Node URL"), { target: { value: "https://team.example.com" } });
+    fireEvent.change(screen.getByLabelText("Email"), { target: { value: "jiang@example.com" } });
+    fireEvent.change(screen.getByLabelText("Secret"), { target: { value: "private secret" } });
+    fireEvent.click(screen.getByRole("button", { name: "Sign in to OpenTeamwork" }));
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent(
+      "The Node HTTPS certificate could not be verified. Make sure it is trusted, valid, and issued for this Node URL.",
+    );
+    expect(alert).not.toHaveTextContent(/Error invoking remote method|ppx-client:login/);
   });
 
   it("describes a post-authentication workspace failure without blaming credentials", async () => {
@@ -2403,7 +2428,7 @@ describe("App sending state", () => {
     await screen.findByText("First chunk");
     const transcript = document.querySelector<HTMLElement>(".transcript-column");
     expect(transcript).not.toBeNull();
-    expect(within(transcript!).getAllByText("Agent")).toHaveLength(1);
+    expect(within(transcript!).getAllByText("Agent 1")).toHaveLength(1);
   });
 
   it("switches transcript and artifacts together when selecting an Agent", async () => {

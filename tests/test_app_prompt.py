@@ -16,7 +16,9 @@ class PromptLayeringTests(unittest.TestCase):
     def test_static_policy_excludes_startup_and_request_context(self) -> None:
         text = build_static_policy_instruction()
 
-        self.assertIn("You are openppx", text)
+        self.assertIn("You are a configurable, lightweight skills-first AI Agent.", text)
+        self.assertIn("Runtime Agent identity is authoritative", text)
+        self.assertNotIn("You are openppx", text)
         self.assertIn("Agent-home context", text)
         self.assertIn("Large task outputs may be returned as artifacts", text)
         self.assertIn("use `start_gui_task`", text)
@@ -45,6 +47,7 @@ class PromptLayeringTests(unittest.TestCase):
         with patch("openppx.app.prompt.get_registry", return_value=registry):
             text = build_startup_runtime_context(
                 workspace="openppx-test-workspace",
+                agent_display_name="my-low",
                 mcp_summaries=[
                     {"name": "gui_remote", "prefix": "mcp_gui_desktop", "transport": "stdio"}
                 ],
@@ -52,6 +55,9 @@ class PromptLayeringTests(unittest.TestCase):
 
         self.assertIn("Runtime:", text)
         self.assertIn("Workspace: openppx-test-workspace", text)
+        self.assertIn("# Agent Identity", text)
+        self.assertIn('Configured display name: "my-low"', text)
+        self.assertIn("Platform: OpenTeamwork", text)
         self.assertIn("not a user task", text)
         self.assertIn("do not acknowledge", text)
         self.assertIn("mcp_gui_desktop_gui_task", text)
@@ -68,7 +74,7 @@ class PromptLayeringTests(unittest.TestCase):
             layers = build_root_prompt_layers()
             text = layers.render()
 
-        self.assertLess(text.index("You are openppx"), text.index("# Runtime Context"))
+        self.assertLess(text.index("You are a configurable"), text.index("# Runtime Context"))
         self.assertLess(text.index("# Runtime Context"), text.index("Available skills:"))
 
 if __name__ == "__main__":

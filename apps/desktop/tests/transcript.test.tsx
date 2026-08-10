@@ -110,7 +110,7 @@ describe("Transcript activity turns", () => {
     fireEvent.click(screen.getByRole("button", { name: /Expand Researched the web/i }));
     expect(screen.getByText("Searched the web")).toBeInTheDocument();
     expect(screen.getByText("Research complete.")).toBeInTheDocument();
-    expect(screen.getAllByText("Agent")).toHaveLength(1);
+    expect(screen.getAllByText("Main")).toHaveLength(1);
     expect(container.textContent).not.toContain("one source");
     expect(container.querySelectorAll(".message-bubble")).toHaveLength(1);
     expect(

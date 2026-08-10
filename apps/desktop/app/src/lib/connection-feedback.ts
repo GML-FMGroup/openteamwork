@@ -24,6 +24,9 @@ export function connectionFailureMessage(
   if (/protocol.*(?:incompatible|mismatch|unsupported)|not compatible/i.test(detail)) {
     return `This Node is not compatible with this version of ${productProfile.displayName} Desktop. Update the Node or Desktop, then try again.`;
   }
+  if (/certificate.*(?:invalid|trust|verif)|ERR_CERT_|UNABLE_TO_VERIFY_LEAF_SIGNATURE|self[- ]signed certificate/i.test(detail)) {
+    return `The HTTPS certificate for ${url} could not be verified. Make sure it is trusted, valid, and issued for this Node URL.`;
+  }
   if (
     /fetch failed|failed to fetch|econnrefused|ehostunreach|enotfound|timed? out|abort|unavailable|requires the (?:OpenPPX|OpenTeamwork) Client API/i
       .test(detail)

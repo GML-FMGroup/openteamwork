@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import json
 import os
 import platform
 from dataclasses import dataclass
 
 from ..core.gui_mcp import resolve_gui_mcp_from_summaries
+from ..product import PRODUCT
 from ..tooling.skills_adapter import get_registry
+
 
 @dataclass(frozen=True, slots=True)
 class RootPromptLayers:
@@ -34,7 +37,7 @@ def build_static_policy_instruction() -> str:
     routing, and per-request values so it can later become the cacheable prompt
     prefix if ADK context caching is enabled.
     """
-    return """You are openppx, a lightweight skills-first coding assistant.
+    return """You are a configurable, lightweight skills-first AI Agent.
 
 Your job:
 1. Solve user tasks directly.
@@ -42,6 +45,7 @@ Your job:
 3. Keep responses concise and actionable.
 
 Rules:
+- Runtime Agent identity is authoritative for self-identification. Use the configured display name whenever referring to yourself by name; platform, package, and runtime names are not your personal name.
 - Agent-home context injected at runtime may provide project-specific instructions; follow those more specific instructions when they do not conflict with safety or tool constraints.
 - Skill loading is file-based. Before using a skill deeply, call `list_skills` then `read_skill(name)` for the specific skill.
 - Do not invent skill content. Always read SKILL.md first.
@@ -117,8 +121,13 @@ def build_startup_runtime_context(
     gui_tools_enabled: bool | None = None,
     mcp_summaries: list[dict[str, str]] | None = None,
     agent_instruction: str | None = None,
+    agent_display_name: str | None = None,
 ) -> str:
-    """Build startup context, preferring immutable runtime inputs when supplied."""
+    """Build startup context from explicit, immutable Runtime inputs.
+
+    The optional display name is trusted AgentConfig data and remains separate
+    from the immutable ADK Agent name used for Sessions and Runtime routing.
+    """
     runtime = f"{platform.system()} {platform.machine()} / Python"
     resolved_workspace = workspace if workspace is not None else os.getcwd()
     resolved_skills_summary = skills_summary if skills_summary is not None else get_registry().build_summary()
@@ -128,6 +137,17 @@ def build_startup_runtime_context(
 # Agent Instruction
 
 {agent_instruction.strip()}
+"""
+    identity_block = ""
+    if agent_display_name and agent_display_name.strip():
+        encoded_display_name = json.dumps(agent_display_name.strip(), ensure_ascii=False)
+        identity_block = f"""
+# Agent Identity
+
+Configured display name: {encoded_display_name}
+Platform: {PRODUCT.display_name}
+
+Use the configured display name when identifying yourself. The platform name is not your name.
 """
 
     return f"""# Runtime Context
@@ -147,6 +167,7 @@ Available skills:
 
 {resolved_skills_summary}
 {instruction_block}
+{identity_block}
 """
 
 

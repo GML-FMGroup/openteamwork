@@ -36,7 +36,7 @@ import {
   MAX_MESSAGE_ATTACHMENT_BYTES,
   MAX_MESSAGE_ATTACHMENTS,
 } from "../attachment-policy";
-import { normalizeConnectionSettings } from "../lib/connection-profile";
+import { normalizeConnectionSettings, normalizeLoginConnectionSettings } from "../lib/connection-profile";
 import { connectionFailureMessage } from "../lib/connection-feedback";
 import { sortSessionsByRecency } from "../lib/session-order";
 import { isWorkspaceConfigurationComplete, setupReadinessFromStatus } from "../lib/setup-status";
@@ -274,11 +274,12 @@ function compactText(value: unknown, limit = 180): string {
 }
 
 function clientErrorMessage(error: unknown): string {
-  const message = error instanceof Error ? error.message : String(error);
-  return message
-    .replace(/^Error invoking remote method '[^']+':\s*/, "")
-    .replace(/^ClientApiRequestError:\s*/, "")
-    .trim();
+  let message = error instanceof Error ? error.message : String(error);
+  message = message.replace(/^Error invoking remote method '[^']+':\s*/, "").trim();
+  while (/^(?:Error|TypeError|ClientApiRequestError):\s*/.test(message)) {
+    message = message.replace(/^(?:Error|TypeError|ClientApiRequestError):\s*/, "").trim();
+  }
+  return message;
 }
 
 function hasRootAccess(profile: UserProfile): boolean {
@@ -1011,9 +1012,9 @@ export function useDesktopWorkspace() {
     setAuthenticationError(null);
     let authenticated = false;
     try {
-      const connection = normalizeConnectionSettings({ ...connectionForm, accessToken: "" });
+      const connection = normalizeLoginConnectionSettings(connectionForm);
       if (connection.targetType === "lan" && new URL(connection.clientApiBaseUrl).protocol !== "https:") {
-        throw new Error("Remote user login requires an HTTPS Node URL.");
+        throw new Error("Sign-in requires an HTTPS Node URL unless it uses localhost or a loopback IP.");
       }
       const request: UserLoginRequest = { connection, email, secret };
       const profile = await window.ppxClient.login(request);
@@ -1049,7 +1050,7 @@ export function useDesktopWorkspace() {
       return true;
     } catch (error) {
       setAuthenticationRequired(true);
-      const message = error instanceof Error ? error.message : String(error);
+      const message = clientErrorMessage(error);
       setAuthenticationError(authenticated
         ? `Sign-in succeeded, but the Node workspace could not be loaded: ${message}`
         : message);

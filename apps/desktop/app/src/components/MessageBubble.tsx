@@ -6,12 +6,104 @@ import { projectActivityGroups, type ActivityGroup } from "../lib/activity-prese
 import { ActivityDisclosure, type ActivityNarrativeItem } from "./ActivityDisclosure";
 import { productProfile } from "../../../product";
 
-function roleLabel(role: ChatMessage["role"]): string {
+const FILE_TYPE_BY_EXTENSION: Record<string, string> = {
+  "7z": "Archive",
+  csv: "Spreadsheet",
+  doc: "Word document",
+  docx: "Word document",
+  gz: "Archive",
+  json: "JSON file",
+  md: "Markdown document",
+  ods: "Spreadsheet",
+  odt: "Text document",
+  pdf: "PDF document",
+  ppt: "Presentation",
+  pptx: "Presentation",
+  rar: "Archive",
+  rtf: "Text document",
+  tar: "Archive",
+  tgz: "Archive",
+  txt: "Text document",
+  xls: "Spreadsheet",
+  xlsx: "Spreadsheet",
+  xml: "XML file",
+  yaml: "YAML file",
+  yml: "YAML file",
+  zip: "Archive",
+};
+
+const GENERIC_FILE_DESCRIPTIONS = new Set([
+  "attached file",
+  "attachment",
+  "file",
+  "uploaded file",
+]);
+
+/** Return a normalized filename extension without treating hidden files as extensions. */
+function fileExtension(fileName: string): string {
+  const baseName = fileName.trim().split(/[\\/]/).at(-1) ?? "";
+  const separator = baseName.lastIndexOf(".");
+  if (separator <= 0 || separator === baseName.length - 1) {
+    return "";
+  }
+  return baseName.slice(separator + 1).toLowerCase();
+}
+
+/** Return one human-readable file category from the filename, then MIME fallback. */
+function fileKind(fileName: string, mimeType?: string): string {
+  const extension = fileExtension(fileName);
+  const knownKind = FILE_TYPE_BY_EXTENSION[extension];
+  if (knownKind) {
+    return knownKind;
+  }
+
+  const normalizedMime = mimeType?.trim().toLowerCase() ?? "";
+  if (normalizedMime.includes("wordprocessing") || normalizedMime.includes("msword")) return "Word document";
+  if (normalizedMime.includes("spreadsheet") || normalizedMime.includes("excel")) return "Spreadsheet";
+  if (normalizedMime.includes("presentation") || normalizedMime.includes("powerpoint")) return "Presentation";
+  if (normalizedMime === "application/pdf") return "PDF document";
+  if (normalizedMime.startsWith("text/")) return "Text document";
+  if (normalizedMime.startsWith("audio/")) return "Audio";
+  if (normalizedMime.startsWith("video/")) return "Video";
+  if (normalizedMime.includes("zip") || normalizedMime.includes("compressed")) return "Archive";
+  return "File";
+}
+
+function fileExtensionBadge(fileName: string): string {
+  const extension = fileExtension(fileName).toUpperCase();
+  return extension && extension.length <= 5 ? extension : "FILE";
+}
+
+/** Format an optional byte count without inventing unavailable size metadata. */
+function fileSize(sizeBytes?: number): string | null {
+  if (sizeBytes === undefined || !Number.isFinite(sizeBytes) || sizeBytes < 0) {
+    return null;
+  }
+  if (sizeBytes < 1024) {
+    return `${Math.round(sizeBytes)} B`;
+  }
+  if (sizeBytes < 1024 * 1024) {
+    return `${Math.max(1, Math.round(sizeBytes / 1024))} KB`;
+  }
+  const megabytes = sizeBytes / (1024 * 1024);
+  return `${megabytes >= 10 ? Math.round(megabytes) : Number(megabytes.toFixed(1))} MB`;
+}
+
+function fileDescription(text: string, fileName: string): string | null {
+  const description = text.trim();
+  const normalized = description.toLowerCase();
+  if (!description || normalized === fileName.trim().toLowerCase() || GENERIC_FILE_DESCRIPTIONS.has(normalized)) {
+    return null;
+  }
+  return description;
+}
+
+function roleLabel(role: ChatMessage["role"], agentName?: string): string {
   if (role === "user") {
     return "";
   }
   if (role === "assistant") {
-    return "Agent";
+    return agentName?.trim() || "Agent";
   }
   if (role === "tool") {
     return "Tool";
@@ -95,16 +187,23 @@ function renderPart(part: MessagePart) {
     );
   }
   if (part.type === "file") {
+    const metadata = [
+      fileDescription(part.text, part.fileName),
+      fileKind(part.fileName, part.mimeType),
+      fileSize(part.sizeBytes),
+    ].filter((value): value is string => Boolean(value)).join(" · ");
     return (
-      <div className="asset-card file-card">
-        <div className="asset-card-header">
-          <div>
-            <strong>{part.fileName}</strong>
-            <span>{part.text}</span>
-          </div>
-          <span className="asset-badge">{part.mimeType ?? "file"}</span>
-        </div>
-        <small>{part.sizeBytes ? `${Math.max(1, Math.round(part.sizeBytes / 1024))} KB` : "size unavailable"}</small>
+      <div
+        aria-label={`${part.fileName}, ${metadata}`}
+        className="asset-card file-card"
+        role="group"
+        title={part.mimeType}
+      >
+        <span aria-hidden="true" className="file-card-kind">{fileExtensionBadge(part.fileName)}</span>
+        <span className="file-card-copy">
+          <strong title={part.fileName}>{part.fileName}</strong>
+          <span className="file-card-meta">{metadata}</span>
+        </span>
       </div>
     );
   }
@@ -176,6 +275,7 @@ function activityNarrative(message: ChatMessage): ActivityNarrativeItem[] {
 
 export function MessageBubble({
   message,
+  agentName,
   showIdentity = true,
   activityGroups: activityGroupsOverride,
   activityStreaming,
@@ -183,6 +283,7 @@ export function MessageBubble({
   activityEndedAt,
 }: {
   message: ChatMessage;
+  agentName?: string;
   showIdentity?: boolean;
   activityGroups?: ActivityGroup[];
   activityStreaming?: boolean;
@@ -231,7 +332,7 @@ export function MessageBubble({
     >
       {showIdentity && !isUser ? (
         <div className={`message-meta ${isAssistant ? "agent-meta" : ""}`}>
-          <span className={isAssistant ? "agent-name" : ""}>{roleLabel(message.role)}</span>
+          <span className={isAssistant ? "agent-name" : ""}>{roleLabel(message.role, agentName)}</span>
           <span>{timestamp}</span>
         </div>
       ) : null}

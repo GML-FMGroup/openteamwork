@@ -386,31 +386,8 @@ textarea:focus-visible,
 }
 
 .login-card header p {
-  margin: 0 0 30px;
+  margin: 0 0 12px;
   color: var(--text-subtle);
-}
-
-.login-target-switch {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 4px;
-  margin-bottom: 22px;
-  padding: 4px;
-  border: 1px solid var(--border-soft);
-  border-radius: 12px;
-  background: var(--surface-muted);
-}
-
-.login-target-switch button {
-  min-height: 38px;
-  border-radius: 8px;
-  color: var(--text-subtle);
-}
-
-.login-target-switch button.active {
-  background: var(--surface-strong);
-  box-shadow: 0 1px 5px rgba(23, 25, 28, 0.1);
-  color: var(--text-strong);
 }
 
 .login-card > label {

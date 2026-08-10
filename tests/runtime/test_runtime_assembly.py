@@ -692,6 +692,10 @@ def test_supervisor_reuses_exact_snapshot_and_refreshes_after_config_change(tmp_
     assert same is first
     assert refreshed is not first
     assert refreshed.metadata.snapshot_revision != first.metadata.snapshot_revision
+    assert first.agent.name == "openppx_agent_low_main"
+    assert refreshed.agent.name == first.agent.name
+    assert 'Configured display name: "Low Main"' in first.agent.instruction
+    assert 'Configured display name: "Updated"' in refreshed.agent.instruction
 
 
 def test_supervisor_rebuilds_runtime_for_a_new_immutable_skill_snapshot(

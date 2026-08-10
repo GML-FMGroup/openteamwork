@@ -1,6 +1,7 @@
 import {
   canReuseStoredCredential,
   hydrateConnectionSettings,
+  normalizeLoginConnectionSettings,
   normalizeConnectionSettings,
   parseBoundConnectionCredential,
   parseStoredConnectionSettings,
@@ -103,6 +104,39 @@ describe("connection profile persistence", () => {
         clientApiBaseUrl: "http://192.168.1.20:8765",
       } as never),
     ).toThrow("Run location must be this computer or a LAN node");
+  });
+
+  it("infers the hidden login connection mode from the Node URL", () => {
+    expect(
+      normalizeLoginConnectionSettings({
+        targetType: "local",
+        targetId: "local-this-mac",
+        targetName: "This Mac",
+        clientApiBaseUrl: "https://team.example.com",
+      }),
+    ).toMatchObject({
+      targetType: "lan",
+      targetId: "lan-team-node",
+      targetName: "Team Node",
+      clientApiBaseUrl: "https://team.example.com",
+      accessToken: "",
+    });
+
+    expect(
+      normalizeLoginConnectionSettings({
+        targetType: "lan",
+        targetId: "lan-team-node",
+        targetName: "Team Node",
+        clientApiBaseUrl: "http://127.0.0.2:18765",
+        accessToken: "stale-token",
+      }),
+    ).toMatchObject({
+      targetType: "local",
+      targetId: "local-this-mac",
+      targetName: "This Mac",
+      clientApiBaseUrl: "http://127.0.0.2:18765",
+      accessToken: "",
+    });
   });
 
   it("reuses a stored credential only for the same LAN endpoint", () => {

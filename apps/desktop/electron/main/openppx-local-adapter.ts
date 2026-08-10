@@ -117,6 +117,10 @@ import {
 type EventSink = (event: RunEvent) => void;
 type StepPart = Extract<MessagePart, { type: "step_ref" }>;
 
+export interface OpenPpxLocalAdapterOptions {
+  fetch?: typeof globalThis.fetch;
+}
+
 function now(): string {
   return new Date().toISOString();
 }
@@ -381,12 +385,13 @@ export class OpenPpxLocalAdapter implements Omit<
 
   private inflightHealthCheck: Promise<boolean> | null = null;
 
-  public constructor(initialSettings?: ConnectionSettings) {
+  public constructor(initialSettings?: ConnectionSettings, options: OpenPpxLocalAdapterOptions = {}) {
     this.target = this.buildTarget();
     this.connection = new ClientApiConnection({
       baseUrl: this.configuredClientApiBaseUrl || `http://${this.clientApiHost}:${this.clientApiPort}`,
       accessToken:
         this.configuredClientApiAccessToken || (this.target.type === "local" ? this.managedLocalAccessToken : ""),
+      fetch: options.fetch,
     });
     this.runStream = new ClientApiRunStream({
       request: (pathname, init) => this.connection.request(pathname, init),

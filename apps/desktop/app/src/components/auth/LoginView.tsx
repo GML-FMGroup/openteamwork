@@ -22,19 +22,6 @@ export function LoginView(props: LoginViewProps) {
     if (await props.onLogin(email, secret)) setSecret("");
   }
 
-  function setTargetType(targetType: "local" | "lan"): void {
-    props.setConnection((current) => ({
-      ...current,
-      targetType,
-      targetId: targetType === "local" ? "local-default" : "lan-team-node",
-      targetName: targetType === "local" ? "This Mac" : "Team Node",
-      clientApiBaseUrl: targetType === "local"
-        ? `http://127.0.0.1:${productProfile.defaultClientApiPort}`
-        : "https://",
-      accessToken: "",
-    }));
-  }
-
   return (
     <main className={`login-shell platform-${props.platform}`}>
       <section className="login-intro" aria-label={`${productProfile.displayName} sign in`}>
@@ -44,14 +31,10 @@ export function LoginView(props: LoginViewProps) {
           <h1>Work through your own trusted identity.</h1>
           <p>Agents, sessions, and runs stay scoped to your account. Your administrator controls the Node and your maximum Agent privilege.</p>
         </div>
-        <small>Remote sign-in requires an HTTPS endpoint. Credentials are verified by the Node and the secret is never saved.</small>
+        <small>HTTPS is required except for loopback Node URLs. Credentials are verified by the Node and the secret is never saved.</small>
       </section>
       <form className="login-card" onSubmit={(event) => void submit(event)}>
         <header><span>Sign in</span><h2>Connect to a Node</h2><p>Use the account created by your OpenTeamwork administrator.</p></header>
-        <div className="login-target-switch" role="group" aria-label="Node location">
-          <button type="button" className={props.connection.targetType === "local" ? "active" : ""} onClick={() => setTargetType("local")}>This computer</button>
-          <button type="button" className={props.connection.targetType === "lan" ? "active" : ""} onClick={() => setTargetType("lan")}>Remote Node</button>
-        </div>
         <label><span>Node URL</span><input required spellCheck={false} inputMode="url" value={props.connection.clientApiBaseUrl} onChange={(event) => props.setConnection((current) => ({ ...current, clientApiBaseUrl: event.target.value, accessToken: "" }))} placeholder="https://team.example.com" /></label>
         <label><span>Email</span><input required type="email" autoComplete="username" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="you@company.com" /></label>
         <label><span>Secret</span><input required minLength={8} type="password" autoComplete="current-password" value={secret} onChange={(event) => setSecret(event.target.value)} /></label>

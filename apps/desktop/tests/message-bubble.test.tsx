@@ -200,6 +200,40 @@ describe("MessageBubble", () => {
     expect(screen.getByRole("button", { name: /Expand Reading a file/i })).toBeInTheDocument();
   });
 
+  it.each([
+    ["forecast.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "XLSX", "Spreadsheet · 20 KB"],
+    ["report.docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "DOCX", "Word document · 20 KB"],
+    ["briefing.pptx", "application/vnd.openxmlformats-officedocument.presentationml.presentation", "PPTX", "Presentation · 20 KB"],
+    ["policy.pdf", "application/pdf", "PDF", "PDF document · 20 KB"],
+    ["sources.zip", "application/zip", "ZIP", "Archive · 20 KB"],
+    ["README.md", "text/markdown", "MD", "Markdown document · 20 KB"],
+    ["LICENSE", "application/octet-stream", "FILE", "File · 20 KB"],
+  ])("renders a compact generic file card for %s", (fileName, mimeType, extension, metadata) => {
+    render(
+      <MessageBubble
+        message={buildMessage({
+          role: "user",
+          status: "completed",
+          parts: [{
+            type: "file",
+            text: "Attached file",
+            fileName,
+            mimeType,
+            sizeBytes: 20 * 1024,
+          }],
+        })}
+      />,
+    );
+
+    const card = screen.getByRole("group", { name: `${fileName}, ${metadata}` });
+    expect(card).toHaveTextContent(extension);
+    expect(card).toHaveTextContent(fileName);
+    expect(card).toHaveTextContent(metadata);
+    expect(card).not.toHaveTextContent(mimeType);
+    expect(card).not.toHaveTextContent("Attached file");
+    expect(card).toHaveAttribute("title", mimeType);
+  });
+
   it("keeps tool results inside technical details and renders attachment cards", () => {
     render(
       <MessageBubble
@@ -238,6 +272,7 @@ describe("MessageBubble", () => {
     fireEvent.click(screen.getByText("Used Inspect repo"));
     expect(screen.getByText("Technical details")).toBeInTheDocument();
     expect(screen.getByText("client_session_notes.md")).toBeInTheDocument();
+    expect(screen.getByText(/Planned artifact · Markdown document · 2 KB/)).toBeInTheDocument();
     expect(screen.getByText("Open original")).toBeInTheDocument();
   });
 

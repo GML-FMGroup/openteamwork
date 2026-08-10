@@ -36,6 +36,14 @@ describe("connectionFailureMessage", () => {
     expect(connectionFailureMessage(new Error("protocol version incompatible"), lanSettings)).toContain(
       "not compatible with this version of OpenTeamwork Desktop",
     );
+    expect(
+      connectionFailureMessage(
+        new Error("The Node HTTPS certificate could not be verified."),
+        { ...lanSettings, clientApiBaseUrl: "https://team.example.com" },
+      ),
+    ).toBe(
+      "The HTTPS certificate for https://team.example.com could not be verified. Make sure it is trusted, valid, and issued for this Node URL.",
+    );
   });
 
   it("keeps unknown internal failures out of the interface", () => {

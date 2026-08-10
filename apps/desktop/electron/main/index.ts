@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, Notification, shell } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, net, Notification, shell } from "electron";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import type { ClientDiagnostics, DesktopHostPreferences } from "../../app/src/types";
@@ -105,7 +105,9 @@ function createWindow(): void {
     },
   });
 
-  adapter = new OpenPpxLocalAdapter(readSecureConnectionSettings() ?? undefined);
+  adapter = new OpenPpxLocalAdapter(readSecureConnectionSettings() ?? undefined, {
+    fetch: (input, init) => net.fetch(input instanceof URL ? input.toString() : input, init),
+  });
   unsubscribeRunEvents = adapter.onRunEvent((event) => {
     mainWindow?.webContents.send("ppx-client:run-event", event);
     if (

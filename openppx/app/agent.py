@@ -329,6 +329,7 @@ def build_root_agent(
             gui_tools_enabled=include_gui_tools,
             mcp_summaries=mcp_summaries or summarize_mcp_toolsets(list(extension_tools)),
             agent_instruction=agent_config.spec.instruction,
+            agent_display_name=agent_config.spec.display_name,
         ),
         tools=_build_tools(
             privilege_level=agent_config.spec.privilege_level,

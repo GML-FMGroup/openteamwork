@@ -57,6 +57,21 @@ export function isLoopbackClientApiHostname(hostname: string): boolean {
   );
 }
 
+/** Normalize a login connection while deriving its internal location from the Node URL. */
+export function normalizeLoginConnectionSettings(settings: ConnectionSettings): ConnectionSettings {
+  const rawBaseUrl = settings.clientApiBaseUrl.trim() || DEFAULT_LOCAL_CLIENT_API_URL;
+  const targetType = isLoopbackClientApiHostname(new URL(rawBaseUrl).hostname) ? "local" : "lan";
+  const locationChanged = targetType !== settings.targetType;
+  return normalizeConnectionSettings({
+    ...settings,
+    targetType,
+    targetId: locationChanged ? `${targetType}-default` : settings.targetId,
+    targetName: locationChanged ? (targetType === "local" ? "This Mac" : "Team Node") : settings.targetName,
+    clientApiBaseUrl: rawBaseUrl,
+    accessToken: "",
+  });
+}
+
 /** Validate a Client API origin without allowing credentials or URL suffixes. */
 export function normalizeClientApiBaseUrl(rawValue: string, targetType: "local" | "lan"): string {
   const rawBaseUrl = rawValue.trim() || DEFAULT_LOCAL_CLIENT_API_URL;

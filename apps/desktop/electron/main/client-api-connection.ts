@@ -33,6 +33,48 @@ export interface ClientApiHealthOptions {
   timeoutMs: number;
 }
 
+const TLS_CERTIFICATE_ERROR =
+  "The Node HTTPS certificate could not be verified. Make sure it is trusted, valid, and issued for this Node URL.";
+
+function errorChainText(error: unknown): string {
+  const parts: string[] = [];
+  const visited = new Set<unknown>();
+  let current = error;
+  for (let depth = 0; depth < 5 && current && !visited.has(current); depth += 1) {
+    visited.add(current);
+    if (current instanceof Error) {
+      parts.push(current.name, current.message);
+      const code = (current as Error & { code?: unknown }).code;
+      if (code !== undefined) parts.push(String(code));
+      current = (current as Error & { cause?: unknown }).cause;
+      continue;
+    }
+    if (typeof current === "object") {
+      const record = current as Record<string, unknown>;
+      if (record.message !== undefined) parts.push(String(record.message));
+      if (record.code !== undefined) parts.push(String(record.code));
+      current = record.cause;
+      continue;
+    }
+    parts.push(String(current));
+    break;
+  }
+  return parts.join(" ");
+}
+
+/** Preserve ordinary fetch failures while projecting nested TLS causes into safe guidance. */
+function projectFetchError(error: unknown): Error {
+  if (
+    /UNABLE_TO_VERIFY_LEAF_SIGNATURE|ERR_CERT_|CERT_(?:AUTHORITY|COMMON_NAME|DATE)|unable to verify|self[- ]signed certificate|certificate.*(?:invalid|trust|verif)/i
+      .test(errorChainText(error))
+  ) {
+    const projected = new Error(TLS_CERTIFICATE_ERROR);
+    (projected as Error & { cause?: unknown }).cause = error;
+    return projected;
+  }
+  return error instanceof Error ? error : new Error(String(error));
+}
+
 export type ClientApiUserPrivilege = "low" | "medium" | "high" | "root";
 
 export interface ClientApiAuthenticatedUser {
@@ -88,7 +130,7 @@ export class ClientApiConnection {
 
   private accessTokenValue: string;
 
-  private readonly fetcher?: typeof globalThis.fetch;
+  private readonly fetcher: typeof globalThis.fetch;
 
   private readonly healthCacheTtlMs: number;
 
@@ -113,7 +155,14 @@ export class ClientApiConnection {
   public constructor(options: ClientApiConnectionOptions) {
     this.baseUrlValue = options.baseUrl.trim();
     this.accessTokenValue = options.accessToken?.trim() ?? "";
-    this.fetcher = options.fetch;
+    const hostFetch = options.fetch ?? globalThis.fetch;
+    this.fetcher = async (input, init) => {
+      try {
+        return await hostFetch(input, init);
+      } catch (error) {
+        throw projectFetchError(error);
+      }
+    };
     this.healthCacheTtlMs = options.healthCacheTtlMs ?? 1_500;
     this.now = options.now ?? Date.now;
   }
