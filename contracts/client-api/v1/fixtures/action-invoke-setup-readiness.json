@@ -1,0 +1,7 @@
+{
+  "actionId": "setup.readiness",
+  "confirmed": false,
+  "correlationId": "req_setup_readiness_fixture",
+  "input": {},
+  "requestId": "req_setup_readiness_fixture"
+}

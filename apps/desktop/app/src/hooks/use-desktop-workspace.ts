@@ -25,6 +25,7 @@ import type {
   ProjectedSlashCommand,
   SetupApplyRequest,
   SetupForm,
+  SetupReadinessResult,
   SetupStatusResult,
   SlashCommandResult,
   UserProfile,
@@ -38,6 +39,7 @@ import {
 import { normalizeConnectionSettings } from "../lib/connection-profile";
 import { connectionFailureMessage } from "../lib/connection-feedback";
 import { sortSessionsByRecency } from "../lib/session-order";
+import { isWorkspaceConfigurationComplete, setupReadinessFromStatus } from "../lib/setup-status";
 import { LOCAL_USER_ID } from "../types";
 import { useActiveRuns } from "./use-active-runs";
 import { useConnectionRecovery } from "./use-connection-recovery";
@@ -461,6 +463,7 @@ export function useDesktopWorkspace() {
   const [extensionsError, setExtensionsError] = useState<string | null>(null);
   const [extensionMutationId, setExtensionMutationId] = useState<string | null>(null);
   const [slashCommands, setSlashCommands] = useState<ProjectedSlashCommand[]>([]);
+  const [setupReadiness, setSetupReadiness] = useState<SetupReadinessResult | null>(null);
   const [setupStatus, setSetupStatus] = useState<SetupStatusResult | null>(null);
   const [setupForm, setSetupForm] = useState<SetupForm>(initialSetupForm);
   const [setupSubmitting, setSetupSubmitting] = useState(false);
@@ -685,30 +688,48 @@ export function useDesktopWorkspace() {
       }
     });
 
-    Promise.all([
-      window.ppxClient.getSetupStatus(),
-      window.ppxClient.getDiagnostics(),
-      window.ppxClient.getUserProfile(),
-    ])
-      .then(async ([nextSetupStatus, nextDiagnostics, nextUserProfile]: [SetupStatusResult, ClientDiagnostics, UserProfile]) => {
+    void (async () => {
+      let nextUserProfile: UserProfile;
+      try {
+        nextUserProfile = await window.ppxClient.getUserProfile();
+      } catch {
+        if (mounted) {
+          setAuthenticationRequired(true);
+          setAuthenticationError(null);
+          setBootstrapError(null);
+          setReady(true);
+        }
+        return;
+      }
+      try {
+        const [nextDiagnostics, setupProjection] = await Promise.all([
+          window.ppxClient.getDiagnostics(),
+          hasRootAccess(nextUserProfile)
+            ? window.ppxClient.getSetupStatus()
+            : window.ppxClient.getSetupReadiness(),
+        ]);
+        const nextSetupStatus = hasRootAccess(nextUserProfile)
+          ? setupProjection as SetupStatusResult
+          : null;
+        const nextSetupReadiness = nextSetupStatus
+          ? setupReadinessFromStatus(nextSetupStatus)
+          : setupProjection as SetupReadinessResult;
         let payload: BootstrapPayload;
         try {
           payload = await window.ppxClient.bootstrap();
         } catch (error) {
-          if (nextSetupStatus.state === "ready") throw error;
+          if (isWorkspaceConfigurationComplete(nextSetupReadiness)) throw error;
           payload = onboardingBootstrap(nextDiagnostics);
         }
         if (!mounted) {
           return;
         }
-        if (!mounted) {
-          return;
-        }
         setRuntime(payload.runtime);
+        setSetupReadiness(nextSetupReadiness);
         setSetupStatus(nextSetupStatus);
         setDiagnostics(nextDiagnostics);
         setUserProfile(nextUserProfile);
-        if (!setupFormInitializedRef.current) {
+        if (nextSetupStatus && !setupFormInitializedRef.current) {
           setupFormInitializedRef.current = true;
           setSetupForm(setupFormFromStatus(nextSetupStatus, nextDiagnostics, nextUserProfile.id));
         }
@@ -719,7 +740,7 @@ export function useDesktopWorkspace() {
         selectSessionId(payload.selectedSessionId);
         setReady(true);
         setBootstrapError(null);
-        if (nextSetupStatus.state === "ready" && hasRootAccess(nextUserProfile)) void window.ppxClient
+        if (isWorkspaceConfigurationComplete(nextSetupReadiness) && hasRootAccess(nextUserProfile)) void window.ppxClient
           .listExtensions()
           .then((result) => {
             if (mounted) {
@@ -732,7 +753,7 @@ export function useDesktopWorkspace() {
               setExtensionsError(error instanceof Error ? error.message : String(error));
             }
           });
-        if (nextSetupStatus.state === "ready") void window.ppxClient
+        if (isWorkspaceConfigurationComplete(nextSetupReadiness)) void window.ppxClient
           .listSlashCommands()
           .then((result) => {
             if (mounted) {
@@ -744,7 +765,7 @@ export function useDesktopWorkspace() {
               setSlashCommands([]);
             }
           });
-        if (nextSetupStatus.state === "ready") void window.ppxClient
+        if (isWorkspaceConfigurationComplete(nextSetupReadiness)) void window.ppxClient
           .listModelProfiles()
           .then((nextDiagnostics) => {
             if (mounted) {
@@ -754,7 +775,7 @@ export function useDesktopWorkspace() {
           .catch(() => {
             if (mounted) setModelProfiles([]);
           });
-        if (nextSetupStatus.state === "ready" && hasRootAccess(nextUserProfile)) void Promise.all([
+        if (isWorkspaceConfigurationComplete(nextSetupReadiness) && hasRootAccess(nextUserProfile)) void Promise.all([
           window.ppxClient.getOperationsOverview(),
           window.ppxClient.listOperationsAudit(20),
         ])
@@ -768,15 +789,17 @@ export function useDesktopWorkspace() {
           .catch((error: unknown) => {
             if (mounted) setOperationsError(error instanceof Error ? error.message : String(error));
           });
-      })
-      .catch(() => {
+      } catch (error) {
         if (mounted) {
           setAuthenticationRequired(true);
-          setAuthenticationError(null);
+          setAuthenticationError(
+            `Your saved sign-in is valid, but the Node workspace could not be loaded: ${clientErrorMessage(error)}`,
+          );
           setBootstrapError(null);
           setReady(true);
         }
-      });
+      }
+    })();
 
     return () => {
       mounted = false;
@@ -802,7 +825,7 @@ export function useDesktopWorkspace() {
   }, [diagnostics]);
 
   useEffect(() => {
-    if (!setupStatus || !setupForm.provider) {
+    if (!setupStatus || !setupForm.provider || !hasRootAccess(userProfile)) {
       return;
     }
     let active = true;
@@ -839,7 +862,7 @@ export function useDesktopWorkspace() {
     return () => {
       active = false;
     };
-  }, [setupForm.provider, setupStatus]);
+  }, [setupForm.provider, setupStatus, userProfile]);
 
   useEffect(() => {
     if (providerAuth?.state !== "pending") {
@@ -872,7 +895,7 @@ export function useDesktopWorkspace() {
   };
 
   useConnectionRecovery({
-    active: ready && setupStatus?.state === "ready" && runtime?.state !== "stopped",
+    active: ready && isWorkspaceConfigurationComplete(setupReadiness) && runtime?.state !== "stopped",
     check: async () => {
       let nextDiagnostics = await window.ppxClient.getDiagnostics();
       setDiagnostics(nextDiagnostics);
@@ -986,6 +1009,7 @@ export function useDesktopWorkspace() {
   async function login(email: string, secret: string): Promise<boolean> {
     setAuthenticating(true);
     setAuthenticationError(null);
+    let authenticated = false;
     try {
       const connection = normalizeConnectionSettings({ ...connectionForm, accessToken: "" });
       if (connection.targetType === "lan" && new URL(connection.clientApiBaseUrl).protocol !== "https:") {
@@ -993,19 +1017,31 @@ export function useDesktopWorkspace() {
       }
       const request: UserLoginRequest = { connection, email, secret };
       const profile = await window.ppxClient.login(request);
+      authenticated = true;
       setUserProfile(profile);
       setAuthenticationRequired(false);
-      const [nextSetupStatus, nextDiagnostics] = await Promise.all([
-        window.ppxClient.getSetupStatus(),
+      const [setupProjection, nextDiagnostics] = await Promise.all([
+        hasRootAccess(profile)
+          ? window.ppxClient.getSetupStatus()
+          : window.ppxClient.getSetupReadiness(),
         window.ppxClient.getDiagnostics(),
       ]);
+      const nextSetupStatus = hasRootAccess(profile)
+        ? setupProjection as SetupStatusResult
+        : null;
+      const nextSetupReadiness = nextSetupStatus
+        ? setupReadinessFromStatus(nextSetupStatus)
+        : setupProjection as SetupReadinessResult;
+      setSetupReadiness(nextSetupReadiness);
       setSetupStatus(nextSetupStatus);
       setDiagnostics(nextDiagnostics);
-      setupFormInitializedRef.current = true;
-      setSetupForm(setupFormFromStatus(nextSetupStatus, nextDiagnostics, profile.id));
+      if (nextSetupStatus) {
+        setupFormInitializedRef.current = true;
+        setSetupForm(setupFormFromStatus(nextSetupStatus, nextDiagnostics, profile.id));
+      }
       await reloadWorkspace();
       setSlashCommands((await window.ppxClient.listSlashCommands()).commands);
-      if (nextSetupStatus.state === "ready") {
+      if (isWorkspaceConfigurationComplete(nextSetupReadiness)) {
         await refreshModelProfiles();
         if (hasRootAccess(profile)) await refreshExtensions();
         if (hasRootAccess(profile)) await refreshOperations();
@@ -1013,7 +1049,10 @@ export function useDesktopWorkspace() {
       return true;
     } catch (error) {
       setAuthenticationRequired(true);
-      setAuthenticationError(error instanceof Error ? error.message : String(error));
+      const message = error instanceof Error ? error.message : String(error);
+      setAuthenticationError(authenticated
+        ? `Sign-in succeeded, but the Node workspace could not be loaded: ${message}`
+        : message);
       return false;
     } finally {
       setAuthenticating(false);
@@ -1027,6 +1066,7 @@ export function useDesktopWorkspace() {
     setUserProfile({ id: "", displayName: "Signed out", accountKind: "product" });
     setRuntime(null);
     setDiagnostics(null);
+    setSetupReadiness(null);
     setSetupStatus(null);
     setAgents([]);
     setSessions([]);
@@ -1157,6 +1197,7 @@ export function useDesktopWorkspace() {
         throw new Error("The first model turn completed, but setup verification is not ready.");
       }
       setSetupStatus(verified);
+      setSetupReadiness(setupReadinessFromStatus(verified));
       setSetupForm((current) => ({ ...current, apiKey: "" }));
       applyConnectionBootstrap(await window.ppxClient.bootstrap());
       await Promise.all([refreshExtensions(), refreshModelProfiles()]);
@@ -1164,7 +1205,9 @@ export function useDesktopWorkspace() {
     } catch (error) {
       setSetupError(error instanceof Error ? error.message : String(error));
       try {
-        setSetupStatus(await window.ppxClient.getSetupStatus());
+        const latest = await window.ppxClient.getSetupStatus();
+        setSetupStatus(latest);
+        setSetupReadiness(setupReadinessFromStatus(latest));
       } catch {
         // Preserve the actionable setup error when the endpoint also became unavailable.
       }
@@ -1246,6 +1289,7 @@ export function useDesktopWorkspace() {
         applyConnectionBootstrap(payload);
         const nextSetupStatus = await window.ppxClient.getSetupStatus();
         setSetupStatus(nextSetupStatus);
+        setSetupReadiness(setupReadinessFromStatus(nextSetupStatus));
         setupFormInitializedRef.current = true;
         setSetupForm(setupFormFromStatus(nextSetupStatus, nextDiagnostics, userProfile.id));
       } catch {
@@ -1684,6 +1728,7 @@ export function useDesktopWorkspace() {
     extensionsError,
     extensionMutationId,
     slashCommands,
+    setupReadiness,
     setupStatus,
     setupForm,
     setSetupForm,

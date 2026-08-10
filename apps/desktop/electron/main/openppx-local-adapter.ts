@@ -98,6 +98,7 @@ import type {
   SetupApplyRequest,
   SetupApplyResult,
   SetupHelloResult,
+  SetupReadinessResult,
   SetupStatusResult,
   UserProfile,
   UserLoginRequest,
@@ -860,6 +861,11 @@ export class OpenPpxLocalAdapter implements Omit<
   public async getSetupStatus(): Promise<SetupStatusResult> {
     await this.ensureClientApiAvailable();
     return (await this.setup.status()).result;
+  }
+
+  public async getSetupReadiness(): Promise<SetupReadinessResult> {
+    await this.ensureClientApiAvailable();
+    return (await this.setup.readiness()).result;
   }
 
   public async applySetup(request: SetupApplyRequest): Promise<SetupApplyResult> {

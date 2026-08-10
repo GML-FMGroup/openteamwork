@@ -92,6 +92,42 @@ def test_authentication_returns_opaque_expiring_token_and_resolves_account(tmp_p
     assert login.access_token not in stored
 
 
+def test_authentication_default_session_lasts_one_hour(tmp_path: Path) -> None:
+    service = _service(tmp_path)
+    service.add_user(
+        email="jiang@example.com",
+        secret="correct horse battery staple",
+        privilege_level="medium",
+    )
+
+    login = service.authenticate("jiang@example.com", "correct horse battery staple")
+
+    assert login.expires_at_ms == 1_700_003_600_000
+
+
+def test_session_resolution_caps_tokens_issued_by_older_builds_to_one_hour(tmp_path: Path) -> None:
+    now = [1_700_000_000_000]
+    service = UserAccountService(
+        db_path=tmp_path / "identity.db",
+        clock_ms=lambda: now[0],
+    )
+    service.add_user(
+        email="jiang@example.com",
+        secret="correct horse battery staple",
+        privilege_level="medium",
+    )
+    login = service.authenticate("jiang@example.com", "correct horse battery staple")
+    with sqlite3.connect(tmp_path / "identity.db") as conn:
+        conn.execute(
+            "UPDATE user_sessions SET expires_at_ms = ?",
+            (1_702_592_000_000,),
+        )
+
+    now[0] += 3_600_001
+
+    assert service.resolve_session(login.access_token) is None
+
+
 def test_bad_secret_and_unknown_email_have_same_public_failure(tmp_path: Path) -> None:
     service = _service(tmp_path)
     service.add_user(

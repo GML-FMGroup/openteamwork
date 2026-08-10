@@ -25,7 +25,7 @@ USER_PRIVILEGE_LEVELS = ("low", "medium", "high", "root")
 _PRIVILEGE_RANK = {level: index for index, level in enumerate(USER_PRIVILEGE_LEVELS)}
 _EMAIL_PATTERN = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 _SESSION_TOKEN_PREFIX = "otw_session_"
-_DEFAULT_SESSION_TTL_SECONDS = 30 * 24 * 60 * 60
+_DEFAULT_SESSION_TTL_SECONDS = 60 * 60
 _ARGON2_MEMORY_KIB = 19 * 1024
 _ARGON2_ITERATIONS = 2
 _ARGON2_LANES = 1
@@ -447,8 +447,8 @@ class UserAccountService:
             row = conn.execute(
                 """
                 SELECT a.user_id, a.email_normalized, a.privilege_level, a.status,
-                       a.created_at_ms, a.updated_at_ms, s.session_id, s.expires_at_ms,
-                       s.revoked_at_ms
+                       a.created_at_ms, a.updated_at_ms, s.session_id, s.issued_at_ms,
+                       s.expires_at_ms, s.revoked_at_ms
                 FROM user_sessions AS s
                 JOIN user_accounts AS a ON a.user_id = s.user_id
                 WHERE s.token_hash = ?
@@ -457,7 +457,8 @@ class UserAccountService:
             ).fetchone()
             if row is None or row["revoked_at_ms"] is not None or str(row["status"]) != "active":
                 return None
-            if int(row["expires_at_ms"]) <= now_ms:
+            policy_expires_at_ms = int(row["issued_at_ms"]) + _DEFAULT_SESSION_TTL_SECONDS * 1000
+            if min(int(row["expires_at_ms"]), policy_expires_at_ms) <= now_ms:
                 conn.execute(
                     "UPDATE user_sessions SET revoked_at_ms = ? WHERE session_id = ?",
                     (now_ms, str(row["session_id"])),

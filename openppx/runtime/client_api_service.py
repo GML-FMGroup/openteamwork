@@ -11,6 +11,7 @@ import json
 import ipaddress
 import os
 import queue
+import re
 import threading
 import urllib.parse
 from dataclasses import dataclass
@@ -65,6 +66,11 @@ from .user_accounts import (
 
 _MAX_JSON_BODY_BYTES = 30 * 1024 * 1024
 _RUN_EVENT_HEARTBEAT_INTERVAL_SECONDS = 15.0
+_LEGACY_ATTACHMENT_TEXT_PATTERN = re.compile(
+    r"\A\[Attachment: (?P<file_name>[^\r\n]+)\]\n"
+    r"Format: [^\r\n]+\n\n.+\n\[End attachment\]\Z",
+    re.DOTALL,
+)
 
 
 def _safe_artifact_name(value: object) -> str:
@@ -336,13 +342,101 @@ def _tool_result_summary(tool_name: str, response: Any) -> str:
     return f"{tool_name} returned a result."
 
 
+def _file_part_payload(
+    *,
+    file_name: str,
+    mime_type: str | None = None,
+    size_bytes: int | None = None,
+) -> dict[str, Any]:
+    """Build one compact client-facing file attachment Part."""
+
+    payload: dict[str, Any] = {
+        "type": "file",
+        "text": "Attached file",
+        "file_name": file_name,
+    }
+    if size_bytes is not None:
+        payload["size_bytes"] = size_bytes
+    if mime_type:
+        payload["mime_type"] = mime_type
+    return payload
+
+
+def _client_attachment_descriptors(custom_metadata: dict[str, Any]) -> dict[int, dict[str, Any]]:
+    """Return validated display-only attachment descriptors keyed by ADK Part index."""
+
+    raw_descriptors = custom_metadata.get("clientAttachments")
+    if not isinstance(raw_descriptors, list):
+        raw_descriptors = custom_metadata.get("client_attachments")
+    if not isinstance(raw_descriptors, list):
+        return {}
+    descriptors: dict[int, dict[str, Any]] = {}
+    for raw_descriptor in raw_descriptors:
+        if not isinstance(raw_descriptor, dict):
+            continue
+        part_index = raw_descriptor.get("contentPartIndex")
+        if isinstance(part_index, bool) or not isinstance(part_index, int) or part_index < 0:
+            continue
+        try:
+            file_name = _safe_artifact_name(raw_descriptor.get("fileName"))
+        except ValueError:
+            continue
+        descriptor: dict[str, Any] = {"file_name": file_name}
+        mime_type = str(raw_descriptor.get("mimeType") or "").strip()
+        if mime_type and len(mime_type) <= 127 and "/" in mime_type and not any(
+            character.isspace() or ord(character) < 32 for character in mime_type
+        ):
+            descriptor["mime_type"] = mime_type
+        size_bytes = raw_descriptor.get("sizeBytes")
+        if isinstance(size_bytes, int) and not isinstance(size_bytes, bool) and size_bytes >= 0:
+            descriptor["size_bytes"] = size_bytes
+        descriptors[part_index] = descriptor
+    return descriptors
+
+
+def _legacy_attachment_file_name(text: str) -> str | None:
+    """Recognize the exact extracted-text envelope used by older attachment turns."""
+
+    matched = _LEGACY_ATTACHMENT_TEXT_PATTERN.fullmatch(text.replace("\r\n", "\n"))
+    if matched is None:
+        return None
+    try:
+        return _safe_artifact_name(matched.group("file_name"))
+    except ValueError:
+        return None
+
+
+def _project_user_attachment_text(
+    text: str,
+    *,
+    part_index: int,
+    descriptors: dict[int, dict[str, Any]],
+) -> dict[str, Any] | None:
+    """Collapse model-facing attachment text into one user-facing file Part."""
+
+    descriptor = descriptors.get(part_index)
+    if descriptor is not None:
+        return _file_part_payload(**descriptor)
+    if part_index == 0:
+        return None
+    file_name = _legacy_attachment_file_name(text)
+    if file_name is None:
+        return None
+    return _file_part_payload(file_name=file_name)
+
+
 def _event_preview_text(event: dict[str, Any]) -> str:
     """Build a lightweight session preview string from one serialized event."""
 
+    author = str(event.get("author") or "").strip().lower()
+    custom_metadata = event.get("custom_metadata")
+    if not isinstance(custom_metadata, dict):
+        custom_metadata = {}
+    attachment_descriptors = _client_attachment_descriptors(custom_metadata) if author == "user" else {}
     content = event.get("content") if isinstance(event.get("content"), dict) else {}
     raw_parts = content.get("parts") if isinstance(content.get("parts"), list) else []
     texts: list[str] = []
-    for raw_part in raw_parts:
+    for part_index, raw_part in enumerate(raw_parts):
         if not isinstance(raw_part, dict):
             continue
         if bool(raw_part.get("thought")):
@@ -350,6 +444,15 @@ def _event_preview_text(event: dict[str, Any]) -> str:
         text = raw_part.get("text")
         if isinstance(text, str) and text.strip():
             normalized_text = _strip_request_time_prefix(text)
+            if author == "user":
+                attachment = _project_user_attachment_text(
+                    normalized_text,
+                    part_index=part_index,
+                    descriptors=attachment_descriptors,
+                )
+                if attachment is not None:
+                    texts.append(str(attachment["file_name"]))
+                    continue
             if normalized_text.strip():
                 texts.append(normalized_text.strip())
     return " ".join(texts).strip()
@@ -394,6 +497,11 @@ def project_session_event(event: dict[str, Any], session_id: str) -> dict[str, A
     elif author == "system":
         role = "system"
 
+    custom_metadata = event.get("custom_metadata")
+    if not isinstance(custom_metadata, dict):
+        custom_metadata = {}
+    attachment_descriptors = _client_attachment_descriptors(custom_metadata) if role == "user" else {}
+
     timestamp = event.get("timestamp")
     if isinstance(timestamp, (int, float)):
         created_at = dt.datetime.fromtimestamp(timestamp, tz=dt.timezone.utc).astimezone().isoformat()
@@ -407,7 +515,7 @@ def project_session_event(event: dict[str, Any], session_id: str) -> dict[str, A
         for raw_part in raw_parts
     )
     parts: list[dict[str, Any]] = []
-    for raw_part in raw_parts:
+    for part_index, raw_part in enumerate(raw_parts):
         if not isinstance(raw_part, dict):
             continue
         if bool(raw_part.get("thought")):
@@ -415,7 +523,18 @@ def project_session_event(event: dict[str, Any], session_id: str) -> dict[str, A
         text = raw_part.get("text")
         if isinstance(text, str) and text.strip():
             normalized_text = _strip_request_time_prefix(text)
-            if normalized_text.strip():
+            attachment = (
+                _project_user_attachment_text(
+                    normalized_text,
+                    part_index=part_index,
+                    descriptors=attachment_descriptors,
+                )
+                if role == "user"
+                else None
+            )
+            if attachment is not None:
+                parts.append(attachment)
+            elif normalized_text.strip():
                 part_type = "commentary" if role == "assistant" and has_function_call else "markdown"
                 parts.append({"type": part_type, "text": normalized_text})
         inline_data = raw_part.get("inline_data")
@@ -435,13 +554,11 @@ def project_session_event(event: dict[str, Any], session_id: str) -> dict[str, A
                 )
             else:
                 parts.append(
-                    {
-                        "type": "file",
-                        "text": "Attached file",
-                        "file_name": display_name,
-                        "size_bytes": size_bytes,
-                        "mime_type": mime_type,
-                    }
+                    _file_part_payload(
+                        file_name=display_name,
+                        size_bytes=size_bytes,
+                        mime_type=mime_type,
+                    )
                 )
         function_call = raw_part.get("function_call")
         if isinstance(function_call, dict):
@@ -472,9 +589,6 @@ def project_session_event(event: dict[str, Any], session_id: str) -> dict[str, A
     if not parts:
         return None
     invocation_id = str(event.get("invocation_id") or "").strip()
-    custom_metadata = event.get("custom_metadata")
-    if not isinstance(custom_metadata, dict):
-        custom_metadata = {}
     client_run_id = str(
         custom_metadata.get("clientRunId")
         or custom_metadata.get("client_run_id")
@@ -2192,11 +2306,12 @@ class ClientApiCoordinator:
         artifact_refs: list[dict[str, Any]],
         *,
         user_id: str,
-    ) -> tuple[tuple[types.Part, ...], dict[str, Any] | None]:
-        """Resolve opaque ArtifactRefs into ADK Parts after Session authorization."""
+    ) -> tuple[tuple[types.Part, ...], tuple[dict[str, Any], ...], dict[str, Any] | None]:
+        """Resolve ArtifactRefs into model Parts and bounded client display descriptors."""
         parts: list[types.Part] = []
+        descriptors: list[dict[str, Any]] = []
         if len(artifact_refs) > MAX_MESSAGE_ATTACHMENTS:
-            return (), _error(
+            return (), (), _error(
                 "INVALID_ARTIFACT",
                 f"A message can reference at most {MAX_MESSAGE_ATTACHMENTS} artifacts.",
             )
@@ -2213,10 +2328,10 @@ class ClientApiCoordinator:
                 user_id=user_id,
             )
             if data is None:
-                return (), payload
+                return (), (), payload
             total_bytes += len(data)
             if total_bytes > MAX_MESSAGE_ATTACHMENT_BYTES:
-                return (), _error(
+                return (), (), _error(
                     "INVALID_ARTIFACT",
                     f"Attachments for one message cannot exceed {MAX_MESSAGE_ATTACHMENT_BYTES // 1024 // 1024} MB in total.",
                 )
@@ -2226,7 +2341,15 @@ class ClientApiCoordinator:
             try:
                 prepared = prepare_attachment(file_name=file_name, mime_type=mime_type, data=data)
             except AttachmentValidationError as exc:
-                return (), _error("INVALID_ARTIFACT", str(exc))
+                return (), (), _error("INVALID_ARTIFACT", str(exc))
+            descriptors.append(
+                {
+                    "contentPartIndex": len(parts) + 1,
+                    "fileName": prepared.file_name,
+                    "mimeType": prepared.mime_type,
+                    "sizeBytes": len(prepared.data),
+                }
+            )
             if prepared.model_text is not None:
                 parts.append(types.Part(text=prepared.model_text))
             else:
@@ -2239,7 +2362,7 @@ class ClientApiCoordinator:
                         )
                     )
                 )
-        return tuple(parts), None
+        return tuple(parts), tuple(descriptors), None
 
     def create_run(
         self,
@@ -2256,7 +2379,7 @@ class ClientApiCoordinator:
         access_error = self._agent_use_error(requester=requester, agent_id=agent_id)
         if access_error is not None:
             return access_error
-        resolved_artifact_parts, artifact_error = self._resolve_artifact_parts(
+        resolved_artifact_parts, attachment_descriptors, artifact_error = self._resolve_artifact_parts(
             agent_id,
             session_id,
             list(artifact_refs or []),
@@ -2353,6 +2476,7 @@ class ClientApiCoordinator:
                     else None
                 ),
                 artifact_parts=resolved_artifact_parts,
+                attachment_descriptors=attachment_descriptors,
                 on_event=lambda event: self._publish_adk_run_event(handle, event),
                 on_text_update=lambda merged, _delta: self._publish_run_text(handle, merged),
                 on_complete=lambda final_text: self._complete_node_run(handle, final_text),

@@ -33,6 +33,21 @@ def setup_context(*, confirmed: bool = False) -> ActionContext:
     )
 
 
+def workspace_readiness_context() -> ActionContext:
+    """Return the capability set available to an ordinary product user."""
+
+    permissions = frozenset({"system.read"})
+    return ActionContext(
+        request_id="req-workspace-readiness",
+        correlation_id="corr-workspace-readiness",
+        actor_id="principal:product-user",
+        capabilities=permissions,
+        permissions=permissions,
+        principal_id="user-product",
+        privilege_level="high",
+    )
+
+
 class FakeSetupRuntime:
     def create_session_sync(self, agent_id: str, *, user_id: str):
         assert agent_id == "main"
@@ -101,6 +116,35 @@ def test_setup_status_action_preserves_invalid_profile_diagnostic(tmp_path: Path
     assert result.data["diagnostic"]["component"] == "model"
     assert result.data["diagnostic"]["errorKind"] == "invalid_schema"
     assert str(tmp_path) not in repr(result.data["diagnostic"])
+
+
+def test_ordinary_user_reads_only_sanitized_workspace_readiness(tmp_path: Path) -> None:
+    application = build_control_plane(
+        tmp_path,
+        secret_store=InMemorySecretStore(),
+        product_version="test",
+    )
+    applied = application.invoke("setup.apply", {"request": setup_payload(tmp_path)}, setup_context())
+    assert applied.ok
+
+    readiness = application.invoke("setup.readiness", {}, workspace_readiness_context())
+    rich_status = application.invoke("setup.status", {}, workspace_readiness_context())
+
+    assert readiness.ok
+    assert readiness.data == {
+        "state": "configured",
+        "workspaceReady": True,
+        "steps": {
+            "node": "complete",
+            "agent": "complete",
+            "model": "complete",
+            "credential": "available",
+        },
+    }
+    assert rich_status.ok is False
+    assert rich_status.error is not None
+    assert rich_status.error.code == "capability_required"
+    assert str(tmp_path) not in repr(readiness.data)
 
 
 def test_secret_action_never_returns_or_reports_value(tmp_path: Path) -> None:

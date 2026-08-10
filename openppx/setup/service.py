@@ -152,6 +152,28 @@ class SetupService:
             ],
         }
 
+    def workspace_readiness(self) -> dict[str, object]:
+        """Return the non-sensitive setup facts required to enter a workspace."""
+
+        status = self.status()
+        raw_steps = status.get("steps")
+        steps = raw_steps if isinstance(raw_steps, dict) else {}
+        projected_steps = {
+            key: str(steps.get(key) or "missing")
+            for key in ("node", "agent", "model", "credential")
+        }
+        workspace_ready = (
+            projected_steps["node"] == "complete"
+            and projected_steps["agent"] == "complete"
+            and projected_steps["model"] == "complete"
+            and projected_steps["credential"] in {"available", "not_required"}
+        )
+        return {
+            "state": status.get("state", "needs_configuration"),
+            "workspaceReady": workspace_ready,
+            "steps": projected_steps,
+        }
+
     def apply(self, request: SetupApplyRequest) -> SetupApplyResult:
         """Publish a validated baseline with Node identity written last."""
         provider = self.catalog.get(request.profile.spec.provider)

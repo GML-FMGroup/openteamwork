@@ -21,6 +21,7 @@ import actionInvokeCommand from "../../../contracts/client-api/v1/fixtures/actio
 import actionInvokeSetupApply from "../../../contracts/client-api/v1/fixtures/action-invoke-setup-apply.json";
 import actionInvokeSetupHello from "../../../contracts/client-api/v1/fixtures/action-invoke-setup-hello.json";
 import actionInvokeSetupStatus from "../../../contracts/client-api/v1/fixtures/action-invoke-setup-status.json";
+import actionInvokeSetupReadiness from "../../../contracts/client-api/v1/fixtures/action-invoke-setup-readiness.json";
 import actionInvokeOperationsOverview from "../../../contracts/client-api/v1/fixtures/action-invoke-operations-overview.json";
 import actionInvokeOperationsAudit from "../../../contracts/client-api/v1/fixtures/action-invoke-operations-audit.json";
 import actionError from "../../../contracts/client-api/v1/fixtures/envelope-error.json";
@@ -33,6 +34,7 @@ import commandStatusSuccess from "../../../contracts/client-api/v1/fixtures/enve
 import setupApplySuccess from "../../../contracts/client-api/v1/fixtures/envelope-setup-apply.json";
 import setupHelloSuccess from "../../../contracts/client-api/v1/fixtures/envelope-setup-hello.json";
 import setupStatusSuccess from "../../../contracts/client-api/v1/fixtures/envelope-setup-status.json";
+import setupReadinessSuccess from "../../../contracts/client-api/v1/fixtures/envelope-setup-readiness.json";
 import operationsOverviewSuccess from "../../../contracts/client-api/v1/fixtures/envelope-operations-overview.json";
 import operationsAuditSuccess from "../../../contracts/client-api/v1/fixtures/envelope-operations-audit.json";
 import healthIncompatible from "../../../contracts/client-api/fixtures/health-incompatible.json";
@@ -763,9 +765,9 @@ describe("OpenPPX Client public contract", () => {
     expect(JSON.parse(String(invokeInit.body))).toEqual(actionInvokeCommand);
   });
 
-  it("routes setup status, apply, and first Hello through shared Actions", async () => {
-    const requests = [actionInvokeSetupStatus, actionInvokeSetupApply, actionInvokeSetupHello];
-    const responses = [setupStatusSuccess, setupApplySuccess, setupHelloSuccess];
+  it("routes setup readiness, status, apply, and first Hello through shared Actions", async () => {
+    const requests = [actionInvokeSetupReadiness, actionInvokeSetupStatus, actionInvokeSetupApply, actionInvokeSetupHello];
+    const responses = [setupReadinessSuccess, setupStatusSuccess, setupApplySuccess, setupHelloSuccess];
     let requestIndex = 0;
     const fetchMock = vi.fn(async () => new Response(
       JSON.stringify(responses[requestIndex++]),
@@ -777,6 +779,7 @@ describe("OpenPPX Client public contract", () => {
       idFactory: () => requests[requestIndex].requestId,
     });
 
+    await expect(client.setup.readiness()).resolves.toEqual(setupReadinessSuccess);
     await expect(client.setup.status()).resolves.toEqual(setupStatusSuccess);
     await expect(client.setup.apply(actionInvokeSetupApply.input.request as SetupApplyRequest)).resolves.toEqual(setupApplySuccess);
     await expect(client.setup.hello("main", "user_fixture", "Hello OpenTeamwork")).resolves.toEqual(setupHelloSuccess);

@@ -19,6 +19,16 @@ LOGGER = logging.getLogger(__name__)
 def register_setup_actions(registry: ActionRegistry, service: SetupService) -> None:
     """Register setup status/apply and Secret lifecycle before Runtime exists."""
     registry.register(
+        _spec(
+            "setup.readiness",
+            "Workspace readiness",
+            "Inspect only the non-sensitive setup facts required to enter a workspace.",
+            EmptyInput,
+            "system.read",
+        ),
+        lambda _context, _input: service.workspace_readiness(),
+    )
+    registry.register(
         _spec("setup.status", "Setup status", "Inspect first-run readiness and provider choices.", EmptyInput, "setup.read"),
         lambda _context, _input: service.status(),
     )

@@ -17,6 +17,7 @@ import { COLUMN_WIDTH_LIMITS, useColumnLayout } from "./hooks/use-column-layout"
 import { ARCHIVED_SESSION_GUIDANCE, useDesktopWorkspace } from "./hooks/use-desktop-workspace";
 import { useDesktopPreferences } from "./hooks/use-desktop-preferences";
 import { useTranscriptFollow } from "./hooks/use-transcript-follow";
+import { isWorkspaceConfigurationComplete } from "./lib/setup-status";
 import type { ExtensionSummary } from "./types";
 import { productProfile } from "../../product";
 
@@ -181,11 +182,11 @@ export function App() {
     );
   }
 
-  if (!workspace.runtime || !workspace.setupStatus) {
+  if (!workspace.runtime || !workspace.setupReadiness) {
     return <div className="loading-shell" aria-live="polite"><div><span className="loading-brand" aria-hidden="true">OT</span><span className="loading-caption">Loading authenticated workspace…</span></div></div>;
   }
 
-  if (workspace.setupStatus.state !== "ready") {
+  if (!isWorkspaceConfigurationComplete(workspace.setupReadiness)) {
     if (workspace.userProfile.accountKind === "product" && workspace.userProfile.privilegeLevel !== "root") {
       return (
         <div className="loading-shell">
@@ -197,6 +198,9 @@ export function App() {
           </div>
         </div>
       );
+    }
+    if (!workspace.setupStatus) {
+      return <div className="loading-shell" aria-live="polite"><div><span className="loading-brand" aria-hidden="true">OT</span><span className="loading-caption">Loading administrator setup…</span></div></div>;
     }
     return (
       <OnboardingView
@@ -424,7 +428,7 @@ export function App() {
           connectionFeedback={workspace.connectionFeedback}
           extensions={workspace.extensions}
           modelProfiles={workspace.modelProfiles}
-          providers={workspace.setupStatus.providers}
+          providers={workspace.setupStatus?.providers ?? []}
           agents={workspace.agents}
           extensionsLoading={workspace.extensionsLoading}
           extensionsError={workspace.extensionsError}
@@ -464,7 +468,7 @@ export function App() {
           mode={modelProfileDialog.mode}
           profileId={modelProfileDialog.profileId}
           profiles={workspace.modelProfiles}
-          providers={workspace.setupStatus.providers}
+          providers={workspace.setupStatus?.providers ?? []}
           onRead={workspace.readModelProfile}
           onGetModels={workspace.getModelProviderModels}
           onGetAuth={workspace.getModelProviderAuth}

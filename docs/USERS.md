@@ -94,7 +94,7 @@ On the Desktop machine:
 
 The secret is used only for the login request and is not saved. The returned opaque session token is encrypted by Electron `safeStorage`, bound to the exact Node origin and user ID, and never exposed to the Renderer. Signing out revokes the current token and removes its encrypted local copy.
 
-User sessions expire after 30 days. A disabled account and an explicit sign-out revoke sessions immediately. If a token expires or cannot be decrypted on the current OS account, Desktop asks the user to sign in again.
+User sessions expire after one hour. A disabled account and an explicit sign-out revoke sessions immediately. If a token expires or cannot be decrypted on the current OS account, Desktop asks the user to sign in again.
 
 ## Backup and recovery
 

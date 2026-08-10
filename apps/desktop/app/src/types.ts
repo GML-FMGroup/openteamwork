@@ -25,6 +25,7 @@ import type {
   SetupApplyRequest,
   SetupApplyResult,
   SetupHelloResult,
+  SetupReadinessResult,
   SetupStatusResult,
   OperationsOverviewResult,
   OperationsTaskListResult,
@@ -93,6 +94,7 @@ export type {
   SetupApplyRequest,
   SetupApplyResult,
   SetupHelloResult,
+  SetupReadinessResult,
   SetupStatusResult,
   HealthComponent,
   HealthState,
@@ -440,6 +442,7 @@ export interface PpxClientApi {
   listSlashCommands(): Promise<{ commands: ProjectedSlashCommand[] }>;
   invokeSlashCommand(input: SlashCommandRequest): Promise<SlashCommandResult>;
   getSetupStatus(): Promise<SetupStatusResult>;
+  getSetupReadiness(): Promise<SetupReadinessResult>;
   applySetup(request: SetupApplyRequest): Promise<SetupApplyResult>;
   runSetupHello(agentId: string, userId: string, text: string): Promise<SetupHelloResult>;
   getProviderModels(providerId: string): Promise<ModelCatalogResult>;

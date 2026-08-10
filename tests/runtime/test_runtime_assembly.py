@@ -13,6 +13,7 @@ from types import SimpleNamespace
 
 import pytest
 from google.adk.agents.invocation_context import LlmCallsLimitExceededError
+from google.adk.agents.run_config import StreamingMode
 from google.adk.models.base_llm import BaseLlm
 from google.adk.models.llm_response import LlmResponse
 from google.genai import types
@@ -1389,6 +1390,19 @@ def test_supervisor_executes_background_run_on_the_snapshot_runtime(tmp_path: Pa
         session_id=session.id,
         user_id="local:test",
         text="Hello",
+        artifact_parts=(
+            types.Part.from_text(
+                text="[Attachment: notes.txt]\nFormat: text\n\nhello\n[End attachment]",
+            ),
+        ),
+        attachment_descriptors=(
+            {
+                "contentPartIndex": 1,
+                "fileName": "notes.txt",
+                "mimeType": "text/plain",
+                "sizeBytes": 5,
+            },
+        ),
         on_complete=lambda text: (replies.append(text), completed.set()),
     )
 
@@ -1406,10 +1420,21 @@ def test_supervisor_executes_background_run_on_the_snapshot_runtime(tmp_path: Pa
         (event.custom_metadata or {}).get("clientRunId") == "run-background"
         for event in persisted.events
     )
+    user_event = next(event for event in persisted.events if event.author == "user")
+    assert (user_event.custom_metadata or {})["clientAttachments"] == [
+        {
+            "contentPartIndex": 1,
+            "fileName": "notes.txt",
+            "mimeType": "text/plain",
+            "sizeBytes": 5,
+        }
+    ]
 
 
-def test_supervisor_persists_client_run_identity_for_ordinary_runs(tmp_path: Path) -> None:
-    """Every ADK event can be correlated back to its stable Client Run."""
+def test_supervisor_configures_ordinary_runs_for_client_identity_and_streaming(
+    tmp_path: Path,
+) -> None:
+    """Ordinary Client Runs carry stable identity and enable ADK SSE streaming."""
 
     class _Runtime:
         metadata = SimpleNamespace(
@@ -1455,11 +1480,28 @@ def test_supervisor_persists_client_run_identity_for_ordinary_runs(tmp_path: Pat
         session_id="session-ordinary",
         user_id="local:user",
         text="do work",
+        attachment_descriptors=(
+            {
+                "contentPartIndex": 1,
+                "fileName": "report.docx",
+                "mimeType": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                "sizeBytes": 4_096,
+            },
+        ),
         on_complete=lambda _text: completed.set(),
     )
 
     assert completed.wait(timeout=5)
     assert runtime.run_configs[0].custom_metadata["clientRunId"] == "run-ordinary"
+    assert runtime.run_configs[0].custom_metadata["clientAttachments"] == [
+        {
+            "contentPartIndex": 1,
+            "fileName": "report.docx",
+            "mimeType": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            "sizeBytes": 4_096,
+        }
+    ]
+    assert runtime.run_configs[0].streaming_mode == StreamingMode.SSE
 
 
 def test_goal_run_continues_in_fresh_adk_invocation_after_slice_limit(tmp_path: Path) -> None:

@@ -34,6 +34,7 @@ const api: PpxClientApi = {
   setAgentEnabled: (agentId: string, enabled: boolean) => ipcRenderer.invoke("ppx-client:set-agent-enabled", agentId, enabled),
   removeAgent: (agentId: string, expectedRevision: string) => ipcRenderer.invoke("ppx-client:remove-agent", agentId, expectedRevision),
   getSetupStatus: () => ipcRenderer.invoke("ppx-client:get-setup-status"),
+  getSetupReadiness: () => ipcRenderer.invoke("ppx-client:get-setup-readiness"),
   applySetup: (request: SetupApplyRequest) => ipcRenderer.invoke("ppx-client:apply-setup", request),
   runSetupHello: (agentId: string, userId: string, text: string) =>
     ipcRenderer.invoke("ppx-client:run-setup-hello", agentId, userId, text),

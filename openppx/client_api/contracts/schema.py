@@ -62,6 +62,10 @@ def export_client_contract(output_dir: Path) -> tuple[Path, ...]:
             request_id="req_setup_status_fixture",
             action_id="setup.status",
         ),
+        fixtures_dir / "action-invoke-setup-readiness.json": _invoke_fixture(
+            request_id="req_setup_readiness_fixture",
+            action_id="setup.readiness",
+        ),
         fixtures_dir / "action-invoke-setup-apply.json": _invoke_fixture(
             request_id="req_setup_apply_fixture",
             action_id="setup.apply",
@@ -126,6 +130,10 @@ def export_client_contract(output_dir: Path) -> tuple[Path, ...]:
         fixtures_dir / "envelope-setup-status.json": _domain_success_fixture(
             request_id="req_setup_status_fixture",
             result=_setup_status_fixture(),
+        ),
+        fixtures_dir / "envelope-setup-readiness.json": _domain_success_fixture(
+            request_id="req_setup_readiness_fixture",
+            result=_setup_readiness_fixture(),
         ),
         fixtures_dir / "envelope-setup-apply.json": _domain_success_fixture(
             request_id="req_setup_apply_fixture",
@@ -370,6 +378,21 @@ def _setup_status_fixture() -> dict[str, Any]:
                 "defaultModel": "gemini-2.5-flash",
             }
         ],
+    }
+
+
+def _setup_readiness_fixture() -> dict[str, Any]:
+    """Return the canonical non-sensitive workspace-readiness projection."""
+
+    return {
+        "state": "needs_configuration",
+        "workspaceReady": False,
+        "steps": {
+            "node": "missing",
+            "agent": "missing",
+            "model": "missing",
+            "credential": "not_required",
+        },
     }
 
 

@@ -466,6 +466,17 @@ export interface SetupStatusResult extends Record<string, unknown> {
   providers: SetupProvider[];
 }
 
+export interface SetupReadinessResult extends Record<string, unknown> {
+  state: "ready" | "configured" | "needs_configuration";
+  workspaceReady: boolean;
+  steps: {
+    node: string;
+    agent: string;
+    model: string;
+    credential: string;
+  };
+}
+
 export interface SetupStatusDiagnostic {
   component: "node" | "agent" | "model" | "hello";
   errorKind: string;
@@ -905,6 +916,10 @@ export class ModelClient {
 
 export class SetupClient {
   public constructor(private readonly actions: ActionClient) {}
+
+  public readiness(): Promise<ActionEnvelope<SetupReadinessResult>> {
+    return this.actions.invoke("setup.readiness", {});
+  }
 
   public status(): Promise<ActionEnvelope<SetupStatusResult>> {
     return this.actions.invoke("setup.status", {});

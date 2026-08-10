@@ -20,6 +20,7 @@ from openppx.runtime.client_api_service import (
     ClientApiCoordinator,
     RunHandle,
     _ClientApiHandler,
+    _event_preview_text,
     _write_run_event_stream,
     project_session_event,
 )
@@ -281,6 +282,51 @@ def test_product_users_only_list_and_use_owned_agents_while_root_is_global(tmp_p
     assert denied["error"]["code"] == "ACCESS_DENIED"
     assert denied["error"]["details"]["reason"] == "agent_ownership_required"
     assert [item["id"] for item in root_view["data"]["items"]] == [created["data"]["session"]["id"]]
+
+
+def test_product_user_gets_sanitized_readiness_while_root_keeps_setup_status(tmp_path: Path) -> None:
+    coordinator, _runtime = _coordinator_with_runtime(tmp_path)
+    user = coordinator.user_accounts.add_user(
+        email="user@example.com",
+        secret="user secret value",
+        privilege_level="high",
+    )
+    root = coordinator.user_accounts.add_user(
+        email="root@example.com",
+        secret="root secret value",
+        privilege_level="root",
+    )
+
+    readiness = coordinator.invoke_action(
+        "setup.readiness",
+        {},
+        request_id="req_readiness",
+        correlation_id="corr_readiness",
+        confirmed=False,
+        requester=user,
+    )
+    denied_status = coordinator.invoke_action(
+        "setup.status",
+        {},
+        request_id="req_user_setup_status",
+        correlation_id="corr_user_setup_status",
+        confirmed=False,
+        requester=user,
+    )
+    root_status = coordinator.invoke_action(
+        "setup.status",
+        {},
+        request_id="req_root_setup_status",
+        correlation_id="corr_root_setup_status",
+        confirmed=False,
+        requester=root,
+    )
+
+    assert readiness["ok"] is True
+    assert set(readiness["result"]) == {"state", "workspaceReady", "steps"}
+    assert denied_status["error"]["code"] == "capability_required"
+    assert root_status["ok"] is True
+    assert {"current", "providers", "recommendedWorkspace"}.issubset(root_status["result"])
 
 
 def test_product_user_cannot_use_owned_agent_above_own_privilege(tmp_path: Path) -> None:
@@ -553,6 +599,102 @@ def test_project_session_event_projects_inline_image_and_file_parts() -> None:
     }
 
 
+def test_project_session_event_projects_extracted_attachment_metadata_as_a_file() -> None:
+    extracted = "[Attachment: report.docx]\nFormat: Word document\n\nprivate body\n[End attachment]"
+    message = project_session_event(
+        {
+            "id": "evt_extracted_artifact",
+            "author": "user",
+            "timestamp": 1_717_171_717,
+            "custom_metadata": {
+                "clientAttachments": [{
+                    "contentPartIndex": 1,
+                    "fileName": "report.docx",
+                    "mimeType": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                    "sizeBytes": 4_096,
+                }],
+            },
+            "content": {
+                "parts": [
+                    {"text": "Please summarize this file."},
+                    {"text": extracted},
+                ],
+            },
+        },
+        "session_extracted_artifact",
+    )
+
+    assert message is not None
+    assert message["parts"] == [
+        {"type": "markdown", "text": "Please summarize this file."},
+        {
+            "type": "file",
+            "text": "Attached file",
+            "file_name": "report.docx",
+            "size_bytes": 4_096,
+            "mime_type": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        },
+    ]
+    assert "private body" not in json.dumps(message, ensure_ascii=False)
+
+
+def test_project_session_event_repairs_legacy_extracted_attachment_text_only_for_users() -> None:
+    extracted = "[Attachment: legacy.docx]\nFormat: Word document\n\nprivate body\n[End attachment]"
+    user_message = project_session_event(
+        {
+            "id": "evt_legacy_artifact",
+            "author": "user",
+            "content": {"parts": [{"text": "Review it."}, {"text": extracted}]},
+        },
+        "session_legacy_artifact",
+    )
+    assistant_message = project_session_event(
+        {
+            "id": "evt_assistant_quote",
+            "author": "assistant",
+            "content": {"parts": [{"text": extracted}]},
+        },
+        "session_legacy_artifact",
+    )
+    user_authored_message = project_session_event(
+        {
+            "id": "evt_user_authored_envelope",
+            "author": "user",
+            "content": {"parts": [{"text": extracted}]},
+        },
+        "session_legacy_artifact",
+    )
+
+    assert user_message is not None
+    assert user_message["parts"] == [
+        {"type": "markdown", "text": "Review it."},
+        {"type": "file", "text": "Attached file", "file_name": "legacy.docx"},
+    ]
+    assert assistant_message is not None
+    assert assistant_message["parts"] == [{"type": "markdown", "text": extracted}]
+    assert user_authored_message is not None
+    assert user_authored_message["parts"] == [{"type": "markdown", "text": extracted}]
+
+
+def test_event_preview_uses_attachment_filename_without_extracted_content() -> None:
+    event = {
+        "author": "user",
+        "content": {
+            "parts": [
+                {"text": "Review it."},
+                {
+                    "text": (
+                        "[Attachment: report.docx]\nFormat: Word document\n\n"
+                        "private body\n[End attachment]"
+                    ),
+                },
+            ],
+        },
+    }
+
+    assert _event_preview_text(event) == "Review it. report.docx"
+
+
 def test_project_session_event_skips_unrenderable_events() -> None:
     message = project_session_event(
         {
@@ -815,6 +957,14 @@ def test_session_artifact_upload_list_download_and_run_reference(tmp_path: Path)
     callback = supervisor.callbacks[run["data"]["run"]["id"]]
     assert "[Attachment: notes.txt]" in callback["artifact_parts"][0].text
     assert "hello" in callback["artifact_parts"][0].text
+    assert callback["attachment_descriptors"] == (
+        {
+            "contentPartIndex": 1,
+            "fileName": "notes.txt",
+            "mimeType": "text/plain",
+            "sizeBytes": 5,
+        },
+    )
 
 
 def test_session_artifact_enforces_the_node_message_total_limit(tmp_path: Path, monkeypatch) -> None:

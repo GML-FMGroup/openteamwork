@@ -1,0 +1,16 @@
+{
+  "correlationId": "req_setup_readiness_fixture",
+  "ok": true,
+  "protocolVersion": 1,
+  "requestId": "req_setup_readiness_fixture",
+  "result": {
+    "state": "needs_configuration",
+    "steps": {
+      "agent": "missing",
+      "credential": "not_required",
+      "model": "missing",
+      "node": "missing"
+    },
+    "workspaceReady": false
+  }
+}

@@ -235,6 +235,11 @@ function installClient(overrides: Partial<PpxClientApi> = {}): { client: PpxClie
       current: { node: null, agent: null, profile: null },
       providers: [],
     }),
+    getSetupReadiness: async () => ({
+      state: "ready",
+      workspaceReady: true,
+      steps: { node: "complete", agent: "complete", model: "complete", credential: "available" },
+    }),
     applySetup: async () => ({
       state: "configured",
       revisions: { node: "node-revision", agent: "agent-revision", profile: "profile-revision" },
@@ -699,9 +704,19 @@ describe("App sending state", () => {
       email: "jiang@example.com",
       privilegeLevel: "high" as const,
     }));
+    const getSetupReadiness = vi.fn(async () => ({
+      state: "configured" as const,
+      workspaceReady: true,
+      steps: { node: "complete", agent: "complete", model: "complete", credential: "available" },
+    }));
+    const getSetupStatus = vi.fn(async () => {
+      throw new Error("ordinary users must not request rich setup status");
+    });
     installClient({
       getUserProfile: async () => { throw new Error("A valid user session token is required."); },
       login,
+      getSetupReadiness,
+      getSetupStatus,
     });
     render(<App />);
 
@@ -723,6 +738,8 @@ describe("App sending state", () => {
       secret: "private secret",
     });
     expect(screen.queryByDisplayValue("private secret")).not.toBeInTheDocument();
+    expect(getSetupReadiness).toHaveBeenCalledTimes(1);
+    expect(getSetupStatus).not.toHaveBeenCalled();
   });
 
   it("refuses a plaintext remote login before sending credentials", async () => {
@@ -742,6 +759,56 @@ describe("App sending state", () => {
 
     expect(await screen.findByRole("alert")).toHaveTextContent("requires an HTTPS Node URL");
     expect(login).not.toHaveBeenCalled();
+  });
+
+  it("describes a post-authentication workspace failure without blaming credentials", async () => {
+    installClient({
+      getUserProfile: async () => { throw new Error("A valid user session token is required."); },
+      login: async () => ({
+        id: "user-jiang",
+        displayName: "jiang@example.com",
+        accountKind: "product",
+        email: "jiang@example.com",
+        privilegeLevel: "high",
+      }),
+      getSetupReadiness: async () => { throw new Error("Node readiness is temporarily unavailable."); },
+      getSetupStatus: async () => { throw new Error("ordinary users must not request rich setup status"); },
+    });
+    render(<App />);
+
+    await screen.findByRole("heading", { name: "Connect to a Node" });
+    fireEvent.change(screen.getByLabelText("Email"), { target: { value: "jiang@example.com" } });
+    fireEvent.change(screen.getByLabelText("Secret"), { target: { value: "private secret" } });
+    fireEvent.click(screen.getByRole("button", { name: "Sign in to OpenTeamwork" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Sign-in succeeded, but the Node workspace could not be loaded: Node readiness is temporarily unavailable.",
+    );
+  });
+
+  it("shows ordinary users administrator guidance when sanitized readiness is incomplete", async () => {
+    const getSetupStatus = vi.fn(async () => {
+      throw new Error("ordinary users must not request rich setup status");
+    });
+    installClient({
+      getUserProfile: async () => ({
+        id: "user-high",
+        displayName: "jiang@example.com",
+        accountKind: "product",
+        email: "jiang@example.com",
+        privilegeLevel: "high",
+      }),
+      getSetupReadiness: async () => ({
+        state: "needs_configuration",
+        workspaceReady: false,
+        steps: { node: "complete", agent: "missing", model: "missing", credential: "not_required" },
+      }),
+      getSetupStatus,
+    });
+    render(<App />);
+
+    expect(await screen.findByText("This Node needs administrator setup")).toBeInTheDocument();
+    expect(getSetupStatus).not.toHaveBeenCalled();
   });
 
   it("completes first-run setup only after a real Hello is verified", async () => {
@@ -927,7 +994,7 @@ describe("App sending state", () => {
     const needsConfiguration = {
       ...configuredSetupStatus(),
       state: "needs_configuration" as const,
-      steps: { node: "complete", agent: "complete", model: "complete", credential: "not_required", hello: "pending" },
+      steps: { node: "missing", agent: "missing", model: "missing", credential: "missing", hello: "pending" },
     };
     let rejectTest!: (reason: unknown) => void;
     const testConnectionSettings = vi.fn(() => new Promise<ClientDiagnostics>((_resolve, reject) => {
@@ -964,35 +1031,31 @@ describe("App sending state", () => {
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 
-  it("retries only Hello when configuration is already saved", async () => {
+  it("opens the workspace when core configuration is complete but Hello is stale", async () => {
     const configured = configuredSetupStatus();
-    const ready = {
-      ...configured,
-      state: "ready" as const,
-      steps: { ...configured.steps, hello: "verified" },
-    };
-    const getSetupStatus = vi.fn().mockResolvedValueOnce(configured).mockResolvedValue(ready);
+    const getSetupStatus = vi.fn(async () => configured);
     const applySetup = vi.fn();
-    const runSetupHello = vi.fn(async () => ({ sessionId: "session-reverified", reply: "Hello", state: "ready" as const }));
-    installClient({ getSetupStatus, applySetup, runSetupHello });
+    const runSetupHello = vi.fn();
+    const listSlashCommands = vi.fn(async () => ({ commands: [] }));
+    const listModelProfiles = vi.fn(async () => ({ profiles: [] }));
+    installClient({ getSetupStatus, applySetup, runSetupHello, listSlashCommands, listModelProfiles });
 
     render(<App />);
 
-    expect(await screen.findByRole("heading", { name: "Verify your saved agent." })).toBeInTheDocument();
-    expect(screen.queryByLabelText("Workspace folder")).not.toBeInTheDocument();
-    expect(screen.getByText("Monica")).toBeInTheDocument();
-    const verifyButton = screen.getByRole("button", { name: "Verify & open workspace" });
-    await waitFor(() => expect(verifyButton).toBeEnabled());
-    fireEvent.click(verifyButton);
-
-    await waitFor(() => expect(runSetupHello).toHaveBeenCalledTimes(1));
-    expect(applySetup).not.toHaveBeenCalled();
-    expect(runSetupHello).toHaveBeenCalledWith("main", "ppx-client-user", "Hello OpenTeamwork");
     expect(await screen.findByRole("button", { name: "Send" })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Verify your saved agent." })).not.toBeInTheDocument();
+    expect(applySetup).not.toHaveBeenCalled();
+    expect(runSetupHello).not.toHaveBeenCalled();
+    await waitFor(() => expect(listSlashCommands).toHaveBeenCalledTimes(1));
+    expect(listModelProfiles).toHaveBeenCalledTimes(1);
   });
 
-  it("edits saved setup steps while preserving the immutable Agent ID", async () => {
-    const configured = configuredSetupStatus();
+  it("continues setup for an existing Agent with an incomplete model", async () => {
+    const configured = {
+      ...configuredSetupStatus(),
+      state: "needs_configuration" as const,
+      steps: { node: "complete", agent: "complete", model: "missing", credential: "not_required", hello: "pending" },
+    };
     const ready = {
       ...configured,
       state: "ready" as const,
@@ -1010,11 +1073,7 @@ describe("App sending state", () => {
 
     render(<App />);
 
-    expect(await screen.findByRole("heading", { name: "Verify your saved agent." })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "First Hello" })).toHaveAttribute("aria-current", "step");
-
-    fireEvent.click(screen.getByRole("button", { name: "Node" }));
-    expect(screen.getByRole("heading", { name: "Edit your saved configuration." })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Set up your first agent." })).toBeInTheDocument();
     expect(screen.getByLabelText("Node name")).toHaveValue("This Mac");
     expect(screen.queryByRole("button", { name: "Model" })).not.toBeInTheDocument();
     expect(screen.getByLabelText("Workspace folder")).toBeInTheDocument();
@@ -1023,27 +1082,8 @@ describe("App sending state", () => {
     expect(screen.getByLabelText("Agent ID")).toHaveValue("main");
     expect(screen.getByLabelText("Agent ID")).toBeDisabled();
 
-    const shell = screen.getByRole("main");
-    const nodeSection = screen.getByRole("heading", { name: "Node" }).closest("section") as HTMLElement;
-    const agentSection = screen.getByRole("heading", { name: "Agent" }).closest("section") as HTMLElement;
-    const helloSection = screen.getByRole("heading", { name: "First Hello" }).closest("section") as HTMLElement;
-    vi.spyOn(shell, "getBoundingClientRect").mockReturnValue(viewportRect(0, 1_000));
-    vi.spyOn(nodeSection, "getBoundingClientRect").mockReturnValue(viewportRect(-420));
-    vi.spyOn(agentSection, "getBoundingClientRect").mockReturnValue(viewportRect(80, 500));
-    vi.spyOn(helloSection, "getBoundingClientRect").mockReturnValue(viewportRect(900));
-    shell.scrollTop = 420;
-    fireEvent.scroll(shell);
-    expect(screen.getByRole("button", { name: "Agent" })).toHaveAttribute("aria-current", "step");
-
-    const scrollIntoView = vi.fn();
-    Object.defineProperty(helloSection, "scrollIntoView", { configurable: true, value: scrollIntoView });
-    fireEvent.click(screen.getByRole("button", { name: "First Hello" }));
-    expect(scrollIntoView).toHaveBeenCalledWith({ behavior: "smooth", block: "start" });
-    expect(screen.getByRole("heading", { name: "Edit your saved configuration." })).toBeInTheDocument();
-    expect(screen.getByLabelText("Agent name")).toBeInTheDocument();
-
     fireEvent.change(screen.getByLabelText("Agent name"), { target: { value: "Monica Prime" } });
-    const saveAndVerify = screen.getByRole("button", { name: "Save & verify" });
+    const saveAndVerify = screen.getByRole("button", { name: "Set up & say Hello" });
     await waitFor(() => expect(saveAndVerify).toBeEnabled());
     fireEvent.click(saveAndVerify);
 
@@ -2642,6 +2682,14 @@ describe("App sending state", () => {
 
   it("limits a product user to account, Agent, and personal workspace controls", async () => {
     const listExtensions = vi.fn(async () => ({ extensions: [] }));
+    const getSetupReadiness = vi.fn(async () => ({
+      state: "configured" as const,
+      workspaceReady: true,
+      steps: { node: "complete", agent: "complete", model: "complete", credential: "available" },
+    }));
+    const getSetupStatus = vi.fn(async () => {
+      throw new Error("ordinary users must not request rich setup status");
+    });
     installClient({
       getUserProfile: async () => ({
         id: "user-high",
@@ -2651,6 +2699,8 @@ describe("App sending state", () => {
         privilegeLevel: "high",
       }),
       listExtensions,
+      getSetupReadiness,
+      getSetupStatus,
     });
     render(<App />);
 
@@ -2689,6 +2739,8 @@ describe("App sending state", () => {
     expect(screen.queryByRole("option", { name: "Root" })).not.toBeInTheDocument();
     expect(screen.getByText("Your Agent workspace is allocated automatically.")).toBeInTheDocument();
     expect(listExtensions).not.toHaveBeenCalled();
+    expect(getSetupReadiness).toHaveBeenCalledTimes(1);
+    expect(getSetupStatus).not.toHaveBeenCalled();
   });
 
   it("opens Extensions with its types in the middle navigation column", async () => {

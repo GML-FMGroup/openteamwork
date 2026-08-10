@@ -851,6 +851,7 @@ class NodeRuntimeSupervisor:
         text: str,
         run_override: str | None = None,
         artifact_parts: tuple[types.Part, ...] = (),
+        attachment_descriptors: tuple[dict[str, Any], ...] = (),
         on_event: Callable[[Any], None] | None = None,
         on_text_update: Callable[[str, str], None] | None = None,
         on_complete: Callable[[str], None] | None = None,
@@ -958,8 +959,11 @@ class NodeRuntimeSupervisor:
                 run_metadata = {"clientRunId": run_id}
                 if goal is not None:
                     run_metadata["goalId"] = goal.goal_id
+                if attachment_descriptors:
+                    run_metadata["clientAttachments"] = [dict(item) for item in attachment_descriptors]
                 run_config = build_run_config(
                     profile="full",
+                    streaming=True,
                     max_llm_calls=calls_per_invocation if goal is not None else None,
                     custom_metadata=run_metadata,
                 )

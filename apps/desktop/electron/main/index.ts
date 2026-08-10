@@ -230,6 +230,7 @@ app.whenReady().then(() => {
     ),
   );
   ipcMain.handle("ppx-client:get-setup-status", async () => adapter!.getSetupStatus());
+  ipcMain.handle("ppx-client:get-setup-readiness", async () => adapter!.getSetupReadiness());
   ipcMain.handle("ppx-client:apply-setup", async (_event, request: unknown) =>
     adapter!.applySetup(validateSetupApplyRequest(request)),
   );
