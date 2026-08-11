@@ -160,7 +160,7 @@ Legacy `.doc`, `.xls`, and `.ppt`, encrypted PDFs, scanned PDFs without extracta
 
 The right-side Artifacts section reads durable Node facts rather than inferring filenames from the transcript. Images, text/code, and audio have inline previews; other formats remain downloadable. A remote Node never receives an arbitrary path on the Desktop machine.
 
-Forking a Session copies every Artifact key and version into the new Session. Permanently deleting a Session also removes its Session-scoped Artifacts; archiving retains them. Storage failures return stable errors without exposing Node paths or secret material.
+Forking a Session copies every Artifact key and version into the new Session. Deleting a Session in the App removes it from Active/Archived history and disables continuation, while retaining its durable conversation and Session-scoped Artifacts for authorized Agent history search. A future administrative purge is a separate operation. Storage failures return stable errors without exposing Node paths or secret material.
 
 ## Development environment overrides
 

@@ -14,8 +14,10 @@ from types import SimpleNamespace
 import pytest
 from google.adk.agents.invocation_context import LlmCallsLimitExceededError
 from google.adk.agents.run_config import StreamingMode
+from google.adk.events.event import Event
 from google.adk.models.base_llm import BaseLlm
 from google.adk.models.llm_response import LlmResponse
+from google.adk.tools import FunctionTool
 from google.genai import types
 from pydantic import PrivateAttr
 
@@ -254,7 +256,75 @@ def test_snapshot_builds_real_adk_runner_and_completes_hello_without_env_project
     assert runtime.metadata.permission_revision == snapshot.permissions.revision
     assert runtime.metadata.agent_id == "low-main"
     assert runtime.metadata.model_profile_id == "primary"
+    tool_names = {
+        getattr(getattr(tool, "func", tool), "__name__", getattr(tool, "name", ""))
+        for tool in runtime.agent.tools
+    }
+    assert {
+        "resolve_agent_history_target",
+        "list_agent_history_sessions",
+        "search_agent_history",
+        "read_agent_history",
+    } <= tool_names
+    for history_tool_name in (
+        "resolve_agent_history_target",
+        "list_agent_history_sessions",
+        "search_agent_history",
+        "read_agent_history",
+    ):
+        history_tool = next(
+            tool
+            for tool in runtime.agent.tools
+            if getattr(getattr(tool, "func", tool), "__name__", getattr(tool, "name", ""))
+            == history_tool_name
+        )
+        declaration = FunctionTool(func=history_tool)._get_declaration()
+        properties = set((declaration.parameters_json_schema or {}).get("properties", {}))
+        assert "source_user_id" not in properties
+        assert "source_agent_id" not in properties
+        assert "source_agent_privilege_level" not in properties
     assert dict(os.environ) == before
+
+
+def test_assembled_history_tool_reads_own_retained_session_from_trusted_context(tmp_path: Path) -> None:
+    config_service, secrets = _configured(tmp_path)
+    assembler = RuntimeAssembler(
+        node_root=tmp_path,
+        secret_store=secrets,
+        model_factory=lambda _resolution: _HelloLlm(model="hello-model"),
+    )
+    runtime = assembler.assemble(config_service.snapshot("low-main"))
+
+    async def _seed_and_search():
+        session = await assembler.services.session_service.create_session(
+            app_name=runtime.agent.name,
+            user_id="local:owner",
+            session_id="history-own-session",
+        )
+        await assembler.services.session_service.append_event(
+            session=session,
+            event=Event(
+                id="history-own-message",
+                invocation_id="history-own-invocation",
+                author="user",
+                timestamp=1_786_380_000.0,
+                content=types.Content(
+                    role="user",
+                    parts=[types.Part.from_text(text="大模型创业历史验证")],
+                ),
+            ),
+        )
+        search = _tool_function(runtime.agent, "search_agent_history")
+        return await search(
+            "low-main",
+            "大模型创业",
+            SimpleNamespace(user_id="local:owner"),
+        )
+
+    result = asyncio.run(_seed_and_search())
+
+    assert result["ok"] is True
+    assert result["items"][0]["citation"]["messageId"] == "history-own-message"
 
 
 def test_subagent_runtime_removes_recursive_delegation_and_pins_spawn_snapshot(
@@ -1274,6 +1344,60 @@ def test_session_lifecycle_has_deterministic_goal_semantics(tmp_path: Path) -> N
     )
     assert deleted.ok is True
     assert application.goal_store.get_goal(goal.data["goalId"]).status == "cancelled"  # type: ignore[union-attr]
+    assert deleted.data == {
+        "sessionId": session_id,
+        "removed": True,
+        "deleted": False,
+        "artifactsRetained": True,
+    }
+    assert supervisor.get_session_sync(
+        "low-main",
+        user_id="local:test",
+        session_id=session_id,
+    ) is not None
+    removed_metadata = application.session_metadata.get(session_id)
+    assert removed_metadata is not None and removed_metadata.removed is True
+
+    repeated = application.invoke(
+        "session.delete",
+        {"userId": "local:test", "agentId": "low-main", "sessionId": session_id},
+        action_context,
+    )
+    assert repeated.ok is True
+    assert repeated.data == deleted.data
+
+    removed_operations = (
+        (
+            "session.rename",
+            {
+                "userId": "local:test",
+                "agentId": "low-main",
+                "sessionId": session_id,
+                "title": "Cannot rename",
+            },
+        ),
+        (
+            "session.archive",
+            {
+                "userId": "local:test",
+                "agentId": "low-main",
+                "sessionId": session_id,
+                "archived": False,
+            },
+        ),
+        (
+            "session.fork",
+            {"userId": "local:test", "agentId": "low-main", "sessionId": session_id},
+        ),
+        (
+            "session.export",
+            {"userId": "local:test", "agentId": "low-main", "sessionId": session_id},
+        ),
+    )
+    for action_id, payload in removed_operations:
+        blocked = application.invoke(action_id, payload, action_context)
+        assert blocked.ok is False
+        assert blocked.error is not None and blocked.error.code == "session_removed"
 
 
 def test_model_command_persists_session_override_and_pins_new_run_snapshot(tmp_path: Path) -> None:

@@ -18,6 +18,7 @@ class SessionMetadata:
     principal_id: str
     title: str | None
     archived: bool
+    removed: bool
     model_profile_id: str | None
     model_selection_revision: int
     updated_at: str
@@ -52,6 +53,7 @@ class SessionMetadataStore:
                     principal_id TEXT NOT NULL,
                     title TEXT,
                     archived INTEGER NOT NULL DEFAULT 0 CHECK (archived IN (0, 1)),
+                    removed INTEGER NOT NULL DEFAULT 0 CHECK (removed IN (0, 1)),
                     model_profile_id TEXT,
                     model_selection_revision INTEGER NOT NULL DEFAULT 0,
                     updated_at TEXT NOT NULL
@@ -67,6 +69,10 @@ class SessionMetadataStore:
             if "model_selection_revision" not in columns:
                 connection.execute(
                     "ALTER TABLE session_metadata ADD COLUMN model_selection_revision INTEGER NOT NULL DEFAULT 0"
+                )
+            if "removed" not in columns:
+                connection.execute(
+                    "ALTER TABLE session_metadata ADD COLUMN removed INTEGER NOT NULL DEFAULT 0"
                 )
             connection.execute(
                 "CREATE INDEX IF NOT EXISTS idx_session_metadata_agent ON session_metadata(agent_id, principal_id)"
@@ -89,30 +95,35 @@ class SessionMetadataStore:
         principal_id: str,
         title: str | None = None,
         archived: bool | None = None,
+        removed: bool | None = None,
     ) -> SessionMetadata:
         """Upsert bounded metadata while retaining unspecified existing fields."""
         now = datetime.now(timezone.utc).isoformat()
         with self._lock, self._connect() as connection:
             current = connection.execute(
-                "SELECT title, archived, model_profile_id, model_selection_revision FROM session_metadata WHERE session_id = ?",
+                "SELECT title, archived, removed, model_profile_id, model_selection_revision FROM session_metadata WHERE session_id = ?",
                 (session_id,),
             ).fetchone()
             resolved_title = title if title is not None else (str(current["title"]) if current and current["title"] else None)
             resolved_archived = archived if archived is not None else bool(current["archived"]) if current else False
+            resolved_removed = removed if removed is not None else bool(current["removed"]) if current else False
+            if resolved_removed:
+                resolved_archived = False
             model_profile_id = str(current["model_profile_id"]) if current and current["model_profile_id"] else None
             model_selection_revision = int(current["model_selection_revision"]) if current else 0
             connection.execute(
                 """
                 INSERT INTO session_metadata(
-                    session_id, agent_id, principal_id, title, archived,
+                    session_id, agent_id, principal_id, title, archived, removed,
                     model_profile_id, model_selection_revision, updated_at
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(session_id) DO UPDATE SET
                     agent_id=excluded.agent_id,
                     principal_id=excluded.principal_id,
                     title=excluded.title,
                     archived=excluded.archived,
+                    removed=excluded.removed,
                     model_profile_id=excluded.model_profile_id,
                     model_selection_revision=excluded.model_selection_revision,
                     updated_at=excluded.updated_at
@@ -123,6 +134,7 @@ class SessionMetadataStore:
                     principal_id,
                     resolved_title,
                     int(resolved_archived),
+                    int(resolved_removed),
                     model_profile_id,
                     model_selection_revision,
                     now,
@@ -134,6 +146,7 @@ class SessionMetadataStore:
             principal_id,
             resolved_title,
             resolved_archived,
+            resolved_removed,
             model_profile_id,
             model_selection_revision,
             now,
@@ -162,19 +175,21 @@ class SessionMetadataStore:
                 )
             title = str(current["title"]) if current is not None and current["title"] is not None else None
             archived = bool(current["archived"]) if current is not None else False
+            removed = bool(current["removed"]) if current is not None else False
             next_revision = actual_revision + 1
             connection.execute(
                 """
                 INSERT INTO session_metadata(
-                    session_id, agent_id, principal_id, title, archived,
+                    session_id, agent_id, principal_id, title, archived, removed,
                     model_profile_id, model_selection_revision, updated_at
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(session_id) DO UPDATE SET
                     agent_id=excluded.agent_id,
                     principal_id=excluded.principal_id,
                     title=excluded.title,
                     archived=excluded.archived,
+                    removed=excluded.removed,
                     model_profile_id=excluded.model_profile_id,
                     model_selection_revision=excluded.model_selection_revision,
                     updated_at=excluded.updated_at
@@ -185,6 +200,7 @@ class SessionMetadataStore:
                     principal_id,
                     title,
                     int(archived),
+                    int(removed),
                     model_profile_id,
                     next_revision,
                     now,
@@ -196,13 +212,14 @@ class SessionMetadataStore:
             principal_id,
             title,
             archived,
+            removed,
             model_profile_id,
             next_revision,
             now,
         )
 
     def delete(self, session_id: str) -> bool:
-        """Delete presentation metadata after the owning ADK Session is removed."""
+        """Physically purge metadata only from an explicit administrative purge path."""
         with self._lock, self._connect() as connection:
             cursor = connection.execute("DELETE FROM session_metadata WHERE session_id = ?", (session_id,))
             return cursor.rowcount > 0
@@ -215,6 +232,7 @@ class SessionMetadataStore:
             principal_id=str(row["principal_id"]),
             title=str(row["title"]) if row["title"] is not None else None,
             archived=bool(row["archived"]),
+            removed=bool(row["removed"]),
             model_profile_id=str(row["model_profile_id"]) if row["model_profile_id"] is not None else None,
             model_selection_revision=int(row["model_selection_revision"]),
             updated_at=str(row["updated_at"]),

@@ -328,6 +328,25 @@ class AgentAccessStore:
             return None
         return self._record_from_row(row)
 
+    def list_agent_records(self) -> list[AgentRecord]:
+        """Return all Agent records in deterministic immutable-id order."""
+        with self._lock, _connect(self._db_path) as conn:
+            rows = conn.execute(
+                """
+                SELECT
+                    agent_id,
+                    name,
+                    privilege_level,
+                    owner_principal_id,
+                    status,
+                    config_ref,
+                    metadata_json
+                FROM agent_records
+                ORDER BY agent_id ASC
+                """
+            ).fetchall()
+        return [self._record_from_row(row) for row in rows]
+
     def upsert_membership(self, membership: AgentMembership) -> AgentMembership:
         """Insert or update one principal membership for an agent."""
         now_ms = membership.joined_at_ms or _now_ms()

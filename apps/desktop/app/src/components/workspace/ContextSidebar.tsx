@@ -580,7 +580,7 @@ export function ContextSidebar({
                 </button>
                 <button onClick={() => { setSessionMenuId(null); onForkSession(session); }}>Duplicate</button>
                 <button onClick={() => { setSessionMenuId(null); onExportSession(session); }}>Export JSON</button>
-                <button className="danger" onClick={() => { setSessionMenuId(null); if (window.confirm(`Delete ${session.title}? Its conversation and Session files will be permanently removed.`)) onDeleteSession(session); }}>Delete</button>
+                <button className="danger" onClick={() => { setSessionMenuId(null); if (window.confirm(`Delete ${session.title} from conversation history? It can no longer be continued, but its retained record remains available to authorized Agent history search.`)) onDeleteSession(session); }}>Delete</button>
               </div> : null}
               </div>
             );

@@ -96,6 +96,22 @@ class AgentMcpTests(unittest.TestCase):
 
         self.assertNotIn("publish_artifact", names)
 
+    def test_build_tools_keeps_injected_history_reads_at_low_privilege(self) -> None:
+        from openppx import agent
+
+        def search_agent_history() -> dict[str, bool]:
+            return {"ok": True}
+
+        names = _tool_names(
+            agent._build_tools(
+                privilege_level="low",
+                can_delegate=False,
+                history_tools=(search_agent_history,),
+            )
+        )
+
+        self.assertIn("search_agent_history", names)
+
     def test_build_tools_keeps_high_full_tool_access(self) -> None:
         from openppx import agent
         from openppx.tooling.registry import (

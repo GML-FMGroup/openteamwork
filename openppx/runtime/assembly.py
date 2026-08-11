@@ -12,7 +12,7 @@ from google.genai import types
 from google.adk.agents.run_config import RunConfig
 
 from openppx.app.agent import build_root_agent
-from openppx.config import ConfigSnapshot, SecretStore
+from openppx.config import ConfigSnapshot, FilesystemConfigRepository, SecretStore
 from openppx.extensions import (
     AppManager,
     AppSnapshot,
@@ -32,6 +32,7 @@ from openppx.permissions import (
     PermissionSnapshotAuthority,
     ResolvedPermissionSnapshot,
 )
+from openppx.tooling.history_tools import build_history_tools
 
 from .adk_utils import run_text_async
 from .authorization_plugin import OpenPpxAuthorizationPlugin
@@ -39,12 +40,17 @@ from .sandbox.egress_policy import write_egress_proxy_policy
 from .artifact_service import ArtifactConfig, create_artifact_service
 from .context_engine import LongTaskContextStore
 from .goal_store import GoalStore
+from .historical_session_service import HistoricalSessionService
+from .history_access import sync_history_agent_catalog
+from .identity_store import IdentityStore
+from .agent_access_store import AgentAccessStore
 from .memory_service import MemoryConfig, create_memory_service
 from .mcp_adapter import McpRuntimeAdapter
 from .model_adapter_factory import ModelAdapterFactory
 from .plugin_hook_bridge import OpenPpxPluginHookBridge
 from .runner_factory import create_runner
 from .session_service import SessionConfig, create_session_service
+from .session_metadata_store import SessionMetadataStore
 from .task_store import TaskStore
 
 
@@ -276,6 +282,7 @@ class RuntimeAssembler:
         plugin_manager: PluginManager | None = None,
         mcp_adapter: McpRuntimeAdapter | None = None,
         permission_snapshot_provider: CurrentPermissionProvider | None = None,
+        historical_session_service: HistoricalSessionService | None = None,
     ) -> None:
         self.node_root = node_root.expanduser().resolve(strict=False)
         self.secret_store = secret_store
@@ -291,6 +298,21 @@ class RuntimeAssembler:
         self._mcp_adapter = mcp_adapter or McpRuntimeAdapter(secret_store)
         self._permission_snapshot_provider = permission_snapshot_provider
         self._task_controller: Any | None = None
+        identity_db_path = self.node_root / "database" / "identity.db"
+        identity_store = IdentityStore(db_path=identity_db_path)
+        agent_access_store = AgentAccessStore(db_path=identity_db_path)
+        config_repository = FilesystemConfigRepository(self.node_root)
+        self.historical_session_service = historical_session_service or HistoricalSessionService(
+            session_service=self.services.session_service,
+            identity_store=identity_store,
+            agent_access_store=agent_access_store,
+            session_metadata=SessionMetadataStore(self.node_root / "database" / "sessions.db"),
+            catalog_refresher=lambda: sync_history_agent_catalog(
+                repository=config_repository,
+                identity_store=identity_store,
+                agent_access_store=agent_access_store,
+            ),
+        )
 
     def attach_task_controller(self, task_controller: Any) -> None:
         """Attach the Node-owned task controller before assembling runtimes."""
@@ -386,6 +408,7 @@ class RuntimeAssembler:
             permission_authority=permission_authority,
             extension_snapshot_digest=resolved_extensions.revision,
             task_controller=self._task_controller,
+            history_tools=build_history_tools(self.historical_session_service),
         )
         if restrict_subagent:
             from .subagent_agent import build_restricted_subagent

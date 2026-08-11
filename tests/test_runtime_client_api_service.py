@@ -887,6 +887,23 @@ def test_create_run_rejects_an_archived_session(tmp_path: Path) -> None:
     assert runtime.runs == {}
 
 
+def test_create_run_rejects_a_removed_session(tmp_path: Path) -> None:
+    coordinator, runtime = _coordinator_with_runtime(tmp_path)
+    runtime.create_session_sync("writer", user_id="owner", session_id="session_removed")
+    coordinator._session_metadata.update(
+        session_id="session_removed",
+        agent_id="writer",
+        principal_id="owner",
+        removed=True,
+    )
+
+    payload = coordinator.create_run("writer", "session_removed", "hi", user_id="owner")
+
+    assert payload["ok"] is False
+    assert payload["error"]["code"] == "SESSION_REMOVED"
+    assert runtime.runs == {}
+
+
 def test_create_run_rejects_a_session_that_the_node_does_not_own(tmp_path: Path) -> None:
     (tmp_path / "global_config.json").write_text(
         json.dumps({"agents": [{"name": "writer", "enabled": True}]}),
@@ -1536,6 +1553,25 @@ def test_list_sessions_does_not_synthesize_a_preview(tmp_path: Path, monkeypatch
 
     assert sessions["ok"] is True
     assert sessions["data"]["items"][0]["last_message_preview"] == ""
+
+
+def test_removed_session_is_hidden_from_lists_and_ordinary_message_reads(tmp_path: Path) -> None:
+    coordinator, runtime = _coordinator_with_runtime(tmp_path)
+    runtime.create_session_sync("writer", user_id="owner", session_id="session-removed")
+    coordinator._session_metadata.update(
+        session_id="session-removed",
+        agent_id="writer",
+        principal_id="owner",
+        removed=True,
+    )
+
+    listed = coordinator.list_sessions("writer", user_id="owner")
+    messages = coordinator.get_session_messages("session-removed", user_id="owner")
+
+    assert listed["ok"] is True
+    assert listed["data"]["items"] == []
+    assert messages["ok"] is False
+    assert messages["error"]["code"] == "SESSION_REMOVED"
 
 
 def test_create_session_invalidates_session_list_cache(tmp_path: Path, monkeypatch) -> None:

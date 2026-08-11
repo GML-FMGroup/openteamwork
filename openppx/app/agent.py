@@ -160,6 +160,7 @@ def _build_tools(
     extension_tools: tuple[Any, ...] | None = None,
     skill_tools: tuple[Any, ...] | None = None,
     goal_tools: tuple[Any, ...] = (),
+    history_tools: tuple[Any, ...] = (),
     tool_execution_context: ToolExecutionContext | None = None,
 ) -> list[Any]:
     """Assemble tools from explicit snapshot policy and extension resources."""
@@ -178,6 +179,7 @@ def _build_tools(
         grep,
         invoke_skill_api,
         *goal_tools,
+        *history_tools,
         write_context_summary,
         summarize_context_text,
         evaluate_staged_summary_quality_cases,
@@ -257,6 +259,10 @@ def _build_tools(
             "task_output",
             "resume_task",
             "load_artifacts",
+            "resolve_agent_history_target",
+            "list_agent_history_sessions",
+            "search_agent_history",
+            "read_agent_history",
         }
         tools = [tool for tool in base_tools if _tool_name(tool) in allowed_names or isinstance(tool, PreloadMemoryTool)]
         tools.extend(
@@ -286,6 +292,7 @@ def build_root_agent(
     permission_authority: PermissionSnapshotAuthority | None = None,
     extension_snapshot_digest: str = "",
     task_controller: Any | None = None,
+    history_tools: tuple[Any, ...] = (),
 ) -> LlmAgent:
     """Build one ADK Agent from an immutable Config snapshot.
 
@@ -338,6 +345,7 @@ def build_root_agent(
             extension_tools=extension_tools,
             skill_tools=_snapshot_skill_tools(resolved_skill_snapshot),
             goal_tools=resolved_goal_tools,
+            history_tools=history_tools,
             tool_execution_context=tool_execution_context,
         ),
     )

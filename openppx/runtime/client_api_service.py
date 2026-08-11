@@ -1469,6 +1469,9 @@ class ClientApiCoordinator:
             session_id = str(session.get("id") or "")
             if not session_id:
                 continue
+            session_metadata = session.get("metadata")
+            if session_metadata is not None and session_metadata.removed:
+                continue
             self._session_agents[session_id] = agent_id
             self._session_owners[session_id] = subject_principal_id
             updated_raw = session.get("last_update_time")
@@ -1488,7 +1491,7 @@ class ClientApiCoordinator:
                     ),
                     "updated_at": updated_at,
                     "last_message_preview": str(session.get("last_preview") or ""),
-                    "archived": bool(session["metadata"].archived) if session.get("metadata") is not None else False,
+                    "archived": bool(session_metadata.archived) if session_metadata is not None else False,
                 }
             )
         items.sort(key=lambda item: item["updated_at"], reverse=True)
@@ -1544,6 +1547,20 @@ class ClientApiCoordinator:
         """Return projected message history for one session."""
 
         requester = self._ensure_requester_principal(user_id)
+        location = self._find_session_owner(
+            session_id=session_id,
+            requester_principal_id=requester.principal_id,
+        )
+        if isinstance(location, dict):
+            return location
+        agent_id, subject_principal_id = location
+        session_metadata = self._session_metadata.get(session_id)
+        if session_metadata is not None and session_metadata.removed:
+            return _error(
+                "SESSION_REMOVED",
+                "This Session was removed from conversation history.",
+                {"reason": "removed_session_requires_history_access"},
+            )
         cache_key = (session_id, requester.principal_id)
         cached = self._read_cache(self._messages_cache, cache_key)
         if cached is not None:
@@ -1556,13 +1573,6 @@ class ClientApiCoordinator:
                 },
             )
             return _ok({"items": cached})
-        location = self._find_session_owner(
-            session_id=session_id,
-            requester_principal_id=requester.principal_id,
-        )
-        if isinstance(location, dict):
-            return location
-        agent_id, subject_principal_id = location
         config_path = self._ensure_agent_access_state(agent_id)
         if config_path is None:
             return _error("AGENT_NOT_FOUND", f"Agent '{agent_id}' was not found.")
@@ -2407,6 +2417,12 @@ class ClientApiCoordinator:
                 {"reason": "run_requires_session_owner"},
             )
         session_metadata = self._session_metadata.get(session_id)
+        if session_metadata is not None and session_metadata.removed:
+            return _error(
+                "SESSION_REMOVED",
+                "This Session can no longer accept new Runs.",
+                {"reason": "removed_session_is_read_only"},
+            )
         if session_metadata is not None and session_metadata.archived:
             return _error(
                 "SESSION_ARCHIVED",
@@ -3593,7 +3609,7 @@ class _ClientApiHandler(BaseHTTPRequestHandler):
                 user_id=user_id,
             )
             error_code = str(payload.get("error", {}).get("code") or "")
-            status = 200 if payload.get("ok") else (409 if error_code == "SESSION_ARCHIVED" else 404)
+            status = 200 if payload.get("ok") else (409 if error_code in {"SESSION_ARCHIVED", "SESSION_REMOVED"} else 404)
             self._send_json(status, payload)
             return
         if len(segments) == 5 and segments[:3] == ["api", "v1", "runs"] and segments[4] == "cancel":

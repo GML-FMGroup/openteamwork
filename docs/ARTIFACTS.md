@@ -4,9 +4,9 @@ OpenTeamwork stores Session lifecycle metadata and Artifact content on the Node.
 
 ## Session lifecycle
 
-Desktop supports creating, renaming, forking, exporting, archiving, restoring through the archived configuration, and permanently deleting a Session. The display title and archive state are durable Node-owned metadata layered over the Google ADK Session facts.
+Desktop supports creating, renaming, forking, exporting, archiving, restoring through the archived configuration, and removing a Session from conversation history. The display title, archive state, and removed state are durable Node-owned metadata layered over the Google ADK Session facts.
 
-Deletion is explicit. It removes the selected Session and every Session-scoped Artifact key/version through the Control Plane; it does not silently turn a missing Session into an empty conversation. Forking copies all Artifact versions into the new Session, while archiving retains them. Export returns a bounded JSON representation for user-controlled storage.
+Desktop deletion is a soft removal: the Session disappears from Active and Archived lists and cannot accept another Run, but its conversation and Session-scoped Artifacts remain retained. Authorized Agents can still read or search that historical conversation through the dedicated history tools. A future administrative purge is a separate operation. Forking copies all Artifact versions into the new Session, while archiving retains them. Export returns a bounded JSON representation for user-controlled storage.
 
 ## Attachment flow
 

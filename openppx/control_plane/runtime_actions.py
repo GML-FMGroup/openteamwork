@@ -318,12 +318,12 @@ def register_runtime_actions(
             action_id="session.delete",
             namespace="session",
             title="Delete session",
-            description="Permanently remove one ADK Session after explicit confirmation.",
+            description="Remove one Session from conversation history while retaining its durable record.",
             input_model=SessionIdentityInput,
             scope="session",
             required_capabilities=frozenset({"session.write"}),
             permission="session.write",
-            risk="high",
+            risk="medium",
             confirmation="required",
             operation="mutation",
             projections=("cli", "desktop", "mobile"),
@@ -563,6 +563,7 @@ def _rename_session(
     input_data: SessionRenameInput,
 ) -> dict[str, object]:
     _require_session(supervisor, input_data)
+    _require_session_not_removed(metadata, input_data.session_id)
     stored = metadata.update(
         session_id=input_data.session_id,
         agent_id=input_data.agent_id,
@@ -580,6 +581,11 @@ def _archive_session(
     context: ActionContext | None = None,
 ) -> dict[str, object]:
     _require_session(supervisor, input_data)
+    current_metadata = metadata.get(input_data.session_id)
+    if current_metadata is not None and current_metadata.removed:
+        raise ActionFailure(
+            ActionError("session_removed", "A removed Session cannot be archived or restored.")
+        )
     if input_data.archived and supervisor.has_active_run(session_id=input_data.session_id):
         raise ActionFailure(
             ActionError(
@@ -610,6 +616,7 @@ def _fork_session(
     metadata: SessionMetadataStore,
     input_data: SessionIdentityInput,
 ) -> dict[str, object]:
+    _require_session_not_removed(metadata, input_data.session_id)
     try:
         forked = supervisor.fork_session_sync(
             input_data.agent_id,
@@ -641,6 +648,7 @@ def _export_session(
     input_data: SessionIdentityInput,
 ) -> dict[str, object]:
     _require_session(supervisor, input_data)
+    _require_session_not_removed(metadata, input_data.session_id)
     items = supervisor.session_history_sync(
         input_data.agent_id,
         user_id=input_data.user_id,
@@ -665,6 +673,10 @@ def _delete_session(
     *,
     context: ActionContext | None = None,
 ) -> dict[str, object]:
+    _require_session(supervisor, input_data)
+    current = metadata.get(input_data.session_id)
+    if current is not None and current.removed:
+        return _removed_session_result(input_data.session_id)
     _settle_session_goal(
         supervisor,
         input_data.session_id,
@@ -672,16 +684,35 @@ def _delete_session(
         actor_id=context.actor_id if context is not None else input_data.user_id,
         correlation_id=context.correlation_id if context is not None else "",
     )
-    try:
-        supervisor.delete_session_sync(
-            input_data.agent_id,
-            user_id=input_data.user_id,
-            session_id=input_data.session_id,
+    metadata.update(
+        session_id=input_data.session_id,
+        agent_id=input_data.agent_id,
+        principal_id=input_data.user_id,
+        removed=True,
+    )
+    return _removed_session_result(input_data.session_id)
+
+
+def _removed_session_result(session_id: str) -> dict[str, object]:
+    """Return the stable result of an idempotent UI Session removal."""
+    return {
+        "sessionId": session_id,
+        "removed": True,
+        "deleted": False,
+        "artifactsRetained": True,
+    }
+
+
+def _require_session_not_removed(metadata: SessionMetadataStore, session_id: str) -> None:
+    """Reject ordinary Session operations after UI removal."""
+    stored = metadata.get(session_id)
+    if stored is not None and stored.removed:
+        raise ActionFailure(
+            ActionError(
+                "session_removed",
+                "This Session was removed from conversation history and is read-only.",
+            )
         )
-    except RuntimeSupervisorError as exc:
-        raise ActionFailure(ActionError("session_not_found", "The requested Session was not found.")) from exc
-    metadata.delete(input_data.session_id)
-    return {"sessionId": input_data.session_id, "deleted": True, "artifactsRetained": False}
 
 
 def _current_session_goal(supervisor: NodeRuntimeSupervisor, session_id: str):
@@ -716,7 +747,7 @@ def _settle_session_goal(
         status=target,
         expected_revision=goal.revision,
         actor_id=actor_id,
-        reason=f"session_{'archived' if target == 'paused' else 'deleted'}",
+        reason=f"session_{'archived' if target == 'paused' else 'removed'}",
         correlation_id=correlation_id,
     )
     if run_id:
