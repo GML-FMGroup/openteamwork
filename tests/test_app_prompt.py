@@ -52,6 +52,7 @@ class PromptLayeringTests(unittest.TestCase):
             text = build_startup_runtime_context(
                 workspace="openppx-test-workspace",
                 agent_display_name="my-low",
+                agent_privilege_level="low",
                 mcp_summaries=[
                     {"name": "gui_remote", "prefix": "mcp_gui_desktop", "transport": "stdio"}
                 ],
@@ -62,6 +63,11 @@ class PromptLayeringTests(unittest.TestCase):
         self.assertIn("# Agent Identity", text)
         self.assertIn('Configured display name: "my-low"', text)
         self.assertIn("Platform: OpenTeamwork", text)
+        self.assertIn("# Permission Context", text)
+        self.assertIn("Effective Agent privilege: low", text)
+        self.assertIn("low < medium < high < root", text)
+        self.assertIn("Do not retry denied access through shell", text)
+        self.assertIn("A denial is terminal for that target", text)
         self.assertIn("not a user task", text)
         self.assertIn("do not acknowledge", text)
         self.assertIn("mcp_gui_desktop_gui_task", text)

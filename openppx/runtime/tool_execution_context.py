@@ -33,6 +33,7 @@ class ToolExecutionContext:
 
     agent_id: str
     workspace_root: Path
+    node_root: Path | None
     security_policy: SecurityPolicy
     permission_snapshot: ResolvedPermissionSnapshot | None = None
     permission_authority: PermissionSnapshotAuthority | None = None
@@ -47,6 +48,7 @@ class ToolExecutionContext:
         *,
         agent_id: str,
         workspace_root: str | Path,
+        node_root: str | Path | None = None,
         permission_snapshot: ResolvedPermissionSnapshot | None = None,
         permission_authority: PermissionSnapshotAuthority | None = None,
         permission_audit: PermissionAuditSink | None = None,
@@ -59,12 +61,18 @@ class ToolExecutionContext:
         if not normalized_agent_id:
             raise ValueError("agent_id is required for tool execution")
         normalized_workspace = Path(workspace_root).expanduser().resolve(strict=False)
+        normalized_node_root = (
+            Path(node_root).expanduser().resolve(strict=False)
+            if node_root is not None
+            else None
+        )
         baseline = permission_snapshot
         if permission_authority is not None:
             baseline = permission_authority.baseline
         return cls(
             agent_id=normalized_agent_id,
             workspace_root=normalized_workspace,
+            node_root=normalized_node_root,
             security_policy=load_security_policy(workspace_root=normalized_workspace),
             permission_snapshot=baseline,
             permission_authority=permission_authority,

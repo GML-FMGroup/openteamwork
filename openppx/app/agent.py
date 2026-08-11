@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 from typing import Any
 
 from google.adk.agents import LlmAgent
@@ -293,6 +294,7 @@ def build_root_agent(
     extension_snapshot_digest: str = "",
     task_controller: Any | None = None,
     history_tools: tuple[Any, ...] = (),
+    node_root: str | Path | None = None,
 ) -> LlmAgent:
     """Build one ADK Agent from an immutable Config snapshot.
 
@@ -303,6 +305,7 @@ def build_root_agent(
     tool_execution_context = ToolExecutionContext.for_agent(
         agent_id=agent_config.metadata.name,
         workspace_root=agent_config.spec.workspace,
+        node_root=node_root,
         permission_snapshot=snapshot.permissions,
         permission_authority=permission_authority,
         permission_audit=permission_audit,
@@ -337,6 +340,7 @@ def build_root_agent(
             mcp_summaries=mcp_summaries or summarize_mcp_toolsets(list(extension_tools)),
             agent_instruction=agent_config.spec.instruction,
             agent_display_name=agent_config.spec.display_name,
+            agent_privilege_level=snapshot.permissions.preset,
         ),
         tools=_build_tools(
             privilege_level=agent_config.spec.privilege_level,

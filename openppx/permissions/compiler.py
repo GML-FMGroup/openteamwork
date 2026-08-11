@@ -320,7 +320,7 @@ def _semantic_payload(
 def _compile_rollout_modes(node: NodeConfig, agent: AgentConfig) -> tuple[ResolvedPermissionRollout, ...]:
     """Resolve rollout with an optional Agent-wide override over per-object settings."""
 
-    modes = {object_kind: "observe" for object_kind in (
+    modes = {object_kind: "enforce" for object_kind in (
         "workspace", "external_path", "command", "process", "network", "tool"
     )}
     modes.update(node.spec.permissions.rollout_modes)
@@ -347,8 +347,8 @@ def compile_permission_snapshot(
 ) -> ResolvedPermissionSnapshot:
     """Compile Node ceilings, one preset, and one Agent overlay deterministically.
 
-    The returned snapshot defaults to ``observe``. The ADK authorization Plugin
-    records decisions without enforcing them until an object enters ``enforce``.
+    The returned snapshot defaults to ``enforce``. Root operators may opt into
+    observation explicitly; non-root Runtime gates retain their mandatory floor.
     """
 
     revisions = source_revisions or {}

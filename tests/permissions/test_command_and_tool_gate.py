@@ -20,6 +20,7 @@ def _snapshot(
     workspace: Path,
     *objects: str,
     agent_rules: list[dict[str, object]] | None = None,
+    rollout_mode: str | None = None,
 ):
     rollout = {name: "enforce" for name in objects}
     node_permissions: dict[str, object] = {"rolloutModes": rollout}
@@ -56,7 +57,10 @@ def _snapshot(
                 "workspace": str(workspace),
                 "ownerPrincipalId": "local:owner",
                 "privilegeLevel": preset,
-                "permissions": {"rules": agent_rules or []},
+                "permissions": {
+                    **({"rolloutMode": rollout_mode} if rollout_mode is not None else {}),
+                    "rules": agent_rules or [],
+                },
             },
         }
     )
@@ -104,6 +108,37 @@ def test_low_command_profile_allows_direct_rg_and_denies_shell_or_external_paths
             pty=False,
             timeout_seconds=60,
         )
+
+
+def test_low_observe_cannot_run_sqlite_or_fall_back_to_the_host(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    snapshot = _snapshot("low", workspace, rollout_mode="observe")
+
+    with pytest.raises(PermissionError, match="denied"):
+        authorize_command(
+            snapshot,
+            workspace_root=workspace,
+            argv=["sqlite3", "sessions.db", ".tables"],
+            cwd=workspace,
+            shell=False,
+            background=False,
+            pty=False,
+            timeout_seconds=60,
+        )
+
+    authorized = authorize_command(
+        snapshot,
+        workspace_root=workspace,
+        argv=["rg", "answer", "."],
+        cwd=workspace,
+        shell=False,
+        background=False,
+        pty=False,
+        timeout_seconds=60,
+    )
+    assert authorized.required_backend == "docker"
+    assert authorized.timeout_seconds == 30
 
 
 @pytest.mark.parametrize(("preset", "profile"), [("medium", "medium-task-sandbox"), ("high", "high-protected-sandbox")])
@@ -242,6 +277,93 @@ def test_enforced_low_tool_catalog_filters_extensions_and_write_tools(tmp_path: 
     assert "exec" in names
     assert "write_file" not in names
     assert "extension_tool" not in names
+
+
+def test_low_observe_tool_catalog_still_filters_extensions_and_includes_history(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+
+    def extension_tool() -> str:
+        return "extension"
+
+    def resolve_agent_history_target() -> None:
+        return None
+
+    def list_agent_history_sessions() -> None:
+        return None
+
+    def search_agent_history() -> None:
+        return None
+
+    def read_agent_history() -> None:
+        return None
+
+    for history_tool in (
+        resolve_agent_history_target,
+        list_agent_history_sessions,
+        search_agent_history,
+        read_agent_history,
+    ):
+        history_tool.__module__ = "openppx.tooling.history_tools"
+
+    context = ToolExecutionContext.for_agent(
+        agent_id="worker",
+        workspace_root=workspace,
+        permission_snapshot=_snapshot("low", workspace, rollout_mode="observe"),
+    )
+    tools = agent._build_tools(
+        privilege_level="low",
+        can_delegate=False,
+        include_gui_tools=False,
+        extension_tools=(extension_tool,),
+        history_tools=(
+            resolve_agent_history_target,
+            list_agent_history_sessions,
+            search_agent_history,
+            read_agent_history,
+        ),
+        tool_execution_context=context,
+    )
+    names = {
+        getattr(tool, "name", getattr(getattr(tool, "func", tool), "__name__", ""))
+        for tool in tools
+    }
+
+    assert {
+        "resolve_agent_history_target",
+        "list_agent_history_sessions",
+        "search_agent_history",
+        "read_agent_history",
+    } <= names
+    assert "extension_tool" not in names
+    assert "write_file" not in names
+
+
+@pytest.mark.parametrize("preset", ["low", "medium", "high"])
+def test_non_root_catalog_never_exposes_unsandboxed_skill_api_execution(
+    tmp_path: Path,
+    preset: str,
+) -> None:
+    workspace = tmp_path / preset
+    workspace.mkdir()
+    context = ToolExecutionContext.for_agent(
+        agent_id="worker",
+        workspace_root=workspace,
+        permission_snapshot=_snapshot(preset, workspace, rollout_mode="observe"),
+    )
+
+    tools = agent._build_tools(
+        privilege_level=preset,
+        can_delegate=False,
+        include_gui_tools=False,
+        tool_execution_context=context,
+    )
+    names = {
+        getattr(tool, "name", getattr(getattr(tool, "func", tool), "__name__", ""))
+        for tool in tools
+    }
+
+    assert "invoke_skill_api" not in names
 
 
 def test_medium_process_management_uses_current_task_provenance(tmp_path: Path) -> None:

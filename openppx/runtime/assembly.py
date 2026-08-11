@@ -378,7 +378,7 @@ class RuntimeAssembler:
         if (
             proxy is not None
             and snapshot.permissions.preset in {"medium", "high"}
-            and snapshot.permissions.rollout_for("command") == "enforce"
+            and snapshot.permissions.enforcement_mode_for("command") == "enforce"
         ):
             write_egress_proxy_policy(
                 snapshot.permissions,
@@ -409,6 +409,7 @@ class RuntimeAssembler:
             extension_snapshot_digest=resolved_extensions.revision,
             task_controller=self._task_controller,
             history_tools=build_history_tools(self.historical_session_service),
+            node_root=self.node_root,
         )
         if restrict_subagent:
             from .subagent_agent import build_restricted_subagent

@@ -256,6 +256,8 @@ def test_snapshot_builds_real_adk_runner_and_completes_hello_without_env_project
     assert runtime.metadata.permission_revision == snapshot.permissions.revision
     assert runtime.metadata.agent_id == "low-main"
     assert runtime.metadata.model_profile_id == "primary"
+    assert "Effective Agent privilege: low" in str(runtime.agent.instruction)
+    assert "A denial is terminal for that target" in str(runtime.agent.instruction)
     tool_names = {
         getattr(getattr(tool, "func", tool), "__name__", getattr(tool, "name", ""))
         for tool in runtime.agent.tools
@@ -284,6 +286,30 @@ def test_snapshot_builds_real_adk_runner_and_completes_hello_without_env_project
         assert "source_agent_id" not in properties
         assert "source_agent_privilege_level" not in properties
     assert dict(os.environ) == before
+
+
+def test_assembled_non_root_file_tool_cannot_read_node_data(tmp_path: Path) -> None:
+    config_service, secrets = _configured(tmp_path)
+    _set_agent_privilege(config_service, "high")
+    snapshot = config_service.snapshot("low-main")
+    workspace = Path(snapshot.agent.spec.workspace)
+    workspace.mkdir(parents=True, exist_ok=True)
+    own_file = workspace / "notes.txt"
+    own_file.write_text("workspace-visible", encoding="utf-8")
+    node_file = tmp_path / "database" / "private.json"
+    node_file.parent.mkdir(parents=True, exist_ok=True)
+    node_file.write_text('{"secret": true}', encoding="utf-8")
+    runtime = RuntimeAssembler(
+        node_root=tmp_path,
+        secret_store=secrets,
+        model_factory=lambda _resolution: _HelloLlm(model="hello-model"),
+    ).assemble(config_service.snapshot("low-main"))
+    read = _tool_function(runtime.agent, "read_file")
+
+    assert "workspace-visible" in read(str(own_file))
+    denied = read(str(node_file))
+    assert "Node data outside the current Agent Workspace is denied" in denied
+    assert "secret" not in denied
 
 
 def test_assembled_history_tool_reads_own_retained_session_from_trusted_context(tmp_path: Path) -> None:
@@ -657,7 +683,7 @@ def test_assembled_runtime_binds_core_tools_to_agent_workspace(
             "spec": current.document.spec.model_copy(
                 update={
                     "workspace": str(workspace),
-                    "privilege_level": "medium",
+                    "privilege_level": "root",
                 }
             )
         }
@@ -819,6 +845,7 @@ def test_supervisor_rebuilds_runtime_for_a_new_immutable_skill_snapshot(
 
 def test_supervisor_attaches_direct_mcp_and_rebuilds_for_resource_change(tmp_path: Path) -> None:
     config_service, secrets = _configured(tmp_path)
+    _set_agent_privilege(config_service, "medium")
     manager = McpManager(tmp_path, secrets)
     record = McpServer.model_validate(
         {
@@ -870,6 +897,7 @@ def test_supervisor_attaches_direct_mcp_and_rebuilds_for_resource_change(tmp_pat
 
 def test_supervisor_attaches_app_mcp_and_rebuilds_for_definition_change(tmp_path: Path) -> None:
     config_service, secrets = _configured(tmp_path)
+    _set_agent_privilege(config_service, "medium")
     manager = AppManager(tmp_path, secrets)
     definition = AppDefinition.model_validate(
         {
@@ -967,6 +995,7 @@ def test_supervisor_attaches_branded_native_app_tools_to_the_same_agent_runtime(
 ) -> None:
     """Prove a direct App starter reaches the regular immutable ADK Agent path."""
     config_service, secrets = _configured(tmp_path)
+    _set_agent_privilege(config_service, "medium")
     token_ref = SecretRef(store="system", name="telegram-runtime-token")
     secrets.put(token_ref, SecretValue("private-runtime-token"))
     manager = AppManager(

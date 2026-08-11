@@ -202,7 +202,7 @@ Node-owned ceilings, shared roots, and arbitrary-code egress are configured in `
 }
 ```
 
-The effective precedence is Agent-wide `rolloutMode`, then Agent `rolloutModes[object]`, then Node `rolloutModes[object]`, then `observe`. When `rolloutMode` is present, it overrides all six objects without deleting the stored per-object settings; removing it restores the per-object inheritance chain. Enforce mode fails closed when a required protected root, Docker backend, proxy policy, or internal network is unavailable. The policy directory must be Node-owned, mode `0700`, and outside every Agent Workspace.
+The effective precedence is Agent-wide `rolloutMode`, then Agent `rolloutModes[object]`, then Node `rolloutModes[object]`, then `enforce`. When `rolloutMode` is present, it overrides all six stored modes without deleting the per-object settings; removing it restores the per-object inheritance chain. A non-root Agent still has an effective mandatory enforcement floor when the stored mode is `observe`: denied Tools, Node data, other Agent Workspaces, commands, processes, and managed network access remain blocked. Enforce mode fails closed when a required protected root, Docker backend, proxy policy, or internal network is unavailable. The policy directory must be Node-owned, mode `0700`, and outside every Agent Workspace.
 
 See [PERMISSIONS.md](./PERMISSIONS.md) for the preset matrix, selectors, precedence, clean-rebuild requirement, and recommended rollout order.
 

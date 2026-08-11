@@ -19,11 +19,27 @@ from .session_metadata_store import SessionMetadataStore
 
 _DEFAULT_LIMIT = 20
 _MAX_LIMIT = 50
+_TERMINAL_HISTORY_GUIDANCE = (
+    "A denial is terminal for this target. Do not retry through shell, files, "
+    "Skills, APIs, memory, or alternate tools. Explain the permission limit or "
+    "ask the user to use an Agent with sufficient privilege."
+)
 
 
-def _error(code: str, message: str, *, reason: str = "") -> dict[str, Any]:
+def _error(
+    code: str,
+    message: str,
+    *,
+    reason: str = "",
+    terminal: bool = False,
+    guidance: str = "",
+) -> dict[str, Any]:
     """Return a stable tool-facing error envelope."""
-    return {"ok": False, "error": {"code": code, "message": message, "reason": reason}}
+    error: dict[str, Any] = {"code": code, "message": message, "reason": reason}
+    if terminal:
+        error["terminal"] = True
+        error["guidance"] = guidance or _TERMINAL_HISTORY_GUIDANCE
+    return {"ok": False, "error": error}
 
 
 def _parse_time(value: str | None) -> datetime | None:
@@ -139,7 +155,23 @@ class HistoricalSessionService:
             display_name=display_name,
             source_agent_privilege_level=source_agent_privilege_level,
         )
-        return {
+        display_name_fingerprint = _fingerprint(
+            {"displayName": str(display_name or "").strip().casefold()}
+        )
+        for denied in result.denied_matches:
+            target = self._agent_access_store.get_agent_record(denied.agent_id)
+            if target is None:
+                continue
+            self._audit(
+                source_user_id=source_user_id,
+                source_agent_id=source_agent_id,
+                target=target,
+                action="history.resolve",
+                decision=HistoryAccessDecision(False, denied.reason),
+                query={"displayNameFingerprint": display_name_fingerprint},
+                citations=[],
+            )
+        response = {
             "ok": result.status in {"resolved", "ambiguous"},
             "status": result.status,
             "agentId": result.agent_id,
@@ -156,6 +188,10 @@ class HistoricalSessionService:
                 for candidate in result.candidates
             ],
         }
+        if result.status == "not_found":
+            response["terminal"] = True
+            response["guidance"] = _TERMINAL_HISTORY_GUIDANCE
+        return response
 
     async def list_sessions(
         self,
@@ -375,7 +411,11 @@ class HistoricalSessionService:
             return refresh_error
         target = self._agent_access_store.get_agent_record(str(target_agent_id or "").strip())
         if target is None:
-            return _error("agent_not_found", "The target Agent was not found.")
+            return _error(
+                "agent_not_found",
+                "The target Agent was not found.",
+                terminal=True,
+            )
         decision = self._policy.decide(
             source_user_id=source_user_id,
             source_agent_id=source_agent_id,
@@ -394,7 +434,12 @@ class HistoricalSessionService:
             query={},
             citations=[],
         )
-        return _error("access_denied", "The invoking Agent cannot access this history.", reason=decision.reason)
+        return _error(
+            "access_denied",
+            "The invoking Agent cannot access this history.",
+            reason=decision.reason,
+            terminal=True,
+        )
 
     def _refresh_catalog(self) -> dict[str, Any] | None:
         """Refresh Config-derived Agent identity facts before every ACL decision."""

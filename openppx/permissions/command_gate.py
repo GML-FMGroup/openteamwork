@@ -78,7 +78,7 @@ def authorize_command(
         }
     )
     decision = evaluate_permission(snapshot, request)
-    rollout_mode = snapshot.rollout_for("command")
+    rollout_mode = snapshot.enforcement_mode_for("command")
     record_permission_audit(
         audit or NullPermissionAuditSink(),
         request,

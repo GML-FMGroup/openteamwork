@@ -14,6 +14,7 @@ from .models import (
     AgentWorkspaceBoundary,
     PathConstraints,
     PermissionAction,
+    PermissionDecision,
     PermissionRequest,
     ResolvedPermissionSnapshot,
 )
@@ -111,9 +112,15 @@ def authorize_path(
     raw_path: str | Path,
     action: PermissionAction,
     base_dir: Path | None = None,
+    protected_roots: tuple[Path, ...] = (),
     audit: PermissionAuditSink | None = None,
 ) -> AuthorizedPath:
-    """Canonicalize, classify, authorize, and audit one filesystem target."""
+    """Canonicalize, classify, authorize, and audit one filesystem target.
+
+    ``protected_roots`` are trusted Node-owned directories. Non-root Agents may
+    use their own Workspace when it is nested below such a root, but no sibling
+    Node data or another Agent Workspace is accessible.
+    """
 
     workspace = workspace_root.expanduser().resolve(strict=False)
     candidate = Path(raw_path).expanduser()
@@ -121,7 +128,6 @@ def authorize_path(
         candidate = (base_dir or workspace) / candidate
     canonical = candidate.resolve(strict=False)
     resource, object_kind = _path_resource(snapshot, workspace=workspace, path=canonical)
-    snapshot.assert_enforce_ready(object_kind)  # type: ignore[arg-type]
     request = PermissionRequest.model_validate(
         {
             "requestId": f"path-{uuid.uuid4().hex}",
@@ -132,8 +138,22 @@ def authorize_path(
             "resource": resource,
         }
     )
-    decision = evaluate_permission(snapshot, request)
-    rollout_mode = snapshot.rollout_for(object_kind)  # type: ignore[arg-type]
+    floor_reason = _mandatory_floor_reason(
+        snapshot,
+        workspace=workspace,
+        path=canonical,
+        protected_roots=protected_roots,
+    )
+    if floor_reason is None:
+        snapshot.assert_enforce_ready(object_kind)  # type: ignore[arg-type]
+        decision = evaluate_permission(snapshot, request)
+    else:
+        decision = PermissionDecision(
+            outcome="deny",
+            reason_code=floor_reason,
+            permission_revision=snapshot.revision,
+        )
+    rollout_mode = snapshot.enforcement_mode_for(object_kind)  # type: ignore[arg-type]
     record_permission_audit(
         audit or NullPermissionAuditSink(),
         request,
@@ -141,6 +161,8 @@ def authorize_path(
         rollout_mode=rollout_mode,
     )
     if rollout_mode == "enforce" and decision.outcome != "allow":
+        if floor_reason == "mandatory_node_data_boundary":
+            raise PermissionError("Node data outside the current Agent Workspace is denied.")
         raise PermissionError(
             f"Path action '{action}' is denied by Agent permissions "
             f"({decision.reason_code}, revision {snapshot.revision})."
@@ -166,6 +188,35 @@ def authorize_path(
     )
     authorized.revalidate()
     return authorized
+
+
+def _mandatory_floor_reason(
+    snapshot: ResolvedPermissionSnapshot,
+    *,
+    workspace: Path,
+    path: Path,
+    protected_roots: tuple[Path, ...],
+) -> str | None:
+    """Return a non-overridable non-root filesystem denial reason, if any."""
+
+    if snapshot.preset == "root":
+        return None
+    owner = _workspace_owner(snapshot.agent_workspaces, path)
+    if owner is not None and owner.agent_id != snapshot.agent_id:
+        return "mandatory_other_agent_workspace_boundary"
+    inside_workspace = path == workspace or path.is_relative_to(workspace)
+    for root in protected_roots:
+        canonical_root = root.expanduser().resolve(strict=False)
+        if path == canonical_root or path.is_relative_to(canonical_root):
+            workspace_is_nested = (
+                workspace != canonical_root and workspace.is_relative_to(canonical_root)
+            )
+            if workspace_is_nested and inside_workspace:
+                return None
+            return "mandatory_node_data_boundary"
+    if inside_workspace:
+        return None
+    return None
 
 
 def _minimum_constraint(

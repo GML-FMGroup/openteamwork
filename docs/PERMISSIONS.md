@@ -33,12 +33,12 @@ Path size/count/depth, Command profile/process limits, Process task/Agent owners
 
 Each object rolls out independently:
 
-- `observe`: evaluate and record the matrix decision without making that decision authoritative;
+- `observe`: retain diagnostic rollout intent; root Agents may observe without enforcement, while non-root Agents still enforce the mandatory security floor;
 - `enforce`: make the new decision authoritative and fail closed if its required boundary is unavailable.
 
-An Agent may also set `spec.permissions.rolloutMode` to `observe` or `enforce` as a total override for all six permission objects. When this field is absent, rollout resolves per object in this order: Agent `rolloutModes`, Node `rolloutModes`, then the default `observe`. A configured total override wins over both per-object maps but does not erase them, so removing the override restores the previous fine-grained policy.
+An Agent may also set `spec.permissions.rolloutMode` to `observe` or `enforce` as a total override for all six permission objects. When this field is absent, rollout resolves per object in this order: Agent `rolloutModes`, Node `rolloutModes`, then the default `enforce`. A configured total override wins over both per-object maps but does not erase them, so removing the override restores the previous fine-grained policy.
 
-Use the Agent-wide override when one Agent is ready to move entirely into observation or enforcement. Use per-object modes for staged calibration. Move one object at a time from `observe` to `enforce`, inspect permission audit results, then continue. Switching an object or the Agent-wide override back to `observe` is the immediate policy rollback and is rechecked by long-lived compatible Runtimes before their next Tool Action.
+Use rollout settings to calibrate additional root policy and inspect permission decisions. Switching a non-root object back to `observe` never disables its security floor and is rechecked by long-lived compatible Runtimes before their next Tool Action.
 
 Permission decisions are stored in `<node-root>/database/permission_audit.db`. The records contain decision facts and rule/revision identifiers but omit Tool arguments and raw path or URL values. During a canary rollout, inspect recent results with:
 
@@ -58,6 +58,9 @@ otw action invoke permissions.audit.list --input-json '{"limit":50}'
 - Google ADK's `BasePlugin.before_tool_callback` is the common Tool invocation gate for built-ins, extensions, MCP Tools, and native App Tools.
 - Path, Command, Process, and Network adapters authorize trusted runtime facts at the actual executor. The ADK callback is not treated as an operating-system boundary.
 - File opens use canonical paths, hard-link restrictions for non-root presets, no-symlink descriptor walks, and inode revalidation.
+- Non-root file tools cannot access Node databases/configuration/credentials or another Agent Workspace, even when the Agent Workspace is nested below the Node root.
+- Non-root commands always require the permission-derived Docker backend; missing sandbox or proxy prerequisites fail closed and never fall back to the host.
+- Script-backed `invoke_skill_api` execution is currently root-only. Non-root Agents may still read enabled Skill instructions, but unsandboxed Skill processes are excluded from their Tool catalog and denied again at invocation time.
 - Enforced Commands run with a permission-derived profile. `low`, `medium`, and `high` require Docker; callers cannot request a weaker backend.
 - Process sessions retain Agent, task, Run, permission revision, execution profile, and command provenance. Later process actions are authorized from those trusted facts rather than a caller-supplied scope.
 - Managed HTTP requests authorize normalized URL, current DNS/IP visibility, and every redirect.

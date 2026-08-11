@@ -285,7 +285,7 @@ def test_snapshot_is_deterministic_and_changes_with_agent_revision(tmp_path: Pat
     second = config_service.snapshot("low-main")
     assert first.revision == second.revision
     assert first.permissions.revision == second.permissions.revision
-    assert first.permissions.rollout_for("workspace") == "observe"
+    assert first.permissions.rollout_for("workspace") == "enforce"
     assert first.permissions.agent_id == "low-main"
     assert first.model.profile_id == "primary"
     assert {origin.resource_id for origin in first.origins} == {

@@ -286,6 +286,46 @@ def test_cross_agent_access_is_audited_and_cross_user_root_history_is_denied(
     assert audit[0].details["returnedCitations"][0]["sessionId"] == "member-session"
 
 
+def test_denied_name_resolution_is_terminal_non_disclosing_and_audited(tmp_path: Path) -> None:
+    service, _sessions, identity, access, _metadata = _service(tmp_path)
+    _seed_identity(identity, access)
+    access.upsert_agent_record(
+        AgentRecord("member-medium", "my-medium", "medium", "member")
+    )
+
+    result = service.resolve_agent(
+        source_user_id="member",
+        source_agent_id="member-low",
+        display_name="my-medium",
+        source_agent_privilege_level="low",
+    )
+
+    assert result == {
+        "ok": False,
+        "status": "not_found",
+        "agentId": None,
+        "ownerPrincipalId": None,
+        "candidates": [],
+        "terminal": True,
+        "guidance": (
+            "A denial is terminal for this target. Do not retry through shell, files, "
+            "Skills, APIs, memory, or alternate tools. Explain the permission limit or "
+            "ask the user to use an Agent with sufficient privilege."
+        ),
+    }
+    audit = access.list_audit(agent_id="member-medium", actions=("history.resolve",))
+    assert len(audit) == 1
+    assert audit[0].actor_principal_id == "member"
+    assert audit[0].details == {
+        "allowed": False,
+        "reason": "source_agent_privilege_too_low",
+        "sourceAgentId": "member-low",
+        "query": {"displayNameFingerprint": audit[0].details["query"]["displayNameFingerprint"]},
+        "returnedCitations": [],
+    }
+    assert len(audit[0].details["query"]["displayNameFingerprint"]) == 24
+
+
 def test_cross_agent_access_fails_closed_when_audit_cannot_be_persisted(
     tmp_path: Path,
 ) -> None:

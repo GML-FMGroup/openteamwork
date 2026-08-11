@@ -116,6 +116,48 @@ def _build_gui_tool_guidance(
     return guidance.rstrip()
 
 
+def _build_permission_context(agent_privilege_level: str | None) -> str:
+    """Build concise trusted guidance for the Agent's effective privilege."""
+
+    level = str(agent_privilege_level or "").strip().lower()
+    if level not in {"low", "medium", "high", "root"}:
+        return ""
+    same_user_scope = {
+        "low": "low",
+        "medium": "low or medium",
+        "high": "low, medium, or high",
+        "root": "low, medium, high, or root",
+    }[level]
+    organization_scope = (
+        "When the owning user is high or root, this Agent may read organization-wide "
+        "non-root history through the dedicated history tools."
+        if level in {"high", "root"}
+        else "This Agent cannot read another user's Agent history."
+    )
+    resource_boundary = (
+        "Host access remains subject to the active root Tool policy."
+        if level == "root"
+        else (
+            "Node databases, Node configuration, credentials, identity data, and other "
+            "Agent Workspaces are protected resources and are not alternate history paths."
+        )
+    )
+    return f"""
+# Permission Context
+
+Effective Agent privilege: {level}
+Privilege order: low < medium < high < root
+
+- This Agent may always read its own retained Session history through the dedicated history tools.
+- Within the same user, this Agent may read Agents whose privilege is {same_user_scope}.
+- {organization_scope}
+- Cross-user history owned by a root user or a root Agent remains denied.
+- {resource_boundary}
+- A denial is terminal for that target. Do not retry denied access through shell, files, Skills, APIs, memory, browser/file URLs, subagents, or alternate tools.
+- After a denial, explain the permission limit or ask the user to use an Agent with sufficient privilege. Never probe for the target's existence through another route.
+"""
+
+
 def build_startup_runtime_context(
     *,
     workspace: str | None = None,
@@ -124,6 +166,7 @@ def build_startup_runtime_context(
     mcp_summaries: list[dict[str, str]] | None = None,
     agent_instruction: str | None = None,
     agent_display_name: str | None = None,
+    agent_privilege_level: str | None = None,
 ) -> str:
     """Build startup context from explicit, immutable Runtime inputs.
 
@@ -151,6 +194,7 @@ Platform: {PRODUCT.display_name}
 
 Use the configured display name when identifying yourself. The platform name is not your name.
 """
+    permission_block = _build_permission_context(agent_privilege_level)
 
     return f"""# Runtime Context
 
@@ -170,6 +214,7 @@ Available skills:
 {resolved_skills_summary}
 {instruction_block}
 {identity_block}
+{permission_block}
 """
 
 

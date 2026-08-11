@@ -113,7 +113,7 @@ def test_snapshot_expands_the_reviewed_matrix_defaults(
 ) -> None:
     snapshot = _compile(preset=preset)
 
-    assert snapshot.rollout_for("workspace") == "observe"
+    assert snapshot.rollout_for("workspace") == "enforce"
     assert snapshot.default_for("workspace", "read") == workspace_read
     assert snapshot.default_for("workspace", "write") == workspace_write
     assert snapshot.default_for("external_path", "read") == external_read
@@ -162,7 +162,27 @@ def test_unset_agent_global_rollout_mode_preserves_per_object_precedence() -> No
 
     assert snapshot.rollout_for("network") == "observe"
     assert snapshot.rollout_for("tool") == "enforce"
-    assert snapshot.rollout_for("workspace") == "observe"
+    assert snapshot.rollout_for("workspace") == "enforce"
+
+
+def test_non_root_observe_keeps_the_mandatory_security_floor() -> None:
+    agent_raw = agent_document(preset="low")
+    agent_raw["spec"]["permissions"] = {"rolloutMode": "observe"}  # type: ignore[index]
+
+    snapshot = _compile(agent_raw=agent_raw)
+
+    assert snapshot.rollout_for("tool") == "observe"
+    assert snapshot.enforcement_mode_for("tool") == "enforce"
+
+
+def test_root_observe_remains_an_explicit_diagnostic_mode() -> None:
+    agent_raw = agent_document(preset="root")
+    agent_raw["spec"]["permissions"] = {"rolloutMode": "observe"}  # type: ignore[index]
+
+    snapshot = _compile(preset="root", agent_raw=agent_raw)
+
+    assert snapshot.rollout_for("tool") == "observe"
+    assert snapshot.enforcement_mode_for("tool") == "observe"
 
 
 def test_global_and_equivalent_per_object_rollout_have_same_revision() -> None:

@@ -22,6 +22,20 @@ class PermissionToolDescriptor:
     name: str
 
 
+_NON_ROOT_BLOCKED_TOOL_IDS = frozenset({"openppx.skill.invoke_skill_api"})
+
+
+def mandatory_tool_denial_reason(
+    snapshot: ResolvedPermissionSnapshot,
+    descriptor: PermissionToolDescriptor,
+) -> str | None:
+    """Return a non-overridable denial for a known non-root host escape route."""
+
+    if snapshot.preset != "root" and descriptor.tool_id in _NON_ROOT_BLOCKED_TOOL_IDS:
+        return "mandatory_non_root_skill_api_boundary"
+    return None
+
+
 def describe_adk_tool(tool: Any) -> PermissionToolDescriptor:
     """Derive a stable identity from an assembled ADK Tool instance."""
 
@@ -49,12 +63,14 @@ def filter_authorized_tools(
 ) -> list[Any]:
     """Filter an assembled ADK catalog with the same Tool evaluator used at call time."""
 
-    if snapshot.rollout_for("tool") != "enforce":
+    if snapshot.enforcement_mode_for("tool") != "enforce":
         return tools
     snapshot.assert_enforce_ready("tool")
     allowed: list[Any] = []
     for tool in tools:
         descriptor = describe_adk_tool(tool)
+        if mandatory_tool_denial_reason(snapshot, descriptor) is not None:
+            continue
         request = PermissionRequest.model_validate(
             {
                 "requestId": f"catalog:{descriptor.tool_id}",
@@ -107,4 +123,10 @@ def _tool_source(*, name: str, module: str) -> ToolSource:
     return "extension"
 
 
-__all__ = ["PermissionToolDescriptor", "ToolSource", "describe_adk_tool", "filter_authorized_tools"]
+__all__ = [
+    "PermissionToolDescriptor",
+    "ToolSource",
+    "describe_adk_tool",
+    "filter_authorized_tools",
+    "mandatory_tool_denial_reason",
+]

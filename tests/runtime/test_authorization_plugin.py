@@ -8,6 +8,7 @@ from types import SimpleNamespace
 from openppx.config import AgentConfig, NodeConfig
 from openppx.permissions import PermissionSnapshotAuthority, compile_permission_snapshot
 from openppx.runtime.authorization_plugin import OpenPpxAuthorizationPlugin
+from openppx.tooling.registry import invoke_skill_api
 
 
 class _RecordingAudit:
@@ -91,7 +92,7 @@ def mcp_docs_search() -> dict[str, object]:
     return {"ok": True}
 
 
-def test_observe_mode_records_a_denial_without_blocking_the_tool() -> None:
+def test_non_root_observe_mode_enforces_the_mandatory_tool_floor() -> None:
     audit = _RecordingAudit()
     plugin = OpenPpxAuthorizationPlugin(_snapshot(), audit=audit, rollout_mode="observe")
     context = _context()
@@ -100,13 +101,52 @@ def test_observe_mode_records_a_denial_without_blocking_the_tool() -> None:
         plugin.before_tool_callback(tool=external_tool, tool_args={}, tool_context=context)
     )
 
-    assert result is None
+    assert result is not None
+    assert result["error"]["code"] == "permission_denied"
+    assert result["error"]["terminal"] is True
+    assert result["error"]["allowedNextActions"] == [
+        "Use an allowed tool for the current Agent privilege.",
+        "Explain the permission limit to the user.",
+    ]
     assert len(audit.records) == 1
     request, decision, mode = audit.records[0]
     assert request.resource.tool_id == "openppx.extension.external_tool"
     assert decision.outcome == "deny"
-    assert mode == "observe"
+    assert mode == "enforce"
     assert context.custom_metadata["openppx.permission"]["outcome"] == "deny"
+
+
+def test_root_can_explicitly_keep_tool_rollout_in_observe_mode() -> None:
+    audit = _RecordingAudit()
+    plugin = OpenPpxAuthorizationPlugin(
+        _snapshot(preset="root", agent_rollout="observe"),
+        audit=audit,
+    )
+
+    result = asyncio.run(
+        plugin.before_tool_callback(tool=external_tool, tool_args={}, tool_context=_context())
+    )
+
+    assert result is None
+    assert audit.records[0][2] == "observe"
+
+
+def test_non_root_plugin_blocks_unsandboxed_skill_api_execution() -> None:
+    plugin = OpenPpxAuthorizationPlugin(
+        _snapshot(preset="high", agent_rollout="observe"),
+        audit=_RecordingAudit(),
+    )
+
+    result = asyncio.run(
+        plugin.before_tool_callback(
+            tool=invoke_skill_api,
+            tool_args={"skill_name": "unsafe", "api_name": "read_node"},
+            tool_context=_context(),
+        )
+    )
+
+    assert result is not None
+    assert result["error"]["reasonCode"] == "mandatory_non_root_skill_api_boundary"
 
 
 def test_enforce_mode_returns_an_adk_short_circuit_result_for_denied_tool() -> None:

@@ -10,13 +10,14 @@ from google.adk.plugins.base_plugin import BasePlugin
 
 from openppx.permissions import (
     PermissionRequest,
+    PermissionDecision,
     PermissionSnapshotAuthority,
     ResolvedPermissionSnapshot,
     authorize_network_url,
     evaluate_permission,
 )
 from openppx.permissions.audit import NullPermissionAuditSink, PermissionAuditSink
-from openppx.permissions.tooling import describe_adk_tool
+from openppx.permissions.tooling import describe_adk_tool, mandatory_tool_denial_reason
 
 
 PermissionRolloutMode = Literal["observe", "enforce"]
@@ -62,7 +63,7 @@ class OpenPpxAuthorizationPlugin(BasePlugin):
         tool_args: dict[str, Any],
         tool_context: Any,
     ) -> dict[str, Any] | None:
-        """Record the Tool decision and block only when rollout is enforce."""
+        """Record the Tool decision and apply the mandatory non-root floor."""
 
         del tool_args
         try:
@@ -72,7 +73,7 @@ class OpenPpxAuthorizationPlugin(BasePlugin):
                 reason_code="permission_snapshot_unavailable",
                 revision=self._snapshot.revision,
             )
-        rollout_mode = self._rollout_mode or snapshot.rollout_for("tool")
+        rollout_mode = snapshot.enforcement_mode_for("tool", self._rollout_mode)
         descriptor = describe_adk_tool(tool)
         try:
             snapshot.assert_enforce_ready("tool")
@@ -86,7 +87,16 @@ class OpenPpxAuthorizationPlugin(BasePlugin):
             descriptor=descriptor,
             tool_context=tool_context,
         )
-        decision = evaluate_permission(snapshot, request)
+        floor_reason = mandatory_tool_denial_reason(snapshot, descriptor)
+        decision = (
+            PermissionDecision(
+                outcome="deny",
+                reason_code=floor_reason,
+                permission_revision=snapshot.revision,
+            )
+            if floor_reason is not None
+            else evaluate_permission(snapshot, request)
+        )
         audit_available = True
         try:
             self._audit.record(request, decision, rollout_mode=rollout_mode)
@@ -243,6 +253,11 @@ def _denial_payload(*, reason_code: str, revision: str) -> dict[str, Any]:
             "reasonCode": reason_code,
             "message": "This Tool invocation is not allowed by the Agent permission policy.",
             "permissionRevision": revision,
+            "terminal": True,
+            "allowedNextActions": [
+                "Use an allowed tool for the current Agent privilege.",
+                "Explain the permission limit to the user.",
+            ],
         },
     }
 

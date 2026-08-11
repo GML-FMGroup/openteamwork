@@ -166,6 +166,7 @@ def _resolve_path_with_authorization(
             raw_path=path,
             action=permission_action,  # type: ignore[arg-type]
             base_dir=base_dir,
+            protected_roots=(runtime_context.node_root,) if runtime_context.node_root is not None else (),
             audit=runtime_context.permission_audit,
         )
         resolved_input = authorized.path
@@ -2863,7 +2864,7 @@ def evaluate_staged_summary_quality_cases(
 ) -> str:
     """Evaluate staged summary quality cases from a workspace JSON file."""
     try:
-        path = _resolve_path(case_file)
+        path = _resolve_path(case_file, permission_action="read")
         report = evaluate_staged_summary_eval_file(path)
     except Exception as exc:
         return _ret(
@@ -2878,7 +2879,7 @@ def summarize_staged_summary_quality_log(log_path: str, recent_limit: int = 20) 
     try:
         if not str(log_path or "").strip():
             raise ValueError("log_path is required")
-        path = _resolve_path(log_path)
+        path = _resolve_path(log_path, permission_action="read")
         payload = summarize_quality_log_file(path, recent_limit=recent_limit)
     except Exception as exc:
         return _ret(
@@ -3313,7 +3314,7 @@ def exec_command(
             if (
                 permission_snapshot is not None
                 and permission_snapshot.preset in {"medium", "high"}
-                and permission_snapshot.rollout_for("command") == "enforce"
+                and permission_snapshot.enforcement_mode_for("command") == "enforce"
                 and permission_snapshot.code_egress_proxy is not None
             ):
                 write_egress_proxy_policy(
@@ -3408,7 +3409,7 @@ def exec_command(
                 authorized_command is not None
                 and runtime_context is not None
                 and runtime_context.permission_snapshot is not None
-                and runtime_context.permission_snapshot.rollout_for("command") == "enforce"
+                and runtime_context.permission_snapshot.enforcement_mode_for("command") == "enforce"
             ):
                 command_env = None
                 stream_max_chars = 10_000
@@ -3480,7 +3481,7 @@ def exec_command(
     if (
         runtime_context is not None
         and runtime_context.permission_snapshot is not None
-        and runtime_context.permission_snapshot.rollout_for("process") == "enforce"
+        and runtime_context.permission_snapshot.enforcement_mode_for("process") == "enforce"
     ):
         effective_scope = trusted_task_id
     terminate_callback: Callable[[], None] | None = None
@@ -3715,7 +3716,10 @@ def process_session(
     )
     trusted_task_id = _trusted_process_task_id(tool_context)
     invocation = _task_invocation_context(tool_context)
-    if permission_snapshot is not None and permission_snapshot.rollout_for("process") == "enforce":
+    if (
+        permission_snapshot is not None
+        and permission_snapshot.enforcement_mode_for("process") == "enforce"
+    ):
         effective_scope = trusted_task_id
 
     if normalized == "list":

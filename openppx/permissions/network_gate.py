@@ -51,7 +51,7 @@ def authorize_network_url(
     snapshot.assert_enforce_ready("network")
     parsed = _normalize_url(url)
     port = parsed.port or _MANAGED_SCHEME_PORTS[parsed.scheme]
-    rollout_mode = snapshot.rollout_for("network")
+    rollout_mode = snapshot.enforcement_mode_for("network")
     try:
         resolved_ips = _resolve_ips(parsed.hostname or "", port, resolver=resolver)
     except OSError as exc:

@@ -65,7 +65,11 @@
               "openppx.builtin.task_control_snapshot",
               "openppx.builtin.task_output",
               "openppx.builtin.resume_task",
-              "openppx.builtin.exec"
+              "openppx.builtin.exec",
+              "openppx.builtin.resolve_agent_history_target",
+              "openppx.builtin.list_agent_history_sessions",
+              "openppx.builtin.search_agent_history",
+              "openppx.builtin.read_agent_history"
             ]
           },
           "description": "Low Agents receive only the reviewed read-oriented Tool catalog."

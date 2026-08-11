@@ -18,6 +18,7 @@ def _snapshot(
     *,
     node_permissions: dict[str, object] | None = None,
     boundaries: tuple[AgentWorkspaceBoundary, ...] = (),
+    rollout_mode: str | None = None,
 ):
     effective_node_permissions = {
         "rolloutModes": {"workspace": "enforce", "external_path": "enforce"},
@@ -45,6 +46,9 @@ def _snapshot(
                 "workspace": str(workspace),
                 "ownerPrincipalId": "local:owner",
                 "privilegeLevel": preset,
+                "permissions": {
+                    **({"rolloutMode": rollout_mode} if rollout_mode is not None else {}),
+                },
             },
         }
     )
@@ -83,7 +87,7 @@ def test_medium_safe_root_never_overrides_high_workspace_deny(tmp_path: Path) ->
         ),
     )
 
-    with pytest.raises(PermissionError, match="explicit_deny"):
+    with pytest.raises(PermissionError, match="explicit_deny|mandatory_other_agent_workspace_boundary"):
         authorize_path(snapshot, workspace_root=workspace, raw_path=secret, action="read")
 
 
@@ -227,3 +231,105 @@ def test_root_can_read_and_write_external_paths(tmp_path: Path) -> None:
 
     assert authorize_path(snapshot, workspace_root=workspace, raw_path=target, action="read").path == target
     assert authorize_path(snapshot, workspace_root=workspace, raw_path=target, action="write").path == target
+
+
+def test_non_root_observe_cannot_read_node_data_outside_its_nested_workspace(
+    tmp_path: Path,
+) -> None:
+    node_root = tmp_path / "node"
+    workspace = node_root / "users" / "owner" / "agents" / "worker" / "workspace"
+    database = node_root / "database" / "sessions.db"
+    workspace.mkdir(parents=True)
+    database.parent.mkdir(parents=True)
+    database.write_text("private", encoding="utf-8")
+    own_file = workspace / "notes.txt"
+    own_file.write_text("allowed", encoding="utf-8")
+    snapshot = _snapshot("high", workspace, rollout_mode="observe")
+
+    assert authorize_path(
+        snapshot,
+        workspace_root=workspace,
+        raw_path=own_file,
+        action="read",
+        protected_roots=(node_root,),
+    ).path == own_file
+    with pytest.raises(PermissionError, match="Node data"):
+        authorize_path(
+            snapshot,
+            workspace_root=workspace,
+            raw_path=database,
+            action="read",
+            protected_roots=(node_root,),
+        )
+
+
+def test_non_root_observe_cannot_read_another_agent_workspace(tmp_path: Path) -> None:
+    workspace = tmp_path / "worker"
+    other_workspace = tmp_path / "other"
+    workspace.mkdir()
+    other_workspace.mkdir()
+    secret = other_workspace / "secret.txt"
+    secret.write_text("secret", encoding="utf-8")
+    snapshot = _snapshot(
+        "high",
+        workspace,
+        boundaries=(AgentWorkspaceBoundary(agent_id="other", privilege_level="low", workspace=str(other_workspace)),),
+        rollout_mode="observe",
+    )
+
+    with pytest.raises(PermissionError, match="denied"):
+        authorize_path(
+            snapshot,
+            workspace_root=workspace,
+            raw_path=secret,
+            action="read",
+        )
+
+
+def test_non_root_workspace_equal_to_node_root_still_cannot_read_node_data(
+    tmp_path: Path,
+) -> None:
+    node_root = tmp_path / "node"
+    database = node_root / "database" / "sessions.db"
+    database.parent.mkdir(parents=True)
+    database.write_text("private", encoding="utf-8")
+    snapshot = _snapshot("high", node_root, rollout_mode="observe")
+
+    with pytest.raises(PermissionError, match="Node data"):
+        authorize_path(
+            snapshot,
+            workspace_root=node_root,
+            raw_path=database,
+            action="read",
+            protected_roots=(node_root,),
+        )
+
+
+def test_other_agent_workspace_takes_precedence_over_overlapping_source_workspace(
+    tmp_path: Path,
+) -> None:
+    workspace = tmp_path / "workspace"
+    other_workspace = workspace / "nested-other"
+    other_workspace.mkdir(parents=True)
+    secret = other_workspace / "secret.txt"
+    secret.write_text("secret", encoding="utf-8")
+    snapshot = _snapshot(
+        "high",
+        workspace,
+        boundaries=(
+            AgentWorkspaceBoundary(
+                agent_id="other",
+                privilege_level="low",
+                workspace=str(other_workspace),
+            ),
+        ),
+        rollout_mode="observe",
+    )
+
+    with pytest.raises(PermissionError, match="mandatory_other_agent_workspace_boundary"):
+        authorize_path(
+            snapshot,
+            workspace_root=workspace,
+            raw_path=secret,
+            action="read",
+        )

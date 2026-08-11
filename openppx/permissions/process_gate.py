@@ -53,7 +53,7 @@ def authorize_process(
         }
     )
     decision = evaluate_permission(snapshot, request)
-    rollout_mode = snapshot.rollout_for("process")
+    rollout_mode = snapshot.enforcement_mode_for("process")
     record_permission_audit(
         audit or NullPermissionAuditSink(),
         request,

@@ -696,10 +696,25 @@ class ResolvedPermissionSnapshot(FrozenPermissionModel):
                 return item.mode
         return "observe"
 
+    def enforcement_mode_for(
+        self,
+        object_kind: PermissionObject,
+        requested_mode: PermissionRolloutMode | None = None,
+    ) -> PermissionRolloutMode:
+        """Return the authoritative mode after applying the non-root security floor.
+
+        ``observe`` remains available to root Agents for policy diagnostics. It
+        can never turn a non-root denial into permission to use a Tool or host
+        resource.
+        """
+
+        configured = requested_mode or self.rollout_for(object_kind)
+        return "enforce" if self.preset != "root" else configured
+
     def assert_enforce_ready(self, object_kind: PermissionObject) -> None:
         """Fail closed when an enforced object still depends on an unresolved Gate."""
 
-        if self.rollout_for(object_kind) != "enforce":
+        if self.enforcement_mode_for(object_kind) != "enforce":
             return
         relevant: set[str] = set()
         if object_kind in {"external_path", "command"}:

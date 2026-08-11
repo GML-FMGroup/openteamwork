@@ -36,6 +36,15 @@ class HistoryAgentCandidate:
 
 
 @dataclass(frozen=True, slots=True)
+class HistoryAgentDenial:
+    """Internal non-disclosing facts for auditing one denied name match."""
+
+    agent_id: str
+    owner_principal_id: str
+    reason: str
+
+
+@dataclass(frozen=True, slots=True)
 class HistoryAgentResolution:
     """Deterministic result of resolving a display name inside an allowed scope."""
 
@@ -43,6 +52,7 @@ class HistoryAgentResolution:
     agent_id: str | None = None
     owner_principal_id: str | None = None
     candidates: tuple[HistoryAgentCandidate, ...] = ()
+    denied_matches: tuple[HistoryAgentDenial, ...] = ()
 
 
 class HistoryAccessPolicy:
@@ -141,6 +151,7 @@ class HistoryAgentResolver:
         if not normalized:
             return HistoryAgentResolution(status="not_found")
         candidates: list[HistoryAgentCandidate] = []
+        denied_matches: list[HistoryAgentDenial] = []
         for record in self._agent_access_store.list_agent_records():
             if record.status == "purged" or record.name.strip().casefold() != normalized:
                 continue
@@ -155,19 +166,35 @@ class HistoryAgentResolver:
                 source_agent_privilege_level=source_agent_privilege_level,
             )
             if not decision.allow:
+                denied_matches.append(
+                    HistoryAgentDenial(
+                        agent_id=record.agent_id,
+                        owner_principal_id=record.owner_principal_id,
+                        reason=decision.reason,
+                    )
+                )
                 continue
             candidates.append(self._candidate(record, owner.display_name))
         candidates.sort(key=lambda item: item.agent_id)
+        denied_matches.sort(key=lambda item: item.agent_id)
         if not candidates:
-            return HistoryAgentResolution(status="not_found")
+            return HistoryAgentResolution(
+                status="not_found",
+                denied_matches=tuple(denied_matches[:10]),
+            )
         if len(candidates) > 1:
-            return HistoryAgentResolution(status="ambiguous", candidates=tuple(candidates[:10]))
+            return HistoryAgentResolution(
+                status="ambiguous",
+                candidates=tuple(candidates[:10]),
+                denied_matches=tuple(denied_matches[:10]),
+            )
         candidate = candidates[0]
         return HistoryAgentResolution(
             status="resolved",
             agent_id=candidate.agent_id,
             owner_principal_id=candidate.owner_principal_id,
             candidates=(candidate,),
+            denied_matches=tuple(denied_matches[:10]),
         )
 
     @staticmethod
@@ -243,6 +270,7 @@ __all__ = [
     "HistoryAccessDecision",
     "HistoryAccessPolicy",
     "HistoryAgentCandidate",
+    "HistoryAgentDenial",
     "HistoryAgentResolution",
     "HistoryAgentResolver",
     "sync_history_agent_catalog",
