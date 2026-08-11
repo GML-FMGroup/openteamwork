@@ -10,6 +10,7 @@ If OpenTeamwork is useful to you, give it a ⭐ so more builders can discover it
 
 ## News
 
+- **2026-08-11 — v0.6.1 Developer Preview:** renamed the product to OpenTeamwork, added multi-user login and hierarchical Session history, and made non-root permission boundaries fail closed.
 - **2026-08-09 — v0.6.0 Developer Preview:** teach Agents with `/make-skill`, automate recurring work, and govern real execution with isolated workspaces, permissions, Apps, MCP, and audit.
 - **2026-08-06 — v0.5.4:** added durable Goals, TaskFlows, automation, typed commands, diagnostics, and document/image Artifacts.
 - **2026-08-05 — v0.5.3:** introduced the unified Plugin/App/MCP/Skill extension platform and full Desktop management.

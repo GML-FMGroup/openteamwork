@@ -191,7 +191,7 @@ Artifacts are written below `apps/desktop/release/` and are not committed. Verif
 ```bash
 cd apps/desktop
 npm run verify:package
-hdiutil verify release/OpenTeamwork-Desktop-0.6.0-mac-arm64.dmg
+hdiutil verify release/OpenTeamwork-Desktop-0.6.1-mac-arm64.dmg
 cd release
 shasum -a 256 -c SHA256SUMS.txt
 ```

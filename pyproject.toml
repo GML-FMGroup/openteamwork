@@ -1,6 +1,6 @@
 [project]
 name = "openteamwork"
-version = "0.6.0"
+version = "0.6.1"
 description = "A lightweight skills-first agent built with Google ADK"
 requires-python = ">=3.11"
 dependencies = [

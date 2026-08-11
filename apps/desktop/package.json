@@ -1,6 +1,6 @@
 {
   "name": "@openteamwork/desktop",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "private": true,
   "description": "Local-first desktop workbench for OpenTeamwork agents",
   "author": "OpenTeamwork Contributors",

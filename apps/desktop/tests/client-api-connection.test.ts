@@ -13,7 +13,7 @@ function healthPayload(): Record<string, unknown> {
     ok: true,
     data: {
       service: "openppx-client-api",
-      product_version: "0.6.0",
+      product_version: "0.6.1",
       protocol_version: 1,
       ready: true,
       state: "healthy",
@@ -34,7 +34,7 @@ function nodePayload(): Record<string, unknown> {
     data: {
       node_id: "test-node",
       display_name: "Studio Mac",
-      product_version: "0.6.0",
+      product_version: "0.6.1",
       protocol: { min: 1, max: 1 },
       capabilities: ["sessions", "runs"],
       agents: 4,
