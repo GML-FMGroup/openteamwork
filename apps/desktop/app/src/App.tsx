@@ -4,6 +4,7 @@ import { OnboardingView } from "./components/setup/OnboardingView";
 import { LoginView } from "./components/auth/LoginView";
 import { ModelProfileDialog } from "./components/models/ModelProfileDialog";
 import { AutomationsPage } from "./components/automations/AutomationsPage";
+import { WindowDragRegion } from "./components/shell/WindowDragRegion";
 import { Composer } from "./components/workspace/Composer";
 import {
   CollapsedSidebarTools,
@@ -25,6 +26,21 @@ type NavView = "chat" | "settings" | "automations";
 type SettingsDestination =
   | { area: "settings"; section: SettingsSection }
   | { area: "extensions"; extensionKind: ExtensionSummary["kind"] };
+
+interface LoadingShellProps {
+  children: React.ReactNode;
+  announce?: boolean;
+}
+
+/** Keep every transient full-window state movable while macOS hides the native title bar. */
+function LoadingShell({ children, announce = false }: LoadingShellProps) {
+  return (
+    <div className="loading-shell" aria-live={announce ? "polite" : undefined}>
+      <WindowDragRegion platform={window.ppxClient.platform} />
+      <div>{children}</div>
+    </div>
+  );
+}
 
 function resizeComposer(textarea: HTMLTextAreaElement | null): void {
   if (!textarea) {
@@ -148,24 +164,20 @@ export function App() {
 
   if (workspace.bootstrapError) {
     return (
-      <div className="loading-shell">
-        <div>
-          <span className="loading-brand" aria-hidden="true">K</span>
-          <strong>{productProfile.displayName} failed to initialize</strong>
-          <p>{workspace.bootstrapError}</p>
-        </div>
-      </div>
+      <LoadingShell>
+        <span className="loading-brand" aria-hidden="true">K</span>
+        <strong>{productProfile.displayName} failed to initialize</strong>
+        <p>{workspace.bootstrapError}</p>
+      </LoadingShell>
     );
   }
 
   if (!workspace.ready) {
     return (
-      <div className="loading-shell" aria-live="polite">
-        <div>
-          <span className="loading-brand" aria-hidden="true">K</span>
-          <span className="loading-caption">Opening {productProfile.displayName} workspace…</span>
-        </div>
-      </div>
+      <LoadingShell announce>
+        <span className="loading-brand" aria-hidden="true">K</span>
+        <span className="loading-caption">Opening {productProfile.displayName} workspace…</span>
+      </LoadingShell>
     );
   }
 
@@ -183,24 +195,22 @@ export function App() {
   }
 
   if (!workspace.runtime || !workspace.setupReadiness) {
-    return <div className="loading-shell" aria-live="polite"><div><span className="loading-brand" aria-hidden="true">OT</span><span className="loading-caption">Loading authenticated workspace…</span></div></div>;
+    return <LoadingShell announce><span className="loading-brand" aria-hidden="true">OT</span><span className="loading-caption">Loading authenticated workspace…</span></LoadingShell>;
   }
 
   if (!isWorkspaceConfigurationComplete(workspace.setupReadiness)) {
     if (workspace.userProfile.accountKind === "product" && workspace.userProfile.privilegeLevel !== "root") {
       return (
-        <div className="loading-shell">
-          <div>
-            <span className="loading-brand" aria-hidden="true">OT</span>
-            <strong>This Node needs administrator setup</strong>
-            <p>Ask a root user to finish the Node, Agent, and model configuration, then sign in again.</p>
-            <button type="button" onClick={() => void workspace.logout()}>Sign out</button>
-          </div>
-        </div>
+        <LoadingShell>
+          <span className="loading-brand" aria-hidden="true">OT</span>
+          <strong>This Node needs administrator setup</strong>
+          <p>Ask a root user to finish the Node, Agent, and model configuration, then sign in again.</p>
+          <button type="button" onClick={() => void workspace.logout()}>Sign out</button>
+        </LoadingShell>
       );
     }
     if (!workspace.setupStatus) {
-      return <div className="loading-shell" aria-live="polite"><div><span className="loading-brand" aria-hidden="true">OT</span><span className="loading-caption">Loading administrator setup…</span></div></div>;
+      return <LoadingShell announce><span className="loading-brand" aria-hidden="true">OT</span><span className="loading-caption">Loading administrator setup…</span></LoadingShell>;
     }
     return (
       <OnboardingView

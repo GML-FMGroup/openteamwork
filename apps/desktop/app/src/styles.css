@@ -212,6 +212,15 @@ textarea:focus-visible,
   background-clip: padding-box;
 }
 
+.window-drag-region {
+  -webkit-app-region: drag;
+  position: fixed;
+  inset: 0 0 auto;
+  z-index: 100;
+  height: 32px;
+  user-select: none;
+}
+
 .loading-shell {
   position: relative;
   display: grid;

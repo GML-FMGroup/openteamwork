@@ -698,6 +698,30 @@ function configuredSetupStatus() {
 }
 
 describe("App sending state", () => {
+  it("exposes a native window drag strip while the macOS workspace is loading", () => {
+    installClient({
+      bootstrap: async () => new Promise<BootstrapPayload>(() => undefined),
+    });
+
+    const { container } = render(<App />);
+
+    expect(screen.getByText("Opening OpenTeamwork workspace…")).toBeInTheDocument();
+    expect(container.querySelector(".window-drag-region")).toBeInTheDocument();
+  });
+
+  it("exposes a native window drag strip on the macOS login page", async () => {
+    installClient({
+      getUserProfile: async () => { throw new Error("A valid user session token is required."); },
+    });
+
+    const { container } = render(<App />);
+
+    await screen.findByRole("heading", { name: "Connect to a Node" });
+    expect(container.querySelector(".window-drag-region")).toBeInTheDocument();
+    expect(screen.getByLabelText("Node URL")).not.toHaveClass("window-drag-region");
+    expect(screen.getByRole("button", { name: "Sign in to OpenTeamwork" })).not.toHaveClass("window-drag-region");
+  });
+
   it("signs a remote product user in with Node URL, email, and transient secret", async () => {
     const login = vi.fn(async () => ({
       id: "user-jiang",

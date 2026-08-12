@@ -2,6 +2,7 @@ import { useState, type Dispatch, type FormEvent, type SetStateAction } from "re
 
 import { productProfile } from "../../../../product";
 import type { ConnectionSettings, DesktopPlatform } from "../../types";
+import { WindowDragRegion } from "../shell/WindowDragRegion";
 
 interface LoginViewProps {
   platform: DesktopPlatform;
@@ -24,6 +25,7 @@ export function LoginView(props: LoginViewProps) {
 
   return (
     <main className={`login-shell platform-${props.platform}`}>
+      <WindowDragRegion platform={props.platform} />
       <section className="login-intro" aria-label={`${productProfile.displayName} sign in`}>
         <div className="login-brand"><span aria-hidden="true">OT</span><strong>{productProfile.displayName}</strong></div>
         <div className="login-intro-copy">
