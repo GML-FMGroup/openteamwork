@@ -3,12 +3,17 @@
 </h1>
 
 <p align="center">
+  <strong>English</strong> · <a href="./README.zh-CN.md">简体中文</a>
+</p>
+
+<p align="center">
   <strong>Bring AI agents into your organization—without giving every user or Agent the keys to everything.</strong>
 </p>
 
 <p align="center">
   A self-hosted platform for multi-user Agents, fine-grained permissions,<br>
-  permission-aware organizational knowledge, governed extensions, and auditable automation.
+  centralized model access and Token usage visibility, permission-aware organizational knowledge,<br>
+  governed extensions, and auditable automation.
 </p>
 
 <p align="center">
@@ -48,20 +53,18 @@ Authenticated user
 
 Projects such as [OpenClaw](https://github.com/openclaw/openclaw), [Hermes Agent](https://github.com/NousResearch/hermes-agent), and [nanobot](https://github.com/HKUDS/nanobot) focus primarily on making a personal Agent more capable. OpenTeamwork focuses on the additional identity, permission, knowledge-sharing, extension-governance, and audit problems that appear when Agents enter an organization.
 
-## What organizational Agent work looks like
-
-Consider a weekly operations report:
-
-1. A Node administrator provisions an organizational user.
-2. The user creates a reporting Agent no more privileged than the user.
-3. The Agent reads selected project folders, approved tools, and authorized organizational history.
-4. It cannot read Node credentials, another Agent's Workspace, private network targets, or the host shell unless policy explicitly allows the relevant boundary.
-5. A scheduled Automation creates the report and saves the result as an Artifact.
-6. Operators can inspect the Run, permission decisions, failures, source citations, and resulting files.
-
-The goal is not only finished work. It is **finished work with ownership, boundaries, and evidence**.
-
 ## Designed for organizational trust
+
+### Centralize model access, Token usage, and audit
+
+Administrators configure approved Model Profiles and protected provider credentials once at the Node. Authorized users and Agents can use those models without receiving the underlying API keys.
+
+- The Node records provider, model, Session, invocation, input/output Tokens, text/image Token detail, duration, and time to first Token.
+- Operators can inspect aggregate usage and recent calls, with optional provider filtering.
+- Redacted Action audit separately records the actor, Agent, policy decision, target, outcome, and timestamps.
+- Credentials, prompts, model responses, request bodies, and response bodies are deliberately excluded from ordinary usage and audit projections.
+
+This provides centralized access and operational visibility—not a claim of per-user billing, departmental budgets, quotas, or chargeback. See [Configuration and Model Profiles](./docs/CONFIGURATION.md) and [Node Operations](./docs/OPERATIONS.md).
 
 ### Many users. Many Agents. Clear ownership.
 
@@ -169,6 +172,7 @@ This is a difference in design center, not a claim that every organization needs
 | Primary trust boundary | One main user and assistant | Multiple users, Agents, and trust levels |
 | Identity | Owner-centered | Authenticated organizational identities and resource ownership |
 | Authority | Broad assistant access | User ceiling ∩ Agent privilege ∩ policy |
+| Model access | User-managed provider keys and usage | Node-managed credentials, centralized Token usage, and redacted audit |
 | Files and Tools | User-selected access | Policy-controlled paths, Commands, Network, Tools, and Actions |
 | Knowledge | Personal continuity | Permission-aware organizational history with citations and audit |
 | Extensions | User-enabled capabilities | Staged, validated, confirmed, and Agent-scoped capabilities |
