@@ -3306,7 +3306,10 @@ def exec_command(
     effective_command = cmd
     if sandbox_name == "docker":
         if _should_use_shell(argv):
-            command_argv = ["/bin/sh", "-lc", effective_command]
+            # A login shell rewrites image-provided PATH values on Debian. Keep
+            # the reviewed image environment so bundled document runtimes stay
+            # available to chained commands.
+            command_argv = ["/bin/sh", "-c", effective_command]
         try:
             permission_snapshot = (
                 runtime_context.permission_snapshot if runtime_context is not None else None

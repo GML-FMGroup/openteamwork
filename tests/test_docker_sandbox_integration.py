@@ -196,6 +196,27 @@ class DockerSandboxIntegrationTests(unittest.TestCase):
         self.assertIn('"sum":5', normalized)
         self.assertIn('"envSecretVisible":false', normalized)
 
+    def test_real_docker_loads_bundled_office_example_dependencies(self) -> None:
+        """The reviewed image contains the current PPTX, DOCX, and XLSX example bundle."""
+
+        with tempfile.TemporaryDirectory() as tmp:
+            workspace = Path(tmp)
+            os.environ["OPENPPX_WORKSPACE"] = str(workspace)
+            os.environ["OPENPPX_SANDBOX_DOCKER_BIN"] = self.docker_bin
+            os.environ["OPENPPX_SANDBOX_IMAGE"] = self.image
+
+            output = exec_command(
+                "node -e \"for (const name of ['docx', 'pptxgenjs', 'react', 'react-dom/server', "
+                "'react-icons/md', 'sharp']) require(name); console.log('NODE_OFFICE_DEPS_OK')\" "
+                "&& python -c \"import defusedxml, lxml, markitdown, openpyxl, pandas, PIL, pptx, xlsxwriter; "
+                "print('PYTHON_OFFICE_DEPS_OK')\" "
+                "&& command -v soffice && command -v pandoc && command -v pdftoppm",
+                sandbox="docker",
+            )
+
+        self.assertIn("NODE_OFFICE_DEPS_OK", output)
+        self.assertIn("PYTHON_OFFICE_DEPS_OK", output)
+
     def test_real_docker_command_api_allows_trusted_network_and_image_options(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             self._prepare_command_api_skill(

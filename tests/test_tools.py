@@ -659,7 +659,7 @@ class ToolsTests(unittest.TestCase):
         self.assertIn("ok", out)
         argv = calls[0]
         image_index = argv.index("openppx-sandbox:dev")
-        self.assertEqual(argv[image_index + 1 : image_index + 3], ["/bin/sh", "-lc"])
+        self.assertEqual(argv[image_index + 1 : image_index + 3], ["/bin/sh", "-c"])
 
     def test_exec_tool_docker_sandbox_pty_starts_interactive_session_with_cleanup(self) -> None:
         captured: dict[str, object] = {}

@@ -10,7 +10,14 @@ import pytest
 
 from openppx import agent
 from openppx.config import AgentConfig, NodeConfig
-from openppx.permissions import ProcessFacts, authorize_command, authorize_process, compile_permission_snapshot
+from openppx.permissions import (
+    PermissionAuditQuery,
+    PermissionAuditStore,
+    ProcessFacts,
+    authorize_command,
+    authorize_process,
+    compile_permission_snapshot,
+)
 from openppx.runtime.tool_execution_context import ToolExecutionContext, activate_tool_execution_context
 from openppx.tooling.registry import exec_command
 
@@ -162,6 +169,137 @@ def test_medium_and_high_commands_require_docker(
 
     assert authorized.execution_profile == profile
     assert authorized.required_backend == "docker"
+
+
+def test_medium_offline_command_does_not_require_an_egress_proxy(tmp_path: Path) -> None:
+    """Medium commands stay Docker-isolated and usable when the Node has no proxy."""
+
+    workspace = tmp_path / "medium"
+    workspace.mkdir()
+    node = NodeConfig.model_validate(
+        {
+            "apiVersion": "openppx.io/v1alpha1",
+            "kind": "NodeConfig",
+            "metadata": {"name": "node"},
+            "spec": {"displayName": "Node", "enabledAgents": ["worker"]},
+        }
+    )
+    worker = AgentConfig.model_validate(
+        {
+            "apiVersion": "openppx.io/v1alpha1",
+            "kind": "AgentConfig",
+            "metadata": {"name": "worker"},
+            "spec": {
+                "displayName": "Worker",
+                "workspace": str(workspace),
+                "ownerPrincipalId": "local:owner",
+                "privilegeLevel": "medium",
+            },
+        }
+    )
+    snapshot = compile_permission_snapshot(node=node, agent=worker)
+    assert "medium-code-egress-proxy" not in snapshot.blocking_gates
+
+    authorized = authorize_command(
+        snapshot,
+        workspace_root=workspace,
+        argv=["node", "make_deck.js"],
+        cwd=workspace,
+        shell=False,
+        background=False,
+        pty=False,
+        timeout_seconds=60,
+    )
+
+    assert authorized.execution_profile == "medium-task-sandbox"
+    assert authorized.required_backend == "docker"
+
+
+@pytest.mark.parametrize(
+    "argv",
+    [
+        ["npm", "install", "pptxgenjs"],
+        ["pnpm", "add", "pptxgenjs"],
+        ["pip", "install", "python-pptx"],
+        ["python", "-m", "pip", "install", "python-pptx"],
+        ["uv", "pip", "install", "python-pptx"],
+        ["uvx", "ruff"],
+        ["corepack", "pnpm", "install"],
+        ["env", "MODE=prod", "npm", "ci"],
+        ["MODE=prod", "npm", "ci"],
+        ["sh", "-c", "node make_deck.js && npm install pptxgenjs"],
+        ["bash", "-lc", "python -m uv pip install python-pptx"],
+        ["sudo", "npm", "exec", "cowsay"],
+    ],
+)
+def test_non_root_command_profiles_reject_runtime_package_installation(
+    tmp_path: Path,
+    argv: list[str],
+) -> None:
+    """Reviewed dependencies come from the image, never an Agent package install."""
+
+    workspace = tmp_path / "medium"
+    workspace.mkdir()
+    snapshot = _snapshot("medium", workspace, "command")
+
+    with pytest.raises(PermissionError, match="Runtime package installation"):
+        authorize_command(
+            snapshot,
+            workspace_root=workspace,
+            argv=argv,
+            cwd=workspace,
+            shell=False,
+            background=False,
+            pty=False,
+            timeout_seconds=60,
+        )
+
+
+def test_runtime_package_install_denial_is_audited(tmp_path: Path) -> None:
+    """The hard runtime floor must not leave an audited allow decision behind."""
+
+    workspace = tmp_path / "medium"
+    workspace.mkdir()
+    snapshot = _snapshot("medium", workspace, "command")
+    audit = PermissionAuditStore(tmp_path / "permission-audit.db")
+
+    with pytest.raises(PermissionError, match="Runtime package installation"):
+        authorize_command(
+            snapshot,
+            workspace_root=workspace,
+            argv=["npm", "install", "pptxgenjs"],
+            cwd=workspace,
+            shell=False,
+            background=False,
+            pty=False,
+            timeout_seconds=60,
+            audit=audit,
+        )
+
+    rows = audit.list(PermissionAuditQuery(object="command"))
+    assert len(rows) == 1
+    assert rows[0]["outcome"] == "deny"
+    assert rows[0]["reasonCode"] == "runtime_package_install_denied"
+
+
+def test_root_command_profile_may_manage_its_own_runtime_packages(tmp_path: Path) -> None:
+    """The runtime-install floor applies to non-root Agents only."""
+
+    workspace = tmp_path / "root"
+    workspace.mkdir()
+    authorized = authorize_command(
+        _snapshot("root", workspace, "command"),
+        workspace_root=workspace,
+        argv=["python", "-m", "pip", "install", "python-pptx"],
+        cwd=workspace,
+        shell=False,
+        background=False,
+        pty=False,
+        timeout_seconds=60,
+    )
+
+    assert authorized.execution_profile == "root-host"
+    assert authorized.required_backend is None
 
 
 def test_command_constraints_are_intersected_and_cap_runtime_limits(tmp_path: Path) -> None:

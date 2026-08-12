@@ -2,13 +2,15 @@
 
 from __future__ import annotations
 
+import re
+import shlex
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
 
 from .audit import NullPermissionAuditSink, PermissionAuditSink, record_permission_audit
 from .evaluator import evaluate_permission
-from .models import CommandConstraints, PermissionRequest, ResolvedPermissionSnapshot
+from .models import CommandConstraints, PermissionDecision, PermissionRequest, ResolvedPermissionSnapshot
 
 
 _LOW_EXECUTABLES = {"grep", "rg"}
@@ -20,6 +22,14 @@ _LOW_DENIED_OPTIONS = {
     "--exclude-from",
     "-f",
 }
+_SHELL_CONTROL_TOKENS = {"&&", "||", ";", "|"}
+_ENV_ASSIGNMENT = re.compile(r"[A-Za-z_][A-Za-z0-9_]*=.*\Z")
+_PYTHON_EXECUTABLE = re.compile(r"python(?:\d+(?:\.\d+)*)?\Z")
+_PIP_EXECUTABLE = re.compile(r"pip(?:\d+(?:\.\d+)*)?\Z")
+_RUNTIME_INSTALL_ERROR = (
+    "Runtime package installation is not allowed for non-root Agents; "
+    "ask an administrator to rebuild the reviewed sandbox image."
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -78,6 +88,13 @@ def authorize_command(
         }
     )
     decision = evaluate_permission(snapshot, request)
+    runtime_install_denied = snapshot.preset != "root" and _contains_runtime_package_install(tuple(argv))
+    if runtime_install_denied:
+        decision = PermissionDecision(
+            outcome="deny",
+            reason_code="runtime_package_install_denied",
+            permission_revision=snapshot.revision,
+        )
     rollout_mode = snapshot.enforcement_mode_for("command")
     record_permission_audit(
         audit or NullPermissionAuditSink(),
@@ -86,6 +103,8 @@ def authorize_command(
         rollout_mode=rollout_mode,
     )
     if rollout_mode == "enforce":
+        if runtime_install_denied:
+            raise PermissionError(_RUNTIME_INSTALL_ERROR)
         if decision.outcome != "allow":
             raise PermissionError(
                 f"Command is denied by Agent permissions ({decision.reason_code}, revision {snapshot.revision})."
@@ -133,6 +152,97 @@ def authorize_command(
         max_output_bytes=output_cap,
         allowed_by_policy=decision.outcome == "allow",
     )
+
+
+def _contains_runtime_package_install(argv: tuple[str, ...], *, depth: int = 0) -> bool:
+    """Recognize common package-manager mutation commands, including shell wrappers."""
+
+    if not argv or depth > 3:
+        return False
+    segments: list[list[str]] = [[]]
+    for token in argv:
+        if token in _SHELL_CONTROL_TOKENS:
+            segments.append([])
+        else:
+            segments[-1].append(token)
+    return any(_segment_installs_packages(tuple(segment), depth=depth) for segment in segments if segment)
+
+
+def _segment_installs_packages(argv: tuple[str, ...], *, depth: int) -> bool:
+    """Return whether one command segment invokes a known runtime installer."""
+
+    assignment_count = 0
+    while assignment_count < len(argv) and _ENV_ASSIGNMENT.fullmatch(argv[assignment_count]):
+        assignment_count += 1
+    if assignment_count:
+        return _contains_runtime_package_install(argv[assignment_count:], depth=depth + 1)
+
+    executable = Path(argv[0]).name.casefold()
+    args = tuple(item.casefold() for item in argv[1:])
+
+    shell_command_option = next(
+        (index for index, item in enumerate(args) if item.startswith("-") and "c" in item[1:]),
+        None,
+    )
+    if executable in {"sh", "bash", "zsh", "dash"} and shell_command_option is not None:
+        command_index = shell_command_option + 2
+        if command_index < len(argv):
+            try:
+                nested = tuple(shlex.split(argv[command_index]))
+            except ValueError:
+                return True
+            return _contains_runtime_package_install(nested, depth=depth + 1)
+
+    if executable == "env":
+        nested_index = 1
+        while nested_index < len(argv):
+            token = argv[nested_index]
+            if token.startswith("-") or "=" in token:
+                nested_index += 1
+                continue
+            break
+        return _contains_runtime_package_install(argv[nested_index:], depth=depth + 1)
+
+    if executable in {"command", "doas", "nohup", "sudo", "time"}:
+        nested_index = 1
+        while nested_index < len(argv) and argv[nested_index].startswith("-"):
+            nested_index += 1
+        return _contains_runtime_package_install(argv[nested_index:], depth=depth + 1)
+
+    if executable in {"npx", "bunx", "corepack", "uvx"}:
+        return True
+    if executable in {"npm", "pnpm", "bun"}:
+        return bool({"add", "ci", "dlx", "exec", "i", "install", "update", "upgrade"} & set(args))
+    if executable == "yarn":
+        return not args or bool({"add", "dlx", "install", "set", "up", "upgrade"} & set(args))
+    if _PIP_EXECUTABLE.fullmatch(executable) or executable == "pipx":
+        return bool({"inject", "install", "upgrade", "upgrade-all"} & set(args))
+    if _PYTHON_EXECUTABLE.fullmatch(executable) and "-m" in args:
+        module_index = args.index("-m") + 1
+        if module_index < len(args):
+            module = args[module_index]
+            if module == "ensurepip":
+                return True
+            if module in {"pip", "pipx", "uv", "poetry", "pipenv"}:
+                return _contains_runtime_package_install(
+                    (module, *argv[module_index + 2 :]),
+                    depth=depth + 1,
+                )
+    if executable == "uv":
+        return bool({"add", "install", "sync", "upgrade"} & set(args))
+    if executable in {"poetry", "pipenv"}:
+        return bool({"add", "install", "sync", "update", "upgrade"} & set(args))
+    if executable in {"conda", "mamba", "micromamba"}:
+        return bool({"create", "install", "update", "upgrade"} & set(args))
+    if executable in {"apt", "apt-get", "dnf", "yum", "brew", "port"}:
+        return bool({"add", "install", "reinstall", "upgrade"} & set(args))
+    if executable == "apk":
+        return "add" in args
+    if executable in {"cargo", "gem"}:
+        return "install" in args
+    if executable == "go":
+        return bool({"get", "install"} & set(args))
+    return False
 
 
 def _validate_command_constraints(

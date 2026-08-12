@@ -165,9 +165,7 @@
           "description": "Medium Agents cannot invoke Node-wide maintenance actions."
         }
       ],
-      "pendingGates": [
-        "medium-code-egress-proxy"
-      ]
+      "pendingGates": []
     },
     {
       "schemaVersion": "openppx.permissions/v1alpha1",
@@ -217,9 +215,7 @@
           "locked": true
         }
       ],
-      "pendingGates": [
-        "high-code-egress-proxy"
-      ]
+      "pendingGates": []
     },
     {
       "schemaVersion": "openppx.permissions/v1alpha1",

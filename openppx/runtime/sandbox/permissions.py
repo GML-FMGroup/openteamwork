@@ -88,19 +88,17 @@ def _network_policy(snapshot: ResolvedPermissionSnapshot) -> NetworkPolicy:
         return NetworkPolicy(mode=NetworkMode.DISABLED, lock=NetworkMode.DISABLED)
     if snapshot.preset in {"medium", "high"}:
         proxy = snapshot.code_egress_proxy
+        if proxy is None:
+            return NetworkPolicy(mode=NetworkMode.DISABLED, lock=NetworkMode.DISABLED)
         return NetworkPolicy(
             mode=NetworkMode.PROXY_ONLY,
             lock=NetworkMode.PROXY_ONLY,
-            proxy_url=proxy.url if proxy is not None else None,
-            docker_network=proxy.docker_network if proxy is not None else None,
+            proxy_url=proxy.url,
+            docker_network=proxy.docker_network,
             permission_revision=snapshot.revision,
-            proxy_credential=(
-                load_egress_proxy_credential(
-                    policy_directory=Path(proxy.policy_directory),
-                    permission_revision=snapshot.revision,
-                )
-                if proxy is not None
-                else None
+            proxy_credential=load_egress_proxy_credential(
+                policy_directory=Path(proxy.policy_directory),
+                permission_revision=snapshot.revision,
             ),
         )
     return NetworkPolicy(mode=NetworkMode.ENABLED)

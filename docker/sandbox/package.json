@@ -1,0 +1,14 @@
+{
+  "name": "openppx-sandbox-document-runtime",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Reviewed Node.js dependencies for document generation inside the OpenPPX sandbox.",
+  "dependencies": {
+    "docx": "9.7.1",
+    "pptxgenjs": "4.0.1",
+    "react": "19.2.8",
+    "react-dom": "19.2.8",
+    "react-icons": "5.7.0",
+    "sharp": "0.35.3"
+  }
+}

@@ -25,7 +25,9 @@ docker build \
   docker/sandbox
 ```
 
-Install Python or Node dependencies into a reviewed derived image at build time. Runtime recipes must not become arbitrary package installers.
+`PYTHON_BASE_IMAGE` supplies the Node dependency stage, Python dependency stage, and final runtime so native modules are built for the same operating-system family. Package managers are used only in build stages to resolve the committed lock files; the final runtime image keeps the pinned dependencies and Node interpreter but does not expose `pip` or `npm` to Agents.
+
+The default image includes pinned dependencies declared by the currently bundled PPTX, DOCX, and XLSX example Skills, including LibreOffice, Poppler, CJK fonts, PptxGenJS, MarkItDown, and python-pptx. This is a reviewed convenience bundle, not a guarantee that every bundled or administrator-defined Skill can run without additional image customization. Add or upgrade dependencies only in the reviewed image inputs under `docker/sandbox/`; runtime recipes must not become arbitrary package installers.
 
 ## Execution behavior
 
@@ -76,19 +78,24 @@ export OPENPPX_SANDBOX_NETWORK_LOCK=disabled
 
 Grant network access narrowly. A sandbox with network access can still exfiltrate any data made available inside it.
 
-### Permission-derived proxy-only egress
+### Permission-derived command networking
 
 When static Command permissions are enforced, `low`, `medium`, and `high` cannot select host execution:
 
 - `low` runs its reviewed `grep`/`rg` commands in a read-only Workspace mount with network disabled;
-- `medium` and `high` attach only to a Node-configured Docker `--internal` network;
+- `medium` and `high` run with Docker networking disabled when the Node has no egress proxy;
+- when a proxy is configured, `medium` and `high` attach only to its Docker `--internal` network;
 - a trusted OpenTeamwork egress proxy is the only service connected to both that internal network and an external network;
 - the proxy loads a revision-addressed, network-only policy and verifies a high-entropy credential for that exact revision;
 - the task container receives its own proxy credential but cannot read the policy directory or select another revision without that revision's credential.
 
 The Runtime publishes the current compatible permission revision immediately before each new proxy-backed command. A permission update therefore cannot reuse an older, wider egress policy for a later command.
 
-Provisioning is an operator action. OpenTeamwork verifies the network but never creates or weakens it during an Agent call:
+### Runtime dependency policy
+
+Non-root Agents cannot invoke common Python, Node.js, system, or language package-manager install commands. This is an application-level floor in addition to the Docker and network boundaries. If a built-in Office Skill reports a missing dependency, rebuild the reviewed sandbox image; do not let the Agent modify its runtime environment.
+
+Proxy provisioning is an optional operator action for Agents that need reviewed network access. OpenTeamwork verifies the network but never creates or weakens it during an Agent call:
 
 ```bash
 docker network create --internal openppx-egress-internal

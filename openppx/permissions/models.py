@@ -719,8 +719,6 @@ class ResolvedPermissionSnapshot(FrozenPermissionModel):
         relevant: set[str] = set()
         if object_kind in {"external_path", "command"}:
             relevant.add("high-protected-write-roots")
-        if object_kind == "command":
-            relevant.update({"medium-code-egress-proxy", "high-code-egress-proxy"})
         blocked = sorted(set(self.blocking_gates) & relevant)
         if blocked:
             raise PermissionError(

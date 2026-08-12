@@ -10,6 +10,7 @@ import pytest
 from openppx.config import AgentConfig, NodeConfig
 from openppx.permissions import AgentWorkspaceBoundary, authorize_path, compile_permission_snapshot
 from openppx.runtime.sandbox import NetworkMode, PathAccessMode, derive_sandbox_permission_profile
+from openppx.runtime.sandbox.egress_policy import write_egress_proxy_policy
 
 
 def _snapshot(
@@ -150,8 +151,8 @@ def test_authorized_file_descriptor_rejects_inode_replacement(tmp_path: Path) ->
     ("preset", "workspace_access", "network_mode"),
     [
         ("low", PathAccessMode.READ, NetworkMode.DISABLED),
-        ("medium", PathAccessMode.WRITE, NetworkMode.PROXY_ONLY),
-        ("high", PathAccessMode.WRITE, NetworkMode.PROXY_ONLY),
+        ("medium", PathAccessMode.WRITE, NetworkMode.DISABLED),
+        ("high", PathAccessMode.WRITE, NetworkMode.DISABLED),
         ("root", PathAccessMode.WRITE, NetworkMode.ENABLED),
     ],
 )
@@ -170,6 +171,36 @@ def test_sandbox_profile_is_derived_from_the_permission_snapshot(
     assert len([grant for grant in workspace_grants if grant.logical_name == "workspace"]) == 1
     assert next(grant.access for grant in workspace_grants if grant.logical_name == "workspace") == workspace_access
     assert profile.network.mode == network_mode
+
+
+@pytest.mark.parametrize("preset", ["medium", "high"])
+def test_configured_code_egress_proxy_keeps_proxy_only_sandbox_network(
+    tmp_path: Path,
+    preset: str,
+) -> None:
+    """An explicitly configured reviewed proxy preserves the existing network path."""
+
+    workspace = tmp_path / preset
+    policy_directory = tmp_path / "egress-policies"
+    workspace.mkdir()
+    policy_directory.mkdir(mode=0o700)
+    snapshot = _snapshot(
+        preset,
+        workspace,
+        node_permissions={
+            "codeEgressProxy": {
+                "url": "http://openppx-egress-proxy:3128",
+                "dockerNetwork": "openppx-egress-internal",
+                "policyDirectory": str(policy_directory),
+            }
+        },
+    )
+    write_egress_proxy_policy(snapshot, policy_directory=policy_directory)
+
+    profile = derive_sandbox_permission_profile(snapshot, workspace_root=workspace)
+
+    assert profile.network.mode == NetworkMode.PROXY_ONLY
+    assert profile.network.lock == NetworkMode.PROXY_ONLY
 
 
 def test_medium_safe_root_becomes_a_readonly_sandbox_grant(tmp_path: Path) -> None:
