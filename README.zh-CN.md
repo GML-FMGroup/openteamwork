@@ -7,12 +7,12 @@
 </p>
 
 <p align="center">
-  <strong>让 AI Agent 进入你的组织，而不必把所有系统的钥匙交给每一位用户或每一个 Agent。</strong>
+  <strong>面向组织级 AI Agent 的自托管控制平面与可信执行运行时。</strong>
 </p>
 
 <p align="center">
-  面向多用户 Agent、细粒度权限、模型访问与 Token 用量集中管理、<br>
-  权限感知的组织知识、受治理的扩展和可审计自动化的自托管平台。
+  将身份、权限、模型访问、实际执行、组织知识、<br>
+  Token 用量与审计统一纳入一个自托管 Node。
 </p>
 
 <p align="center">
@@ -37,11 +37,26 @@
 
 ## 为什么选择 OpenTeamwork
 
-以个人为中心的 Agent 项目已经证明了持久化 AI 助手的价值。它们通常从一位主要用户、一个助手和一条信任边界开始。
+模型可以规划任务、调用 Tool，也可以生成听起来非常可信的答案。但**模型的意图不等于组织授予的权限**。
 
-但组织并不一样。组织中存在多位用户、多个 Agent、共享知识、敏感系统，以及不同级别的权限。用于生成报告的 Agent 不应该继承管理员的全部权限；研究 Agent 可能需要读取经过授权的项目历史，但不应该因此获得所有对话的访问权；安装一个 MCP Server，也不应该悄悄地让每个 Agent 都能使用其中的全部工具。
+个人助手通常可以围绕一位主要用户和一条信任边界运行，组织却不能。组织中存在多位用户、多个 Agent、共享知识、敏感系统，以及不同级别的权限。面对每一个会产生实际影响的操作，系统都必须回答一个更严格的问题：
 
-**OpenTeamwork 正是围绕这些差异设计的。**
+> **这个 Agent 在当前已认证用户的权限范围内，是否可以对这个资源执行这项操作？**
+
+OpenTeamwork 将这个决定放在由 Node 持有的控制平面中，而不是交给模型或 Prompt。模型可以提出要做什么；可信身份、编译后的权限策略和执行边界检查共同决定什么可以真正发生。最终的工作、用量和策略决定会成为由 Node 持有的持久事实，而不是 Agent 对自身行为的描述。
+
+| 可信链路 | OpenTeamwork 控制的内容 |
+|---|---|
+| **身份** | 已认证用户，以及由服务端持有的 Agent 身份、权限级别、归属和资源范围 |
+| **权限** | 用户权限上限、Agent 权限级别、Node 强制规则和 Agent 专属权限的交集 |
+| **行动** | Tool 可见性、调用时授权，以及 File、Command、Process、Network、App 和 MCP 边界的实际强制执行 |
+| **证据** | Session、TaskRun、Artifact、Token 用量、操作结果和脱敏审计记录 |
+
+```text
+可信身份  →  权限边界  →  受控行动  →  持久证据
+```
+
+本次操作的有效权限会在执行时逐层收窄：
 
 ```text
 已认证用户
@@ -52,9 +67,11 @@
       = 本次操作的有效权限
 ```
 
-[OpenClaw](https://github.com/openclaw/openclaw)、[Hermes Agent](https://github.com/NousResearch/hermes-agent) 和 [nanobot](https://github.com/HKUDS/nanobot) 等项目主要致力于让个人 Agent 更强大。OpenTeamwork 关注的是 Agent 进入组织之后新增的身份、权限、知识共享、扩展治理与审计问题。
+[OpenClaw](https://github.com/openclaw/openclaw)、[Hermes Agent](https://github.com/NousResearch/hermes-agent) 和 [nanobot](https://github.com/HKUDS/nanobot) 等项目主要致力于让个人 Agent 更强大。OpenTeamwork 关注的是当 Agent 成为组织基础设施后新增的控制平面、知识共享、执行治理与证据问题。
 
-## 为组织级信任而设计
+当一位所有者和一条信任边界已经不再足够时，正是 OpenTeamwork 所面向的场景。
+
+## 从身份到执行的组织级控制
 
 ### 集中管理模型访问、Token 用量与操作审计
 

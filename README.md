@@ -7,13 +7,12 @@
 </p>
 
 <p align="center">
-  <strong>Bring AI agents into your organization—without giving every user or Agent the keys to everything.</strong>
+  <strong>The self-hosted control plane and trusted execution runtime for organizational AI Agents.</strong>
 </p>
 
 <p align="center">
-  A self-hosted platform for multi-user Agents, fine-grained permissions,<br>
-  centralized model access and Token usage visibility, permission-aware organizational knowledge,<br>
-  governed extensions, and auditable automation.
+  Keep identity, authority, model access, execution, organizational knowledge,<br>
+  Token usage, and audit under one self-hosted Node.
 </p>
 
 <p align="center">
@@ -36,11 +35,26 @@
 
 ## Why OpenTeamwork
 
-Personal-first Agent projects have shown how useful a persistent AI assistant can be. They usually begin with one primary user, one assistant, and one trust boundary.
+Models can plan, call Tools, and generate convincing answers. But **model intent is not organizational authority**.
 
-An organization is different. It has many users, many Agents, shared knowledge, sensitive systems, and different levels of authority. A reporting Agent should not inherit an administrator's full access. A research Agent may need approved project history without gaining access to every conversation. Installing an MCP server should not silently make every tool available to every Agent.
+A personal assistant can often rely on one primary user and one trust boundary. An organization cannot. It has many users, many Agents, shared knowledge, sensitive systems, and different levels of authority. For every meaningful action, it must answer a stricter question:
 
-**OpenTeamwork is designed around that difference.**
+> **May this Agent, operating within this authenticated user's authority, perform this action against this resource?**
+
+OpenTeamwork keeps that decision in a Node-owned control plane, outside the model and its Prompt. The model can propose work; trusted identity, compiled policy, and execution-boundary checks determine what may actually happen. The resulting work, usage, and policy decisions become durable Node-owned facts instead of claims made by the Agent itself.
+
+| Trust stage | What OpenTeamwork controls |
+|---|---|
+| **Identity** | Authenticated users, server-owned Agent identity, privilege, ownership, and resource scope |
+| **Authority** | The intersection of user ceilings, Agent privilege, Node hard rules, and Agent-specific permissions |
+| **Action** | Tool visibility, invocation-time authorization, and enforcement at File, Command, Process, Network, App, and MCP boundaries |
+| **Evidence** | Sessions, TaskRuns, Artifacts, Token usage, outcomes, and redacted audit records |
+
+```text
+Trusted identity  →  bounded authority  →  governed action  →  durable evidence
+```
+
+Effective authority narrows at execution time:
 
 ```text
 Authenticated user
@@ -51,9 +65,11 @@ Authenticated user
       = effective authority for this action
 ```
 
-Projects such as [OpenClaw](https://github.com/openclaw/openclaw), [Hermes Agent](https://github.com/NousResearch/hermes-agent), and [nanobot](https://github.com/HKUDS/nanobot) focus primarily on making a personal Agent more capable. OpenTeamwork focuses on the additional identity, permission, knowledge-sharing, extension-governance, and audit problems that appear when Agents enter an organization.
+Projects such as [OpenClaw](https://github.com/openclaw/openclaw), [Hermes Agent](https://github.com/NousResearch/hermes-agent), and [nanobot](https://github.com/HKUDS/nanobot) focus primarily on making a personal Agent more capable. OpenTeamwork focuses on the additional control-plane, knowledge-sharing, execution-governance, and evidence problems that appear when Agents become organizational infrastructure.
 
-## Designed for organizational trust
+OpenTeamwork is for the point where one owner and one trust boundary are no longer enough.
+
+## Control from identity to execution
 
 ### Centralize model access, Token usage, and audit
 
