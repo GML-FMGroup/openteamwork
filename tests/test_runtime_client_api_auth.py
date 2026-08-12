@@ -6,13 +6,15 @@ from pathlib import Path
 
 import pytest
 
+from openppx.control_plane import build_control_plane
+from openppx.control_plane.automation_actions import register_automation_actions
 from openppx.runtime.client_api_auth import (
     ClientApiAuthPolicy,
     is_loopback_bind_host,
     resolve_client_api_access_token,
     validate_client_api_bind,
 )
-from openppx.runtime.client_api_service import _ClientApiHandler
+from openppx.runtime.client_api_service import ClientApiCoordinator, _ClientApiHandler
 from openppx.runtime.user_accounts import LoginRateLimiter, UserAccountService
 
 
@@ -140,14 +142,20 @@ def _handler(
     service: UserAccountService,
     address: str = "127.0.0.1",
     login_rate_limiter: LoginRateLimiter | None = None,
+    coordinator: object | None = None,
 ):
     handler = object.__new__(_ClientApiHandler)
+    resolved_coordinator = coordinator or SimpleNamespace(
+        user_accounts=service,
+        login_rate_limiter=login_rate_limiter,
+        action_input_declares_field=lambda action_id, field_name: (
+            field_name == "userId"
+            and action_id in {"goal.list", "automation.list"}
+        ),
+    )
     handler.server = SimpleNamespace(
         auth_policy=ClientApiAuthPolicy(access_token="deployment-token"),
-        coordinator=SimpleNamespace(
-            user_accounts=service,
-            login_rate_limiter=login_rate_limiter,
-        ),
+        coordinator=resolved_coordinator,
     )
     handler.client_address = (address, 54321)
     handler.path = path
@@ -316,6 +324,82 @@ def test_root_user_can_select_a_resource_subject_but_not_spoof_agent_ownership(t
         root,
     ) is None
     assert responses[-1][0] == 403
+
+
+@pytest.mark.parametrize(
+    ("action_id", "raw_input"),
+    [
+        ("automation.template.list", {}),
+        ("automation.template.read", {"templateId": "morning-brief"}),
+    ],
+)
+def test_authenticated_identity_binding_preserves_user_independent_automation_inputs(
+    tmp_path: Path,
+    action_id: str,
+    raw_input: dict[str, object],
+) -> None:
+    service = _account_service(tmp_path)
+    account = service.authenticate(
+        "jiang@example.com",
+        "correct horse battery staple",
+    ).account
+    handler, _responses = _handler(path="/api/v1/actions/invoke", service=service)
+
+    assert handler._bind_action_identity(action_id, raw_input, account) == raw_input
+
+
+def test_authenticated_identity_binding_keeps_user_owned_automation_scoped(
+    tmp_path: Path,
+) -> None:
+    service = _account_service(tmp_path)
+    account = service.authenticate(
+        "jiang@example.com",
+        "correct horse battery staple",
+    ).account
+    handler, _responses = _handler(path="/api/v1/actions/invoke", service=service)
+
+    assert handler._bind_action_identity("automation.list", {}, account) == {
+        "userId": account.user_id,
+    }
+
+
+def test_authenticated_template_list_runs_through_the_strict_action_schema(
+    tmp_path: Path,
+) -> None:
+    service = _account_service(tmp_path)
+    login = service.authenticate(
+        "jiang@example.com",
+        "correct horse battery staple",
+    )
+    control_plane = build_control_plane(tmp_path, product_version="test")
+    register_automation_actions(
+        control_plane.registry,
+        SimpleNamespace(templates=lambda: ()),
+    )
+    coordinator = ClientApiCoordinator(
+        data_dir=tmp_path,
+        control_plane=control_plane,
+        user_accounts=service,
+    )
+    handler, responses = _handler(
+        path="/api/v1/actions/invoke",
+        service=service,
+        coordinator=coordinator,
+    )
+    handler.headers = {"Authorization": f"Bearer {login.access_token}"}
+    handler._read_json_body = lambda: {
+        "requestId": "req_template_list",
+        "correlationId": "corr_template_list",
+        "actionId": "automation.template.list",
+        "input": {},
+        "confirmed": False,
+    }
+
+    handler.do_POST()
+
+    assert responses[0][0] == 200
+    assert responses[0][1]["ok"] is True
+    assert responses[0][1]["result"] == {"items": []}
 
 
 @pytest.mark.parametrize(

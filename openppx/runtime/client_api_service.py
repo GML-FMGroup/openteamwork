@@ -965,6 +965,21 @@ class ClientApiCoordinator:
         )
         return envelope.model_dump(mode="json", by_alias=True)
 
+    def action_input_declares_field(self, action_id: str, field_name: str) -> bool:
+        """Return whether one registered Action input declares a wire field.
+
+        Client API identity binding uses this contract to add authenticated
+        principal fields without weakening strict Action schemas or relying on
+        namespace naming conventions.
+        """
+        registered = self._control_plane.registry.resolve(action_id)
+        if registered is None:
+            return False
+        return any(
+            field_name in {model_name, field.alias}
+            for model_name, field in registered.spec.input_model.model_fields.items()
+        )
+
     def invoke_action(
         self,
         action_id: str,
@@ -3146,11 +3161,7 @@ class _ClientApiHandler(BaseHTTPRequestHandler):
                 _error("IDENTITY_MISMATCH", "Agent ownership must match the authenticated user."),
             )
             return None
-        if (
-            "userId" in bound
-            or action_id.startswith(("session.", "goal.", "automation."))
-            or action_id in {"system.command.invoke", "setup.hello", "skill.make"}
-        ):
+        if self.coordinator.action_input_declares_field(action_id, "userId"):
             bound["userId"] = (
                 supplied_user_id
                 if account.privilege_level == "root" and supplied_user_id
