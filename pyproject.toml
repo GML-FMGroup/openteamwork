@@ -5,7 +5,7 @@ description = "A lightweight skills-first agent built with Google ADK"
 requires-python = ">=3.11"
 dependencies = [
     "cryptography>=46,<47",
-    "google-adk[db]>=2.1.0",
+    "google-adk[db]==2.6.3",
     "mcp>=1.24,<2",
     "greenlet>=3.1.1",
     "loguru>=0.7.3",
@@ -23,7 +23,7 @@ dependencies = [
 
 [project.optional-dependencies]
 eval = [
-    "google-adk[eval]>=2.1.0",
+    "google-adk[eval]==2.6.3",
 ]
 
 [project.urls]

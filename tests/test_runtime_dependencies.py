@@ -7,6 +7,7 @@ from packaging.requirements import Requirement
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
+SUPPORTED_GOOGLE_ADK_VERSION = "2.6.3"
 
 
 def _find_google_adk_requirement(requirements: list[str]) -> Requirement:
@@ -39,3 +40,10 @@ def test_google_adk_database_extra_is_declared_for_runtime_installers() -> None:
             f"{source} must declare the google-adk db extra because the runtime "
             "imports DatabaseSessionService"
         )
+        assert str(google_adk.specifier) == f"=={SUPPORTED_GOOGLE_ADK_VERSION}", (
+            f"{source} must pin the exact Google ADK version validated by the runtime"
+        )
+
+    eval_adk = _find_google_adk_requirement(pyproject["project"]["optional-dependencies"]["eval"])
+    assert "eval" in eval_adk.extras
+    assert str(eval_adk.specifier) == f"=={SUPPORTED_GOOGLE_ADK_VERSION}"

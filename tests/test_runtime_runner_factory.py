@@ -322,13 +322,13 @@ class RunnerFactoryTests(unittest.TestCase):
         self.assertEqual(config.min_tokens, 4096)
         self.assertEqual(config.ttl_seconds, 600)
 
-    def test_adk_major_version_guard_allows_adk_2(self) -> None:
-        with patch("openppx.runtime.adk_version.installed_adk_version", return_value="2.1.0"):
+    def test_adk_version_guard_allows_validated_version(self) -> None:
+        with patch("openppx.runtime.adk_version.installed_adk_version", return_value="2.6.3"):
             assert_supported_adk_major()
 
-    def test_adk_major_version_guard_rejects_adk_1(self) -> None:
-        with patch("openppx.runtime.adk_version.installed_adk_version", return_value="1.31.0"):
-            with self.assertRaisesRegex(RuntimeError, "requires google-adk 2.x"):
+    def test_adk_version_guard_rejects_unvalidated_same_major_version(self) -> None:
+        with patch("openppx.runtime.adk_version.installed_adk_version", return_value="2.7.0"):
+            with self.assertRaisesRegex(RuntimeError, "requires google-adk 2.6.3"):
                 assert_supported_adk_major()
 
 

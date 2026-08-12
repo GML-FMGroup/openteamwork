@@ -1,19 +1,10 @@
-"""Runtime guard for the supported Google ADK major version."""
+"""Runtime guard for the exact Google ADK version validated by OpenTeamwork."""
 
 from __future__ import annotations
 
 from importlib import metadata
 
-_SUPPORTED_ADK_MAJOR = 2
-
-
-def _major_version(version: str) -> int | None:
-    """Return the leading integer version component when it is parseable."""
-    head = (version or "").split(".", 1)[0]
-    try:
-        return int(head)
-    except (TypeError, ValueError):
-        return None
+_SUPPORTED_ADK_VERSION = "2.6.3"
 
 
 def installed_adk_version() -> str:
@@ -21,16 +12,24 @@ def installed_adk_version() -> str:
     try:
         return metadata.version("google-adk")
     except metadata.PackageNotFoundError as exc:
-        raise RuntimeError("google-adk is not installed; openppx requires google-adk 2.x.") from exc
+        raise RuntimeError(
+            "google-adk is not installed; "
+            f"OpenTeamwork requires google-adk {_SUPPORTED_ADK_VERSION}."
+        ) from exc
 
 
 def assert_supported_adk_major() -> None:
-    """Raise when the installed google-adk major version is unsupported."""
+    """Raise unless the installed Google ADK matches the validated runtime version.
+
+    The historical function name is retained because it is imported during package
+    initialization. The contract is intentionally stricter than a major-version
+    check because OpenTeamwork depends on ADK runtime behavior that can change in a
+    minor release.
+    """
     version = installed_adk_version()
-    major = _major_version(version)
-    if major != _SUPPORTED_ADK_MAJOR:
+    if version != _SUPPORTED_ADK_VERSION:
         raise RuntimeError(
             "Unsupported google-adk version "
-            f"{version!r}; openppx requires google-adk {_SUPPORTED_ADK_MAJOR}.x. "
-            "Reinstall dependencies from the project lock file before starting openppx."
+            f"{version!r}; OpenTeamwork requires google-adk {_SUPPORTED_ADK_VERSION}. "
+            "Reinstall the project dependencies before starting OpenTeamwork."
         )
