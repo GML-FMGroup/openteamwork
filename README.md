@@ -1,8 +1,6 @@
-<p align="center">
-  <img src="./assets/openteamwork-wordmark.png" alt="OpenTeamwork" width="100%">
-</p>
-
-<h1 align="center">OpenTeamwork</h1>
+<h1 align="center">
+  <img src="./assets/openteamwork-wordmark.png" alt="OpenTeamwork" width="720">
+</h1>
 
 <p align="center">
   <strong>Bring AI agents into your organization—without giving every user or Agent the keys to everything.</strong>
