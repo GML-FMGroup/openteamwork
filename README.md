@@ -1,81 +1,211 @@
-# OpenTeamwork
+<p align="center">
+  <img src="./assets/openteamwork-wordmark.png" alt="OpenTeamwork" width="100%">
+</p>
 
-**An open-source Agent OS for secure, persistent, real-world AI work.**
+<h1 align="center">OpenTeamwork</h1>
 
-Run and manage AI agents from one Node, with durable sessions, skills, automation, extensions, permissions, and audit built on Google ADK.
+<p align="center">
+  <strong>Bring AI agents into your organization—without giving every user or Agent the keys to everything.</strong>
+</p>
 
-If OpenTeamwork is useful to you, give it a ⭐ so more builders can discover it.
+<p align="center">
+  A self-hosted platform for multi-user Agents, fine-grained permissions,<br>
+  permission-aware organizational knowledge, governed extensions, and auditable automation.
+</p>
 
-> Developer preview — not yet production-ready.
+<p align="center">
+  <a href="#quick-start">Quick Start</a> ·
+  <a href="#why-openteamwork">Why OpenTeamwork</a> ·
+  <a href="#security-model">Security</a> ·
+  <a href="./docs/README.md">Documentation</a> ·
+  <a href="https://github.com/pipixia-labs/openteamwork/releases/tag/v0.6.1">Latest Preview</a>
+</p>
 
-## News
+<p align="center">
+  <img alt="Developer Preview" src="https://img.shields.io/badge/status-developer_preview-f59e0b">
+  <img alt="Google ADK 2.x" src="https://img.shields.io/badge/Google_ADK-2.x-4285F4">
+  <img alt="Python 3.11+" src="https://img.shields.io/badge/Python-3.11+-3776AB">
+  <a href="./LICENSE"><img alt="Apache 2.0 License" src="https://img.shields.io/badge/license-Apache--2.0-22c55e"></a>
+</p>
 
-- **2026-08-11 — v0.6.1 Developer Preview:** renamed the product to OpenTeamwork, added multi-user login and hierarchical Session history, and made non-root permission boundaries fail closed.
-- **2026-08-09 — v0.6.0 Developer Preview:** teach Agents with `/make-skill`, automate recurring work, and govern real execution with isolated workspaces, permissions, Apps, MCP, and audit.
-- **2026-08-06 — v0.5.4:** added durable Goals, TaskFlows, automation, typed commands, diagnostics, and document/image Artifacts.
-- **2026-08-05 — v0.5.3:** introduced the unified Plugin/App/MCP/Skill extension platform and full Desktop management.
-- **2026-08-04 — Unified Node architecture:** brought Config, Actions, Extensions, Operations, audit, onboarding, and LAN access under one governed contract.
-- **2026-08-02 — Desktop v0.5.1:** launched the three-column workspace, local/LAN connections, Run streaming, and reusable TypeScript client.
+> [!WARNING]
+> OpenTeamwork is a **Developer Preview**, not a production-ready release. The current packaged Desktop preview supports macOS Apple Silicon and is unsigned and not notarized. Review the [current boundaries](#project-status-and-boundaries) before using it with sensitive systems.
 
-## Architecture
+## Why OpenTeamwork
+
+Personal-first Agent projects have shown how useful a persistent AI assistant can be. They usually begin with one primary user, one assistant, and one trust boundary.
+
+An organization is different. It has many users, many Agents, shared knowledge, sensitive systems, and different levels of authority. A reporting Agent should not inherit an administrator's full access. A research Agent may need approved project history without gaining access to every conversation. Installing an MCP server should not silently make every tool available to every Agent.
+
+**OpenTeamwork is designed around that difference.**
 
 ```text
-CLI          OpenTeamwork Desktop       Future clients
- |                  |                       |
- +------------------+-----------------------+
-                    |
-           Shared Client Contract
-             HTTP + SSE + Actions
-                    |
-              OpenTeamwork Node
-  Config / Models / Extensions / Operations / Audit
-                    |
-       Runtime Supervisor + immutable snapshots
-                    |
-              Google ADK runtime
+Authenticated user
+      ∩ user privilege ceiling
+      ∩ Agent privilege
+      ∩ Node hard rules
+      ∩ Agent-specific permissions
+      = effective authority for this action
 ```
 
-The Node is the source of truth. Clients may keep device-local preferences such as window layout, but they do not read or rewrite Node business files.
+Projects such as [OpenClaw](https://github.com/openclaw/openclaw), [Hermes Agent](https://github.com/NousResearch/hermes-agent), and [nanobot](https://github.com/HKUDS/nanobot) focus primarily on making a personal Agent more capable. OpenTeamwork focuses on the additional identity, permission, knowledge-sharing, extension-governance, and audit problems that appear when Agents enter an organization.
 
-## What is implemented
+## What organizational Agent work looks like
 
-- Strict Node and Agent Config resources with validation, revision conflicts, preview/apply, and redacted diagnostics.
-- Model Profiles with explicit provider, model, capabilities, credential reference, workload role, and fallback policy.
-- A governed Extension Platform for Product Plugins, Apps, direct MCP servers, and Skills.
-- Builtin, local-directory, local-archive, fixed-Git, and injected-catalog extension sources with staging, digest validation, risk checks, and immutable installed content.
-- A typed Action Registry shared by CLI, Desktop, slash commands, and future clients.
-- Persistent sessions, artifacts, memory, TaskRuns, checkpoints, supervised long tasks, and workflow facts.
-- Node-owned Task scheduling, Cron, Heartbeat, usage, health, and redacted Action audit facts.
-- A thin TypeScript client and an Electron/React Desktop workspace that can save and switch between a local Node and multiple trusted-LAN Nodes without exposing their bearer tokens to the Renderer.
-- Node-local product accounts with Argon2id secrets, revocable App sessions, owner-scoped Agents and work, and a shared `low < medium < high < root` privilege ceiling.
-- Desktop lifecycle management for Extensions, Operations, Agents, and Sessions, plus Session-scoped document, spreadsheet, PDF, presentation, text/code, and image upload/download with durable Artifact references.
-- Node-authoritative attachment policy with extension, MIME, magic-byte, archive, XML, page, cell, character, image-pixel, per-file, per-message, and Session-ownership limits. Original bytes remain downloadable while bounded deterministic projections are supplied to the model.
-- Google ADK-native Agent, Runner, Session, Artifact, Memory, MCP, confirmation, rewind, compaction, and evaluation integration.
+Consider a weekly operations report:
 
-## Requirements
+1. A Node administrator provisions an organizational user.
+2. The user creates a reporting Agent no more privileged than the user.
+3. The Agent reads selected project folders, approved tools, and authorized organizational history.
+4. It cannot read Node credentials, another Agent's Workspace, private network targets, or the host shell unless policy explicitly allows the relevant boundary.
+5. A scheduled Automation creates the report and saves the result as an Artifact.
+6. Operators can inspect the Run, permission decisions, failures, source citations, and resulting files.
 
-- Python 3.14
-- Node.js and pnpm for Desktop development
-- A supported model provider account or local model endpoint
-- macOS ARM64 for the currently supported packaged Desktop preview. Source development on other systems is not a release-support commitment.
+The goal is not only finished work. It is **finished work with ownership, boundaries, and evidence**.
 
-## Install from source
+## Designed for organizational trust
+
+### Many users. Many Agents. Clear ownership.
+
+- Node-local accounts use one-way Argon2id secret hashes and revocable App sessions.
+- Users, Agents, Sessions, Runs, Automations, and Artifacts have trusted server-side identity and ownership.
+- A client cannot choose another user's identity by changing a request field.
+- Ordinary users see only their authorized resources; root administration remains a separate boundary.
+- Users can create Agents only at or below their own `low < medium < high < root` privilege ceiling.
+
+### Separate user authority from Agent authority
+
+A powerful user does not require an all-powerful Agent. User privilege controls the maximum Agent authority that person may create. Agent privilege controls what the resulting Runtime may actually do. Node hard rules and Agent-specific rules narrow that authority further, with deny precedence.
+
+Permission decisions are compiled into content-addressed snapshots. The model cannot select its own privilege level, and changing a prompt does not change the trusted execution identity.
+
+### Control what an Agent can reach
+
+OpenTeamwork authorizes execution surfaces, not just UI screens:
+
+- the Agent's own Workspace;
+- external files and folders;
+- file read, write, and execute operations;
+- Commands and Processes;
+- Network destinations and redirects;
+- built-in Tools and typed Actions;
+- App, MCP, Plugin, and Skill capabilities.
+
+Rules can match paths, Agent Workspace ownership, command profiles, process provenance, network targets, stable Tool IDs, timeouts, output limits, and other adapter-enforced constraints.
+
+```text
+Reporting Agent
+├── Read       approved project folders
+├── Write      its own Workspace
+├── Use        spreadsheet and reporting Tools
+├── Connect    approved public endpoints
+└── Deny       Node data, other Agent Workspaces, and host execution
+```
+
+See [Static execution permissions](./docs/PERMISSIONS.md) for the full matrix and rule semantics.
+
+### Share organizational context without creating one public memory pool
+
+Authorized Agents can list, search, and read retained work across permitted Agents and users. Access is calculated from trusted user identity, Agent identity, and effective Agent privilege—not from model-supplied scope.
+
+- Every Agent can search its own retained Sessions.
+- Cross-Agent and cross-user access follows explicit privilege rules.
+- Root-user and root-Agent history remains protected from ordinary organizational search.
+- Results include stable Agent, owner, Session, and message citations.
+- Historical content is treated as quoted, untrusted data rather than new instructions.
+- Cross-Agent access writes a durable audit record and fails closed if that audit cannot be persisted.
+
+Knowledge is shared according to policy; it is not copied into a global memory that every Agent can read. See [Historical Session Access](./docs/SESSION_HISTORY.md).
+
+### Extend capabilities without bypassing governance
+
+OpenTeamwork supports four extension types:
+
+- **Skill:** instructions, references, and controlled scripts;
+- **App:** a managed external-service integration with authorization and Tool policy;
+- **MCP:** a directly managed local or remote Model Context Protocol server;
+- **Plugin:** a portable bundle that can provide Skills, Apps, MCP templates, Agent templates, schemas, and documentation.
+
+Discovering an extension does not make it trusted, installed, enabled, or available to every Agent. Extension mutations follow a governed lifecycle:
+
+```text
+discover → stage → validate → preview → confirm → install → enable → test
+```
+
+Sources, paths, archives, digests, dependencies, SecretRefs, Tool prefixes, risk, and Agent enablement are validated before Runtime assembly. Active Runs keep an immutable extension snapshot; updates affect future Runtime instances instead of silently changing work in progress.
+
+OpenTeamwork can also turn a useful conversation into a reviewable Skill draft with `/make-skill`, then publish it only after explicit approval.
+
+See [Extension and MCP Security](./docs/MCP_SECURITY.md).
+
+### Fail closed when a required boundary is unavailable
+
+- Non-root Command execution requires a permission-derived Docker sandbox.
+- If the required sandbox or Network boundary is unavailable, execution is denied instead of falling back to the host.
+- Non-root file Tools cannot access Node configuration, credentials, databases, or another Agent's Workspace.
+- Permission tightening is rechecked before the next Tool Action in a long-lived Runtime.
+- Permission widening requires a fresh trusted Runtime assembly.
+- Secret values are resolved only at the final provider or connection boundary and are excluded from ordinary resources, diagnostics, audit payloads, and client responses.
+
+Isolation is defense in depth, not a reason to trust unknown code. Local extensions and Docker-daemon access still require operator review.
+
+### Agent work leaves durable evidence
+
+OpenTeamwork keeps work as Node-owned facts rather than inferring completion from a confident final message:
+
+- persistent Google ADK Sessions, Artifacts, and Memory;
+- TaskRuns, TaskEvents, tool calls, checkpoints, and workflow facts;
+- durable Goals and TaskFlows with completion evidence;
+- scheduled and event-driven Automations, Cron, and Heartbeat;
+- streaming Runs with bounded reconnect and SSE replay;
+- health, usage, diagnostics, and redacted Action audit.
+
+Documents, spreadsheets, PDFs, presentations, text/code, and images can enter a Session as validated Artifacts. Original bytes remain downloadable while bounded, deterministic projections are supplied to the model. See [Sessions, Attachments, and Artifacts](./docs/ARTIFACTS.md).
+
+## Personal-first and organization-first Agents
+
+This is a difference in design center, not a claim that every organization needs the same tool.
+
+| Design question | Personal-first Agent | OpenTeamwork |
+|---|---|---|
+| Primary trust boundary | One main user and assistant | Multiple users, Agents, and trust levels |
+| Identity | Owner-centered | Authenticated organizational identities and resource ownership |
+| Authority | Broad assistant access | User ceiling ∩ Agent privilege ∩ policy |
+| Files and Tools | User-selected access | Policy-controlled paths, Commands, Network, Tools, and Actions |
+| Knowledge | Personal continuity | Permission-aware organizational history with citations and audit |
+| Extensions | User-enabled capabilities | Staged, validated, confirmed, and Agent-scoped capabilities |
+| Operations | Personal automation | Owned, durable work with evidence and operational visibility |
+
+Personal-first Agents remain an excellent fit for one user and one trust boundary. OpenTeamwork is for the point where that single boundary is no longer enough.
+
+## Quick Start
+
+### Requirements
+
+- Python 3.14 for the documented and tested source-development path;
+- Node.js and pnpm for Desktop development;
+- a supported model provider account or local model endpoint;
+- Docker when a non-root Agent needs Command execution.
+
+### 1. Install from source
 
 ```bash
+git clone https://github.com/pipixia-labs/openteamwork.git
+cd openteamwork
 python3.14 -m venv .venv
 source .venv/bin/activate
 python -m pip install -e .
 ```
 
-For an offline checkout whose build dependencies are already installed, use:
+For an offline checkout whose build dependencies are already installed:
 
 ```bash
 python -m pip install --no-build-isolation -e .
 ```
 
-## First setup
+### 2. Initialize the Node
 
-`otw setup` initializes only the Node. It does not create an Agent or Model Profile and does not request an LLM credential. By default it uses `~/.openteamwork`, listens on loopback, and requires Client API authentication.
+`otw setup` initializes the Node without asking for an LLM credential or creating an Agent:
 
 ```bash
 otw setup \
@@ -84,7 +214,7 @@ otw setup \
   --authentication required
 ```
 
-Create a root account, provide one persistent deployment token, and start the Node:
+Create the first root account, set one persistent deployment token, and start the Node:
 
 ```bash
 otw user add admin@example.com --privilege root
@@ -92,52 +222,73 @@ export OPENTEAMWORK_CLIENT_API_TOKEN='<persistent-strong-random-token>'
 otw node run
 ```
 
-The root user can then sign in through Desktop and configure the first Model Profile, credential, and Agent. To retain the previous automated all-in-one flow, opt in explicitly:
+`otw user add` collects the account secret through a hidden prompt. Ordinary Desktop users sign in with their own account secret and receive a revocable App session; they do not receive the deployment bearer token.
 
-```bash
-otw setup --with-agent \
-  --provider google \
-  --model <provider-model-id> \
-  --agent-id main \
-  --workspace <workspace-directory>
-```
+### 3. Start Desktop
 
-Only `--with-agent` may request a provider credential. Use `--no-hello` with that mode only when the complete configuration must be saved before the model is reachable; readiness still requires a successful `setup.hello` for the exact Config revisions.
-
-The default local endpoint is `http://127.0.0.1:18765`.
-
-## Desktop
-
-Install workspace dependencies and start the application from the repository root:
+In another terminal, from the repository root:
 
 ```bash
 pnpm install
 pnpm desktop:dev
 ```
 
-OpenTeamwork Desktop can supervise a local Node or connect to an already-running Node. The packaged Desktop remains a thin client; Python, model credentials, Agent data, and Node databases are installed and operated separately.
+Sign in as the root user, configure a Model Profile and protected provider credential, create the first Agent, and complete the verified first Hello.
 
-See [apps/desktop/README.md](./apps/desktop/README.md) for development, packaging, and LAN instructions.
+The default local endpoint is `http://127.0.0.1:18765`. See [OpenTeamwork Desktop](./apps/desktop/README.md) for local Node supervision, packaging, and remote connection instructions.
 
-## Remote Desktop users
+### Packaged preview
 
-Provision App accounts locally on the Node machine:
+[OpenTeamwork v0.6.1](https://github.com/pipixia-labs/openteamwork/releases/tag/v0.6.1) provides a Python wheel and an unsigned macOS Apple Silicon Desktop preview with SHA-256 checksums. The Desktop is a thin client: it does not contain Python, the Node, model credentials, or user databases.
 
-```bash
-otw user add admin@example.com --privilege root
-otw user add jiang@example.com --privilege high
-otw user list
+## Architecture
+
+```text
+CLI          OpenTeamwork Desktop          Future clients
+ |                  |                           |
+ +------------------+---------------------------+
+                    |
+          Shared Client Contract
+       identity · auth · HTTP/SSE · Actions
+                    |
+             OpenTeamwork Node
+ Config · Models · Extensions · Operations · Audit
+                    |
+       Runtime Supervisor + immutable snapshots
+                    |
+               Google ADK
+ Agent · Runner · Session · Artifact · Memory · MCP
 ```
 
-For remote login, keep the Client API on `127.0.0.1`, require deployment authentication, and expose it only through a same-host HTTPS reverse proxy. Desktop users sign in with their own email and secret; they do not receive the deployment bearer token.
+The Node is the source of truth. Desktop and CLI use the same typed application boundary; clients do not read or rewrite Node business files. This keeps identity, policy, audit, and lifecycle behavior consistent across interactive clients, slash commands, automation, and future integrations.
 
-See [Users and remote App access](./docs/USERS.md) for the complete machine-A/machine-B procedure, HTTPS proxy boundary, service-manager note, authorization rules, and backup guidance.
+OpenTeamwork uses Google ADK's Agent, Runner, Session, Artifact, Memory, MCP, Plugin, rewind, compaction, resumability, and evaluation boundaries instead of building a parallel Agent loop.
 
-## CLI
+See [Project Architecture](./docs/PROJECT_OVERVIEW.md) and the [Client API contract](./contracts/client-api/README.md).
 
-`otw` is the documented terminal command. The installed `openteamwork` command is an equivalent long-form entry point.
+## Security model
 
-The stable top-level groups are deliberately small:
+OpenTeamwork uses defense in depth across identity, policy, Runtime assembly, and the actual execution adapters:
+
+1. The Node authenticates the caller and resolves server-trusted identity.
+2. User privilege limits which Agents and administrative resources the caller may control.
+3. Agent privilege, Node hard rules, and Agent rules compile into an immutable baseline.
+4. Tool, Path, Command, Process, and Network adapters authorize trusted Runtime facts at the side-effect boundary.
+5. High-risk Actions require policy permission, confirmation, and durable audit start.
+6. Secrets remain references until the final SDK or connection boundary.
+
+For remote Desktop access, keep the Python Client API on loopback and expose it only through a same-host HTTPS reverse proxy. Do not expose the Client API port directly to a LAN or the public internet.
+
+Read the operational details before granting real authority:
+
+- [Static execution permissions](./docs/PERMISSIONS.md)
+- [Extension and MCP security](./docs/MCP_SECURITY.md)
+- [Docker sandbox and Network policy](./docs/SANDBOX.md)
+- [Users and remote App access](./docs/USERS.md)
+
+## CLI and operations
+
+`otw` is the documented command; `openteamwork` is an equivalent long-form entry point.
 
 ```text
 otw status
@@ -154,14 +305,7 @@ otw operations status|health|tasks|cron|heartbeat|usage|audit
 
 Commands that manage a running Node accept `--url` and `--token`. Add `--json` for machine-readable output. Use `otw <group> --help` for exact inputs and optimistic-revision requirements.
 
-Action discovery and direct invocation are useful for debugging shared client behavior:
-
-```bash
-otw action list --projection cli
-otw action invoke system.status --input-json '{}'
-```
-
-Slash commands use the same Action catalog:
+Slash commands are projections of the same typed Action catalog:
 
 ```bash
 otw command '/status'
@@ -169,104 +313,71 @@ otw command '/skills' --agent main
 otw command '/history' --agent main --session <session-id>
 ```
 
-## Extensions
-
-OpenTeamwork uses four product-level extension types:
-
-- **Plugin:** a versioned declarative bundle that can provide Skills, App definitions, MCP templates, Agent templates, schemas, and documentation.
-- **App:** a managed external-service integration with product identity, authorization state, grants, and tool policy.
-- **MCP:** a directly managed local or remote Model Context Protocol server.
-- **Skill:** instructions, references, and controlled scripts loaded for an Agent.
-
-Every install follows a staged lifecycle:
-
-```text
-discover -> stage -> validate -> preview -> confirm -> install -> enable -> test
-```
-
-Preview first, retain the returned digest, then install with that exact digest. Installed content is immutable and an active Run keeps its pinned extension snapshot.
-
-```bash
-otw extension list --agent main
-otw extension preview skill local_directory <source-directory>
-otw extension install skill local_directory <source-directory> <expected-digest>
-```
-
-## Operations
-
-```bash
-otw status
-otw operations status
-otw operations health
-otw operations tasks --limit 20
-otw operations cron list
-otw operations heartbeat status
-otw operations usage --limit 20
-otw operations audit --limit 50
-```
-
-`otw status` is a shortcut for `otw operations status`.
-
-Cron and Heartbeat are owned by the long-lived Node process. Their actions, failures, and TaskRuns appear in the same Operations and audit surfaces used by Desktop.
-
-## Security model
-
-- Secrets are represented by `SecretRef`; ordinary resource JSON, diagnostics, audit, and client responses never contain secret values.
-- Remote App login requires HTTPS terminated by a reverse proxy on the Node host; the Python Client API remains loopback-only.
-- App users receive revocable opaque sessions and cannot select another user's identity, Agent, Session, Run, or Artifact.
-- High-risk Actions require both policy permission and explicit confirmation.
-- Action audits store bounded identities, decisions, and outcomes rather than request or response payloads.
-- Extensions are staged and validated before activation; declarative Product Plugins cannot execute arbitrary host initialization code.
-- Docker sandbox support is available for dangerous local execution, but access to the Docker daemon remains host-powerful.
-
-See [docs/PERMISSIONS.md](./docs/PERMISSIONS.md), [docs/MCP_SECURITY.md](./docs/MCP_SECURITY.md), and [docs/SANDBOX.md](./docs/SANDBOX.md).
-
 ## Repository layout
 
 ```text
-openppx/                    Python Node, domains, runtime, and built-in Skills
+openppx/                    Python Node, domains, Runtime, and built-in Skills
 packages/client/            Shared TypeScript Client Contract implementation
 apps/desktop/               Electron/React Desktop
 contracts/client-api/       Versioned schemas, protocol notes, and fixtures
 tests/                      Unit, integration, contract, architecture, and eval tests
-docs/                       User and operator documentation
+docs/                       User, security, architecture, and operator documentation
 ```
 
-## Development verification
+## Development and verification
 
-Run the canonical offline-friendly gate from the repository root. It uses package-local tools and does not require Corepack to download pnpm:
+Run the canonical offline-friendly verification gate from the repository root:
 
 ```bash
 ./.venv/bin/python scripts/verify.py
 ```
 
-Before creating a macOS ARM64 preview artifact, include the unsigned directory package and packaged-preload check:
+It verifies Python, the TypeScript Client, Desktop, Electron preload, strict types, and production builds. Before producing the macOS Apple Silicon preview artifact, include the package checks:
 
 ```bash
 ./.venv/bin/python scripts/verify.py --package
 ```
 
-Use `--list`, `--skip-python`, or `--skip-build` only for diagnostics; the full gate remains the acceptance source of truth.
+Use `--list`, `--skip-python`, or `--skip-build` only for diagnostics; the complete gate remains the acceptance source of truth.
 
 ## Documentation
 
+- [Documentation index](./docs/README.md)
 - [Project architecture](./docs/PROJECT_OVERVIEW.md)
-- [Configuration and models](./docs/CONFIGURATION.md)
+- [Configuration and Model Profiles](./docs/CONFIGURATION.md)
 - [Static execution permissions](./docs/PERMISSIONS.md)
-- [Operations](./docs/OPERATIONS.md)
+- [Historical Session access](./docs/SESSION_HISTORY.md)
+- [Sessions, attachments, and Artifacts](./docs/ARTIFACTS.md)
+- [Node operations](./docs/OPERATIONS.md)
 - [Users and remote App access](./docs/USERS.md)
-- [Sessions, attachments, and artifacts](./docs/ARTIFACTS.md)
-- [Client API contract](./contracts/client-api/README.md)
-- [Desktop](./apps/desktop/README.md)
-- [MCP and extension security](./docs/MCP_SECURITY.md)
+- [Extension and MCP security](./docs/MCP_SECURITY.md)
 - [Office connectors](./docs/OFFICE_CONNECTORS.md)
 - [Sandbox](./docs/SANDBOX.md)
 - [Use cases](./docs/USE_CASES.md)
 
-## Current boundaries
+## Project status and boundaries
 
-- CLI and Desktop are first-class clients; a mobile client is a future consumer of the same contract, not part of the current build.
-- Multiple Node targets and encrypted endpoint/user-bound App session tokens are implemented. TLS termination is an administrator-provided reverse proxy; automatic certificates, discovery, SSO, password reset, account privilege changes, SSH/Tailnet setup, and a public relay are future work.
-- Message attachments currently support modern DOCX, XLSX, CSV, text-based PDF, PPTX, PNG, JPEG, WebP, and a bounded set of UTF-8 text/code formats. Legacy `.doc`, `.xls`, and `.ppt`, scanned-PDF OCR, encrypted PDFs, and arbitrary binary files are deliberately rejected with a conversion or capability message.
-- Public extension catalogs, cloud hosting, improved memory, self-evolution, and deeper long-task intelligence remain later product layers over the current Node foundation.
-- The current macOS Desktop artifact is a developer preview and is not signed or notarized.
+The latest published version is [v0.6.1 Secure Multi-User History Preview](./docs/releases/v0.6.1.md).
+
+- CLI and Desktop are the current first-class clients. A mobile client is future work.
+- The packaged Desktop preview currently targets macOS Apple Silicon and is unsigned and not notarized.
+- Remote access requires administrator-provided HTTPS termination; automatic certificates, discovery, SSO, password reset, and a public relay are not implemented.
+- Permission-aware organizational history is implemented. Owner/participant access and member-scoped Agent Memory foundations exist in the current source, while a complete shared-Agent Desktop workflow is still under active development.
+- Message attachments support modern DOCX, XLSX, CSV, text-based PDF, PPTX, PNG, JPEG, WebP, and a bounded set of UTF-8 text/code formats. Legacy Office formats, scanned-PDF OCR, encrypted PDFs, and arbitrary binary files are deliberately rejected.
+- Public extension catalogs, hosted operation, and deeper long-task intelligence remain future product layers.
+- Docker isolation does not make an unknown extension safe, and Docker daemon access remains host-powerful.
+
+## Contributing
+
+Bug reports, design feedback, documentation improvements, tests, integrations, and focused pull requests are welcome. For a substantial change, please [open an issue](https://github.com/pipixia-labs/openteamwork/issues) first so the permission, product, and Google ADK boundaries can be agreed before implementation.
+
+If OpenTeamwork's organization-first direction is useful to you:
+
+- ⭐ **Star the repository** so more builders can discover it;
+- share the project with teams exploring self-hosted Agents;
+- try the Developer Preview and report the rough edges;
+- contribute a reproducible test, security review, integration, or documentation improvement.
+
+## License
+
+OpenTeamwork is open source under the [Apache License 2.0](./LICENSE).
