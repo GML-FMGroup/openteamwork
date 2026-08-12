@@ -65,7 +65,7 @@ Authenticated user
       = effective authority for this action
 ```
 
-Projects such as [OpenClaw](https://github.com/openclaw/openclaw), [Hermes Agent](https://github.com/NousResearch/hermes-agent), and [nanobot](https://github.com/HKUDS/nanobot) focus primarily on making a personal Agent more capable. OpenTeamwork focuses on the additional control-plane, knowledge-sharing, execution-governance, and evidence problems that appear when Agents become organizational infrastructure.
+OpenTeamwork is an independently developed Agent platform built from the ground up. Agent capability and organizational safety are part of the same architecture: identity, permissions, knowledge sharing, extension governance, execution boundaries, and durable evidence are designed into the platform from the beginning—not added later around an existing personal assistant.
 
 OpenTeamwork is for the point where one owner and one trust boundary are no longer enough.
 

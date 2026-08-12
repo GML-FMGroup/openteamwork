@@ -67,7 +67,7 @@ OpenTeamwork 将这个决定放在由 Node 持有的控制平面中，而不是�
       = 本次操作的有效权限
 ```
 
-[OpenClaw](https://github.com/openclaw/openclaw)、[Hermes Agent](https://github.com/NousResearch/hermes-agent) 和 [nanobot](https://github.com/HKUDS/nanobot) 等项目主要致力于让个人 Agent 更强大。OpenTeamwork 关注的是当 Agent 成为组织基础设施后新增的控制平面、知识共享、执行治理与证据问题。
+OpenTeamwork 是一个从零开始独立研发的 Agent 平台。Agent 能力与组织级安全属于同一套架构：身份、权限、知识共享、扩展治理、执行边界与持久证据从一开始就被纳入平台设计，而不是在一个已有的个人助手外围后加一层。
 
 当一位所有者和一条信任边界已经不再足够时，正是 OpenTeamwork 所面向的场景。
 
