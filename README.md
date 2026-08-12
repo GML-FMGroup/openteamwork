@@ -7,12 +7,13 @@
 </p>
 
 <p align="center">
-  <strong>The self-hosted control plane and trusted execution runtime for organizational AI Agents.</strong>
+  <strong>Bring AI agents into your organization—without losing control of information or access.</strong>
 </p>
 
 <p align="center">
-  Keep identity, authority, model access, execution, organizational knowledge,<br>
-  Token usage, and audit under one self-hosted Node.
+  OpenTeamwork is a self-hosted Agent platform for organizations.<br>
+  One trusted Node governs identities, model access, execution permissions, shared knowledge,<br>
+  Token usage, and audit.
 </p>
 
 <p align="center">
@@ -20,7 +21,7 @@
   <a href="#why-openteamwork">Why OpenTeamwork</a> ·
   <a href="#security-model">Security</a> ·
   <a href="./docs/README.md">Documentation</a> ·
-  <a href="https://github.com/pipixia-labs/openteamwork/releases/tag/v0.6.1">Latest Preview</a>
+  <a href="https://github.com/GML-FMGroup/openteamwork/releases/tag/v0.6.1">Latest Preview</a>
 </p>
 
 <p align="center">
@@ -31,47 +32,29 @@
 </p>
 
 > [!WARNING]
-> OpenTeamwork is a **Developer Preview**, not a production-ready release. The current packaged Desktop preview supports macOS Apple Silicon and is unsigned and not notarized. Review the [current boundaries](#project-status-and-boundaries) before using it with sensitive systems.
+> OpenTeamwork is a **Developer Preview**, not yet production-ready. The packaged Desktop currently supports Apple silicon Macs only and is unsigned and not notarized. Review the [current boundaries](#project-status-and-boundaries) before connecting it to sensitive systems.
 
-## Why OpenTeamwork
+<a id="why-openteamwork"></a>
 
-Models can plan, call Tools, and generate convincing answers. But **model intent is not organizational authority**.
+## Work needs more than a personal assistant
 
-A personal assistant can often rely on one primary user and one trust boundary. An organization cannot. It has many users, many Agents, shared knowledge, sensitive systems, and different levels of authority. For every meaningful action, it must answer a stricter question:
+Personal assistants work well when one person controls the credentials, memory, and access. But that default trust model does not transfer safely into organizational work. It can mix personal and work context, expose sensitive information beyond its intended audience, or let an Agent reach files, Tools, and systems the task never needed.
 
-> **May this Agent, operating within this authenticated user's authority, perform this action against this resource?**
+An organization has many users, many Agents, shared knowledge, sensitive systems, and different levels of authority. The question is no longer only whether an Agent *can* complete a task, but:
 
-OpenTeamwork keeps that decision in a Node-owned control plane, outside the model and its Prompt. The model can propose work; trusted identity, compiled policy, and execution-boundary checks determine what may actually happen. The resulting work, usage, and policy decisions become durable Node-owned facts instead of claims made by the Agent itself.
+> **Should this Agent, acting within this user's authority, be allowed to perform this action on this resource?**
 
-| Trust stage | What OpenTeamwork controls |
-|---|---|
-| **Identity** | Authenticated users, server-owned Agent identity, privilege, ownership, and resource scope |
-| **Authority** | The intersection of user ceilings, Agent privilege, Node hard rules, and Agent-specific permissions |
-| **Action** | Tool visibility, invocation-time authorization, and enforcement at File, Command, Process, Network, App, and MCP boundaries |
-| **Evidence** | Sessions, TaskRuns, Artifacts, Token usage, outcomes, and redacted audit records |
+OpenTeamwork puts that decision outside the model and its Prompt. The model proposes; the Node evaluates trusted identity and policy, enforces the result where actions happen, and records durable evidence. What happened—and why it was allowed—no longer has to be inferred from the Agent's answer.
 
 ```text
 Trusted identity  →  bounded authority  →  governed action  →  durable evidence
 ```
 
-Effective authority narrows at execution time:
+OpenTeamwork is an independently developed Agent platform, built from the ground up for organizational work. Agent capability, identity, permission boundaries, knowledge sharing, extension governance, and audit have been designed as one system from the beginning.
 
-```text
-Authenticated user
-      ∩ user privilege ceiling
-      ∩ Agent privilege
-      ∩ Node hard rules
-      ∩ Agent-specific permissions
-      = effective authority for this action
-```
+## Control built into every layer
 
-OpenTeamwork is an independently developed Agent platform built from the ground up. Agent capability and organizational safety are part of the same architecture: identity, permissions, knowledge sharing, extension governance, execution boundaries, and durable evidence are designed into the platform from the beginning—not added later around an existing personal assistant.
-
-OpenTeamwork is for the point where one owner and one trust boundary are no longer enough.
-
-## Control from identity to execution
-
-### Centralize model access, Token usage, and audit
+### Manage model access, Token usage, and audit in one place
 
 Administrators configure approved Model Profiles and protected provider credentials once at the Node. Authorized users and Agents can use those models without receiving the underlying API keys.
 
@@ -82,7 +65,7 @@ Administrators configure approved Model Profiles and protected provider credenti
 
 This provides centralized access and operational visibility—not a claim of per-user billing, departmental budgets, quotas, or chargeback. See [Configuration and Model Profiles](./docs/CONFIGURATION.md) and [Node Operations](./docs/OPERATIONS.md).
 
-### Many users. Many Agents. Clear ownership.
+### Trusted identities, clear ownership
 
 - Node-local accounts use one-way Argon2id secret hashes and revocable App sessions.
 - Users, Agents, Sessions, Runs, Automations, and Artifacts have trusted server-side identity and ownership.
@@ -90,13 +73,22 @@ This provides centralized access and operational visibility—not a claim of per
 - Ordinary users see only their authorized resources; root administration remains a separate boundary.
 - Users can create Agents only at or below their own `low < medium < high < root` privilege ceiling.
 
-### Separate user authority from Agent authority
+### Each Agent gets only the authority it needs
 
 A powerful user does not require an all-powerful Agent. User privilege controls the maximum Agent authority that person may create. Agent privilege controls what the resulting Runtime may actually do. Node hard rules and Agent-specific rules narrow that authority further, with deny precedence.
 
+```text
+Authenticated user
+      ∩ user privilege ceiling
+      ∩ Agent privilege
+      ∩ Node hard rules
+      ∩ Agent-specific permissions
+      = effective authority for this action
+```
+
 Permission decisions are compiled into content-addressed snapshots. The model cannot select its own privilege level, and changing a prompt does not change the trusted execution identity.
 
-### Control what an Agent can reach
+### Enforce permissions where actions happen
 
 OpenTeamwork authorizes execution surfaces, not just UI screens:
 
@@ -121,7 +113,7 @@ Reporting Agent
 
 See [Static execution permissions](./docs/PERMISSIONS.md) for the full matrix and rule semantics.
 
-### Share organizational context without creating one public memory pool
+### Share knowledge without making everything public
 
 Authorized Agents can list, search, and read retained work across permitted Agents and users. Access is calculated from trusted user identity, Agent identity, and effective Agent privilege—not from model-supplied scope.
 
@@ -155,7 +147,7 @@ OpenTeamwork can also turn a useful conversation into a reviewable Skill draft w
 
 See [Extension and MCP Security](./docs/MCP_SECURITY.md).
 
-### Fail closed when a required boundary is unavailable
+### If protection is unavailable, execution stops
 
 - Non-root Command execution requires a permission-derived Docker sandbox.
 - If the required sandbox or Network boundary is unavailable, execution is denied instead of falling back to the host.
@@ -166,7 +158,7 @@ See [Extension and MCP Security](./docs/MCP_SECURITY.md).
 
 Isolation is defense in depth, not a reason to trust unknown code. Local extensions and Docker-daemon access still require operator review.
 
-### Agent work leaves durable evidence
+### Keep evidence, not just answers
 
 OpenTeamwork keeps work as Node-owned facts rather than inferring completion from a confident final message:
 
@@ -178,23 +170,6 @@ OpenTeamwork keeps work as Node-owned facts rather than inferring completion fro
 - health, usage, diagnostics, and redacted Action audit.
 
 Documents, spreadsheets, PDFs, presentations, text/code, and images can enter a Session as validated Artifacts. Original bytes remain downloadable while bounded, deterministic projections are supplied to the model. See [Sessions, Attachments, and Artifacts](./docs/ARTIFACTS.md).
-
-## Personal-first and organization-first Agents
-
-This is a difference in design center, not a claim that every organization needs the same tool.
-
-| Design question | Personal-first Agent | OpenTeamwork |
-|---|---|---|
-| Primary trust boundary | One main user and assistant | Multiple users, Agents, and trust levels |
-| Identity | Owner-centered | Authenticated organizational identities and resource ownership |
-| Authority | Broad assistant access | User ceiling ∩ Agent privilege ∩ policy |
-| Model access | User-managed provider keys and usage | Node-managed credentials, centralized Token usage, and redacted audit |
-| Files and Tools | User-selected access | Policy-controlled paths, Commands, Network, Tools, and Actions |
-| Knowledge | Personal continuity | Permission-aware organizational history with citations and audit |
-| Extensions | User-enabled capabilities | Staged, validated, confirmed, and Agent-scoped capabilities |
-| Operations | Personal automation | Owned, durable work with evidence and operational visibility |
-
-Personal-first Agents remain an excellent fit for one user and one trust boundary. OpenTeamwork is for the point where that single boundary is no longer enough.
 
 ## Quick Start
 
@@ -208,7 +183,7 @@ Personal-first Agents remain an excellent fit for one user and one trust boundar
 ### 1. Install from source
 
 ```bash
-git clone https://github.com/pipixia-labs/openteamwork.git
+git clone https://github.com/GML-FMGroup/openteamwork.git
 cd openteamwork
 python3.14 -m venv .venv
 source .venv/bin/activate
@@ -257,7 +232,7 @@ The default local endpoint is `http://127.0.0.1:18765`. See [OpenTeamwork Deskto
 
 ### Packaged preview
 
-[OpenTeamwork v0.6.1](https://github.com/pipixia-labs/openteamwork/releases/tag/v0.6.1) provides a Python wheel and an unsigned macOS Apple Silicon Desktop preview with SHA-256 checksums. The Desktop is a thin client: it does not contain Python, the Node, model credentials, or user databases.
+[OpenTeamwork v0.6.1](https://github.com/GML-FMGroup/openteamwork/releases/tag/v0.6.1) provides a Python wheel and an unsigned macOS Apple Silicon Desktop preview with SHA-256 checksums. The Desktop is a thin client: it does not contain Python, the Node, model credentials, or user databases.
 
 ## Architecture
 
@@ -373,7 +348,9 @@ Use `--list`, `--skip-python`, or `--skip-build` only for diagnostics; the compl
 - [Sandbox](./docs/SANDBOX.md)
 - [Use cases](./docs/USE_CASES.md)
 
-## Project status and boundaries
+<a id="project-status-and-boundaries"></a>
+
+## Developer Preview: current capabilities and boundaries
 
 The latest published version is [v0.6.1 Secure Multi-User History Preview](./docs/releases/v0.6.1.md).
 
@@ -387,7 +364,7 @@ The latest published version is [v0.6.1 Secure Multi-User History Preview](./doc
 
 ## Contributing
 
-Bug reports, design feedback, documentation improvements, tests, integrations, and focused pull requests are welcome. For a substantial change, please [open an issue](https://github.com/pipixia-labs/openteamwork/issues) first so the permission, product, and Google ADK boundaries can be agreed before implementation.
+Bug reports, design feedback, documentation improvements, tests, integrations, and focused pull requests are welcome. For a substantial change, please [open an issue](https://github.com/GML-FMGroup/openteamwork/issues) first so the permission, product, and Google ADK boundaries can be agreed before implementation.
 
 If OpenTeamwork's organization-first direction is useful to you:
 

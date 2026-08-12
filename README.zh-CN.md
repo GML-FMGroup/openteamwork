@@ -7,12 +7,13 @@
 </p>
 
 <p align="center">
-  <strong>面向组织级 AI Agent 的自托管控制平面与可信执行运行时。</strong>
+  <strong>让 AI Agent 参与组织工作，同时守住信息与访问边界。</strong>
 </p>
 
 <p align="center">
-  将身份、权限、模型访问、实际执行、组织知识、<br>
-  Token 用量与审计统一纳入一个自托管 Node。
+  OpenTeamwork 是面向组织的自托管 Agent 平台。<br>
+  一个可信 Node 统一管理身份、模型访问、执行权限、共享知识、<br>
+  Token 用量与操作审计。
 </p>
 
 <p align="center">
@@ -20,7 +21,7 @@
   <a href="#why-openteamwork">为什么选择 OpenTeamwork</a> ·
   <a href="#security-model">安全模型</a> ·
   <a href="./docs/README.md">文档</a> ·
-  <a href="https://github.com/pipixia-labs/openteamwork/releases/tag/v0.6.1">最新预览版</a>
+  <a href="https://github.com/GML-FMGroup/openteamwork/releases/tag/v0.6.1">最新预览版</a>
 </p>
 
 <p align="center">
@@ -31,49 +32,29 @@
 </p>
 
 > [!WARNING]
-> OpenTeamwork 目前是**开发者预览版**，尚未达到生产就绪状态。当前打包的桌面预览版仅支持搭载 Apple 芯片的 macOS，并且尚未签名和公证。用于敏感系统前，请先阅读[当前状态与边界](#project-status-and-boundaries)。
+> OpenTeamwork 目前是**开发者预览版**，尚未达到生产就绪状态。打包的 Desktop 当前仅支持搭载 Apple 芯片的 Mac，并且尚未签名和公证。接入敏感系统前，请先阅读[当前状态与边界](#project-status-and-boundaries)。
 
 <a id="why-openteamwork"></a>
 
-## 为什么选择 OpenTeamwork
+## 工作场景需要的不只是个人助手
 
-模型可以规划任务、调用 Tool，也可以生成听起来非常可信的答案。但**模型的意图不等于组织授予的权限**。
+个人助手很适合由一个人掌控凭据、记忆和访问范围的场景。但这套默认信任模型不能安全地直接搬进组织：个人上下文与工作信息可能混在一起，敏感内容可能越过应有的可见范围，Agent 也可能访问当前任务并不需要的文件、Tool 或系统。
 
-个人助手通常可以围绕一位主要用户和一条信任边界运行，组织却不能。组织中存在多位用户、多个 Agent、共享知识、敏感系统，以及不同级别的权限。面对每一个会产生实际影响的操作，系统都必须回答一个更严格的问题：
+组织中有多位用户、多个 Agent、共享知识、敏感系统，以及不同级别的权限。问题不再只是“Agent 能不能完成任务”，还包括：
 
-> **这个 Agent 在当前已认证用户的权限范围内，是否可以对这个资源执行这项操作？**
+> **这个 Agent 在当前用户的权限范围内，是否应该被允许对这个资源执行这项操作？**
 
-OpenTeamwork 将这个决定放在由 Node 持有的控制平面中，而不是交给模型或 Prompt。模型可以提出要做什么；可信身份、编译后的权限策略和执行边界检查共同决定什么可以真正发生。最终的工作、用量和策略决定会成为由 Node 持有的持久事实，而不是 Agent 对自身行为的描述。
-
-| 可信链路 | OpenTeamwork 控制的内容 |
-|---|---|
-| **身份** | 已认证用户，以及由服务端持有的 Agent 身份、权限级别、归属和资源范围 |
-| **权限** | 用户权限上限、Agent 权限级别、Node 强制规则和 Agent 专属权限的交集 |
-| **行动** | Tool 可见性、调用时授权，以及 File、Command、Process、Network、App 和 MCP 边界的实际强制执行 |
-| **证据** | Session、TaskRun、Artifact、Token 用量、操作结果和脱敏审计记录 |
+OpenTeamwork 把这个决定放在模型和 Prompt 之外。模型提出行动；Node 根据可信身份和权限策略做出判断，在操作发生的地方执行约束，并留下持久证据。发生了什么、为什么被允许，不再需要从 Agent 的回答中推断。
 
 ```text
 可信身份  →  权限边界  →  受控行动  →  持久证据
 ```
 
-本次操作的有效权限会在执行时逐层收窄：
+OpenTeamwork 是一个从零开始、面向组织工作独立研发的 Agent 平台。Agent 能力、身份、权限边界、知识共享、扩展治理与审计从一开始就是同一套系统的一部分。
 
-```text
-已认证用户
-      ∩ 用户权限上限
-      ∩ Agent 权限级别
-      ∩ Node 强制规则
-      ∩ Agent 专属权限
-      = 本次操作的有效权限
-```
+## 把控制内置到每一层
 
-OpenTeamwork 是一个从零开始独立研发的 Agent 平台。Agent 能力与组织级安全属于同一套架构：身份、权限、知识共享、扩展治理、执行边界与持久证据从一开始就被纳入平台设计，而不是在一个已有的个人助手外围后加一层。
-
-当一位所有者和一条信任边界已经不再足够时，正是 OpenTeamwork 所面向的场景。
-
-## 从身份到执行的组织级控制
-
-### 集中管理模型访问、Token 用量与操作审计
+### 模型访问、Token 用量与审计统一管理
 
 管理员只需在 Node 上集中配置获准使用的 Model Profile 和受保护的模型服务商凭据。获得授权的用户与 Agent 可以使用这些模型，却不会拿到背后的 API Key。
 
@@ -84,7 +65,7 @@ OpenTeamwork 是一个从零开始独立研发的 Agent 平台。Agent 能力与
 
 这提供的是集中访问控制和运营可见性，并不代表当前已经支持按用户计费、部门预算、额度限制或成本分摊。详见[配置与 Model Profile](./docs/CONFIGURATION.md)和 [Node 运维](./docs/OPERATIONS.md)。
 
-### 多位用户，多个 Agent，归属清晰
+### 可信身份，清晰归属
 
 - Node 本地账号使用单向 Argon2id 密码哈希与可撤销的 App Session。
 - 用户、Agent、Session、Run、Automation 和 Artifact 都拥有由服务端信任的身份与归属信息。
@@ -92,13 +73,22 @@ OpenTeamwork 是一个从零开始独立研发的 Agent 平台。Agent 能力与
 - 普通用户只能看到自己有权访问的资源；root 管理边界保持独立。
 - 用户只能创建不高于自身 `low < medium < high < root` 权限上限的 Agent。
 
-### 分离用户权限与 Agent 权限
+### 每个 Agent 只获得所需权限
 
 高权限用户并不意味着必须使用一个拥有全部权限的 Agent。用户权限决定其能够创建的 Agent 权限上限，Agent 权限决定 Runtime 实际可以执行什么；Node 强制规则和 Agent 专属规则还会进一步收窄权限，并且拒绝规则优先。
 
+```text
+已认证用户
+      ∩ 用户权限上限
+      ∩ Agent 权限级别
+      ∩ Node 强制规则
+      ∩ Agent 专属权限
+      = 本次操作的有效权限
+```
+
 权限决定会被编译为内容寻址的快照。模型不能选择自己的权限级别，修改 Prompt 也不会改变可信的执行身份。
 
-### 控制 Agent 能够触达的范围
+### 在操作发生的地方校验权限
 
 OpenTeamwork 授权的是实际执行面，而不只是界面入口：
 
@@ -123,7 +113,7 @@ OpenTeamwork 授权的是实际执行面，而不只是界面入口：
 
 完整权限矩阵与规则语义请参阅[静态执行权限](./docs/PERMISSIONS.md)。
 
-### 共享组织上下文，而不是建立一个所有人可读的公共记忆池
+### 共享知识，不等于公开一切
 
 获得授权的 Agent 可以列出、搜索和读取允许范围内其他 Agent 与用户保留的工作记录。访问范围由可信的用户身份、Agent 身份与 Agent 有效权限共同计算，而不是由模型自己声明。
 
@@ -136,7 +126,7 @@ OpenTeamwork 授权的是实际执行面，而不只是界面入口：
 
 知识按照权限策略共享，而不是被复制到一个所有 Agent 都可读取的全局 Memory 中。详见[历史 Session 访问](./docs/SESSION_HISTORY.md)。
 
-### 扩展能力，但不绕过治理
+### 扩展能力，不绕过治理
 
 OpenTeamwork 支持四类扩展：
 
@@ -157,7 +147,7 @@ OpenTeamwork 还可以通过 `/make-skill` 将一次有价值的对话生成可�
 
 详见[扩展与 MCP 安全](./docs/MCP_SECURITY.md)。
 
-### 必要边界不可用时失败关闭
+### 安全边界不可用，就不执行
 
 - 非 root Agent 执行 Command 时必须使用根据权限生成的 Docker Sandbox。
 - 如果必需的 Sandbox 或 Network 边界不可用，系统会拒绝执行，而不是退回宿主机运行。
@@ -168,7 +158,7 @@ OpenTeamwork 还可以通过 `/make-skill` 将一次有价值的对话生成可�
 
 隔离是纵深防御的一部分，并不代表未知代码可以被信任。本地扩展和 Docker Daemon 访问仍然需要管理员审查。
 
-### Agent 的工作会留下持久证据
+### 留下证据，而不只是一句答案
 
 OpenTeamwork 将工作保存为 Node 所有的事实，而不是根据模型自信的最终回复判断任务是否完成：
 
@@ -180,23 +170,6 @@ OpenTeamwork 将工作保存为 Node 所有的事实，而不是根据模型自�
 - 健康状态、用量、诊断和脱敏 Action 审计。
 
 文档、表格、PDF、演示文稿、文本/代码和图片可以作为经过验证的 Artifact 进入 Session。原始文件可以继续下载，同时只向模型提供有界、确定性的内容投影。详见 [Session、附件与 Artifact](./docs/ARTIFACTS.md)。
-
-## 个人优先与组织优先的 Agent
-
-这是一种设计重心的差异，并不意味着每个组织都需要同一种工具。
-
-| 设计问题 | 个人优先 Agent | OpenTeamwork |
-|---|---|---|
-| 主要信任边界 | 一位主要用户和一个助手 | 多位用户、多个 Agent 与不同信任级别 |
-| 身份 | 以所有者为中心 | 已认证的组织身份与资源归属 |
-| 权限 | 助手通常拥有较宽权限 | 用户上限 ∩ Agent 权限 ∩ 策略 |
-| 模型访问 | 用户自行管理服务商密钥与用量 | Node 管理凭据、集中 Token 用量与脱敏审计 |
-| 文件与 Tool | 用户选择访问范围 | 由策略控制路径、Command、Network、Tool 与 Action |
-| 知识 | 个人连续记忆 | 带引用和审计的权限感知组织历史 |
-| 扩展 | 用户自行启用能力 | 分阶段校验、确认并限定到 Agent 的能力 |
-| 运维 | 个人自动化 | 有归属、可持久化、带证据和运营可见性的工作 |
-
-个人优先 Agent 仍然非常适合一位用户与一条信任边界。OpenTeamwork 面向的是单一信任边界已经不再足够的场景。
 
 <a id="quick-start"></a>
 
@@ -212,7 +185,7 @@ OpenTeamwork 将工作保存为 Node 所有的事实，而不是根据模型自�
 ### 1. 从源码安装
 
 ```bash
-git clone https://github.com/pipixia-labs/openteamwork.git
+git clone https://github.com/GML-FMGroup/openteamwork.git
 cd openteamwork
 python3.14 -m venv .venv
 source .venv/bin/activate
@@ -261,7 +234,7 @@ pnpm desktop:dev
 
 ### 打包预览版
 
-[OpenTeamwork v0.6.1](https://github.com/pipixia-labs/openteamwork/releases/tag/v0.6.1) 提供 Python Wheel，以及未签名的 macOS Apple 芯片 Desktop 预览版和 SHA-256 校验值。Desktop 是一个轻量客户端，其中不包含 Python、Node、模型凭据或用户数据库。
+[OpenTeamwork v0.6.1](https://github.com/GML-FMGroup/openteamwork/releases/tag/v0.6.1) 提供 Python Wheel，以及未签名的 macOS Apple 芯片 Desktop 预览版和 SHA-256 校验值。Desktop 是一个轻量客户端，其中不包含 Python、Node、模型凭据或用户数据库。
 
 ## 架构
 
@@ -381,7 +354,7 @@ docs/                       用户、安全、架构与运维文档
 
 <a id="project-status-and-boundaries"></a>
 
-## 项目状态与边界
+## 开发者预览版：当前能力与边界
 
 最新发布版本是 [v0.6.1 Secure Multi-User History Preview](./docs/releases/v0.6.1.md)。
 
@@ -395,7 +368,7 @@ docs/                       用户、安全、架构与运维文档
 
 ## 参与贡献
 
-我们欢迎 Bug 报告、设计反馈、文档改进、测试、集成和范围清晰的 Pull Request。对于较大的改动，请先[创建 Issue](https://github.com/pipixia-labs/openteamwork/issues)，以便提前确认权限、产品与 Google ADK 边界。
+我们欢迎 Bug 报告、设计反馈、文档改进、测试、集成和范围清晰的 Pull Request。对于较大的改动，请先[创建 Issue](https://github.com/GML-FMGroup/openteamwork/issues)，以便提前确认权限、产品与 Google ADK 边界。
 
 如果你认同 OpenTeamwork 面向组织的方向：
 
