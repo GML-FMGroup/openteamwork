@@ -129,9 +129,10 @@ class OpenAICodexLlm(BaseLlm):
                 model_version=self.model,
             )
         except Exception as exc:
+            message = str(exc).strip() or type(exc).__name__
             yield LlmResponse(
                 error_code="CODEX_ERROR",
-                error_message=str(exc),
+                error_message=message,
                 finish_reason=types.FinishReason.OTHER,
                 turn_complete=True,
                 partial=False,

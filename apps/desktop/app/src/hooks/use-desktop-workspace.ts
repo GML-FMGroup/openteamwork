@@ -282,6 +282,14 @@ function clientErrorMessage(error: unknown): string {
   return message;
 }
 
+function sendFailureMessage(error: unknown, settings: ConnectionSettings): string {
+  const detail = clientErrorMessage(error);
+  if (/fetch failed|failed to fetch|econnrefused|err_connection_refused|ehostunreach|enotfound|timed? out|abort/i.test(detail)) {
+    return connectionFailureMessage(error, settings);
+  }
+  return detail;
+}
+
 function hasRootAccess(profile: UserProfile): boolean {
   return profile.accountKind === "local" || profile.privilegeLevel === "root";
 }
@@ -1534,6 +1542,7 @@ export function useDesktopWorkspace() {
       return;
     }
     const sessionId = session.id;
+    const sessionBeforeOptimisticSend = session;
     let uploadedArtifacts: ArtifactSummary[] = [];
     if (queuedAttachments.length) {
       setAttachments((current) => current.map((item) => ({ ...item, status: "uploading" })));
@@ -1604,8 +1613,13 @@ export function useDesktopWorkspace() {
     } catch (error) {
       console.error("Failed to send message", error);
       activeRuns.finish(sessionId);
+      setMessages((current) => current.filter((message) => message.id !== optimisticMessage.id));
+      setComposer((current) => current || text);
       setAttachments(queuedAttachments.map((item) => ({ ...item, status: "ready" })));
-      setSendError(error instanceof Error ? error.message : String(error));
+      setSessions((current) => sortSessionsByRecency(current.map((item) => (
+        item.id === sessionId ? sessionBeforeOptimisticSend : item
+      ))));
+      setSendError(sendFailureMessage(error, connectionForm));
     }
   }
 

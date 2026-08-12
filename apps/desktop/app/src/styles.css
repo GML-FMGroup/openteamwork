@@ -34,6 +34,7 @@
   --moss: #2f7d57;
   --amber: #a76516;
   --danger: #b44949;
+  --brand-red: #e6534e;
 
   --surface-strong: var(--paper-warm);
   --surface-soft: #f7f8f9;
@@ -89,6 +90,7 @@
   --moss: #62b68b;
   --amber: #d2994e;
   --danger: #e37c7c;
+  --brand-red: #e6534e;
   --surface-strong: var(--paper-warm);
   --surface-soft: #24272c;
   --surface-muted: var(--paper-deep);
@@ -308,7 +310,7 @@ textarea:focus-visible,
 }
 
 .login-brand,
-.login-brand span,
+.login-brand-badge,
 .login-intro-copy,
 .login-intro > small {
   position: relative;
@@ -322,12 +324,12 @@ textarea:focus-visible,
   letter-spacing: 0.02em;
 }
 
-.login-brand span {
+.login-brand-badge {
   display: grid;
   width: 42px;
   height: 42px;
   place-items: center;
-  border: 1px solid currentColor;
+  border: 1px solid var(--brand-red);
   border-radius: 50%;
   font-family: var(--font-mono);
   font-size: 11px;

@@ -718,6 +718,7 @@ describe("App sending state", () => {
 
     await screen.findByRole("heading", { name: "Connect to a Node" });
     expect(container.querySelector(".window-drag-region")).toBeInTheDocument();
+    expect(container.querySelector(".login-brand-badge")).toHaveTextContent("OT");
     expect(screen.getByLabelText("Node URL")).not.toHaveClass("window-drag-region");
     expect(screen.getByRole("button", { name: "Sign in to OpenTeamwork" })).not.toHaveClass("window-drag-region");
   });
@@ -2263,7 +2264,9 @@ describe("App sending state", () => {
     try {
       installClient({
         sendMessage: async () => {
-          throw new Error("gateway refused the run");
+          throw new Error(
+            "Error invoking remote method 'ppx-client:send-message': Error: gateway refused the run",
+          );
         },
       });
 
@@ -2271,12 +2274,16 @@ describe("App sending state", () => {
 
       await screen.findByRole("button", { name: "Send" });
 
-    fireEvent.change(screen.getByPlaceholderText("Describe the outcome you want..."), {
+      const composer = screen.getByPlaceholderText("Describe the outcome you want...");
+      fireEvent.change(composer, {
         target: { value: "will fail" },
       });
       fireEvent.click(screen.getByRole("button", { name: "Send" }));
 
       await screen.findByText("gateway refused the run");
+      expect(composer).toHaveValue("will fail");
+      expect(screen.queryByText("Error invoking remote method")).not.toBeInTheDocument();
+      expect(screen.queryByText("will fail", { selector: ".message-body *" })).not.toBeInTheDocument();
     } finally {
       consoleError.mockRestore();
     }

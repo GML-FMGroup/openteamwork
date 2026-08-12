@@ -151,6 +151,28 @@ class OpenAICodexLlmTests(unittest.TestCase):
         self.assertEqual(events[0].content.parts[0].text, "retry ok")
         self.assertFalse(getattr(events[0], "error_code", None))
 
+    def test_generate_content_async_never_emits_an_empty_error_message(self) -> None:
+        """Provider exceptions without prose should retain their exception class."""
+        llm = OpenAICodexLlm(model="openai-codex/gpt-5.1-codex")
+        llm_request = LlmRequest(
+            model="openai-codex/gpt-5.1-codex",
+            contents=[types.Content(role="user", parts=[types.Part.from_text(text="hello")])],
+            config=types.GenerateContentConfig(system_instruction="system"),
+        )
+        fake_token = type("Token", (), {"account_id": "acc_1", "access": "tok_1"})()
+        with patch("openppx.core.openai_codex_llm._get_codex_token", return_value=fake_token):
+            with patch(
+                "openppx.core.openai_codex_llm._request_codex",
+                new=AsyncMock(side_effect=Exception()),
+            ):
+                async def _collect():
+                    return [event async for event in llm.generate_content_async(llm_request, stream=False)]
+
+                events = asyncio.run(_collect())
+
+        self.assertEqual(events[0].error_code, "CODEX_ERROR")
+        self.assertEqual(events[0].error_message, "Exception")
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -105,7 +105,11 @@ import type {
   UserLoginRequest,
 } from "../../app/src/types";
 import { shouldStartManagedNode } from "./node-start-policy";
-import { ClientApiConnection } from "./client-api-connection";
+import {
+  ClientApiConnection,
+  classifyClientApiConnectionFailure,
+} from "./client-api-connection";
+import { submitClientApiRunWithRecovery } from "./client-api-run-submission";
 import { ClientApiRunStream } from "./client-api-run-stream";
 import { ClientApiSessionCache } from "./client-api-session-cache";
 import { LocalNodeSupervisor } from "./local-node-supervisor";
@@ -567,7 +571,7 @@ export class OpenPpxLocalAdapter implements Omit<
       !managedBindAddress ||
       !shouldStartManagedNode({
         targetType: this.target.type,
-        endpointReachable: connection.reachable,
+        failure: connection.lastFailure,
         openppxRootExists,
       })
     ) {
@@ -1636,19 +1640,40 @@ export class OpenPpxLocalAdapter implements Omit<
       mode: this.isRemoteTarget() ? "remote" : "local",
     });
     this.sessionCache.invalidate(input.agentId, input.sessionId);
-    if (await this.ensureClientApiAvailable()) {
-      try {
-        return await this.sendMessageViaClientApi(input);
-      } catch (error) {
+    return submitClientApiRunWithRecovery({
+      submit: () => this.sendMessageViaClientApi(input),
+      recoverAfterUndeliveredRequest: async (error) => {
         this.rememberClientApiError(error);
         clientDebugLog("send.client-api.failed", {
           agentId: input.agentId,
           sessionId: input.sessionId,
           error: error instanceof Error ? error.message : String(error),
         });
-      }
+        return this.recoverManagedNodeAfterConnectionRefused(error);
+      },
+    });
+  }
+
+  private async recoverManagedNodeAfterConnectionRefused(error: unknown): Promise<boolean> {
+    const openppxRootExists = fs.existsSync(this.openppxRoot);
+    const managedBindAddress = this.managedClientApiBindAddress();
+    if (
+      !managedBindAddress
+      || !shouldStartManagedNode({
+        targetType: this.target.type,
+        failure: classifyClientApiConnectionFailure(error),
+        openppxRootExists,
+      })
+    ) {
+      return false;
     }
-    throw this.clientApiUnavailableError("Sending a message");
+    return this.nodeSupervisor.ensureReady({
+      host: managedBindAddress.host,
+      port: managedBindAddress.port,
+      accessToken: this.connection.accessToken,
+      baseUrl: this.connection.baseUrl,
+      probe: () => this.isClientApiHealthy(),
+    });
   }
 
   private async sendMessageViaClientApi(input: SendMessageInput): Promise<{ runId: string }> {

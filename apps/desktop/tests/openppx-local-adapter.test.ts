@@ -9,8 +9,52 @@ import {
   monitorPersistedTerminalRun,
 } from "../electron/main/run-terminal-reconciliation";
 import { normalizeWorkspaceAgents } from "../app/src/lib/agent-projection";
+import { submitClientApiRunWithRecovery } from "../electron/main/client-api-run-submission";
 
 describe("openppx local adapter projections", () => {
+  it("submits a Run directly without a health-probe gate", async () => {
+    const submit = vi.fn(async () => ({ runId: "run-direct" }));
+    const recover = vi.fn(async () => false);
+
+    await expect(submitClientApiRunWithRecovery({
+      submit,
+      recoverAfterUndeliveredRequest: recover,
+    })).resolves.toEqual({ runId: "run-direct" });
+
+    expect(submit).toHaveBeenCalledTimes(1);
+    expect(recover).not.toHaveBeenCalled();
+  });
+
+  it("preserves the authoritative Client API error from Run creation", async () => {
+    const failure = Object.assign(new Error("Archived Sessions are read-only."), {
+      code: "SESSION_ARCHIVED",
+      status: 409,
+    });
+    const submit = vi.fn(async () => { throw failure; });
+
+    await expect(submitClientApiRunWithRecovery({
+      submit,
+      recoverAfterUndeliveredRequest: async () => false,
+    })).rejects.toBe(failure);
+    expect(submit).toHaveBeenCalledTimes(1);
+  });
+
+  it("retries once only after an undelivered request is recovered", async () => {
+    const refused = Object.assign(new Error("connect ECONNREFUSED 127.0.0.1:18765"), {
+      code: "ECONNREFUSED",
+    });
+    const submit = vi
+      .fn<() => Promise<{ runId: string }>>()
+      .mockRejectedValueOnce(refused)
+      .mockResolvedValueOnce({ runId: "run-recovered" });
+
+    await expect(submitClientApiRunWithRecovery({
+      submit,
+      recoverAfterUndeliveredRequest: async (error) => error === refused,
+    })).resolves.toEqual({ runId: "run-recovered" });
+    expect(submit).toHaveBeenCalledTimes(2);
+  });
+
   it("keeps disabled Agents out of the workspace session surface", () => {
     expect(normalizeWorkspaceAgents([
       { id: "root", name: "Root", enabled: false, status: "disabled" },

@@ -1,5 +1,8 @@
 import { vi } from "vitest";
-import { ClientApiConnection } from "../electron/main/client-api-connection";
+import {
+  ClientApiConnection,
+  classifyClientApiConnectionFailure,
+} from "../electron/main/client-api-connection";
 
 function jsonResponse(payload: unknown, status = 200): Response {
   return new Response(JSON.stringify(payload), {
@@ -44,6 +47,16 @@ function nodePayload(): Record<string, unknown> {
 }
 
 describe("ClientApiConnection", () => {
+  it("distinguishes explicit connection refusal from timeouts and generic failures", () => {
+    expect(classifyClientApiConnectionFailure(Object.assign(new TypeError("fetch failed"), {
+      cause: Object.assign(new Error("connect ECONNREFUSED 127.0.0.1:18765"), { code: "ECONNREFUSED" }),
+    }))).toBe("connection-refused");
+    expect(classifyClientApiConnectionFailure(new DOMException("This operation was aborted", "AbortError"))).toBe(
+      "timeout",
+    );
+    expect(classifyClientApiConnectionFailure(new TypeError("fetch failed"))).toBe("other");
+  });
+
   it("logs in without a deployment token and resolves the authenticated user", async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);

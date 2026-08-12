@@ -27,7 +27,7 @@ export function LoginView(props: LoginViewProps) {
     <main className={`login-shell platform-${props.platform}`}>
       <WindowDragRegion platform={props.platform} />
       <section className="login-intro" aria-label={`${productProfile.displayName} sign in`}>
-        <div className="login-brand"><span aria-hidden="true">OT</span><strong>{productProfile.displayName}</strong></div>
+        <div className="login-brand"><span className="login-brand-badge" aria-hidden="true">OT</span><strong>{productProfile.displayName}</strong></div>
         <div className="login-intro-copy">
           <p className="login-kicker">Your team’s agent workspace</p>
           <h1>Work through your own trusted identity.</h1>

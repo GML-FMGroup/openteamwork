@@ -141,16 +141,47 @@ class AdkUtilsTests(unittest.TestCase):
         self.assertEqual(final, "(empty)")
 
     def test_run_text_async_raises_on_adk_error_event(self) -> None:
+        closed = False
+        drained = False
+
         class _FakeRunner:
             async def run_async(self, **kwargs):
-                yield pytypes.SimpleNamespace(
-                    error_code="CODEX_ERROR",
-                    error_message="peer closed connection",
-                    content=None,
-                )
+                nonlocal closed, drained
+                try:
+                    yield pytypes.SimpleNamespace(
+                        error_code="CODEX_ERROR",
+                        error_message="peer closed connection",
+                        content=None,
+                    )
+                    drained = True
+                finally:
+                    closed = True
 
         with self.assertRaisesRegex(RuntimeError, "CODEX_ERROR: peer closed connection"):
             asyncio.run(run_text_async(_FakeRunner()))
+        self.assertTrue(drained)
+        self.assertTrue(closed)
+
+    def test_run_text_async_closes_runner_stream_before_callback_error_escapes(self) -> None:
+        closed = False
+
+        class _FakeRunner:
+            def run_async(self, **kwargs):
+                async def _events():
+                    nonlocal closed
+                    try:
+                        yield pytypes.SimpleNamespace(content=None)
+                    finally:
+                        closed = True
+
+                return _events()
+
+        async def _raise_from_callback(_event: object) -> None:
+            raise RuntimeError("projection failed")
+
+        with self.assertRaisesRegex(RuntimeError, "projection failed"):
+            asyncio.run(run_text_async(_FakeRunner(), on_event=_raise_from_callback))
+        self.assertTrue(closed)
 
 
 if __name__ == "__main__":

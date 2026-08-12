@@ -8,6 +8,7 @@ import {
   type ClientApiNodeInfo,
 } from "@openppx/client";
 import { productProfile } from "../../product";
+import type { ClientApiConnectionFailure } from "./node-start-policy";
 
 export type ClientApiAuthState = "authenticated" | "not-required" | "missing" | "unauthorized" | "unknown";
 
@@ -19,6 +20,7 @@ export interface ClientApiConnectionSnapshot {
   authState: ClientApiAuthState;
   credentialConfigured: boolean;
   lastError: string;
+  lastFailure: ClientApiConnectionFailure;
 }
 
 export interface ClientApiConnectionOptions {
@@ -60,6 +62,18 @@ function errorChainText(error: unknown): string {
     break;
   }
   return parts.join(" ");
+}
+
+/** Classify only transport evidence strong enough to drive process lifecycle. */
+export function classifyClientApiConnectionFailure(error: unknown): ClientApiConnectionFailure {
+  const detail = errorChainText(error);
+  if (/\bECONNREFUSED\b|\bERR_CONNECTION_REFUSED\b|connection refused/i.test(detail)) {
+    return "connection-refused";
+  }
+  if (/\bAbortError\b|operation was aborted|timed? out|\bETIMEDOUT\b/i.test(detail)) {
+    return "timeout";
+  }
+  return "other";
 }
 
 /** Preserve ordinary fetch failures while projecting nested TLS causes into safe guidance. */
@@ -148,6 +162,8 @@ export class ClientApiConnection {
 
   private lastError = "";
 
+  private lastFailure: ClientApiConnectionFailure = "other";
+
   private reachable = false;
 
   private configurationGeneration = 0;
@@ -186,6 +202,7 @@ export class ClientApiConnection {
     this.nodeInfo = null;
     this.authState = "unknown";
     this.lastError = "";
+    this.lastFailure = "other";
     this.reachable = false;
   }
 
@@ -203,6 +220,7 @@ export class ClientApiConnection {
       authState: this.authState,
       credentialConfigured: Boolean(this.accessTokenValue),
       lastError: this.lastError,
+      lastFailure: this.lastFailure,
     };
   }
 
@@ -216,6 +234,7 @@ export class ClientApiConnection {
 
   public rememberError(error: unknown): void {
     this.lastError = error instanceof Error ? error.message : String(error);
+    this.lastFailure = classifyClientApiConnectionFailure(error);
   }
 
   public unavailableError(operation: string): Error {
@@ -325,6 +344,7 @@ export class ClientApiConnection {
         }
         this.authState = this.accessTokenValue ? "authenticated" : "not-required";
         this.lastError = "";
+        this.lastFailure = "other";
         this.healthyUntil = this.now() + this.healthCacheTtlMs;
         return true;
       }
@@ -342,6 +362,7 @@ export class ClientApiConnection {
       }
       this.authState = nodeInfo.authenticationRequired ? "authenticated" : "not-required";
       this.lastError = "";
+      this.lastFailure = "other";
       this.healthyUntil = this.now() + this.healthCacheTtlMs;
       return true;
     } catch (error) {

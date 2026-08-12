@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
+from contextlib import aclosing
 from inspect import isawaitable
 from typing import Any
 
@@ -94,24 +95,34 @@ async def run_text_async(
     delta for callers that stream incremental updates.
     """
     final = ""
-    async for event in runner.run_async(**run_kwargs):
-        if on_event is not None:
-            await _maybe_await(on_event(event))
-        error_text = _event_error_text(event)
-        if error_text:
-            raise RuntimeError(error_text)
-        text = extract_text(getattr(event, "content", None))
-        # Visible text emitted alongside a function call is user-facing progress
-        # commentary. It belongs in the event stream, not in the terminal answer.
-        if event_has_function_calls(event):
-            continue
-        merged = merge_text_stream(final, text)
-        if merged and merged != final and on_text_update is not None:
-            delta = merged[len(final):] if final and merged.startswith(final) else merged
-            if delta:
-                await _maybe_await(on_text_update(merged, delta))
-        final = merged
+    stream_error = ""
+    # ADK owns telemetry spans inside this async generator. Explicitly closing
+    # it here guarantees cleanup runs in the same asyncio Context when an error
+    # event or application callback ends iteration early.
+    async with aclosing(runner.run_async(**run_kwargs)) as events:
+        async for event in events:
+            if on_event is not None:
+                await _maybe_await(on_event(event))
+            error_text = _event_error_text(event)
+            if error_text:
+                # ADK error events are terminal, but the Runner still needs to
+                # drain its queue and finish telemetry/session cleanup.
+                stream_error = stream_error or error_text
+                continue
+            text = extract_text(getattr(event, "content", None))
+            # Visible text emitted alongside a function call is user-facing progress
+            # commentary. It belongs in the event stream, not in the terminal answer.
+            if event_has_function_calls(event):
+                continue
+            merged = merge_text_stream(final, text)
+            if merged and merged != final and on_text_update is not None:
+                delta = merged[len(final):] if final and merged.startswith(final) else merged
+                if delta:
+                    await _maybe_await(on_text_update(merged, delta))
+            final = merged
 
+    if stream_error:
+        raise RuntimeError(stream_error)
     if final:
         return final
     if default_when_empty is None:
