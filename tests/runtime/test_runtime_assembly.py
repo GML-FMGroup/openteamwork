@@ -45,7 +45,7 @@ from openppx.extensions import (
 from openppx.extensions.app_models import AppConnection, AppDefinition
 from openppx.core.mcp_registry import ManagedMcpToolset
 from openppx.modeling import ModelCatalog, ModelProfile, ModelProfileRepository, ModelProfileSelector
-from openppx.permissions import AgentPermissionSpec
+from openppx.permissions import PermissionRule
 from openppx.runtime.assembly import RuntimeAssembler
 from openppx.runtime.goal_store import GoalStore
 from openppx.runtime.node_runtime import NodeRuntimeSupervisor, RunNotActiveError, RunNotFoundError
@@ -106,7 +106,15 @@ class _FailingLlm(BaseLlm):
         raise RuntimeError("provider-secret-value")
 
 
-def _configured(tmp_path: Path) -> tuple[ConfigService, InMemorySecretStore]:
+def _configured(
+    tmp_path: Path,
+    *,
+    privilege_level: str = "low",
+    workspace: Path | None = None,
+) -> tuple[ConfigService, InMemorySecretStore]:
+    """Build one immutable Agent fixture with its authority fixed up front."""
+
+    workspace = workspace or tmp_path / "workspace"
     repository = FilesystemConfigRepository(tmp_path)
     profiles = ModelProfileRepository(tmp_path)
     secrets = InMemorySecretStore()
@@ -141,9 +149,9 @@ def _configured(tmp_path: Path) -> tuple[ConfigService, InMemorySecretStore]:
                 "metadata": {"name": "low-main"},
                 "spec": {
                     "displayName": "Low Main",
-                    "workspace": str(tmp_path / "workspace"),
+                    "workspace": str(workspace),
                     "ownerPrincipalId": "local:owner",
-                    "privilegeLevel": "low",
+                    "privilegeLevel": privilege_level,
                     "controls": {},
                     "modelPolicy": {"defaultProfile": "primary", "roleProfiles": {}},
                 },
@@ -174,23 +182,6 @@ def _configured(tmp_path: Path) -> tuple[ConfigService, InMemorySecretStore]:
         expected_revision=None,
     )
     return service, secrets
-
-
-def _set_agent_privilege(config_service: ConfigService, privilege_level: str) -> None:
-    """Update the configured test Agent without changing its identity boundary."""
-    current = config_service.repository.read_agent("low-main")
-    updated = current.document.model_copy(
-        update={
-            "spec": current.document.spec.model_copy(
-                update={"privilege_level": privilege_level}
-            )
-        }
-    )
-    config_service.apply_agent(
-        "low-main",
-        updated,
-        expected_revision=current.revision,
-    )
 
 
 def _wait_for_task_status(
@@ -312,8 +303,7 @@ def test_snapshot_passes_model_aware_compaction_to_runner(tmp_path: Path) -> Non
 
 
 def test_assembled_non_root_file_tool_cannot_read_node_data(tmp_path: Path) -> None:
-    config_service, secrets = _configured(tmp_path)
-    _set_agent_privilege(config_service, "high")
+    config_service, secrets = _configured(tmp_path, privilege_level="high")
     snapshot = config_service.snapshot("low-main")
     workspace = Path(snapshot.agent.spec.workspace)
     workspace.mkdir(parents=True, exist_ok=True)
@@ -379,8 +369,7 @@ def test_assembled_history_tool_reads_own_retained_session_from_trusted_context(
 def test_subagent_runtime_removes_recursive_delegation_and_pins_spawn_snapshot(
     tmp_path: Path,
 ) -> None:
-    config_service, secrets = _configured(tmp_path)
-    _set_agent_privilege(config_service, "medium")
+    config_service, secrets = _configured(tmp_path, privilege_level="medium")
     snapshot = config_service.snapshot("low-main")
     assembler = RuntimeAssembler(
         node_root=tmp_path,
@@ -403,8 +392,7 @@ def test_subagent_runtime_removes_recursive_delegation_and_pins_spawn_snapshot(
 def test_supervisor_dispatch_subagent_completes_real_adk_run_and_bridges_result(
     tmp_path: Path,
 ) -> None:
-    config_service, secrets = _configured(tmp_path)
-    _set_agent_privilege(config_service, "medium")
+    config_service, secrets = _configured(tmp_path, privilege_level="medium")
     assembler = RuntimeAssembler(
         node_root=tmp_path,
         secret_store=secrets,
@@ -475,8 +463,7 @@ def test_supervisor_dispatch_subagent_completes_real_adk_run_and_bridges_result(
 def test_subagent_failure_redacts_backend_exception_from_task_and_parent_session(
     tmp_path: Path,
 ) -> None:
-    config_service, secrets = _configured(tmp_path)
-    _set_agent_privilege(config_service, "medium")
+    config_service, secrets = _configured(tmp_path, privilege_level="medium")
     assembler = RuntimeAssembler(
         node_root=tmp_path,
         secret_store=secrets,
@@ -547,8 +534,7 @@ def test_subagent_failure_redacts_backend_exception_from_task_and_parent_session
 def test_supervisor_rejects_subagent_when_spawn_snapshot_is_no_longer_current(
     tmp_path: Path,
 ) -> None:
-    config_service, secrets = _configured(tmp_path)
-    _set_agent_privilege(config_service, "medium")
+    config_service, secrets = _configured(tmp_path, privilege_level="medium")
     assembler = RuntimeAssembler(
         node_root=tmp_path,
         secret_store=secrets,
@@ -581,8 +567,7 @@ def test_supervisor_rejects_subagent_when_spawn_snapshot_is_no_longer_current(
 def test_subagent_task_can_be_cancelled_through_node_owned_task_controller(
     tmp_path: Path,
 ) -> None:
-    config_service, secrets = _configured(tmp_path)
-    _set_agent_privilege(config_service, "medium")
+    config_service, secrets = _configured(tmp_path, privilege_level="medium")
     model = _BlockingLlm(model="blocking-model")
     assembler = RuntimeAssembler(
         node_root=tmp_path,
@@ -635,8 +620,7 @@ def test_subagent_task_can_be_cancelled_through_node_owned_task_controller(
 def test_subagent_dispatch_is_idempotent_and_limits_parent_session_concurrency(
     tmp_path: Path,
 ) -> None:
-    config_service, secrets = _configured(tmp_path)
-    _set_agent_privilege(config_service, "medium")
+    config_service, secrets = _configured(tmp_path, privilege_level="medium")
     model = _BlockingLlm(model="blocking-model")
     assembler = RuntimeAssembler(
         node_root=tmp_path,
@@ -697,24 +681,12 @@ def test_assembled_runtime_binds_core_tools_to_agent_workspace(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Production Agent assembly must not inherit the Node process directory."""
-    config_service, secrets = _configured(tmp_path)
-    current = config_service.repository.read_agent("low-main")
     workspace = tmp_path / "selected-workspace"
     workspace.mkdir()
-    updated = current.document.model_copy(
-        update={
-            "spec": current.document.spec.model_copy(
-                update={
-                    "workspace": str(workspace),
-                    "privilege_level": "root",
-                }
-            )
-        }
-    )
-    config_service.apply_agent(
-        "low-main",
-        updated,
-        expected_revision=current.revision,
+    config_service, secrets = _configured(
+        tmp_path,
+        privilege_level="root",
+        workspace=workspace,
     )
     ambient = tmp_path / "ambient"
     node_cwd = tmp_path / "node-cwd"
@@ -744,18 +716,7 @@ def test_long_lived_runtime_rechecks_config_service_before_next_side_effect(
 ) -> None:
     """A held Runtime must honor compatible permission tightening without reassembly."""
 
-    config_service, secrets = _configured(tmp_path)
-    current = config_service.repository.read_agent("low-main")
-    medium = current.document.model_copy(
-        update={
-            "spec": current.document.spec.model_copy(update={"privilege_level": "medium"})
-        }
-    )
-    applied_medium = config_service.apply_agent(
-        "low-main",
-        medium,
-        expected_revision=current.revision,
-    )
+    config_service, secrets = _configured(tmp_path, privilege_level="medium")
     assembler = RuntimeAssembler(
         node_root=tmp_path,
         secret_store=secrets,
@@ -766,22 +727,33 @@ def test_long_lived_runtime_rechecks_config_service_before_next_side_effect(
     write = _tool_function(runtime.agent, "write_file")
     assert "Successfully wrote" in write("before.txt", "allowed")
 
-    low_enforced = applied_medium.resource.document.model_copy(
+    current_node = config_service.repository.read_node()
+    tightened = current_node.document.model_copy(
         update={
-            "spec": applied_medium.resource.document.spec.model_copy(
+            "spec": current_node.document.spec.model_copy(
                 update={
-                    "privilege_level": "low",
-                    "permissions": AgentPermissionSpec.model_validate(
-                        {"rolloutModes": {"workspace": "enforce"}}
+                    "permissions": current_node.document.spec.permissions.model_copy(
+                        update={
+                            "hard_rules": (
+                                PermissionRule.model_validate(
+                                    {
+                                        "ruleId": "deny-workspace-mutations",
+                                        "effect": "deny",
+                                        "object": "workspace",
+                                        "actions": ["create", "write", "edit", "rename", "delete", "execute"],
+                                        "selector": {"kind": "all"},
+                                    }
+                                ),
+                            )
+                        }
                     ),
                 }
             )
         }
     )
-    config_service.apply_agent(
-        "low-main",
-        low_enforced,
-        expected_revision=applied_medium.resource.revision,
+    config_service.apply_node(
+        tightened,
+        expected_revision=current_node.revision,
     )
 
     denied = write("after.txt", "revoked")
@@ -867,8 +839,7 @@ def test_supervisor_rebuilds_runtime_for_a_new_immutable_skill_snapshot(
 
 
 def test_supervisor_attaches_direct_mcp_and_rebuilds_for_resource_change(tmp_path: Path) -> None:
-    config_service, secrets = _configured(tmp_path)
-    _set_agent_privilege(config_service, "medium")
+    config_service, secrets = _configured(tmp_path, privilege_level="medium")
     manager = McpManager(tmp_path, secrets)
     record = McpServer.model_validate(
         {
@@ -919,8 +890,7 @@ def test_supervisor_attaches_direct_mcp_and_rebuilds_for_resource_change(tmp_pat
 
 
 def test_supervisor_attaches_app_mcp_and_rebuilds_for_definition_change(tmp_path: Path) -> None:
-    config_service, secrets = _configured(tmp_path)
-    _set_agent_privilege(config_service, "medium")
+    config_service, secrets = _configured(tmp_path, privilege_level="medium")
     manager = AppManager(tmp_path, secrets)
     definition = AppDefinition.model_validate(
         {
@@ -1017,8 +987,7 @@ def test_supervisor_attaches_branded_native_app_tools_to_the_same_agent_runtime(
     tmp_path: Path,
 ) -> None:
     """Prove a direct App starter reaches the regular immutable ADK Agent path."""
-    config_service, secrets = _configured(tmp_path)
-    _set_agent_privilege(config_service, "medium")
+    config_service, secrets = _configured(tmp_path, privilege_level="medium")
     token_ref = SecretRef(store="system", name="telegram-runtime-token")
     secrets.put(token_ref, SecretValue("private-runtime-token"))
     manager = AppManager(

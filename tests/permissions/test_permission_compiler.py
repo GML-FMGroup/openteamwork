@@ -94,6 +94,14 @@ def test_packaged_template_callers_cannot_mutate_the_cached_catalog() -> None:
     assert second["low"].object_defaults["tool"] == "deny"
 
 
+def test_high_agent_has_no_blocking_gate_when_optional_extra_roots_are_empty() -> None:
+    """Built-in Node boundaries make a clean high Agent executable by default."""
+
+    snapshot = _compile(preset="high")
+
+    assert snapshot.blocking_gates == ()
+
+
 @pytest.mark.parametrize(
     ("preset", "workspace_read", "workspace_write", "external_read", "network_connect", "tool_invoke"),
     [

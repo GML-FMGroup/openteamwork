@@ -52,7 +52,11 @@ def derive_sandbox_permission_profile(
         roots = tuple(Path(value).expanduser().resolve(strict=False) for value in rule.selector.paths)
         if rule.effect == "deny":
             if rule.action in {"create", "write", "edit", "rename", "delete", "execute"}:
-                denied.update(roots)
+                denied.update(
+                    root
+                    for root in roots
+                    if not (workspace == root or workspace.is_relative_to(root))
+                )
             continue
         for root in roots:
             access = (

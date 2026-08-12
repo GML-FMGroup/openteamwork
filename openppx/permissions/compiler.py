@@ -266,8 +266,6 @@ def _blocking_gates(
     # Offline Docker execution supersedes the former mandatory egress-proxy Gates.
     gates.discard("medium-code-egress-proxy")
     gates.discard("high-code-egress-proxy")
-    if template.template_id == "high" and not node.spec.permissions.high_protected_write_roots:
-        gates.add("high-protected-write-roots")
     return tuple(sorted(gates))
 
 

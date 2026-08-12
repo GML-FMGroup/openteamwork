@@ -13,6 +13,7 @@ from openppx.config import (
     ConfigLoadError,
     ConfigService,
     FilesystemConfigRepository,
+    NodeConfig,
     SecretStore,
     SecretValue,
     config_revision,
@@ -318,13 +319,33 @@ class SetupService:
         ).resource.revision
 
     def _write_node(self, request: SetupApplyRequest, expected_revision: str | None) -> tuple[str, bool]:
-        node = request.node
+        node = self._with_node_protected_root(request.node)
         current = self._optional(self.repository.read_node)
         candidate_revision = config_revision(node)
         if current is not None and current.revision == candidate_revision:
             return current.revision, False
         result = self.config_service.apply_node(node, expected_revision=expected_revision)
         return result.resource.revision, result.effect.value == "restart_required"
+
+    def _with_node_protected_root(self, node: NodeConfig) -> NodeConfig:
+        """Protect Node control data while permitting a nested Agent Workspace."""
+
+        node_root = str(self.repository.paths.node_root)
+        permissions = node.spec.permissions
+        roots = tuple(dict.fromkeys((node_root, *permissions.high_protected_write_roots)))
+        if roots == permissions.high_protected_write_roots:
+            return node
+        return node.model_copy(
+            update={
+                "spec": node.spec.model_copy(
+                    update={
+                        "permissions": permissions.model_copy(
+                            update={"high_protected_write_roots": roots}
+                        )
+                    }
+                )
+            }
+        )
 
     @staticmethod
     def _optional(reader):

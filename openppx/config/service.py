@@ -21,7 +21,14 @@ from openppx.permissions import (
     diff_permission_snapshots,
 )
 
-from .diagnostics import ConfigDiagnostics, ConfigIssue, ConfigLoadError, ConfigRevisionConflict, validation_issues
+from .diagnostics import (
+    ConfigDiagnostics,
+    ConfigImmutableFieldError,
+    ConfigIssue,
+    ConfigLoadError,
+    ConfigRevisionConflict,
+    validation_issues,
+)
 from .layers import ConfigOrigin, ConfigSnapshot
 from .models import AgentConfig, NodeConfig
 from .repository import FilesystemConfigRepository, VersionedResource
@@ -144,6 +151,13 @@ class ConfigService:
         """Return the structural Agent diff and effect without persistence."""
         self._require_agent_identity(agent_id, candidate)
         current = self._optional_current(lambda: self.repository.read_agent(agent_id))
+        if current is not None:
+            _assert_agent_authority_immutable(
+                current.document,
+                candidate,
+                path=self.repository.paths.agent_file(agent_id),
+                source=f"agent:{agent_id}",
+            )
         preview = self._preview(
             candidate,
             current=current,
@@ -392,6 +406,35 @@ def _structural_diff(
     if isinstance(before, list) and isinstance(after, list):
         return [] if before == after else [ConfigChange(path, "changed")]
     return [] if before == after else [ConfigChange(path, "changed")]
+
+
+_IMMUTABLE_AGENT_AUTHORITY_PATHS: tuple[tuple[str, str], ...] = (
+    ("spec", "ownerPrincipalId"),
+    ("spec", "workspace"),
+    ("spec", "privilegeLevel"),
+    ("spec", "controls"),
+    ("spec", "permissions"),
+)
+
+
+def _assert_agent_authority_immutable(
+    current: AgentConfig,
+    candidate: AgentConfig,
+    *,
+    path: Path,
+    source: str,
+) -> None:
+    """Reject in-place changes to one existing Agent's authority envelope."""
+
+    before = current.model_dump(mode="json", by_alias=True)
+    after = candidate.model_dump(mode="json", by_alias=True)
+    changed = tuple(
+        field_path
+        for field_path in _IMMUTABLE_AGENT_AUTHORITY_PATHS
+        if before[field_path[0]][field_path[1]] != after[field_path[0]][field_path[1]]
+    )
+    if changed:
+        raise ConfigImmutableFieldError(path, source=source, field_paths=changed)
 
 
 def _leaf_changes(value: object, path: tuple[str | int, ...], change_kind: str) -> list[ConfigChange]:

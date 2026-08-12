@@ -442,9 +442,7 @@ export interface AgentResourceSummary extends Record<string, unknown> {
 export interface AgentUpdateInput extends Record<string, unknown> {
   agentId: string;
   displayName: string;
-  workspace: string;
   instruction: string;
-  privilegeLevel: "low" | "medium" | "high" | "root";
   modelProfileId: string;
   expectedRevision: string;
 }
@@ -516,6 +514,7 @@ export interface SetupApplyRequest extends Record<string, unknown> {
       enabledAgents: string[];
       clientApi: { listenHost: string; port: number; authentication: "required" | "disabled" };
       runtime?: { contextCompaction: ContextCompactionConfiguration };
+      permissions?: Record<string, unknown>;
     };
   };
   agent: {

@@ -202,6 +202,16 @@ Node-owned ceilings, shared roots, and arbitrary-code egress are configured in `
 }
 ```
 
+First-run Setup automatically adds the resolved Node data root to
+`highProtectedWriteRoots`. Values configured here are additional host roots
+that a high Agent must not mutate; an empty explicit list is therefore valid
+for a manually assembled Node and no longer blocks all high-Agent commands.
+The command sandbox mounts the Agent's own Workspace rather than the Node data
+root, and the path authorization boundary still denies Node data outside that
+Workspace. Existing Agent owner, privilege, Workspace, `permissions`, and
+security `controls` are creation-time authority and cannot be changed in place;
+create a new Agent when a different authority envelope is required.
+
 The effective precedence is Agent-wide `rolloutMode`, then Agent `rolloutModes[object]`, then Node `rolloutModes[object]`, then `enforce`. When `rolloutMode` is present, it overrides all six stored modes without deleting the per-object settings; removing it restores the per-object inheritance chain. A non-root Agent still has an effective mandatory enforcement floor when the stored mode is `observe`: denied Tools, Node data, other Agent Workspaces, commands, processes, and managed network access remain blocked. Enforce mode fails closed when a required protected root, Docker backend, proxy policy, or internal network is unavailable. The policy directory must be Node-owned, mode `0700`, and outside every Agent Workspace.
 
 See [PERMISSIONS.md](./PERMISSIONS.md) for the preset matrix, selectors, precedence, clean-rebuild requirement, and recommended rollout order.
@@ -253,7 +263,7 @@ otw config preview candidate-node.json --expected-revision <revision>
 otw config apply candidate-node.json --expected-revision <revision>
 ```
 
-For an Agent resource, add `--agent <agent-id>`. Preview returns a redacted structural diff and lifecycle effects. Apply revalidates the candidate and expected revision, performs an atomic replace, and reports whether future Runs, a reload, or a Node restart is required. A permission change still reports `next_run` when a fresh Runtime is needed to finish catalog or identity changes; compatible permission tightening is additionally rechecked by an existing Runtime before its next Tool Action.
+For an Agent resource, add `--agent <agent-id>`. Preview returns a redacted structural diff and lifecycle effects. Apply revalidates the candidate and expected revision, performs an atomic replace, and reports whether future Runs, a reload, or a Node restart is required. For an existing Agent, only presentation, instruction, and Model Profile routing fields are editable; owner, privilege, Workspace, Agent permission policy, and security controls are rejected with `immutable_agent_authority`. Node-owned permission ceilings remain separately manageable and compatible tightening is rechecked by an existing Runtime before its next Tool Action.
 
 ## Model commands
 

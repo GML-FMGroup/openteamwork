@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   validateConnectionSettings,
   validateAgentCreateRequest,
+  validateAgentUpdateInput,
   validateExternalUrl,
   validateGoalRevision,
   validateGoalTransitionOperation,
@@ -174,6 +175,33 @@ describe("Electron IPC validation", () => {
     }).email).toBe("user@example.com");
     expect(validateSetupHelloText("Hello OpenPPX")).toBe("Hello OpenPPX");
     expect(validateSetupApplyRequest(setupRequest())).toEqual(setupRequest());
+    const setupBaseline = setupRequest();
+    const setupWithPermissions = {
+      ...setupBaseline,
+      node: {
+        ...setupBaseline.node,
+        spec: {
+          ...setupBaseline.node.spec,
+          permissions: { highProtectedWriteRoots: ["/protected/node"] },
+        },
+      },
+    };
+    expect(validateSetupApplyRequest(setupWithPermissions).node.spec.permissions).toEqual({
+      highProtectedWriteRoots: ["/protected/node"],
+    });
+    expect(validateAgentUpdateInput({
+      agentId: "research",
+      displayName: "Research Desk",
+      instruction: "Be concise.",
+      modelProfileId: "primary",
+      expectedRevision: "agent-revision",
+    })).toEqual({
+      agentId: "research",
+      displayName: "Research Desk",
+      instruction: "Be concise.",
+      modelProfileId: "primary",
+      expectedRevision: "agent-revision",
+    });
     expect(validateAgentCreateRequest({
       agentId: "research",
       displayName: "Research",
@@ -376,6 +404,14 @@ describe("Electron IPC validation", () => {
     expect(() => validateSetupHelloText("")).toThrow("Setup Hello is required");
     expect(() => validateSetupApplyRequest({ ...setupRequest(), secret: { ref: { store: "system", name: "Primary Key" }, value: "secret" } })).toThrow("lowercase resource name");
     expect(() => validateAgentCreateRequest({ agentId: "Research Agent", displayName: "Research", privilegeLevel: "medium", modelProfileId: "primary" })).toThrow("lowercase resource name");
+    expect(() => validateAgentUpdateInput({
+      agentId: "research",
+      displayName: "Research",
+      workspace: "/different-workspace",
+      privilegeLevel: "high",
+      modelProfileId: "primary",
+      expectedRevision: "agent-revision",
+    })).toThrow("fixed at creation");
     expect(() => validateModelProfileCreateInput({
       displayName: "Primary",
       providerId: "google",

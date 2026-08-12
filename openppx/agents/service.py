@@ -144,25 +144,32 @@ class AgentLifecycleService:
         *,
         agent_id: str,
         display_name: str,
-        workspace: str,
-        privilege_level: str,
+        workspace: str | None = None,
+        privilege_level: str | None = None,
         model_profile_id: str,
         instruction: str,
         expected_revision: str,
     ) -> AgentMutationResult:
-        """Update editable Agent policy while preserving identity and ownership."""
+        """Update editable policy while rejecting legacy authority changes."""
         current = self.repository.read_agent(agent_id)
+        if (
+            workspace is not None
+            and workspace != current.document.spec.workspace
+        ) or (
+            privilege_level is not None
+            and privilege_level != current.document.spec.privilege_level
+        ):
+            raise AgentLifecycleError(
+                "immutable_agent_authority",
+                "Existing Agent authority is fixed at creation. Create a new Agent to use different authority.",
+            )
         self._require_profile(model_profile_id)
-        resolved_workspace = self._resolve_workspace(agent_id, workspace)
-        self._ensure_workspace(resolved_workspace)
         candidate = current.document.model_copy(
             update={
                 "spec": current.document.spec.model_copy(
                     update={
                         "display_name": display_name,
-                        "workspace": str(resolved_workspace),
                         "instruction": instruction,
-                        "privilege_level": privilege_level,
                         "model_policy": current.document.spec.model_policy.model_copy(
                             update={"default_profile": model_profile_id}
                         ),

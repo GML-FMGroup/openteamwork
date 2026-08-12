@@ -21,6 +21,7 @@ ConfigErrorKind: TypeAlias = Literal[
     "path_outside_root",
     "io_error",
     "revision_conflict",
+    "immutable_field",
     "lock_timeout",
     "write_failed",
 ]
@@ -125,6 +126,34 @@ class ConfigRevisionConflict(ConfigWriteError):
             "revision_conflict",
             "Configuration revision conflict",
             (issue,),
+        )
+
+
+class ConfigImmutableFieldError(ConfigWriteError):
+    """Raised when an existing Agent's creation-time authority would change."""
+
+    def __init__(
+        self,
+        path: Path,
+        *,
+        source: str,
+        field_paths: tuple[tuple[ConfigPathSegment, ...], ...],
+    ) -> None:
+        self.field_paths = tuple(sorted(field_paths))
+        issues = tuple(
+            ConfigIssue(
+                "immutable_field",
+                field_path,
+                "Existing Agent authority is fixed at creation.",
+                source,
+            )
+            for field_path in self.field_paths
+        )
+        super().__init__(
+            path,
+            "immutable_field",
+            "Existing Agent authority cannot be changed",
+            issues,
         )
 
 

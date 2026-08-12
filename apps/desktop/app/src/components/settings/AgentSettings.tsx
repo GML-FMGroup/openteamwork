@@ -16,6 +16,7 @@ interface AgentSettingsProps {
 }
 
 type AgentOperation = "refresh" | "save" | "toggle" | "duplicate" | "remove";
+type AgentCreateDraft = Omit<AgentCreateRequest, "agentId">;
 
 function agentSlug(value: string): string {
   return value
@@ -27,13 +28,27 @@ function agentSlug(value: string): string {
     .replace(/-+$/g, "");
 }
 
-function initialCreateDraft(
+/** Build a stable hidden Agent identity without colliding with Node-owned Agents. */
+function uniqueAgentId(
+  displayName: string,
   suggestedAgentId: string,
+  agents: AgentResourceSummary[],
+): string {
+  const existingIds = new Set(agents.map((agent) => agent.id));
+  const base = agentSlug(displayName) || agentSlug(suggestedAgentId) || "agent";
+  if (!existingIds.has(base)) return base;
+  for (let suffix = 2; ; suffix += 1) {
+    const suffixText = `-${suffix}`;
+    const candidate = `${base.slice(0, 63 - suffixText.length).replace(/-+$/g, "")}${suffixText}`;
+    if (!existingIds.has(candidate)) return candidate;
+  }
+}
+
+function initialCreateDraft(
   modelProfiles: ModelProfileSummary[],
   maxPrivilegeLevel: AgentSettingsProps["maxPrivilegeLevel"],
-): AgentCreateRequest {
+): AgentCreateDraft {
   return {
-    agentId: suggestedAgentId,
     displayName: "",
     workspace: null,
     privilegeLevel: maxPrivilegeLevel === "low" ? "low" : "medium",
@@ -57,11 +72,11 @@ export function AgentSettings({
   maxPrivilegeLevel,
 }: AgentSettingsProps) {
   const [agents, setAgents] = useState<AgentResourceSummary[]>([]);
+  const [agentsLoaded, setAgentsLoaded] = useState(false);
   const [activeId, setActiveId] = useState(selectedAgentId);
   const [draft, setDraft] = useState<AgentUpdateInput | null>(null);
   const [creatingNew, setCreatingNew] = useState(false);
-  const [createDraft, setCreateDraft] = useState<AgentCreateRequest>(() => initialCreateDraft(suggestedAgentId, modelProfiles, maxPrivilegeLevel));
-  const [createIdEdited, setCreateIdEdited] = useState(false);
+  const [createDraft, setCreateDraft] = useState<AgentCreateDraft>(() => initialCreateDraft(modelProfiles, maxPrivilegeLevel));
   const [operation, setOperation] = useState<AgentOperation | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -75,25 +90,22 @@ export function AgentSettings({
     0,
     (["low", "medium", "high", "root"] as const).indexOf(maxPrivilegeLevel) + 1,
   );
-  const createIdExists = agents.some((agent) => agent.id === createDraft.agentId);
   const canCreate = Boolean(
     createDraft.displayName.trim()
-    && createDraft.agentId
     && createDraft.modelProfileId
-    && !createIdExists
+    && agentsLoaded
     && !creatingAgent,
   );
   const dirty = useMemo(() => Boolean(current && draft && (
     draft.displayName !== current.name ||
-    draft.workspace !== current.workspace ||
     draft.instruction !== current.instruction ||
-    draft.privilegeLevel !== current.privilegeLevel ||
     draft.modelProfileId !== current.modelProfileId
   )), [current, draft]);
 
   async function refresh(preferredId = activeId || selectedAgentId): Promise<void> {
     const result = await window.ppxClient.listManagedAgents();
     setAgents(result.agents);
+    setAgentsLoaded(true);
     const next = result.agents.find((agent) => agent.id === preferredId) ?? result.agents[0] ?? null;
     setActiveId(next?.id ?? "");
   }
@@ -104,8 +116,7 @@ export function AgentSettings({
 
   useEffect(() => {
     if (!createRequested) return;
-    setCreateDraft(initialCreateDraft(suggestedAgentId, modelProfiles, maxPrivilegeLevel));
-    setCreateIdEdited(false);
+    setCreateDraft(initialCreateDraft(modelProfiles, maxPrivilegeLevel));
     setCreatingNew(true);
     setError(null);
     setNotice(null);
@@ -138,9 +149,7 @@ export function AgentSettings({
     setDraft({
       agentId: current.id,
       displayName: current.name,
-      workspace: current.workspace,
       instruction: current.instruction,
-      privilegeLevel: current.privilegeLevel,
       modelProfileId: current.modelProfileId,
       expectedRevision: current.revision,
     });
@@ -152,8 +161,7 @@ export function AgentSettings({
   }
 
   function beginCreate(): void {
-    setCreateDraft(initialCreateDraft(suggestedAgentId, modelProfiles, maxPrivilegeLevel));
-    setCreateIdEdited(false);
+    setCreateDraft(initialCreateDraft(modelProfiles, maxPrivilegeLevel));
     setCreatingNew(true);
     setError(null);
     setNotice(null);
@@ -166,7 +174,7 @@ export function AgentSettings({
     onClearCreateError();
   }
 
-  function patchCreateDraft(patch: Partial<AgentCreateRequest>): void {
+  function patchCreateDraft(patch: Partial<AgentCreateDraft>): void {
     onClearCreateError();
     setCreateDraft((currentDraft) => ({ ...currentDraft, ...patch }));
   }
@@ -175,7 +183,7 @@ export function AgentSettings({
     event.preventDefault();
     if (!canCreate) return;
     const input: AgentCreateRequest = {
-      agentId: createDraft.agentId,
+      agentId: uniqueAgentId(createDraft.displayName, suggestedAgentId, agents),
       displayName: createDraft.displayName.trim(),
       workspace: createDraft.workspace?.trim() || null,
       privilegeLevel: createDraft.privilegeLevel,
@@ -262,7 +270,7 @@ export function AgentSettings({
           <form className="agent-policy-form agent-create-form" onSubmit={(event) => void handleCreate(event)}>
             <div className="agent-policy-heading">
               <div><span>New Agent</span><h4>Create a focused workspace.</h4></div>
-              <small>Agent IDs and managed workspace paths stay fixed after creation.</small>
+              <small>Managed workspace paths stay fixed after creation.</small>
             </div>
             <div className="settings-form settings-form-grid">
               <label className="settings-field">
@@ -272,28 +280,8 @@ export function AgentSettings({
                   value={createDraft.displayName}
                   maxLength={80}
                   placeholder="Research"
-                  onChange={(event) => {
-                    const displayName = event.target.value;
-                    patchCreateDraft({
-                      displayName,
-                      ...(!createIdEdited ? { agentId: agentSlug(displayName) || suggestedAgentId } : {}),
-                    });
-                  }}
+                  onChange={(event) => patchCreateDraft({ displayName: event.target.value })}
                 />
-              </label>
-              <label className="settings-field">
-                <span>Agent ID</span>
-                <input
-                  aria-label="Agent ID"
-                  value={createDraft.agentId}
-                  maxLength={63}
-                  spellCheck={false}
-                  onChange={(event) => {
-                    setCreateIdEdited(true);
-                    patchCreateDraft({ agentId: agentSlug(event.target.value) });
-                  }}
-                />
-                <small>{createIdExists ? "This Agent ID already exists." : "Lowercase identifier; fixed after creation."}</small>
               </label>
               <label className="settings-field">
                 <span>Model Profile</span>
@@ -314,9 +302,9 @@ export function AgentSettings({
                   value={createDraft.workspace ?? ""}
                   maxLength={1_024}
                   spellCheck={false}
-                  placeholder={`Node managed · workspaces/${createDraft.agentId || suggestedAgentId}`}
+                  placeholder="Leave blank for a Node-managed workspace"
                   onChange={(event) => patchCreateDraft({ workspace: event.target.value })}
-                /> : <p>Node managed · users/{`<your-user>`}/agents/{createDraft.agentId || suggestedAgentId}/workspace</p>}
+                /> : <p>Node managed automatically</p>}
                 <small>{maxPrivilegeLevel === "root" ? "Optional. A custom location must be an absolute path on the Agent machine." : "Your Agent workspace is allocated automatically."}</small>
               </label>
               <label className="settings-field agent-instruction-field">
@@ -332,9 +320,9 @@ export function AgentSettings({
             {enabledProfiles.length === 0 ? <p className="settings-inline-error">Create or enable a Model Profile first.</p> : null}
             {createError ? <p className="settings-inline-error" role="alert">{createError}</p> : null}
             <footer className="agent-policy-actions">
-              <div className={`agent-policy-save-state ${createIdExists || enabledProfiles.length === 0 ? "unsaved" : "clean"}`} role="status" aria-live="polite">
+              <div className={`agent-policy-save-state ${enabledProfiles.length === 0 ? "unsaved" : "clean"}`} role="status" aria-live="polite">
                 <span className="agent-policy-save-dot" aria-hidden="true" />
-                <span>{createIdExists ? "Choose another Agent ID" : enabledProfiles.length === 0 ? "Model Profile required" : "Ready to create"}</span>
+                <span>{enabledProfiles.length === 0 ? "Model Profile required" : "Ready to create"}</span>
               </div>
               <div className="agent-policy-action-buttons">
                 <button type="button" className="secondary" onClick={cancelCreate} disabled={creatingAgent}>Cancel</button>
@@ -348,8 +336,8 @@ export function AgentSettings({
             <div className="settings-form settings-form-grid">
               <label className="settings-field"><span>Name</span><input value={draft.displayName} maxLength={80} onChange={(event) => patchDraft({ displayName: event.target.value })} /></label>
               <label className="settings-field"><span>Model Profile</span><select value={draft.modelProfileId} onChange={(event) => patchDraft({ modelProfileId: event.target.value })}>{modelProfiles.filter((profile) => profile.enabled).map((profile) => <option key={profile.id} value={profile.id}>{profile.displayName} · {profile.model}</option>)}</select></label>
-              <label className="settings-field"><span>Privilege</span><select value={draft.privilegeLevel} onChange={(event) => patchDraft({ privilegeLevel: event.target.value as AgentUpdateInput["privilegeLevel"] })}>{privilegeLevels.map((level) => <option key={level} value={level}>{level[0].toUpperCase() + level.slice(1)}</option>)}</select></label>
-              <label className="settings-field agent-workspace-field"><span>Workspace</span><input value={draft.workspace} readOnly={maxPrivilegeLevel !== "root"} spellCheck={false} onChange={(event) => patchDraft({ workspace: event.target.value })} /></label>
+              <label className="settings-field"><span>Privilege</span><p>{current.privilegeLevel[0].toUpperCase() + current.privilegeLevel.slice(1)}</p><small>Fixed when this Agent was created.</small></label>
+              <label className="settings-field agent-workspace-field"><span>Workspace</span><p>{current.workspace}</p><small>Fixed when this Agent was created.</small></label>
               <label className="settings-field agent-instruction-field"><span>Agent instruction</span><textarea value={draft.instruction} maxLength={16_384} placeholder="Optional role, output, or operating guidance for this Agent." onChange={(event) => patchDraft({ instruction: event.target.value })} /></label>
             </div>
             {error ? <p className="settings-inline-error" role="alert">{error}</p> : null}
@@ -359,7 +347,7 @@ export function AgentSettings({
                 <span>{dirty ? "Unsaved changes" : notice ?? "No unsaved changes"}</span>
               </div>
               <div className="agent-policy-action-buttons">
-                <button type="submit" className="agent-policy-save-button" disabled={busy || !dirty || !draft.displayName.trim() || !draft.workspace.trim()}>{operation === "save" ? "Saving…" : "Save changes"}</button>
+                <button type="submit" className="agent-policy-save-button" disabled={busy || !dirty || !draft.displayName.trim()}>{operation === "save" ? "Saving…" : "Save changes"}</button>
                 <button type="button" className="secondary" disabled={busy} onClick={() => void execute("toggle", () => window.ppxClient.setAgentEnabled(current.id, !current.enabled), activeId, current.enabled ? "Agent disabled" : "Agent enabled")}>{operation === "toggle" ? "Updating…" : current.enabled ? "Disable" : "Enable"}</button>
                 <button type="button" className="secondary" disabled={busy} onClick={() => void execute("duplicate", async () => {
                 const duplicateId = `${current.id}-copy`.slice(0, 63).replace(/-+$/g, "");

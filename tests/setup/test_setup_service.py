@@ -9,6 +9,7 @@ import pytest
 
 from openppx.config import ConfigService, FilesystemConfigRepository, InMemorySecretStore
 from openppx.modeling import ModelCatalog, ModelProfileRepository, ModelProfileSelector
+from openppx.permissions import authorize_command
 from openppx.setup import SetupApplyRequest, SetupError, SetupService
 
 
@@ -86,6 +87,9 @@ def test_setup_applies_complete_baseline_and_is_exactly_retryable(tmp_path: Path
     assert first.agent_revision == second.agent_revision
     assert first.profile_revision == second.profile_revision
     assert first.secret_state == "available"
+    assert service.repository.read_node().document.spec.permissions.high_protected_write_roots == (
+        str(tmp_path),
+    )
     assert service.profiles.read_profile("primary").document.spec.context_window_tokens == 1_048_576
     assert (tmp_path / "workspace").is_dir()
     status = service.status()
@@ -101,6 +105,33 @@ def test_setup_applies_complete_baseline_and_is_exactly_retryable(tmp_path: Path
         "hello": "verified",
     }
     assert secrets.resolve(request.profile.spec.credential).reveal() == "secret-canary-value"  # type: ignore[arg-type]
+
+
+def test_clean_setup_publishes_an_executable_high_agent_policy(tmp_path: Path) -> None:
+    """A fresh high Agent must not inherit the former empty-root blocking Gate."""
+
+    service, _secrets = build_service(tmp_path)
+    payload = setup_payload(tmp_path)
+    payload["agent"]["spec"]["privilegeLevel"] = "high"  # type: ignore[index]
+
+    service.apply(SetupApplyRequest.model_validate(payload))
+    snapshot = service.config_service.snapshot("main")
+
+    assert snapshot.permissions.preset == "high"
+    assert snapshot.permissions.blocking_gates == ()
+    assert snapshot.node.spec.permissions.high_protected_write_roots == (str(tmp_path),)
+    command = authorize_command(
+        snapshot.permissions,
+        workspace_root=Path(snapshot.agent.spec.workspace),
+        argv=["python", "create_document.py"],
+        cwd=Path(snapshot.agent.spec.workspace),
+        shell=False,
+        background=False,
+        pty=False,
+        timeout_seconds=60,
+    )
+    assert command.execution_profile == "high-protected-sandbox"
+    assert command.required_backend == "docker"
 
 
 def test_setup_verification_ignores_display_names_but_not_execution_changes(tmp_path: Path) -> None:

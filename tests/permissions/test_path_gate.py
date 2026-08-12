@@ -173,6 +173,24 @@ def test_sandbox_profile_is_derived_from_the_permission_snapshot(
     assert profile.network.mode == network_mode
 
 
+def test_high_sandbox_keeps_nested_own_workspace_when_node_root_is_protected(
+    tmp_path: Path,
+) -> None:
+    workspace = tmp_path / "workspaces" / "high"
+    workspace.mkdir(parents=True)
+    profile = derive_sandbox_permission_profile(
+        _snapshot(
+            "high",
+            workspace,
+            node_permissions={"highProtectedWriteRoots": [str(tmp_path)]},
+        ),
+        workspace_root=workspace,
+    )
+
+    assert any(grant.host_path == workspace for grant in profile.filesystem.writable_roots)
+    assert tmp_path not in profile.filesystem.denied_roots
+
+
 @pytest.mark.parametrize("preset", ["medium", "high"])
 def test_configured_code_egress_proxy_keeps_proxy_only_sandbox_network(
     tmp_path: Path,

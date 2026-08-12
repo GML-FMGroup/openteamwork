@@ -5,7 +5,13 @@ from __future__ import annotations
 from typing import NoReturn
 
 from openppx.actions import ActionError, ActionFailure
-from openppx.config import ConfigError, ConfigLoadError, ConfigRevisionConflict, ConfigWriteError
+from openppx.config import (
+    ConfigError,
+    ConfigImmutableFieldError,
+    ConfigLoadError,
+    ConfigRevisionConflict,
+    ConfigWriteError,
+)
 from openppx.modeling import ModelSelectionError
 from openppx.extensions import ExtensionError
 
@@ -22,6 +28,19 @@ def raise_config_failure(exc: ConfigError) -> NoReturn:
                     "actualRevision": exc.actual_revision,
                 },
                 retryable=True,
+            )
+        ) from None
+    if isinstance(exc, ConfigImmutableFieldError):
+        raise ActionFailure(
+            ActionError(
+                "immutable_agent_authority",
+                "Existing Agent authority is fixed at creation. Create a new Agent to use different authority.",
+                details={
+                    "issues": [
+                        {"code": issue.code, "path": list(issue.path), "message": issue.message}
+                        for issue in exc.issues
+                    ]
+                },
             )
         ) from None
     issues = [

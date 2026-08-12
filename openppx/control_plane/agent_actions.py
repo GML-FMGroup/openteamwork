@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from pathlib import Path
 from typing import cast
 
 from openppx.actions import ActionContext, ActionError, ActionFailure, ActionRegistry, ActionSpec, SlashCommandSpec
@@ -128,7 +127,7 @@ def _register_mutations(registry: ActionRegistry, service: AgentLifecycleService
             action_id="agent.update",
             namespace="agent",
             title="Update Agent",
-            description="Update Agent workspace and execution policy for new Runs.",
+            description="Update an Agent's name, instructions, and Model Profile for new Runs.",
             input_model=AgentUpdateInput,
             scope="agent",
             required_capabilities=frozenset({"agent.write"}),
@@ -202,23 +201,6 @@ def _update(
 ) -> dict[str, object]:
     try:
         _require_agent_owner_or_root(service, context, input_data.agent_id)
-        _require_privilege_ceiling(context, input_data.privilege_level)
-        if context.principal_id is not None and context.privilege_level != "root":
-            allowed_root = (
-                service.repository.paths.node_root
-                / "users"
-                / context.principal_id
-                / "agents"
-                / input_data.agent_id
-            ).resolve(strict=False)
-            requested = Path(input_data.workspace).expanduser().resolve(strict=False)
-            if not requested.is_relative_to(allowed_root):
-                raise ActionFailure(
-                    ActionError(
-                        "custom_workspace_requires_root",
-                        "Custom Agent workspace paths require root privilege.",
-                    )
-                )
         return _project(service.update(
             agent_id=input_data.agent_id,
             display_name=input_data.display_name,

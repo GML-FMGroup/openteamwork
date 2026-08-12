@@ -12,6 +12,7 @@ from openppx.config import (
     AgentConfig,
     ConfigChange,
     ConfigEffect,
+    ConfigImmutableFieldError,
     ConfigLoadError,
     ConfigRevisionConflict,
     ConfigService,
@@ -189,25 +190,55 @@ def test_node_context_compaction_change_takes_effect_on_next_run(tmp_path: Path)
     )
 
 
-def test_agent_effect_is_live_for_display_and_next_run_for_runtime_fields(tmp_path: Path) -> None:
+def test_existing_agent_authority_is_immutable_but_metadata_and_model_remain_editable(
+    tmp_path: Path,
+) -> None:
     _, _, config_service = service(tmp_path)
     created = config_service.apply_agent(
         "low-main",
         AgentConfig.model_validate(agent_payload()),
         expected_revision=None,
     )
-    display = AgentConfig.model_validate(agent_payload(display_name="Renamed Agent"))
+    display_payload = agent_payload(display_name="Renamed Agent")
+    display_payload["spec"]["instruction"] = "Use concise answers."  # type: ignore[index]
+    display = AgentConfig.model_validate(display_payload)
+    model_payload = deepcopy(display_payload)
+    model_payload["spec"]["modelPolicy"] = {  # type: ignore[index]
+        "defaultProfile": "primary",
+        "roleProfiles": {"fast": "primary"},
+    }
     workspace = AgentConfig.model_validate(agent_payload(workspace="workspace/another"))
+    owner_payload = deepcopy(agent_payload())
+    owner_payload["spec"]["ownerPrincipalId"] = "local:other"  # type: ignore[index]
+    privilege_payload = deepcopy(agent_payload())
+    privilege_payload["spec"]["privilegeLevel"] = "medium"  # type: ignore[index]
+    permissions_payload = deepcopy(agent_payload())
+    permissions_payload["spec"]["permissions"] = {"objectDefaults": {"workspace": "deny"}}  # type: ignore[index]
+    controls_payload = deepcopy(agent_payload())
+    controls_payload["spec"]["controls"] = {"secretAccess": "none"}  # type: ignore[index]
 
     assert config_service.preview_agent(
         "low-main", display, expected_revision=created.resource.revision
     ).effect == ConfigEffect.LIVE
     assert config_service.preview_agent(
-        "low-main", workspace, expected_revision=created.resource.revision
+        "low-main",
+        AgentConfig.model_validate(model_payload),
+        expected_revision=created.resource.revision,
     ).effect == ConfigEffect.NEXT_RUN
+    for candidate in (
+        workspace,
+        AgentConfig.model_validate(owner_payload),
+        AgentConfig.model_validate(privilege_payload),
+        AgentConfig.model_validate(permissions_payload),
+        AgentConfig.model_validate(controls_payload),
+    ):
+        with pytest.raises(ConfigImmutableFieldError, match="authority"):
+            config_service.preview_agent(
+                "low-main", candidate, expected_revision=created.resource.revision
+            )
 
 
-def test_agent_permission_preview_reports_redacted_semantic_changes(tmp_path: Path) -> None:
+def test_direct_agent_config_apply_cannot_bypass_authority_immutability(tmp_path: Path) -> None:
     _, _, config_service = service(tmp_path)
     config_service.apply_node(NodeConfig.model_validate(node_payload()), expected_revision=None)
     created = config_service.apply_agent(
@@ -220,24 +251,15 @@ def test_agent_permission_preview_reports_redacted_semantic_changes(tmp_path: Pa
         "objectDefaults": {"workspace": "deny"}
     }
 
-    preview = config_service.preview_agent(
-        "low-main",
-        AgentConfig.model_validate(candidate_payload),
-        expected_revision=created.resource.revision,
-    )
+    with pytest.raises(ConfigImmutableFieldError) as captured:
+        config_service.apply_agent(
+            "low-main",
+            AgentConfig.model_validate(candidate_payload),
+            expected_revision=created.resource.revision,
+        )
 
-    assert preview.effect == ConfigEffect.NEXT_RUN
-    assert preview.candidate_permission_revision is not None
-    assert {
-        (change.object, change.action)
-        for change in preview.permission_changes
-        if change.change_kind == "default_changed"
-    } == {
-        ("workspace", "list"),
-        ("workspace", "read"),
-        ("workspace", "search"),
-    }
-    assert "workspace/low-main" not in str(preview.permission_changes)
+    assert captured.value.field_paths == (("spec", "permissions"),)
+    assert "workspace/low-main" not in str(captured.value)
 
 
 def test_current_permission_snapshot_does_not_depend_on_model_resolution(tmp_path: Path) -> None:
@@ -338,7 +360,7 @@ def test_snapshot_permission_revision_tracks_other_agent_workspace_boundaries(tm
     high_payload["metadata"] = {"name": "high-operator"}
     high_payload["spec"]["displayName"] = "High Operator"  # type: ignore[index]
     high_payload["spec"]["privilegeLevel"] = "high"  # type: ignore[index]
-    high_created = config_service.apply_agent(
+    config_service.apply_agent(
         "high-operator",
         AgentConfig.model_validate(high_payload),
         expected_revision=None,
@@ -346,11 +368,13 @@ def test_snapshot_permission_revision_tracks_other_agent_workspace_boundaries(tm
     profiles.write_profile("primary", model_profile(), expected_revision=None)
     before = config_service.snapshot("low-main")
 
-    high_payload["spec"]["workspace"] = "workspace/high-operator-moved"  # type: ignore[index]
+    high_payload["metadata"] = {"name": "high-operator-2"}
+    high_payload["spec"]["displayName"] = "High Operator 2"  # type: ignore[index]
+    high_payload["spec"]["workspace"] = "workspace/high-operator-2"  # type: ignore[index]
     config_service.apply_agent(
-        "high-operator",
+        "high-operator-2",
         AgentConfig.model_validate(high_payload),
-        expected_revision=high_created.resource.revision,
+        expected_revision=None,
     )
     after = config_service.snapshot("low-main")
 

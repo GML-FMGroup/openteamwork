@@ -148,7 +148,7 @@ def test_update_disable_and_recoverable_delete_preserve_workspace(tmp_path: Path
         agent_id="research",
         display_name="Research Desk",
         workspace=str(created.workspace),
-        privilege_level="high",
+        privilege_level="medium",
         model_profile_id="primary",
         instruction="Prefer concise research notes.",
         expected_revision=created.agent.revision,
@@ -156,9 +156,22 @@ def test_update_disable_and_recoverable_delete_preserve_workspace(tmp_path: Path
     assert updated.agent.document.spec.display_name == "Research Desk"
     assert updated.agent.document.metadata.name == "research"
     assert updated.agent.document.spec.instruction == "Prefer concise research notes."
-    assert updated.agent.document.spec.privilege_level == "high"
+    assert updated.agent.document.spec.privilege_level == "medium"
     assert application.config_repository.paths.agent_file("research").is_file()
     assert not (application.config_repository.paths.agents_dir / "Research Desk").exists()
+
+    with pytest.raises(AgentLifecycleError) as authority_change:
+        application.agent_lifecycle.update(
+            agent_id="research",
+            display_name="Research Desk",
+            workspace=str(tmp_path / "other-workspace"),
+            privilege_level="high",
+            model_profile_id="primary",
+            instruction="Prefer concise research notes.",
+            expected_revision=updated.agent.revision,
+        )
+    assert authority_change.value.code == "immutable_agent_authority"
+    assert application.config_repository.read_agent("research").revision == updated.agent.revision
 
     with pytest.raises(AgentLifecycleError) as active_delete:
         application.agent_lifecycle.delete(

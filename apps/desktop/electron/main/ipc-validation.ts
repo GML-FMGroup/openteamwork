@@ -446,17 +446,15 @@ export function validateAgentCreateRequest(value: unknown): AgentCreateRequest {
 /** Validate editable Agent policy under an optimistic revision precondition. */
 export function validateAgentUpdateInput(value: unknown): AgentUpdateInput {
   const input = record(value, "Agent update request");
-  if (input.privilegeLevel !== "low" && input.privilegeLevel !== "medium" && input.privilegeLevel !== "high" && input.privilegeLevel !== "root") {
-    throw new TypeError("Agent privilege level is not supported.");
+  if (input.workspace !== undefined || input.privilegeLevel !== undefined) {
+    throw new TypeError("Existing Agent workspace and privilege are fixed at creation.");
   }
   const expectedRevision = revision(input.expectedRevision, "Expected Agent revision");
   if (!expectedRevision) throw new TypeError("Expected Agent revision is required.");
   return {
     agentId: resourceName(input.agentId, "Agent id"),
     displayName: string(input.displayName, "Agent display name", 80),
-    workspace: string(input.workspace, "Agent workspace", 1_024),
     instruction: string(input.instruction ?? "", "Agent instruction", 16_384, true),
-    privilegeLevel: input.privilegeLevel,
     modelProfileId: resourceName(input.modelProfileId, "Model Profile id"),
     expectedRevision,
   };
@@ -780,6 +778,9 @@ export function validateSetupApplyRequest(value: unknown): SetupApplyRequest {
   const nodeSpec = record(node.spec, "Setup Node spec");
   const clientApi = record(nodeSpec.clientApi, "Setup Client API");
   const runtime = nodeSpec.runtime === undefined ? null : record(nodeSpec.runtime, "Setup Node runtime");
+  const nodePermissions = nodeSpec.permissions === undefined
+    ? null
+    : boundedJsonRecord(nodeSpec.permissions, "Setup Node permissions");
   const contextCompaction = runtime === null
     ? null
     : validateContextCompactionConfiguration(record(runtime.contextCompaction, "Setup context compaction"));
@@ -830,6 +831,7 @@ export function validateSetupApplyRequest(value: unknown): SetupApplyRequest {
           authentication: clientApi.authentication,
         },
         ...(contextCompaction ? { runtime: { contextCompaction } } : {}),
+        ...(nodePermissions ? { permissions: nodePermissions } : {}),
       },
     },
     agent: {

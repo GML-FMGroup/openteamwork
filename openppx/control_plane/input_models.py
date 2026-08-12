@@ -536,20 +536,28 @@ class AgentCreateInput(AgentReadInput):
 
 
 class AgentUpdateInput(AgentReadInput):
-    """Update the product-owned settings of one existing Agent."""
+    """Update non-authority settings while accepting legacy authority facts.
+
+    Older clients may still echo ``workspace`` and ``privilegeLevel``.  The
+    lifecycle service accepts those facts only when they exactly match the
+    persisted Agent, so they can never mutate the authority envelope.
+    """
 
     display_name: Annotated[str, StringConstraints(min_length=1, max_length=80)]
-    workspace: Annotated[str, StringConstraints(min_length=1, max_length=1024)]
-    privilege_level: Literal["low", "medium", "high", "root"]
+    workspace: Annotated[str, StringConstraints(min_length=1, max_length=1024)] | None = None
+    privilege_level: Literal["low", "medium", "high", "root"] | None = None
     model_profile_id: ResourceId
     instruction: Annotated[str, StringConstraints(max_length=16_384)] = ""
     expected_revision: Annotated[str, StringConstraints(min_length=1, max_length=128)]
 
     @field_validator("display_name", "workspace", "instruction")
     @classmethod
-    def update_text_must_not_contain_controls(cls, value: str) -> str:
+    def update_text_must_not_contain_controls(cls, value: str | None) -> str | None:
         """Reject unsafe control characters in Agent-editable text."""
-        if any((ord(character) < 32 and character not in {"\n", "\t"}) or ord(character) == 127 for character in value):
+        if value is not None and any(
+            (ord(character) < 32 and character not in {"\n", "\t"}) or ord(character) == 127
+            for character in value
+        ):
             raise ValueError("value must not contain control characters")
         return value
 

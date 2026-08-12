@@ -718,7 +718,7 @@ def test_authenticated_agent_lifecycle_is_owner_scoped_and_root_can_list_all(tmp
     assert denied_update.error.code == "agent_access_denied"  # type: ignore[union-attr]
 
 
-def test_authenticated_agent_update_enforces_the_user_privilege_ceiling(tmp_path: Path) -> None:
+def test_authenticated_agent_update_cannot_change_creation_time_authority(tmp_path: Path) -> None:
     application = configured_application(tmp_path)
     owner = user_context("local:owner", "medium")
     current = application.config_repository.read_agent("low-main")
@@ -737,7 +737,36 @@ def test_authenticated_agent_update_enforces_the_user_privilege_ceiling(tmp_path
         owner,
     )
 
-    assert denied.error.code == "agent_privilege_exceeds_user"  # type: ignore[union-attr]
+    assert denied.error.code == "immutable_agent_authority"  # type: ignore[union-attr]
+    assert application.config_repository.read_agent("low-main").revision == current.revision
+
+
+def test_config_agent_apply_cannot_bypass_creation_time_authority(tmp_path: Path) -> None:
+    application = configured_application(tmp_path)
+    current = application.config_repository.read_agent("low-main")
+    candidate = current.document.model_copy(
+        update={
+            "spec": current.document.spec.model_copy(
+                update={
+                    "permissions": current.document.spec.permissions.model_copy(
+                        update={"object_defaults": {"workspace": "deny"}}
+                    )
+                }
+            )
+        }
+    )
+
+    denied = application.invoke(
+        "config.agent.apply",
+        {
+            "agentId": "low-main",
+            "candidate": candidate.model_dump(mode="json", by_alias=True),
+            "expectedRevision": current.revision,
+        },
+        context(request_id="req_immutable_agent_authority"),
+    )
+
+    assert denied.error.code == "immutable_agent_authority"  # type: ignore[union-attr]
     assert application.config_repository.read_agent("low-main").revision == current.revision
 
 

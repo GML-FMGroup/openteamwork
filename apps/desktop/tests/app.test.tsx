@@ -216,7 +216,7 @@ function installClient(overrides: Partial<PpxClientApi> = {}): { client: PpxClie
     }] }),
     updateAgent: async (input) => ({
       id: input.agentId, name: input.displayName, description: `Workspace: ${input.workspace}`, enabled: true,
-      status: "healthy", workspace: input.workspace, instruction: input.instruction, privilegeLevel: input.privilegeLevel,
+      status: "healthy", workspace: "/workspace", instruction: input.instruction, privilegeLevel: "medium",
       modelProfileId: input.modelProfileId, avatar: null, tags: ["local"], revision: "sha256:agent-next",
       nodeRevision: "sha256:node", effect: "next_run",
     }),
@@ -1363,7 +1363,7 @@ describe("App sending state", () => {
     const agentName = screen.getByLabelText("Agent name");
     expect(agentName).toHaveFocus();
     fireEvent.change(agentName, { target: { value: "Research" } });
-    expect(screen.getByLabelText("Agent ID")).toHaveValue("research");
+    expect(screen.queryByLabelText("Agent ID")).not.toBeInTheDocument();
     await waitFor(() => expect(screen.getByLabelText("Model Profile")).toHaveValue("primary"));
     fireEvent.click(screen.getByRole("button", { name: "Create Agent" }));
 

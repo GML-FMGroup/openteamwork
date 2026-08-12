@@ -13,9 +13,9 @@ const profile: ModelProfileSummary = {
   revision: "profile-revision",
 };
 
-function agent(name: string, revision: string): AgentResourceSummary {
+function agent(name: string, revision: string, id = "main"): AgentResourceSummary {
   return {
-    id: "main",
+    id,
     name,
     description: "Primary agent",
     workspace: "/workspace/openppx",
@@ -63,6 +63,8 @@ describe("AgentSettings", () => {
 
     const nameInput = await screen.findByLabelText("Name");
     const saveButton = screen.getByRole("button", { name: "Save changes" });
+    expect(screen.queryByDisplayValue("/workspace/openppx")).not.toBeInTheDocument();
+    expect(screen.getAllByText("Fixed when this Agent was created.")).toHaveLength(2);
     expect(screen.getByText("No unsaved changes")).toBeInTheDocument();
     expect(saveButton).toBeDisabled();
 
@@ -76,6 +78,8 @@ describe("AgentSettings", () => {
       displayName: "Medium",
       expectedRevision: "agent-revision-1",
     })));
+    expect(updateAgent.mock.calls[0]?.[0]).not.toHaveProperty("workspace");
+    expect(updateAgent.mock.calls[0]?.[0]).not.toHaveProperty("privilegeLevel");
     expect(await screen.findByText("Changes saved")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Save changes" })).toBeDisabled();
     expect(onWorkspaceChanged).toHaveBeenCalledTimes(1);
@@ -104,11 +108,78 @@ describe("AgentSettings", () => {
 
     expect(await screen.findByRole("heading", { name: "Create a focused workspace." })).toBeInTheDocument();
     expect(screen.getByLabelText("Agent name")).toHaveFocus();
-    expect(screen.getByLabelText("Agent ID")).toHaveValue("agent-2");
+    expect(screen.queryByLabelText("Agent ID")).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
 
     expect(screen.queryByRole("heading", { name: "Create a focused workspace." })).not.toBeInTheDocument();
     expect(await screen.findByLabelText("Name")).toHaveValue("Main");
     expect(screen.getByRole("button", { name: /Main/ })).toHaveFocus();
+  });
+
+  it("generates a hidden readable Agent ID and avoids existing identities", async () => {
+    const onCreateAgent = vi.fn(async () => false);
+    window.ppxClient = {
+      listManagedAgents: vi.fn(async () => ({ agents: [
+        agent("Research", "agent-revision-1", "research"),
+        agent("Research 2", "agent-revision-2", "research-2"),
+      ] })),
+    } as unknown as PpxClientApi;
+
+    render(
+      <AgentSettings
+        selectedAgentId="research"
+        modelProfiles={[profile]}
+        createRequested
+        suggestedAgentId="agent-3"
+        creatingAgent={false}
+        createError={null}
+        onCreateRequestHandled={() => undefined}
+        onClearCreateError={() => undefined}
+        onCreateAgent={onCreateAgent}
+        onWorkspaceChanged={vi.fn(async () => undefined)}
+        maxPrivilegeLevel="root"
+      />,
+    );
+
+    const nameInput = await screen.findByLabelText("Agent name");
+    expect(screen.queryByLabelText("Agent ID")).not.toBeInTheDocument();
+    fireEvent.change(nameInput, { target: { value: "Research" } });
+    fireEvent.click(screen.getByRole("button", { name: "Create Agent" }));
+
+    await waitFor(() => expect(onCreateAgent).toHaveBeenCalledWith(expect.objectContaining({
+      agentId: "research-3",
+      displayName: "Research",
+    })));
+  });
+
+  it("uses the system identity fallback for a non-Latin Agent name", async () => {
+    const onCreateAgent = vi.fn(async () => false);
+    window.ppxClient = {
+      listManagedAgents: vi.fn(async () => ({ agents: [agent("Main", "agent-revision-1")] })),
+    } as unknown as PpxClientApi;
+
+    render(
+      <AgentSettings
+        selectedAgentId="main"
+        modelProfiles={[profile]}
+        createRequested
+        suggestedAgentId="agent-7"
+        creatingAgent={false}
+        createError={null}
+        onCreateRequestHandled={() => undefined}
+        onClearCreateError={() => undefined}
+        onCreateAgent={onCreateAgent}
+        onWorkspaceChanged={vi.fn(async () => undefined)}
+        maxPrivilegeLevel="root"
+      />,
+    );
+
+    fireEvent.change(await screen.findByLabelText("Agent name"), { target: { value: "研究助手" } });
+    fireEvent.click(screen.getByRole("button", { name: "Create Agent" }));
+
+    await waitFor(() => expect(onCreateAgent).toHaveBeenCalledWith(expect.objectContaining({
+      agentId: "agent-7",
+      displayName: "研究助手",
+    })));
   });
 });
