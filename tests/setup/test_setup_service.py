@@ -86,6 +86,7 @@ def test_setup_applies_complete_baseline_and_is_exactly_retryable(tmp_path: Path
     assert first.agent_revision == second.agent_revision
     assert first.profile_revision == second.profile_revision
     assert first.secret_state == "available"
+    assert service.profiles.read_profile("primary").document.spec.context_window_tokens == 1_048_576
     assert (tmp_path / "workspace").is_dir()
     status = service.status()
     assert status["state"] == "configured"

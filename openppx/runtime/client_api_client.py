@@ -96,10 +96,11 @@ class ClientApiClient:
         *,
         namespace: str | None = None,
         projection: str | None = None,
+        agent_id: str | None = None,
     ) -> dict[str, Any]:
         """Read the caller-aware Action catalog through the shared HTTP contract."""
         return self._request(
             "GET",
             "/api/v1/actions",
-            query={"namespace": namespace, "projection": projection},
+            query={"namespace": namespace, "projection": projection, "agent_id": agent_id},
         )

@@ -56,6 +56,7 @@ class ProviderAccessService:
                     "description": item.description,
                     "defaultReasoningEffort": item.default_reasoning_effort,
                     "reasoningEfforts": list(item.reasoning_efforts),
+                    "contextWindowTokens": item.context_window_tokens,
                 }
                 for item in snapshot.models
             ],

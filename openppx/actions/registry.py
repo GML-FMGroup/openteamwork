@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 import shlex
 from typing import Any, Protocol
 
@@ -20,6 +20,7 @@ class ActionHandler(Protocol):
 
 AvailabilityCheck = Callable[[ActionContext], str | None]
 SlashInputAdapter = Callable[[SlashCommandSpec, str, SlashInvocationContext], Mapping[str, object]]
+DynamicSlashCommandProvider = Callable[[ActionContext], tuple[SlashCommandSpec, ...]]
 
 
 class ActionRegistrationError(ValueError):
@@ -60,6 +61,10 @@ class ActionRegistry:
     def __init__(self) -> None:
         self._actions: dict[str, RegisteredAction] = {}
         self._slash_commands: dict[str, tuple[RegisteredAction, SlashCommandSpec]] = {}
+        self._dynamic_slash_commands: dict[
+            str,
+            tuple[DynamicSlashCommandProvider, SlashInputAdapter],
+        ] = {}
 
     def register(
         self,
@@ -84,6 +89,33 @@ class ActionRegistry:
         for command in spec.slash_commands:
             self._slash_commands[command.command] = (registered, command)
 
+    def register_dynamic_slash(
+        self,
+        action_id: str,
+        provider: DynamicSlashCommandProvider,
+        *,
+        slash_input: SlashInputAdapter,
+    ) -> None:
+        """Attach caller-contextual slash aliases to one existing Action.
+
+        Dynamic aliases are intended for resources such as Agent-visible Skills
+        whose command set cannot be frozen into the process-wide Action spec.
+        """
+        registered = self._actions.get(action_id)
+        if registered is None:
+            raise ActionRegistrationError(
+                f"Dynamic slash commands require registered Action '{action_id}'"
+            )
+        if registered.spec.slash_commands:
+            raise ActionRegistrationError(
+                "Dynamic slash commands cannot be mixed with static aliases on one Action"
+            )
+        if action_id in self._dynamic_slash_commands:
+            raise ActionRegistrationError(
+                f"Dynamic slash commands are already registered for Action '{action_id}'"
+            )
+        self._dynamic_slash_commands[action_id] = (provider, slash_input)
+
     def resolve(self, action_id: str) -> RegisteredAction | None:
         """Return one internal binding without raising for unknown IDs."""
         return self._actions.get(action_id)
@@ -97,23 +129,49 @@ class ActionRegistry:
     ) -> tuple[ActionCatalogEntry, ...]:
         """Return a stable sorted catalog with server-computed availability."""
         items: list[ActionCatalogEntry] = []
+        dynamic_bindings = (
+            self._dynamic_command_bindings(context)
+            if projection in {None, "slash"}
+            else {}
+        )
         for action_id in sorted(self._actions):
             registered = self._actions[action_id]
             if namespace is not None and registered.spec.namespace != namespace:
                 continue
-            if projection is not None and projection not in registered.spec.projections:
+            dynamic_commands = tuple(
+                command
+                for _, (binding, command) in sorted(dynamic_bindings.items())
+                if binding.spec.action_id == action_id
+            )
+            if (
+                projection is not None
+                and projection not in registered.spec.projections
+                and not (projection == "slash" and dynamic_commands)
+            ):
                 continue
+            projected_spec = registered.spec
+            if dynamic_commands:
+                projected_spec = replace(
+                    registered.spec,
+                    projections=(*registered.spec.projections, "slash"),
+                    slash_commands=dynamic_commands,
+                )
             reason = self.availability_reason(registered, context)
             items.append(
                 ActionCatalogEntry(
-                    spec=registered.spec,
+                    spec=projected_spec,
                     available=reason is None,
                     availability_reason=reason,
                 )
             )
         return tuple(items)
 
-    def resolve_slash(self, raw: str) -> ResolvedSlashCommand:
+    def resolve_slash(
+        self,
+        raw: str,
+        *,
+        context: ActionContext | None = None,
+    ) -> ResolvedSlashCommand:
         """Resolve one normalized slash command or raise a stable command error."""
         normalized = str(raw or "").strip()
         token, separator, remainder = normalized.partition(" ")
@@ -122,6 +180,8 @@ class ActionRegistry:
             if base.startswith("/") and suffix.replace("_", "").isalnum():
                 token = base
         binding = self._slash_commands.get(token.lower())
+        if binding is None and context is not None:
+            binding = self._dynamic_command_bindings(context).get(token.lower())
         if binding is None:
             raise SlashCommandError("command_not_found", "The requested slash command is not registered.")
         registered, command = binding
@@ -135,6 +195,38 @@ class ActionRegistry:
             args=args,
             parsed_args=parsed_args,
         )
+
+    def _dynamic_command_bindings(
+        self,
+        context: ActionContext,
+    ) -> dict[str, tuple[RegisteredAction, SlashCommandSpec]]:
+        """Return unambiguous contextual aliases after reserving static names."""
+        candidates: dict[
+            str,
+            list[tuple[RegisteredAction, SlashCommandSpec]],
+        ] = {}
+        for action_id in sorted(self._dynamic_slash_commands):
+            provider, slash_input = self._dynamic_slash_commands[action_id]
+            registered = self._actions[action_id]
+            try:
+                commands = provider(context)
+            except Exception:
+                # Catalog discovery must fail closed when a contextual resource
+                # snapshot cannot be read. Invocation will report unknown rather
+                # than exposing stale or partially resolved commands.
+                continue
+            dynamic_registered = replace(registered, slash_input=slash_input)
+            for command in commands:
+                if command.command in self._slash_commands:
+                    continue
+                candidates.setdefault(command.command, []).append(
+                    (dynamic_registered, command)
+                )
+        return {
+            command: bindings[0]
+            for command, bindings in candidates.items()
+            if len(bindings) == 1
+        }
 
     @staticmethod
     def _validate_slash_arguments(command: SlashCommandSpec, raw_args: str) -> tuple[object, ...]:

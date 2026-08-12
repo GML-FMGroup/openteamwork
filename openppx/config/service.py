@@ -428,6 +428,8 @@ def _effect_for_path(resource_kind: str, path: tuple[str | int, ...]) -> ConfigE
             return ConfigEffect.NEXT_RUN
         if path[:2] == ("spec", "permissions"):
             return ConfigEffect.NEXT_RUN
+        if path[:2] == ("spec", "runtime"):
+            return ConfigEffect.NEXT_RUN
         return ConfigEffect.LIVE
     next_run_paths = {
         ("spec", "workspace"),

@@ -165,6 +165,7 @@ def _configured(tmp_path: Path) -> tuple[ConfigService, InMemorySecretStore]:
                     "credential": {"store": "system", "name": "primary-key"},
                     "executionLocation": "remote",
                     "capabilities": ["text", "tool_calling"],
+                    "contextWindowTokens": 100000,
                     "fallbackProfiles": [],
                     "enabled": True,
                 },
@@ -286,6 +287,28 @@ def test_snapshot_builds_real_adk_runner_and_completes_hello_without_env_project
         assert "source_agent_id" not in properties
         assert "source_agent_privilege_level" not in properties
     assert dict(os.environ) == before
+
+
+def test_snapshot_passes_model_aware_compaction_to_runner(tmp_path: Path) -> None:
+    config_service, secrets = _configured(tmp_path)
+    captured: dict[str, object] = {}
+
+    def capture_runner(**kwargs):
+        captured.update(kwargs)
+        return object(), kwargs["session_service"]
+
+    RuntimeAssembler(
+        node_root=tmp_path,
+        secret_store=secrets,
+        model_factory=lambda _resolution: _HelloLlm(model="hello-model"),
+        runner_factory=capture_runner,
+    ).assemble(config_service.snapshot("low-main"))
+
+    compaction = captured["context_compaction_plan"]
+    assert captured["profile"] == "snapshot"
+    assert compaction.token_threshold == 70_000
+    assert compaction.event_retention_size == 12
+    assert compaction.compaction_interval is None
 
 
 def test_assembled_non_root_file_tool_cannot_read_node_data(tmp_path: Path) -> None:
@@ -1189,6 +1212,15 @@ def test_session_and_run_actions_use_the_same_runtime_supervisor(tmp_path: Path)
         capabilities=permissions,
         permissions=permissions,
     )
+    slash_catalog = application.catalog(context, projection="slash")
+    slash_commands = {
+        command["command"]
+        for item in slash_catalog.data["items"]
+        for command in item["slashCommands"]
+    }
+
+    assert "/new" not in slash_commands
+    assert "/stop" not in slash_commands
 
     created = application.invoke(
         "session.new",
@@ -1240,7 +1272,7 @@ def test_session_and_run_actions_use_the_same_runtime_supervisor(tmp_path: Path)
         },
         context,
     )
-    stopped = application.invoke(
+    removed_stop_alias = application.invoke(
         "system.command.invoke",
         {
             "rawCommand": "/stop",
@@ -1251,10 +1283,12 @@ def test_session_and_run_actions_use_the_same_runtime_supervisor(tmp_path: Path)
         },
         context,
     )
+    stopped = application.invoke("run.stop", {"runId": "run-action"}, context)
     missing = application.invoke("run.stop", {"runId": "missing"}, context)
 
     assert stopped.ok is True
-    assert stopped.data["targetActionId"] == "run.stop"
+    assert removed_stop_alias.error is not None
+    assert removed_stop_alias.error.code == "command_not_found"
     assert inspected.ok is True
     inspection = inspected.data["result"]
     assert inspection["effectiveRuntime"]["modelProfileId"] == "primary"
@@ -1264,7 +1298,7 @@ def test_session_and_run_actions_use_the_same_runtime_supervisor(tmp_path: Path)
     assert inspection["runs"][0]["runId"] == "run-action"
     assert inspection["goals"] == []
     assert inspection["tasks"] == []
-    assert stopped.data["result"]["run"]["state"] == "cancelling"
+    assert stopped.data["run"]["state"] == "cancelling"
     assert missing.error is not None
     assert missing.error.code == "run_not_found"
 

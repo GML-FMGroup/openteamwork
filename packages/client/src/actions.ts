@@ -66,6 +66,14 @@ export interface ActionInvocationOptions {
   correlationId?: string;
 }
 
+export interface ActionCatalogContext {
+  agentId?: string | null;
+}
+
+export interface CommandListOptions extends ActionCatalogContext {
+  namespace?: string;
+}
+
 export interface SessionNewResult extends Record<string, unknown> {
   session: {
     id: string;
@@ -375,6 +383,7 @@ export interface ProviderModel {
   description: string;
   defaultReasoningEffort: string | null;
   reasoningEfforts: string[];
+  contextWindowTokens: number | null;
 }
 
 export interface ModelCatalogResult extends Record<string, unknown> {
@@ -506,6 +515,7 @@ export interface SetupApplyRequest extends Record<string, unknown> {
       displayName: string;
       enabledAgents: string[];
       clientApi: { listenHost: string; port: number; authentication: "required" | "disabled" };
+      runtime?: { contextCompaction: ContextCompactionConfiguration };
     };
   };
   agent: {
@@ -531,6 +541,7 @@ export interface SetupApplyRequest extends Record<string, unknown> {
       credential?: { store: "system"; name: string };
       executionLocation: "local" | "remote";
       capabilities: string[];
+      contextWindowTokens?: number | null;
     };
   };
   secret: { ref: { store: "system"; name: string }; value: string } | null;
@@ -589,6 +600,30 @@ export interface HeartbeatConfiguration extends Record<string, unknown> {
   everySeconds: number;
   prompt: string;
   activeHours: { start: string | null; end: string | null; timezone: string };
+}
+
+export interface ContextCompactionConfiguration extends Record<string, unknown> {
+  enabled: boolean;
+  thresholdPercent: number;
+}
+
+export interface ContextCompactionModelStatus extends Record<string, unknown> {
+  agentId: string;
+  agentName: string;
+  profileId: string;
+  provider: string;
+  model: string;
+  strategy: "disabled" | "token_threshold" | "invocation_fallback";
+  contextWindowTokens: number | null;
+  contextWindowSource: "profile" | "catalog" | null;
+  tokenThreshold: number | null;
+  eventRetentionSize: number | null;
+  compactionInterval: number | null;
+}
+
+export interface OperationsContextCompactionResult extends Record<string, unknown> {
+  configuration: ContextCompactionConfiguration;
+  models: ContextCompactionModelStatus[];
 }
 
 export type OperationsTaskControlAction = "interrupt" | "cancel" | "pause" | "resume" | "restart" | "send_input";
@@ -749,10 +784,15 @@ export class ActionClient {
     this.idFactory = options.idFactory ?? nextWireId;
   }
 
-  public async catalog(namespace?: string, projection?: ActionProjection): Promise<ActionCatalogItem[]> {
+  public async catalog(
+    namespace?: string,
+    projection?: ActionProjection,
+    context: ActionCatalogContext = {},
+  ): Promise<ActionCatalogItem[]> {
     const params = new URLSearchParams();
     if (namespace) params.set("namespace", namespace);
     if (projection) params.set("projection", projection);
+    if (context.agentId) params.set("agent_id", context.agentId);
     const query = params.size ? `?${params.toString()}` : "";
     const envelope = parseActionEnvelope<{ items: ActionCatalogItem[] }>(
       await this.transport.requestJson(`/api/v1/actions${query}`),
@@ -1019,6 +1059,14 @@ export class OperationsClient {
     return this.actions.invoke("operations.heartbeat.configure", input, { confirmed });
   }
 
+  public contextCompaction(): Promise<ActionEnvelope<OperationsContextCompactionResult>> {
+    return this.actions.invoke("operations.compaction.status", {});
+  }
+
+  public configureContextCompaction(input: ContextCompactionConfiguration, confirmed = false): Promise<ActionEnvelope<Record<string, unknown>>> {
+    return this.actions.invoke("operations.compaction.configure", input, { confirmed });
+  }
+
   public usage(limit = 20, provider: string | null = null): Promise<ActionEnvelope<OperationsUsageResult>> {
     return this.actions.invoke("operations.usage.read", { limit, provider });
   }
@@ -1215,8 +1263,12 @@ export class RunClient {
 export class CommandClient {
   public constructor(private readonly actions: ActionClient) {}
 
-  public async list(namespace?: string): Promise<ProjectedSlashCommand[]> {
-    const catalog = await this.actions.catalog(namespace, "slash");
+  public async list(options: CommandListOptions = {}): Promise<ProjectedSlashCommand[]> {
+    const catalog = await this.actions.catalog(
+      options.namespace,
+      "slash",
+      { agentId: options.agentId },
+    );
     return catalog
       .flatMap((action) =>
         action.slashCommands.map((command) => ({

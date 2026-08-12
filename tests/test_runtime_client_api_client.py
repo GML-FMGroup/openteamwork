@@ -60,9 +60,9 @@ def test_client_reads_filtered_action_catalog() -> None:
 
     client = ClientApiClient(base_url="http://node.test:18765")
     with patch("openppx.runtime.client_api_client.request.urlopen", side_effect=fake_urlopen):
-        payload = client.action_catalog(namespace="operations", projection="slash")
+        payload = client.action_catalog(namespace="operations", projection="slash", agent_id="writer")
 
     assert payload["ok"] is True
     assert captured["request"].full_url.endswith(
-        "/api/v1/actions?namespace=operations&projection=slash"
+        "/api/v1/actions?namespace=operations&projection=slash&agent_id=writer"
     )

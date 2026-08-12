@@ -166,6 +166,8 @@ class ModelProfileLifecycleService:
                 "model_not_available",
                 "The selected model is not advertised by this provider on the Node.",
             )
+        if context_window_tokens is None:
+            context_window_tokens = self.catalog.context_window_tokens(provider_id, model)
         if api_base is not None and provider.runtime not in {"litellm", "codex"}:
             raise ModelProfileLifecycleError(
                 "api_base_not_supported",

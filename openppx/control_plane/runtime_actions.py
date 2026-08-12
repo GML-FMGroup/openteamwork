@@ -60,24 +60,13 @@ def register_runtime_actions(
             required_capabilities=frozenset({"session.write"}),
             permission="session.write",
             operation="mutation",
-            projections=("cli", "slash", "desktop", "mobile"),
-            slash_commands=(
-                SlashCommandSpec(
-                    command="/new",
-                    title="New session",
-                    description="Create and switch to a fresh conversation Session.",
-                    icon="square-pen",
-                    lifecycle="finalize_active_turn",
-                    order=20,
-                ),
-            ),
+            projections=("cli", "desktop", "mobile"),
         ),
         lambda _context, input_data: _new_session(
             supervisor,
             metadata,
             cast(SessionNewInput, input_data),
         ),
-        slash_input=_new_session_slash_input,
     )
     registry.register(
         ActionSpec(
@@ -164,23 +153,12 @@ def register_runtime_actions(
             permission="run.control",
             risk="medium",
             operation="mutation",
-            projections=("cli", "slash", "desktop", "mobile"),
-            slash_commands=(
-                SlashCommandSpec(
-                    command="/stop",
-                    title="Stop current run",
-                    description="Request cooperative cancellation of the active Run.",
-                    icon="square",
-                    lifecycle="stop_active_turn",
-                    order=30,
-                ),
-            ),
+            projections=("cli", "desktop", "mobile"),
         ),
         lambda _context, input_data: _stop_run(
             supervisor,
             cast(RunStopInput, input_data),
         ),
-        slash_input=_stop_run_slash_input,
     )
     registry.register(
         ActionSpec(
@@ -338,25 +316,6 @@ def _required_context(value: str | None, field: str) -> str:
     if value:
         return value
     raise SlashCommandError("command_context_required", f"The slash command requires {field} context.")
-
-
-def _new_session_slash_input(
-    _command: SlashCommandSpec,
-    _args: str,
-    context: SlashInvocationContext,
-) -> dict[str, object]:
-    return {
-        "agentId": _required_context(context.agent_id, "Agent"),
-        "userId": context.user_id,
-    }
-
-
-def _stop_run_slash_input(
-    _command: SlashCommandSpec,
-    _args: str,
-    context: SlashInvocationContext,
-) -> dict[str, object]:
-    return {"runId": _required_context(context.run_id, "active Run")}
 
 
 def _runtime_inspect_slash_input(

@@ -27,6 +27,7 @@ from .input_models import (
     OperationsCronListInput,
     OperationsCronRunInput,
     OperationsCronUpdateInput,
+    OperationsContextCompactionConfigureInput,
     OperationsHeartbeatRunInput,
     OperationsHeartbeatConfigureInput,
     OperationsTaskControlInput,
@@ -153,6 +154,32 @@ def register_operations_actions(registry: ActionRegistry, service: OperationsSer
     registry.register(
         _write_spec("operations.heartbeat.configure", "Configure heartbeat", "Persist the complete Node heartbeat policy.", OperationsHeartbeatConfigureInput, risk="high"),
         lambda _c, value: _call(lambda: _configure_heartbeat(service, cast(OperationsHeartbeatConfigureInput, value))),
+    )
+    registry.register(
+        _read_spec(
+            "operations.compaction.status",
+            "Context compaction status",
+            "Inspect the Node context compaction policy and effective model thresholds.",
+            EmptyInput,
+        ),
+        lambda _c, _v: _call(service.context_compaction_status),
+    )
+    registry.register(
+        _write_spec(
+            "operations.compaction.configure",
+            "Configure context compaction",
+            "Persist the Node context compaction percentage.",
+            OperationsContextCompactionConfigureInput,
+            risk="high",
+        ),
+        lambda _c, value: _call(
+            lambda: service.configure_context_compaction(
+                enabled=cast(OperationsContextCompactionConfigureInput, value).enabled,
+                threshold_percent=cast(
+                    OperationsContextCompactionConfigureInput, value
+                ).threshold_percent,
+            )
+        ),
     )
     registry.register(
         _read_spec(

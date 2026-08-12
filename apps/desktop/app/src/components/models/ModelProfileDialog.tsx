@@ -68,6 +68,7 @@ export function ModelProfileDialog(props: ModelProfileDialogProps) {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const displayNameRef = useRef<HTMLInputElement | null>(null);
+  const catalogContextWindowRef = useRef<string | null>(null);
 
   const provider = props.providers.find((item) => item.id === providerId) ?? null;
   const supportsApiBase = provider?.runtime === "litellm" || provider?.runtime === "codex";
@@ -110,6 +111,7 @@ export function ModelProfileDialog(props: ModelProfileDialogProps) {
         setApiBase(spec.apiBase ?? "");
         setCapabilities(spec.capabilities);
         setContextWindowTokens(spec.contextWindowTokens?.toString() ?? "");
+        catalogContextWindowRef.current = null;
         setInputCost(spec.inputCostPerMillionUsd ?? "");
         setOutputCost(spec.outputCostPerMillionUsd ?? "");
         setFallbackProfileIds(spec.fallbackProfiles);
@@ -159,6 +161,16 @@ export function ModelProfileDialog(props: ModelProfileDialogProps) {
       active = false;
     };
   }, [loadingProfile, providerId]);
+
+  useEffect(() => {
+    const catalogWindow = catalog?.items.find((item) => item.id === model)?.contextWindowTokens;
+    setContextWindowTokens((current) => {
+      if (current && current !== catalogContextWindowRef.current) return current;
+      const next = catalogWindow ? String(catalogWindow) : "";
+      catalogContextWindowRef.current = next || null;
+      return next;
+    });
+  }, [catalog, model]);
 
   useEffect(() => {
     if (auth?.state !== "pending") return;
@@ -355,7 +367,8 @@ export function ModelProfileDialog(props: ModelProfileDialogProps) {
                   </label>
                   <label>
                     <span>Context window</span>
-                    <input type="number" min="1" step="1" value={contextWindowTokens} onChange={(event) => setContextWindowTokens(event.target.value)} placeholder="Optional tokens" />
+                    <input type="number" min="1" step="1" value={contextWindowTokens} onChange={(event) => { catalogContextWindowRef.current = null; setContextWindowTokens(event.target.value); }} placeholder="Filled when known" />
+                    <small>Used with the Node compaction percentage. The model catalog fills this value when available.</small>
                   </label>
                   {supportsApiBase ? (
                     <label className="agent-dialog-full-row">

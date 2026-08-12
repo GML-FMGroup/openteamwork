@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from dataclasses import replace
 
 from openppx.actions import ActionContext, ActionExecutor, ActionOutcome, ActionRegistry
 from openppx.actions import ActionError, ActionFailure, SlashCommandError, SlashInvocationContext
-from openppx.agents import AgentLifecycleService
-from openppx.config import ConfigService, FilesystemConfigRepository
+from openppx.agents import AgentLifecycleError, AgentLifecycleService
+from openppx.config import ConfigError, ConfigService, FilesystemConfigRepository
 from openppx.modeling import ModelProfileLifecycleService, ModelProfileRepository, ModelProfileSelector, ProviderAccessService
 from openppx.setup import SetupService
 from openppx.governance import ActionAuditStore, ActionPolicy
@@ -123,9 +124,18 @@ class ControlPlaneApplication:
         input_data: SlashCommandInvokeInput,
     ) -> dict[str, object]:
         """Resolve one command projection and execute its target Action once."""
+        command_context = replace(
+            context,
+            agent_id=input_data.agent_id,
+            session_id=input_data.session_id,
+            run_id=input_data.run_id,
+        )
         try:
-            resolved = registry.resolve_slash(input_data.raw_command)
-            reason = registry.availability_reason(resolved.registered, context)
+            resolved = registry.resolve_slash(
+                input_data.raw_command,
+                context=command_context,
+            )
+            reason = registry.availability_reason(resolved.registered, command_context)
             if reason == "capability_required":
                 raise ActionFailure(ActionError("capability_required", "The caller lacks a required capability."))
             if reason == "permission_denied":
@@ -156,19 +166,7 @@ class ControlPlaneApplication:
         outcome = executor.execute(
             resolved.registered.spec.action_id,
             target_input,
-            ActionContext(
-                request_id=context.request_id,
-                correlation_id=context.correlation_id,
-                actor_id=context.actor_id,
-                capabilities=context.capabilities,
-                permissions=context.permissions,
-                confirmed=context.confirmed,
-                node_id=context.node_id,
-                agent_id=input_data.agent_id,
-                session_id=input_data.session_id,
-                run_id=input_data.run_id,
-                task_id=context.task_id,
-            ),
+            command_context,
         )
         if not outcome.ok:
             assert outcome.error is not None
@@ -228,9 +226,35 @@ class ControlPlaneApplication:
             starters=starters or default_extension_starter_catalog(),
             mcp_oauth=mcp_probe.oauth_service,
             health_store=health_store,
+            agent_access=self._can_access_agent,
         )
         self.extension_registry = registry
         self.mcp_oauth_service = mcp_probe.oauth_service
+
+    def _can_access_agent(self, context: ActionContext, agent_id: str) -> bool:
+        """Return whether one authenticated caller may target an enabled Agent."""
+        if context.principal_id is None:
+            return True
+        try:
+            items = self.agent_lifecycle.list()
+        except (AgentLifecycleError, ConfigError):
+            return False
+        item = next(
+            (
+                candidate
+                for candidate in items
+                if candidate.agent.document.metadata.name == agent_id
+            ),
+            None,
+        )
+        if item is None:
+            return False
+        if not item.enabled:
+            return False
+        return (
+            context.privilege_level == "root"
+            or item.agent.document.spec.owner_principal_id == context.principal_id
+        )
 
     def attach_runtime(self, supervisor, *, task_controller=None, session_metadata=None) -> None:
         """Attach the one Node Runtime Supervisor and register its Actions."""

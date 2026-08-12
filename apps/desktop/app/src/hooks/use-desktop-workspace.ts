@@ -354,9 +354,6 @@ function formatSlashCommandResult(outcome: SlashCommandResult): string {
   if (outcome.targetActionId === "session.rewind") {
     return `Conversation rewound before invocation ${String(result.rewindBeforeInvocationId ?? "unknown")}. External side effects were not rolled back.`;
   }
-  if (outcome.targetActionId === "run.stop") {
-    return "Stop requested for the active Run.";
-  }
   if (outcome.targetActionId === "goal.command") {
     const current = record(result.current);
     const goal = Object.keys(current).length ? current : result;
@@ -531,6 +528,25 @@ export function useDesktopWorkspace() {
     }
   }
 
+  async function refreshSlashCommands(
+    agentId = selectedAgentIdRef.current,
+  ): Promise<void> {
+    if (!agentId) {
+      setSlashCommands([]);
+      return;
+    }
+    try {
+      const result = await window.ppxClient.listSlashCommands(agentId);
+      if (agentId === selectedAgentIdRef.current) {
+        setSlashCommands(result.commands);
+      }
+    } catch {
+      if (agentId === selectedAgentIdRef.current) {
+        setSlashCommands([]);
+      }
+    }
+  }
+
   /** Persist a new objective while preserving the current Goal identity and policy. */
   async function updateCurrentGoal(objective: string): Promise<boolean> {
     const goal = currentGoal;
@@ -620,6 +636,14 @@ export function useDesktopWorkspace() {
     }
     void refreshSessionArtifacts(selectedAgentId, selectedSessionId);
   }, [selectedAgentId, selectedSessionId]);
+
+  useEffect(() => {
+    if (!ready || !isWorkspaceConfigurationComplete(setupReadiness)) {
+      setSlashCommands([]);
+      return;
+    }
+    void refreshSlashCommands(selectedAgentId);
+  }, [ready, selectedAgentId, setupReadiness?.state]);
 
   useEffect(() => {
     setGoalMutationError(null);
@@ -752,18 +776,6 @@ export function useDesktopWorkspace() {
           .catch((error: unknown) => {
             if (mounted) {
               setExtensionsError(error instanceof Error ? error.message : String(error));
-            }
-          });
-        if (isWorkspaceConfigurationComplete(nextSetupReadiness)) void window.ppxClient
-          .listSlashCommands()
-          .then((result) => {
-            if (mounted) {
-              setSlashCommands(result.commands);
-            }
-          })
-          .catch(() => {
-            if (mounted) {
-              setSlashCommands([]);
             }
           });
         if (isWorkspaceConfigurationComplete(nextSetupReadiness)) void window.ppxClient
@@ -1041,7 +1053,6 @@ export function useDesktopWorkspace() {
         setSetupForm(setupFormFromStatus(nextSetupStatus, nextDiagnostics, profile.id));
       }
       await reloadWorkspace();
-      setSlashCommands((await window.ppxClient.listSlashCommands()).commands);
       if (isWorkspaceConfigurationComplete(nextSetupReadiness)) {
         await refreshModelProfiles();
         if (hasRootAccess(profile)) await refreshExtensions();
@@ -1130,6 +1141,7 @@ export function useDesktopWorkspace() {
     try {
       const result = await window.ppxClient.listExtensions();
       setExtensions(result.extensions);
+      await refreshSlashCommands();
     } catch (error) {
       setExtensionsError(error instanceof Error ? error.message : String(error));
     } finally {
@@ -1202,7 +1214,6 @@ export function useDesktopWorkspace() {
       setSetupForm((current) => ({ ...current, apiKey: "" }));
       applyConnectionBootstrap(await window.ppxClient.bootstrap());
       await Promise.all([refreshExtensions(), refreshModelProfiles()]);
-      setSlashCommands((await window.ppxClient.listSlashCommands()).commands);
     } catch (error) {
       setSetupError(error instanceof Error ? error.message : String(error));
       try {
@@ -1461,6 +1472,11 @@ export function useDesktopWorkspace() {
         role: "system",
         status: "completed",
         createdAt: new Date().toISOString(),
+        commandResult: {
+          command: outcome.command,
+          targetActionId: outcome.targetActionId,
+          result: outcome.result,
+        },
         parts: [{ type: "markdown", text }],
       },
     ]);
@@ -1476,27 +1492,8 @@ export function useDesktopWorkspace() {
         sessionId: selectedSessionIdRef.current || null,
         runId: activeRunId ?? null,
       });
-      if (outcome.targetActionId === "session.new") {
-        const payload = record(record(outcome.result).session);
-        const session: SessionSummary = {
-          id: String(payload.id ?? ""),
-          agentId: String(payload.agentId ?? selectedAgentIdRef.current),
-          title: String(payload.title ?? "New chat"),
-          updatedAt: String(payload.updatedAt ?? new Date().toISOString()),
-          lastMessagePreview: String(payload.lastMessagePreview ?? ""),
-        };
-        if (session.id) {
-          setSessions((current) => [session, ...current.filter((item) => item.id !== session.id)]);
-          selectSessionId(session.id);
-          replaceMessages([]);
-        }
-        return;
-      }
       if (outcome.targetActionId === "session.rewind" && selectedSessionIdRef.current) {
         replaceMessages((await window.ppxClient.loadSession(selectedSessionIdRef.current)).messages);
-      }
-      if (outcome.targetActionId === "run.stop" && activeRunId) {
-        setCancellingRunId(activeRunId);
       }
       if (outcome.lifecycle === "agent_turn") {
         await refreshCurrentGoal(selectedSessionIdRef.current);

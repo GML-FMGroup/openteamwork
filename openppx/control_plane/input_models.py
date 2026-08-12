@@ -950,6 +950,13 @@ class OperationsHeartbeatConfigureInput(ActionInput):
     active_hours: OperationsHeartbeatActiveHoursInput = Field(default_factory=OperationsHeartbeatActiveHoursInput)
 
 
+class OperationsContextCompactionConfigureInput(ActionInput):
+    """Persist the human-facing Node context compaction policy."""
+
+    enabled: StrictBool
+    threshold_percent: StrictInt = Field(ge=10, le=90)
+
+
 class OperationsUsageReadInput(ActionInput):
     """Read bounded Node-local model token usage."""
 

@@ -181,6 +181,21 @@ class NodeOperationsSpec(StrictConfigModel):
     heartbeat: NodeHeartbeatSpec = Field(default_factory=NodeHeartbeatSpec)
 
 
+class NodeContextCompactionSpec(StrictConfigModel):
+    """Human-facing policy for compacting long Session context."""
+
+    enabled: StrictBool = True
+    threshold_percent: StrictInt = Field(default=70, ge=10, le=90)
+
+
+class NodeRuntimeSpec(StrictConfigModel):
+    """Node-owned runtime behavior applied when assembling the next Run."""
+
+    context_compaction: NodeContextCompactionSpec = Field(
+        default_factory=NodeContextCompactionSpec
+    )
+
+
 class NodeSpec(StrictConfigModel):
     """Settings owned by a single OpenPPX Node."""
 
@@ -188,6 +203,7 @@ class NodeSpec(StrictConfigModel):
     enabled_agents: list[ResourceName] = Field(default_factory=list)
     client_api: NodeClientApiSpec = Field(default_factory=NodeClientApiSpec)
     operations: NodeOperationsSpec = Field(default_factory=NodeOperationsSpec)
+    runtime: NodeRuntimeSpec = Field(default_factory=NodeRuntimeSpec)
     permissions: NodePermissionSpec = Field(default_factory=NodePermissionSpec)
 
     @field_validator("enabled_agents")

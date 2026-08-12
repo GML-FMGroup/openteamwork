@@ -124,6 +124,7 @@ def build_node_composition(
         plugin_manager=plugin_manager,
         mcp_adapter=mcp_adapter,
         permission_snapshot_provider=control_plane.config_service.permission_snapshot,
+        model_catalog=control_plane.provider_access.catalog,
     )
     runtime_supervisor = NodeRuntimeSupervisor(
         config_service=control_plane.config_service,

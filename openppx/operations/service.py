@@ -6,10 +6,16 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Literal
 
-from openppx.config import ConfigError, FilesystemConfigRepository, NodeHeartbeatSpec
+from openppx.config import (
+    ConfigError,
+    FilesystemConfigRepository,
+    NodeContextCompactionSpec,
+    NodeHeartbeatSpec,
+)
 from openppx.extensions import ExtensionRegistry
 from openppx.governance import ActionAuditStore, AuditQuery
 from openppx.runtime.cron_service import CronSchedule, CronService
+from openppx.runtime.context_compaction import resolve_context_compaction_plan
 from openppx.runtime.heartbeat_runner import HeartbeatRunner
 from openppx.runtime.node_runtime import NodeRuntimeSupervisor
 from openppx.runtime.task_execution import TaskController
@@ -258,6 +264,72 @@ class OperationsService:
             "revision": resource.revision,
             "configuration": heartbeat.model_dump(by_alias=True, mode="json"),
             "effect": "restart_required",
+        }
+
+    def context_compaction_status(self) -> dict[str, object]:
+        """Return the persisted policy and effective default-model thresholds."""
+        node = self.repository.read_node().document
+        configuration = node.spec.runtime.context_compaction
+        models: list[dict[str, object]] = []
+        for agent_id in node.spec.enabled_agents:
+            try:
+                agent = self.repository.read_agent(agent_id).document
+                profile_id = agent.spec.model_policy.default_profile
+                if not profile_id:
+                    continue
+                profile = self.setup.profiles.read_profile(profile_id).document
+                plan = resolve_context_compaction_plan(
+                    configuration,
+                    profile_context_window_tokens=profile.spec.context_window_tokens,
+                    catalog_context_window_tokens=self.setup.catalog.context_window_tokens(
+                        profile.spec.provider,
+                        profile.spec.model,
+                    ),
+                )
+            except ConfigError:
+                continue
+            models.append(
+                {
+                    "agentId": agent_id,
+                    "agentName": agent.spec.display_name,
+                    "profileId": profile_id,
+                    "provider": profile.spec.provider,
+                    "model": profile.spec.model,
+                    "strategy": plan.strategy,
+                    "contextWindowTokens": plan.context_window_tokens,
+                    "contextWindowSource": plan.context_window_source,
+                    "tokenThreshold": plan.token_threshold,
+                    "eventRetentionSize": plan.event_retention_size,
+                    "compactionInterval": plan.compaction_interval,
+                }
+            )
+        return {
+            "configuration": configuration.model_dump(by_alias=True, mode="json"),
+            "models": models,
+        }
+
+    def configure_context_compaction(
+        self,
+        *,
+        enabled: bool,
+        threshold_percent: int,
+    ) -> dict[str, object]:
+        """Persist context compaction for newly assembled Runs."""
+        current = self.repository.read_node()
+        configuration = NodeContextCompactionSpec(
+            enabled=enabled,
+            thresholdPercent=threshold_percent,
+        )
+        runtime = current.document.spec.runtime.model_copy(
+            update={"context_compaction": configuration}
+        )
+        spec = current.document.spec.model_copy(update={"runtime": runtime})
+        candidate = current.document.model_copy(update={"spec": spec})
+        resource = self.repository.write_node(candidate, expected_revision=current.revision)
+        return {
+            "revision": resource.revision,
+            "configuration": configuration.model_dump(by_alias=True, mode="json"),
+            "effect": "next_run",
         }
 
     def run_heartbeat(self, *, reason: str) -> dict[str, object]:

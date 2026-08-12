@@ -214,7 +214,21 @@ class SetupService:
             raise SetupError("workspace_unavailable", "The Agent workspace is not a directory.")
 
         expected = request.expected_revisions
-        profile_revision = self._write_profile(request.profile, expected.profile)
+        profile = request.profile
+        if profile.spec.context_window_tokens is None:
+            discovered_window = self.catalog.context_window_tokens(
+                profile.spec.provider,
+                profile.spec.model,
+            )
+            if discovered_window is not None:
+                profile = profile.model_copy(
+                    update={
+                        "spec": profile.spec.model_copy(
+                            update={"context_window_tokens": discovered_window}
+                        )
+                    }
+                )
+        profile_revision = self._write_profile(profile, expected.profile)
         agent_revision = self._write_agent(request, expected.agent)
         node_revision, restart_required = self._write_node(request, expected.node)
         return SetupApplyResult(

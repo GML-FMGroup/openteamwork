@@ -259,6 +259,7 @@ function installClient(overrides: Partial<PpxClientApi> = {}): { client: PpxClie
           description: "Default model",
           defaultReasoningEffort: null,
           reasoningEfforts: [],
+          contextWindowTokens: null,
         },
       ],
     }),
@@ -400,6 +401,7 @@ function installClient(overrides: Partial<PpxClientApi> = {}): { client: PpxClie
     removeOperationsCron: async () => ({}),
     runOperationsHeartbeat: async () => ({}),
     configureOperationsHeartbeat: async () => ({}),
+    configureOperationsContextCompaction: async () => ({}),
     listSessions: async () => ({ sessions: buildBootstrapPayload().sessions }),
     createSession: async () => ({ session: buildBootstrapPayload().sessions[0] }),
     renameSession: async ({ sessionId, title }) => ({ sessionId, title }),
@@ -1236,6 +1238,7 @@ describe("App sending state", () => {
             description: "Current model",
             defaultReasoningEffort: "medium",
             reasoningEfforts: ["low", "medium", "high"],
+            contextWindowTokens: 272000,
           },
         ],
       }),
@@ -1926,6 +1929,109 @@ describe("App sending state", () => {
     expect(await screen.findByText("Node status: ready · Studio Node")).toBeInTheDocument();
   });
 
+  it("renders recent history as a structured command result on the transcript canvas", async () => {
+    installClient({
+      invokeSlashCommand: async () => ({
+        command: "/history",
+        lifecycle: "side_channel" as const,
+        targetActionId: "session.history",
+        result: {
+          items: [
+            {
+              role: "user",
+              text: "Review the current release plan",
+              invocationId: "invocation-1",
+              timestamp: "2026-08-11T04:40:00.000Z",
+            },
+            {
+              role: "assistant",
+              text: "The release plan is ready for review.",
+              invocationId: "invocation-2",
+              timestamp: "2026-08-11T04:41:00.000Z",
+            },
+          ],
+        },
+      }),
+    });
+    render(<App />);
+
+    const composer = await screen.findByPlaceholderText("Describe the outcome you want...");
+    fireEvent.change(composer, { target: { value: "/history 5" } });
+    fireEvent.keyDown(composer, { key: "Enter", code: "Enter", charCode: 13 });
+
+    const result = await screen.findByRole("region", { name: "/history result" });
+    const message = result.closest(".message-bubble");
+    expect(message).toHaveClass("command-thread");
+    expect(within(message as HTMLElement).getByText("/history")).toBeInTheDocument();
+    expect(within(message as HTMLElement).queryByText("System")).not.toBeInTheDocument();
+    expect(within(result).getByText("Recent history")).toBeInTheDocument();
+    expect(within(result).getByText("You")).toBeInTheDocument();
+    expect(within(result).getByText("Agent 1")).toBeInTheDocument();
+    expect(within(result).getByText("Review the current release plan")).toBeInTheDocument();
+    expect(result.querySelector('time[datetime="2026-08-11T04:41:00.000Z"]')).toBeInTheDocument();
+  });
+
+  it("renders an empty history result as one quiet command state", async () => {
+    installClient({
+      invokeSlashCommand: async () => ({
+        command: "/history",
+        lifecycle: "side_channel" as const,
+        targetActionId: "session.history",
+        result: { items: [] },
+      }),
+    });
+    render(<App />);
+
+    const composer = await screen.findByPlaceholderText("Describe the outcome you want...");
+    fireEvent.change(composer, { target: { value: "/history" } });
+    fireEvent.keyDown(composer, { key: "Enter", code: "Enter", charCode: 13 });
+
+    const result = await screen.findByRole("region", { name: "/history result" });
+    expect(within(result).getByText("This Session has no visible history yet.")).toBeInTheDocument();
+    expect(result.querySelector(".command-result-list")).not.toBeInTheDocument();
+  });
+
+  it("renders the Skill inventory as readable rows instead of raw JSON", async () => {
+    installClient({
+      invokeSlashCommand: async () => ({
+        command: "/skills",
+        lifecycle: "side_channel" as const,
+        targetActionId: "extension.list",
+        result: {
+          items: [
+            {
+              id: "clawhub",
+              displayName: "clawhub",
+              description: "Search and install Agent Skills from the public Skill registry.",
+              source: { type: "builtin", trust: "trusted" },
+            },
+            {
+              id: "docx",
+              displayName: "docx",
+              description: "Create, read, edit, or inspect Word documents.",
+              source: { type: "plugin:office", trust: "trusted" },
+            },
+          ],
+        },
+      }),
+    });
+    render(<App />);
+
+    const composer = await screen.findByPlaceholderText("Describe the outcome you want...");
+    fireEvent.change(composer, { target: { value: "/skills" } });
+    fireEvent.keyDown(composer, { key: "Enter", code: "Enter", charCode: 13 });
+
+    const result = await screen.findByRole("region", { name: "/skills result" });
+    expect(within(result).getByText("Available Skills")).toBeInTheDocument();
+    expect(within(result).getByText("2 available")).toBeInTheDocument();
+    expect(within(result).getByText("clawhub")).toBeInTheDocument();
+    expect(within(result).getByText("Built-in")).toBeInTheDocument();
+    expect(within(result).getByText("docx")).toBeInTheDocument();
+    expect(within(result).getByText("office plugin")).toBeInTheDocument();
+    expect(result).not.toHaveTextContent('"items"');
+    expect(result).not.toHaveTextContent('"description"');
+  });
+
   it("closes the slash command palette when argument entry begins", async () => {
     const goalCommand: ProjectedSlashCommand = {
       command: "/goal",
@@ -2041,35 +2147,6 @@ describe("App sending state", () => {
     expect(options[1]).toBeDisabled();
     expect(options[1]).toHaveTextContent("A writable Session is required.");
     local.restore();
-  });
-
-  it("switches to the Session returned by the new command", async () => {
-    const created: SessionSummary = {
-      id: "session-command",
-      agentId: "agent-1",
-      title: "New chat",
-      updatedAt: "2026-08-03T00:00:00.000Z",
-      lastMessagePreview: "",
-    };
-    installClient({
-      listSlashCommands: async () => ({ commands: buildSlashCommands() }),
-      invokeSlashCommand: async () => ({
-        command: "/new",
-        lifecycle: "finalize_active_turn",
-        targetActionId: "session.new",
-        result: { session: created },
-      }),
-    });
-    render(<App />);
-
-    const composer = await screen.findByPlaceholderText("Describe the outcome you want...");
-    fireEvent.change(composer, { target: { value: "/new" } });
-    fireEvent.keyDown(composer, { key: "Enter" });
-
-    await waitFor(() => {
-      expect(screen.getAllByText("New chat").length).toBeGreaterThan(0);
-    });
-    expect(screen.getByText("Agent 1 is ready")).toBeInTheDocument();
   });
 
   it("waits until first send to create a Session for an Agent with no history", async () => {
@@ -2468,6 +2545,31 @@ describe("App sending state", () => {
         ],
       },
     ];
+    const skillCommand = (name: string): ProjectedSlashCommand => ({
+      command: `/${name}`,
+      title: name,
+      description: `Use the ${name} Skill.`,
+      icon: "sparkles",
+      argHint: "<instruction>",
+      lifecycle: "agent_turn",
+      acceptsArgs: true,
+      arguments: [{
+        name: "instruction",
+        valueType: "text",
+        description: "Task to complete with this Skill.",
+        required: true,
+        choices: [],
+      }],
+      noArgsBehavior: "show_usage",
+      usage: `/${name} <instruction>`,
+      order: 80,
+      actionId: "extension.skill.command",
+      available: true,
+      availabilityReason: null,
+    });
+    const listSlashCommands = vi.fn(async (agentId?: string | null) => ({
+      commands: [skillCommand(agentId === "agent-2" ? "pptx" : "docx")],
+    }));
 
     installClient({
       bootstrap: async () => ({
@@ -2491,11 +2593,13 @@ describe("App sending state", () => {
       loadSession: async (sessionId) => ({
         messages: sessionId === secondSession.id ? secondMessages : firstMessages,
       }),
+      listSlashCommands,
     });
 
     render(<App />);
 
     await screen.findByText("Agent 1 transcript");
+    await waitFor(() => expect(listSlashCommands).toHaveBeenCalledWith("agent-1"));
     let taskPanel = screen.getByLabelText("Task panel");
     expect(within(taskPanel).queryByText("Activity details")).not.toBeInTheDocument();
     expect(within(taskPanel).queryByText("Used Agent 1 progress")).not.toBeInTheDocument();
@@ -2520,6 +2624,7 @@ describe("App sending state", () => {
     fireEvent.click(screen.getByRole("option", { name: /Agent 2 Remote test agent/ }));
 
     await screen.findByText("Agent 2 transcript");
+    await waitFor(() => expect(listSlashCommands).toHaveBeenCalledWith("agent-2"));
     expect(screen.queryByRole("heading", { name: "Connection" })).not.toBeInTheDocument();
     taskPanel = screen.getByLabelText("Task panel");
     expect(screen.queryByText("Agent 1 transcript")).not.toBeInTheDocument();
@@ -2528,6 +2633,11 @@ describe("App sending state", () => {
     expect(within(taskPanel).getByText("agent-2.txt")).toBeInTheDocument();
     expect(within(taskPanel).queryByText("Agent 1 progress")).not.toBeInTheDocument();
     expect(within(taskPanel).queryByText("agent-1.txt")).not.toBeInTheDocument();
+    const composer = screen.getByPlaceholderText("Describe the outcome you want...");
+    fireEvent.change(composer, { target: { value: "/" } });
+    const commandPalette = await screen.findByRole("listbox", { name: "Slash commands" });
+    expect(within(commandPalette).getByText("/pptx")).toBeInTheDocument();
+    expect(within(commandPalette).queryByText("/docx")).not.toBeInTheDocument();
   });
 
   it("clears previous messages immediately when switching sessions", async () => {

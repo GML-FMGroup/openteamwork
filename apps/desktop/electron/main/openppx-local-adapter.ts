@@ -82,6 +82,7 @@ import type {
   CronCreateInput,
   CronUpdateInput,
   HeartbeatConfiguration,
+  ContextCompactionConfiguration,
   ModelCatalogResult,
   ProviderAuthStatus,
   MessagePart,
@@ -960,11 +961,12 @@ export class OpenPpxLocalAdapter implements Omit<
 
   public async getOperationsDashboard(): Promise<OperationsDashboard> {
     await this.ensureClientApiAvailable();
-    const [overview, tasks, cron, heartbeat, usage, audit] = await Promise.all([
+    const [overview, tasks, cron, heartbeat, compaction, usage, audit] = await Promise.all([
       this.operations.overview(),
       this.operations.tasks(null, 50),
       this.operations.cron(true, 30),
       this.operations.heartbeat(),
+      this.operations.contextCompaction(),
       this.operations.usage(30),
       this.operations.audit({ limit: 50 }),
     ]);
@@ -973,6 +975,7 @@ export class OpenPpxLocalAdapter implements Omit<
       tasks: tasks.result,
       cron: cron.result,
       heartbeat: heartbeat.result,
+      compaction: compaction.result,
       usage: usage.result,
       audit: audit.result.items.map((item) => this.projectAuditItem(item)),
     };
@@ -1126,6 +1129,11 @@ export class OpenPpxLocalAdapter implements Omit<
   public async configureOperationsHeartbeat(input: HeartbeatConfiguration): Promise<Record<string, unknown>> {
     await this.ensureClientApiAvailable();
     return (await this.operations.configureHeartbeat(input, true)).result;
+  }
+
+  public async configureOperationsContextCompaction(input: ContextCompactionConfiguration): Promise<Record<string, unknown>> {
+    await this.ensureClientApiAvailable();
+    return (await this.operations.configureContextCompaction(input, true)).result;
   }
 
   private projectAuditItem(item: Record<string, unknown>): OperationsAuditItem {
@@ -1910,9 +1918,9 @@ export class OpenPpxLocalAdapter implements Omit<
     return { runId: String(run.id ?? runId), status: "cancelled" };
   }
 
-  public async listSlashCommands(): Promise<{ commands: ProjectedSlashCommand[] }> {
+  public async listSlashCommands(agentId?: string | null): Promise<{ commands: ProjectedSlashCommand[] }> {
     await this.ensureClientApiAvailable();
-    return { commands: await this.commands.list() };
+    return { commands: await this.commands.list({ agentId }) };
   }
 
   public async invokeSlashCommand(input: SlashCommandRequest): Promise<SlashCommandResult> {

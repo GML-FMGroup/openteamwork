@@ -10,6 +10,7 @@ import pytest
 
 from openppx.config import (
     AgentConfig,
+    ConfigChange,
     ConfigEffect,
     ConfigLoadError,
     ConfigRevisionConflict,
@@ -167,6 +168,25 @@ def test_preview_diff_never_contains_changed_free_text_values(tmp_path: Path) ->
 
     assert preview.changes[0].path == ("spec", "displayName")
     assert secretish not in str(preview)
+
+
+def test_node_context_compaction_change_takes_effect_on_next_run(tmp_path: Path) -> None:
+    _, _, config_service = service(tmp_path)
+    created = config_service.apply_node(NodeConfig.model_validate(node_payload()), expected_revision=None)
+    candidate_payload = deepcopy(node_payload())
+    candidate_payload["spec"]["runtime"] = {  # type: ignore[index]
+        "contextCompaction": {"enabled": True, "thresholdPercent": 75}
+    }
+
+    preview = config_service.preview_node(
+        NodeConfig.model_validate(candidate_payload),
+        expected_revision=created.resource.revision,
+    )
+
+    assert preview.effect == ConfigEffect.NEXT_RUN
+    assert preview.changes == (
+        ConfigChange(("spec", "runtime", "contextCompaction", "thresholdPercent"), "changed"),
+    )
 
 
 def test_agent_effect_is_live_for_display_and_next_run_for_runtime_fields(tmp_path: Path) -> None:

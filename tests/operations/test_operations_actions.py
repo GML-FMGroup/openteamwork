@@ -384,12 +384,32 @@ def test_operations_updates_cron_and_persists_heartbeat_policy(tmp_path: Path) -
         correlation_id="corr-configure-heartbeat",
         confirmed=True,
     )
+    compaction = host.coordinator.invoke_action(
+        "operations.compaction.configure",
+        {"enabled": True, "thresholdPercent": 75},
+        request_id="req-configure-compaction",
+        correlation_id="corr-configure-compaction",
+        confirmed=True,
+    )
+    compaction_status = host.coordinator.invoke_action(
+        "operations.compaction.status",
+        {},
+        request_id="req-read-compaction",
+        correlation_id="corr-read-compaction",
+        confirmed=False,
+    )
     node = FilesystemConfigRepository(tmp_path).read_node().document
 
     assert updated["ok"] is True, updated
     assert updated["result"]["job"]["name"] == "Updated schedule"
     assert updated["result"]["job"]["schedule"]["cronExpr"] == "0 9 * * *"
     assert heartbeat["result"]["effect"] == "restart_required"
+    assert compaction["result"]["effect"] == "next_run"
+    assert compaction_status["result"]["configuration"] == {
+        "enabled": True,
+        "thresholdPercent": 75,
+    }
+    assert node.spec.runtime.context_compaction.threshold_percent == 75
     assert node.spec.operations.heartbeat.enabled is True
     assert node.spec.operations.heartbeat.every_seconds == 900
     assert node.spec.operations.heartbeat.active_hours.start == "09:00"

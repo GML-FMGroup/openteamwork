@@ -38,7 +38,11 @@ def spec(action_id: str = "system.status", *, namespace: str = "system") -> Acti
     )
 
 
-def context(*, capabilities: frozenset[str] = frozenset({"system.read"})) -> ActionContext:
+def context(
+    *,
+    capabilities: frozenset[str] = frozenset({"system.read"}),
+    agent_id: str | None = None,
+) -> ActionContext:
     """Return a deterministic caller context."""
     return ActionContext(
         request_id="req_registry",
@@ -46,6 +50,7 @@ def context(*, capabilities: frozenset[str] = frozenset({"system.read"})) -> Act
         actor_id="local:test",
         capabilities=capabilities,
         permissions=frozenset({"system.read"}),
+        agent_id=agent_id,
     )
 
 
@@ -163,6 +168,101 @@ def test_registry_owns_unique_slash_commands_and_projection_filtering() -> None:
             lambda _context, _input: {},
             slash_input=lambda _command, _args, _context: {},
         )
+
+
+def test_registry_discovers_and_resolves_contextual_slash_commands() -> None:
+    registry = ActionRegistry()
+    registry.register(
+        spec("extension.skill.command", namespace="extension"),
+        lambda _context, _input: {},
+    )
+    registry.register_dynamic_slash(
+        "extension.skill.command",
+        lambda caller: (
+            SlashCommandSpec(
+                command="/pptx",
+                title="pptx",
+                description="Create and edit presentations.",
+                icon="sparkles",
+                arguments=(
+                    SlashCommandArgumentSpec(
+                        name="instruction",
+                        value_type="text",
+                        description="Task to complete with this Skill.",
+                        required=True,
+                    ),
+                ),
+                no_args_behavior="show_usage",
+                lifecycle="agent_turn",
+            ),
+        )
+        if caller.agent_id == "writer"
+        else (),
+        slash_input=lambda command, args, slash_context: {
+            "agentId": slash_context.agent_id,
+            "skillName": command.command.removeprefix("/"),
+            "instruction": args,
+        },
+    )
+
+    visible = registry.catalog(context(agent_id="writer"), projection="slash")
+    hidden = registry.catalog(context(agent_id="reader"), projection="slash")
+    resolved = registry.resolve_slash(
+        "/pptx summarize the release",
+        context=context(agent_id="writer"),
+    )
+
+    assert [item.spec.action_id for item in visible] == ["extension.skill.command"]
+    assert [item.command for item in visible[0].spec.slash_commands] == ["/pptx"]
+    assert hidden == ()
+    assert resolved.registered.spec.action_id == "extension.skill.command"
+    assert resolved.command.lifecycle == "agent_turn"
+    assert resolved.args == "summarize the release"
+    with pytest.raises(SlashCommandError, match="not registered"):
+        registry.resolve_slash("/pptx summarize the release", context=context(agent_id="reader"))
+
+
+def test_static_slash_commands_win_and_ambiguous_dynamic_aliases_are_hidden() -> None:
+    registry = ActionRegistry()
+    status = ActionSpec(
+        action_id="system.status",
+        namespace="system",
+        title="Status",
+        description="Return Node status.",
+        input_model=EmptyInput,
+        scope="node",
+        required_capabilities=frozenset({"system.read"}),
+        permission="system.read",
+        projections=("slash",),
+        slash_commands=(
+            SlashCommandSpec(
+                command="/status",
+                title="Status",
+                description="Return Node status.",
+                icon="activity",
+            ),
+        ),
+    )
+    registry.register(status, lambda _context, _input: {}, slash_input=lambda *_args: {})
+    registry.register(spec("extension.skill.command", namespace="extension"), lambda _context, _input: {})
+    registry.register_dynamic_slash(
+        "extension.skill.command",
+        lambda _context: (
+            SlashCommandSpec(command="/status", title="status", description="Collision.", icon="sparkles"),
+            SlashCommandSpec(command="/pptx", title="pptx", description="First.", icon="sparkles"),
+            SlashCommandSpec(command="/pptx", title="pptx", description="Second.", icon="sparkles"),
+            SlashCommandSpec(command="/docx", title="docx", description="Available.", icon="sparkles"),
+        ),
+        slash_input=lambda *_args: {},
+    )
+
+    catalog = registry.catalog(context(agent_id="writer"), projection="slash")
+    commands = [command.command for item in catalog for command in item.spec.slash_commands]
+
+    assert commands == ["/docx", "/status"]
+    assert registry.resolve_slash("/status").registered.spec.action_id == "system.status"
+    with pytest.raises(SlashCommandError, match="not registered"):
+        registry.resolve_slash("/pptx do work", context=context(agent_id="writer"))
 
 
 def test_slash_command_accepts_one_plugin_namespace_and_rejects_ambiguous_forms() -> None:

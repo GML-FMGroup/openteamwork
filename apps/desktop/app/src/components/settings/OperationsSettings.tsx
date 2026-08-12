@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import type {
   AgentProfile,
+  ContextCompactionConfiguration,
   CronCreateInput,
   HeartbeatConfiguration,
   OperationsAuditItem,
@@ -81,6 +82,11 @@ export function OperationsSettings(props: OperationsSettingsProps) {
   const [cronDraft, setCronDraft] = useState<CronDraft>(EMPTY_CRON);
   const [editingCronId, setEditingCronId] = useState<string | null>(null);
   const [showHeartbeatForm, setShowHeartbeatForm] = useState(false);
+  const [showCompactionForm, setShowCompactionForm] = useState(false);
+  const [compactionDraft, setCompactionDraft] = useState<ContextCompactionConfiguration>({
+    enabled: true,
+    thresholdPercent: 70,
+  });
   const [heartbeatDraft, setHeartbeatDraft] = useState<HeartbeatConfiguration>({
     enabled: false,
     everySeconds: 1800,
@@ -97,6 +103,7 @@ export function OperationsSettings(props: OperationsSettingsProps) {
       const next = await window.ppxClient.getOperationsDashboard();
       setDashboard(next);
       if (!showHeartbeatForm && next.heartbeat.configuration) setHeartbeatDraft(next.heartbeat.configuration);
+      if (!showCompactionForm && next.compaction?.configuration) setCompactionDraft(next.compaction.configuration);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : String(reason));
     } finally {
@@ -223,6 +230,20 @@ export function OperationsSettings(props: OperationsSettingsProps) {
     }
   }
 
+  async function saveCompaction(): Promise<void> {
+    setWorkingId("compaction:configure");
+    setError(null);
+    try {
+      await window.ppxClient.configureOperationsContextCompaction(compactionDraft);
+      setShowCompactionForm(false);
+      await refresh();
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : String(reason));
+    } finally {
+      setWorkingId(null);
+    }
+  }
+
   async function mutateCron(jobId: string, operation: "enable" | "disable" | "run" | "remove"): Promise<void> {
     setWorkingId(`cron:${jobId}:${operation}`);
     setError(null);
@@ -277,6 +298,38 @@ export function OperationsSettings(props: OperationsSettingsProps) {
             <div><span>Automations</span><strong>{formatCount(dashboard?.overview.automation.cronJobs ?? 0)}</strong></div>
             <div><span>Tokens</span><strong>{formatCount(dashboard?.usage.totalTokens ?? 0)}</strong></div>
           </section>
+          <section className="settings-card operations-heartbeat-card">
+            <div>
+              <h3>Context compaction</h3>
+              <p>{dashboard?.compaction?.configuration.enabled === false ? "Automatic compaction is disabled" : `Automatically compact at ${dashboard?.compaction?.configuration.thresholdPercent ?? 70}% of the model context window`}</p>
+              <small>Applies to newly assembled Runs. Session history remains stored.</small>
+            </div>
+            <div className="extension-actions"><button className="secondary" onClick={() => setShowCompactionForm((current) => !current)}>{showCompactionForm ? "Cancel" : "Configure"}</button></div>
+          </section>
+          {showCompactionForm ? (
+            <section className="settings-card operations-heartbeat-form">
+              <div className="settings-card-heading"><div><h3>Automatic compaction</h3><p>Choose a readable percentage instead of calculating token thresholds yourself.</p></div></div>
+              <div className="operations-cron-form">
+                <label className="settings-field"><span>State</span><select value={compactionDraft.enabled ? "enabled" : "disabled"} onChange={(event) => setCompactionDraft((current) => ({ ...current, enabled: event.target.value === "enabled" }))}><option value="enabled">Enabled</option><option value="disabled">Disabled</option></select></label>
+                <label className="settings-field"><span>Compact at (%)</span><input aria-label="Compact at (%)" type="number" min="10" max="90" step="1" value={compactionDraft.thresholdPercent} onChange={(event) => setCompactionDraft((current) => ({ ...current, thresholdPercent: Number(event.target.value) }))} /></label>
+                <div className="extension-actions"><button onClick={() => void saveCompaction()} disabled={compactionDraft.thresholdPercent < 10 || compactionDraft.thresholdPercent > 90 || workingId === "compaction:configure"}>{workingId === "compaction:configure" ? "Saving" : "Save policy"}</button></div>
+              </div>
+            </section>
+          ) : null}
+          {dashboard?.compaction?.models.length ? (
+            <section className="settings-card settings-card-health">
+              <div className="settings-card-heading"><div><h3>Effective model thresholds</h3><p>Profile values override model catalog metadata.</p></div></div>
+              <div className="operations-component-list">
+                {dashboard.compaction.models.map((item) => (
+                  <article className="operations-component" key={`${item.agentId}:${item.profileId}`}>
+                    <span className={`operations-component-dot ${item.strategy === "invocation_fallback" ? "degraded" : "healthy"}`} />
+                    <div><span>{item.agentName} · {item.model}</span><p>{item.strategy === "token_threshold" ? `${formatCount(item.tokenThreshold ?? 0)} of ${formatCount(item.contextWindowTokens ?? 0)} tokens` : item.strategy === "invocation_fallback" ? `Model window unknown; compact every ${item.compactionInterval ?? 8} invocations` : "Disabled"}</p></div>
+                    <em>{item.contextWindowSource ?? "fallback"}</em>
+                  </article>
+                ))}
+              </div>
+            </section>
+          ) : null}
           <section className="settings-card settings-card-health">
             <div className="settings-card-heading"><div><h3>Node health</h3><p>Runtime, storage, credentials, Extensions, and isolation.</p></div></div>
             <div className="operations-component-list">

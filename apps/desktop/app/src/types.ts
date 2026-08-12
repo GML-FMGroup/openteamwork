@@ -1,6 +1,6 @@
 import type {
   AgentProfile,
-  ChatMessage,
+  ChatMessage as ClientChatMessage,
   RunEvent,
   SendMessageInput,
   SessionSummary,
@@ -37,6 +37,8 @@ import type {
   CronCreateInput,
   CronUpdateInput,
   HeartbeatConfiguration,
+  ContextCompactionConfiguration,
+  OperationsContextCompactionResult,
   ModelCatalogResult,
   ProviderAuthStatus,
   AgentCreateResult,
@@ -62,7 +64,6 @@ import type {
 
 export type {
   AgentProfile,
-  ChatMessage,
   MessagePart,
   MessageRole,
   MessageStatus,
@@ -113,6 +114,8 @@ export type {
   CronCreateInput,
   CronUpdateInput,
   HeartbeatConfiguration,
+  ContextCompactionConfiguration,
+  OperationsContextCompactionResult,
   ModelCatalogResult,
   ProviderAuthStatus,
   ProviderModel,
@@ -139,6 +142,18 @@ export type {
   AutomationSummary,
   AutomationTemplateSummary,
 } from "@openppx/client";
+
+/** Desktop-only presentation metadata for transient slash-command notices. */
+export interface CommandResultPresentation {
+  command: string;
+  targetActionId: string;
+  result: Record<string, unknown>;
+}
+
+/** Extend transport messages only inside the Renderer; Node history remains unchanged. */
+export type ChatMessage = ClientChatMessage & {
+  commandResult?: CommandResultPresentation;
+};
 
 export type RuntimeState =
   | "stopped"
@@ -370,6 +385,7 @@ export interface OperationsDashboard {
   tasks: OperationsTaskListResult;
   cron: OperationsCronResult;
   heartbeat: OperationsHeartbeatResult;
+  compaction?: OperationsContextCompactionResult;
   usage: OperationsUsageResult;
   audit: OperationsAuditItem[];
 }
@@ -439,7 +455,7 @@ export interface PpxClientApi {
   downloadArtifact(agentId: string, sessionId: string, artifact: ArtifactSummary): Promise<{ dataBase64: string; mimeType: string }>;
   sendMessage(input: SendMessageInput): Promise<{ runId: string }>;
   cancelRun(runId: string): Promise<{ runId: string; status: "cancelled" }>;
-  listSlashCommands(): Promise<{ commands: ProjectedSlashCommand[] }>;
+  listSlashCommands(agentId?: string | null): Promise<{ commands: ProjectedSlashCommand[] }>;
   invokeSlashCommand(input: SlashCommandRequest): Promise<SlashCommandResult>;
   getSetupStatus(): Promise<SetupStatusResult>;
   getSetupReadiness(): Promise<SetupReadinessResult>;
@@ -467,6 +483,7 @@ export interface PpxClientApi {
   removeOperationsCron(jobId: string): Promise<Record<string, unknown>>;
   runOperationsHeartbeat(): Promise<Record<string, unknown>>;
   configureOperationsHeartbeat(input: HeartbeatConfiguration): Promise<Record<string, unknown>>;
+  configureOperationsContextCompaction(input: ContextCompactionConfiguration): Promise<Record<string, unknown>>;
   listExtensions(): Promise<{ extensions: ExtensionSummary[] }>;
   listExtensionStarters(kind?: ExtensionSummary["kind"], query?: string): Promise<{ starters: ExtensionStarter[]; counts: Record<ExtensionSummary["kind"], number> }>;
   installAppStarter(starterId: string): Promise<ExtensionMutationResult>;

@@ -822,6 +822,7 @@ class ClientApiCoordinator:
         actor_id: str = "service:client-api",
         confirmed: bool = False,
         requester: UserAccount | None = None,
+        agent_id: str | None = None,
     ) -> ActionContext:
         """Build the trusted transport-service context for current Client API projections."""
         permissions = frozenset(
@@ -893,6 +894,7 @@ class ClientApiCoordinator:
             principal_id=requester.user_id if requester is not None else None,
             privilege_level=requester.privilege_level if requester is not None else None,
             confirmed=confirmed,
+            agent_id=agent_id,
         )
 
     def _record_goal_fact(self, method_name: str, **facts: object) -> None:
@@ -940,6 +942,7 @@ class ClientApiCoordinator:
         request_id: str | None = None,
         correlation_id: str | None = None,
         requester: UserAccount | None = None,
+        agent_id: str | None = None,
     ) -> dict[str, Any]:
         """Return the final caller-aware Action catalog envelope."""
         resolved_request_id = _wire_id(request_id, prefix="req")
@@ -948,6 +951,7 @@ class ClientApiCoordinator:
             request_id=resolved_request_id,
             correlation_id=resolved_correlation_id,
             requester=requester,
+            agent_id=agent_id,
         )
         outcome = self._control_plane.catalog(
             context,
@@ -3240,6 +3244,7 @@ class _ClientApiHandler(BaseHTTPRequestHandler):
                     request_id=self.headers.get("X-Request-ID"),
                     correlation_id=self.headers.get("X-Correlation-ID"),
                     requester=self._resolve_user_session(),
+                    agent_id=query.get("agent_id"),
                 ),
             )
             return

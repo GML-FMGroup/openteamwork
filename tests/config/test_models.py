@@ -53,7 +53,19 @@ def test_node_config_parses_aliases_and_typed_defaults() -> None:
     assert resource.spec.operations.task_scheduler_enabled is True
     assert resource.spec.operations.cron_enabled is True
     assert resource.spec.operations.heartbeat.enabled is False
+    assert resource.spec.runtime.context_compaction.enabled is True
+    assert resource.spec.runtime.context_compaction.threshold_percent == 70
     assert resource.model_dump(mode="json", by_alias=True)["apiVersion"] == "openppx.io/v1alpha1"
+
+
+def test_node_context_compaction_percent_is_bounded() -> None:
+    document = deepcopy(node_document())
+    document["spec"]["runtime"] = {  # type: ignore[index]
+        "contextCompaction": {"enabled": True, "thresholdPercent": 91}
+    }
+
+    with pytest.raises(ValidationError, match="less than or equal to 90"):
+        NodeConfig.model_validate(document)
 
 
 def test_node_operations_config_is_strict_and_validates_heartbeat_window() -> None:

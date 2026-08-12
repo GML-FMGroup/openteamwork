@@ -35,6 +35,7 @@ function setupRequest() {
         displayName: "This Mac",
         enabledAgents: ["main"],
         clientApi: { listenHost: "127.0.0.1", port: 18765, authentication: "disabled" },
+        runtime: { contextCompaction: { enabled: true, thresholdPercent: 70 } },
       },
     },
     agent: {

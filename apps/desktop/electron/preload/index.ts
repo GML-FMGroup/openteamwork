@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from "electron";
-import type { AgentCreateRequest, AgentUpdateInput, AppConnectionEnablementRequest, AppConnectionRemoveRequest, AppConnectionSaveRequest, ArtifactSummary, ArtifactUploadInput, AutomationCreateInput, AutomationStatus, AutomationUpdateRequest, ConnectionSettings, CronCreateInput, CronUpdateInput, DesktopHostPreferences, DesktopPlatform, ExtensionEnablementRequest, ExtensionInstallRequest, ExtensionPreviewRequest, ExtensionRemoveRequest, GoalTransitionOperation, GoalUpdateRequest, HeartbeatConfiguration, McpMutationRequest, ModelProfileCreateInput, ModelProfileUpdateInput, OperationsTaskControlInput, PluginMarketplaceSourceSpec, PpxClientApi, RunEvent, RuntimeCommand, SendMessageInput, SessionMutationRequest, SetupApplyRequest, SlashCommandRequest, UserLoginRequest } from "../../app/src/types";
+import type { AgentCreateRequest, AgentUpdateInput, AppConnectionEnablementRequest, AppConnectionRemoveRequest, AppConnectionSaveRequest, ArtifactSummary, ArtifactUploadInput, AutomationCreateInput, AutomationStatus, AutomationUpdateRequest, ConnectionSettings, ContextCompactionConfiguration, CronCreateInput, CronUpdateInput, DesktopHostPreferences, DesktopPlatform, ExtensionEnablementRequest, ExtensionInstallRequest, ExtensionPreviewRequest, ExtensionRemoveRequest, GoalTransitionOperation, GoalUpdateRequest, HeartbeatConfiguration, McpMutationRequest, ModelProfileCreateInput, ModelProfileUpdateInput, OperationsTaskControlInput, PluginMarketplaceSourceSpec, PpxClientApi, RunEvent, RuntimeCommand, SendMessageInput, SessionMutationRequest, SetupApplyRequest, SlashCommandRequest, UserLoginRequest } from "../../app/src/types";
 
 function desktopPlatform(): DesktopPlatform {
   if (process.platform === "darwin") {
@@ -60,6 +60,7 @@ const api: PpxClientApi = {
   removeOperationsCron: (jobId: string) => ipcRenderer.invoke("ppx-client:remove-operations-cron", jobId),
   runOperationsHeartbeat: () => ipcRenderer.invoke("ppx-client:run-operations-heartbeat"),
   configureOperationsHeartbeat: (input: HeartbeatConfiguration) => ipcRenderer.invoke("ppx-client:configure-operations-heartbeat", input),
+  configureOperationsContextCompaction: (input: ContextCompactionConfiguration) => ipcRenderer.invoke("ppx-client:configure-operations-context-compaction", input),
   listSessions: (agentId: string) => ipcRenderer.invoke("ppx-client:list-sessions", agentId),
   createSession: (agentId: string) => ipcRenderer.invoke("ppx-client:create-session", agentId),
   renameSession: (input: SessionMutationRequest & { title: string }) => ipcRenderer.invoke("ppx-client:rename-session", input),
@@ -89,7 +90,8 @@ const api: PpxClientApi = {
   downloadArtifact: (agentId: string, sessionId: string, artifact: ArtifactSummary) => ipcRenderer.invoke("ppx-client:download-artifact", agentId, sessionId, artifact),
   sendMessage: (input: SendMessageInput) => ipcRenderer.invoke("ppx-client:send-message", input),
   cancelRun: (runId: string) => ipcRenderer.invoke("ppx-client:cancel-run", runId),
-  listSlashCommands: () => ipcRenderer.invoke("ppx-client:list-slash-commands"),
+  listSlashCommands: (agentId?: string | null) =>
+    ipcRenderer.invoke("ppx-client:list-slash-commands", agentId ?? null),
   invokeSlashCommand: (input: SlashCommandRequest) => ipcRenderer.invoke("ppx-client:invoke-slash-command", input),
   listExtensions: () => ipcRenderer.invoke("ppx-client:list-extensions"),
   listExtensionStarters: (kind, query) => ipcRenderer.invoke("ppx-client:list-extension-starters", kind ?? null, query ?? null),

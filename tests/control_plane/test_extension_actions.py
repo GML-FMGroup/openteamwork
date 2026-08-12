@@ -6,7 +6,7 @@ import sys
 from pathlib import Path
 
 from openppx.actions import ActionContext
-from openppx.config import InMemorySecretStore
+from openppx.config import AgentConfig, InMemorySecretStore, NodeConfig
 from openppx.control_plane import build_control_plane
 from openppx.extensions import AppManager, ExtensionRegistry, McpManager, PluginManager, SkillManager
 from openppx.extensions.indexes import ExtensionReferenceIndex, ResourceIdentityIndex
@@ -17,7 +17,14 @@ from tests.extensions.test_direct_mcp_registry import _server
 from tests.extensions.test_skill_registry import _skill
 
 
-def _context(*, confirmed: bool = False, write: bool = True) -> ActionContext:
+def _context(
+    *,
+    confirmed: bool = False,
+    write: bool = True,
+    agent_id: str | None = None,
+    principal_id: str | None = None,
+    privilege_level: str | None = None,
+) -> ActionContext:
     capabilities = frozenset({"system.read", "extension.read", "extension.write", "extension.auth"})
     permissions = capabilities if write else frozenset({"system.read", "extension.read"})
     return ActionContext(
@@ -27,10 +34,17 @@ def _context(*, confirmed: bool = False, write: bool = True) -> ActionContext:
         capabilities=capabilities,
         permissions=permissions,
         confirmed=confirmed,
+        agent_id=agent_id,
+        principal_id=principal_id,
+        privilege_level=privilege_level,
     )
 
 
-def _application(tmp_path: Path):
+def _application(
+    tmp_path: Path,
+    *,
+    builtin_skills: dict[str, Path] | None = None,
+):
     node = tmp_path / "node"
     secrets = InMemorySecretStore()
     application = build_control_plane(node, secret_store=secrets, product_version="test")
@@ -51,7 +65,11 @@ def _application(tmp_path: Path):
         prefix_index=prefixes,
         identity_index=identities,
     )
-    skills = SkillManager(node, identity_index=identities)
+    skills = SkillManager(
+        node,
+        builtin_skills=builtin_skills,
+        identity_index=identities,
+    )
     inventory = ExtensionRegistry(skills=skills, mcp=mcp, apps=apps, plugins=plugins)
     application.attach_extensions(
         inventory,
@@ -82,7 +100,7 @@ def test_extension_inventory_projects_skills_and_extensions_commands(tmp_path: P
         {"rawCommand": "/extensions", "userId": "local:test"},
         _context(),
     )
-    skill_command = application.invoke(
+    removed_skill_alias = application.invoke(
         "system.command.invoke",
         {"rawCommand": "/skill", "userId": "local:test", "agentId": "writer"},
         _context(),
@@ -96,15 +114,134 @@ def test_extension_inventory_projects_skills_and_extensions_commands(tmp_path: P
         "/apps",
         "/mcp",
     ]
-    skill_item = next(item for item in catalog.data["items"] if item["actionId"] == "extension.skill.command")
-    assert skill_item["slashCommands"][0]["command"] == "/skill"
-    assert skill_item["slashCommands"][0]["lifecycle"] == "agent_turn"
+    assert all(item["actionId"] != "extension.skill.command" for item in catalog.data["items"])
     assert skills.ok is True
     assert skills.data["targetActionId"] == "extension.list"
-    assert skill_command.ok is True
-    assert skill_command.data["targetActionId"] == "extension.skill.command"
-    assert skill_command.data["result"] == {"items": []}
+    assert removed_skill_alias.error is not None
+    assert removed_skill_alias.error.code == "command_not_found"
     assert extensions.ok is True
+
+
+def test_dynamic_skill_commands_omit_invalid_and_reserved_aliases(tmp_path: Path) -> None:
+    application = _application(
+        tmp_path,
+        builtin_skills={
+            "7zip": _skill(tmp_path / "numeric", name="7zip"),
+            "status": _skill(tmp_path / "reserved", name="status"),
+            "pptx": _skill(tmp_path / "presentation", name="pptx"),
+        },
+    )
+
+    catalog = application.catalog(_context(agent_id="writer"), projection="slash")
+    action_commands = {
+        item["actionId"]: [command["command"] for command in item["slashCommands"]]
+        for item in catalog.data["items"]
+    }
+    invalid = application.invoke(
+        "system.command.invoke",
+        {
+            "rawCommand": "/7zip inspect the archive",
+            "userId": "local:test",
+            "agentId": "writer",
+            "sessionId": "session-1",
+        },
+        _context(),
+    )
+
+    assert action_commands["extension.skill.command"] == ["/pptx"]
+    assert "/status" in action_commands["system.status"]
+    assert invalid.error is not None
+    assert invalid.error.code == "command_not_found"
+
+
+def test_dynamic_skill_commands_are_scoped_to_the_authenticated_agent_owner(tmp_path: Path) -> None:
+    application = _application(
+        tmp_path,
+        builtin_skills={"pptx": _skill(tmp_path / "presentation", name="pptx")},
+    )
+    application.config_service.apply_node(
+        NodeConfig.model_validate(
+            {
+                "apiVersion": "openppx.io/v1alpha1",
+                "kind": "NodeConfig",
+                "metadata": {"name": "test-node"},
+                "spec": {
+                    "displayName": "Test Node",
+                    "enabledAgents": ["writer"],
+                    "clientApi": {
+                        "listenHost": "127.0.0.1",
+                        "port": 18765,
+                        "authentication": "required",
+                    },
+                },
+            }
+        ),
+        expected_revision=None,
+    )
+    application.config_service.apply_agent(
+        "writer",
+        AgentConfig.model_validate(
+            {
+                "apiVersion": "openppx.io/v1alpha1",
+                "kind": "AgentConfig",
+                "metadata": {"name": "writer"},
+                "spec": {
+                    "displayName": "Writer",
+                    "workspace": str(tmp_path / "writer-workspace"),
+                    "ownerPrincipalId": "user-owner",
+                    "privilegeLevel": "medium",
+                    "controls": {},
+                    "modelPolicy": {
+                        "defaultProfile": "primary",
+                        "roleProfiles": {},
+                    },
+                },
+            }
+        ),
+        expected_revision=None,
+    )
+    owner = _context(
+        agent_id="writer",
+        principal_id="user-owner",
+        privilege_level="medium",
+    )
+    other = _context(
+        agent_id="writer",
+        principal_id="user-other",
+        privilege_level="high",
+    )
+    root = _context(
+        agent_id="writer",
+        principal_id="user-root",
+        privilege_level="root",
+    )
+
+    owner_catalog = application.catalog(owner, projection="slash")
+    other_catalog = application.catalog(other, projection="slash")
+    root_catalog = application.catalog(root, projection="slash")
+    denied = application.invoke(
+        "system.command.invoke",
+        {
+            "rawCommand": "/pptx create a presentation",
+            "userId": "user-other",
+            "agentId": "writer",
+            "sessionId": "session-1",
+        },
+        other,
+    )
+
+    def commands(catalog) -> list[str]:
+        return [
+            command["command"]
+            for item in catalog.data["items"]
+            for command in item["slashCommands"]
+        ]
+
+    assert "/pptx" in commands(owner_catalog)
+    assert "/pptx" not in commands(other_catalog)
+    assert "/pptx" in commands(root_catalog)
+    assert denied.error is not None
+    assert denied.error.code == "command_not_found"
 
 
 def test_extension_starter_actions_filter_and_get_safe_catalog_entries(tmp_path: Path) -> None:
@@ -237,10 +374,11 @@ def test_skill_preview_install_list_enable_disable_remove_use_one_action_path(tm
         },
         _context(confirmed=True),
     )
+    command_catalog = application.catalog(_context(agent_id="writer"), projection="slash")
     command = application.invoke(
         "system.command.invoke",
         {
-            "rawCommand": "/skill demo summarize the current workspace",
+            "rawCommand": "/demo summarize the current workspace",
             "userId": "local:test",
             "agentId": "writer",
             "sessionId": "session-1",
@@ -272,10 +410,49 @@ def test_skill_preview_install_list_enable_disable_remove_use_one_action_path(tm
     assert unconfirmed.error is not None and unconfirmed.error.code == "confirmation_required"
     assert installed.ok and listed.data["items"][0]["id"] == "demo"
     assert enabled.data["status"] == "enabled"
+    skill_item = next(
+        item for item in command_catalog.data["items"]
+        if item["actionId"] == "extension.skill.command"
+    )
+    assert skill_item["slashCommands"] == [
+        {
+            "command": "/demo",
+            "title": "demo",
+            "description": "A deterministic fixture skill.",
+            "icon": "sparkles",
+            "argHint": "<instruction>",
+            "lifecycle": "agent_turn",
+            "acceptsArgs": True,
+            "arguments": [
+                {
+                    "name": "instruction",
+                    "valueType": "text",
+                    "description": "Task to complete with this Skill.",
+                    "required": True,
+                    "choices": [],
+                }
+            ],
+            "noArgsBehavior": "show_usage",
+            "usage": "/demo <instruction>",
+            "order": 80,
+        }
+    ]
     assert command.ok is True
     assert command.data["lifecycle"] == "agent_turn"
     assert command.data["result"]["startAgentTurn"]["skillName"] == "demo"
     assert 'read_skill before acting' in command.data["result"]["startAgentTurn"]["text"]
+    unavailable = application.invoke(
+        "system.command.invoke",
+        {
+            "rawCommand": "/demo try again",
+            "userId": "local:test",
+            "agentId": "writer",
+            "sessionId": "session-1",
+        },
+        _context(),
+    )
+    assert unavailable.error is not None
+    assert unavailable.error.code == "command_not_found"
     assert disabled.data["status"] == "disabled"
     assert removed.data == {"kind": "skill", "id": "demo", "removed": True}
 

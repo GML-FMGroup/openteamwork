@@ -37,6 +37,23 @@ describe("MessageBubble", () => {
     expect(container.querySelector(".message-bubble.assistant.plain-assistant")).toBeInTheDocument();
   });
 
+  it("keeps Runtime System messages distinct from transient command results", () => {
+    const { container } = render(
+      <MessageBubble
+        message={buildMessage({
+          role: "system",
+          status: "completed",
+          parts: [{ type: "markdown", text: "Node maintenance is scheduled." }],
+        })}
+      />,
+    );
+
+    expect(screen.getByText("System")).toBeInTheDocument();
+    expect(screen.getByText("Node maintenance is scheduled.")).toBeInTheDocument();
+    expect(container.querySelector(".message-bubble.system.command-thread")).not.toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: /result$/ })).not.toBeInTheDocument();
+  });
+
   it("keeps user identity metadata out of the bubble and exposes copy/time actions", async () => {
     const writeText = vi.fn().mockResolvedValue(undefined);
     Object.defineProperty(navigator, "clipboard", {

@@ -14,6 +14,7 @@ from google.adk.sessions.in_memory_session_service import InMemorySessionService
 from .adk_version import assert_supported_adk_major
 from .artifact_service import create_artifact_service
 from .context_cache import build_context_cache_config
+from .context_compaction import ContextCompactionPlan, build_events_compaction_config
 from .debug_callbacks import build_openppx_llm_plugins
 from .long_task_context import LongTaskContextPlugin
 from .memory_service import create_memory_service
@@ -294,6 +295,7 @@ def _build_profile_app(
     context_store: Any | None = None,
     goal_store: Any | None = None,
     extra_plugins: tuple[Any, ...] = (),
+    context_compaction_plan: ContextCompactionPlan | None = None,
 ) -> App:
     """Build an ADK App according to one profile lifecycle policy."""
     resumability_config = None
@@ -301,7 +303,12 @@ def _build_profile_app(
         resumability_config = ResumabilityConfig(is_resumable=True)
 
     events_compaction_config = None
-    if policy.enable_events_compaction:
+    if context_compaction_plan is not None:
+        events_compaction_config = build_events_compaction_config(
+            context_compaction_plan,
+            summarizer=_build_events_summarizer(agent),
+        )
+    elif policy.enable_events_compaction:
         events_compaction_config = _build_events_compaction_config(
             summarizer=_build_events_summarizer(agent),
         )
@@ -366,6 +373,7 @@ def create_runner(
     context_store: Any | None = None,
     goal_store: Any | None = None,
     extra_plugins: tuple[Any, ...] = (),
+    context_compaction_plan: ContextCompactionPlan | None = None,
 ) -> tuple[Runner, Any]:
     """Create a runner with a shared session service contract.
 
@@ -390,6 +398,7 @@ def create_runner(
         context_store=context_store,
         goal_store=goal_store,
         extra_plugins=extra_plugins,
+        context_compaction_plan=context_compaction_plan,
     )
 
     runner = Runner(

@@ -1,4 +1,4 @@
-import type { AgentCreateRequest, AgentUpdateInput, AppConnectionEnablementRequest, AppConnectionRemoveRequest, AppConnectionSaveRequest, ArtifactSummary, ArtifactUploadInput, AutomationCreateInput, AutomationStatus, AutomationUpdateRequest, ConnectionSettings, CronCreateInput, CronUpdateInput, ExtensionEnablementRequest, ExtensionInstallRequest, ExtensionPreviewRequest, ExtensionRemoveRequest, GoalTransitionOperation, GoalUpdateRequest, HeartbeatConfiguration, McpMutationRequest, McpServerResource, McpValueBinding, ModelCapability, ModelProfileCreateInput, ModelProfileUpdateInput, OperationsTaskControlInput, PluginMarketplaceSourceSpec, RuntimeCommand, SendMessageInput, SessionMutationRequest, SetupApplyRequest, SlashCommandRequest, UserLoginRequest } from "../../app/src/types";
+import type { AgentCreateRequest, AgentUpdateInput, AppConnectionEnablementRequest, AppConnectionRemoveRequest, AppConnectionSaveRequest, ArtifactSummary, ArtifactUploadInput, AutomationCreateInput, AutomationStatus, AutomationUpdateRequest, ConnectionSettings, ContextCompactionConfiguration, CronCreateInput, CronUpdateInput, ExtensionEnablementRequest, ExtensionInstallRequest, ExtensionPreviewRequest, ExtensionRemoveRequest, GoalTransitionOperation, GoalUpdateRequest, HeartbeatConfiguration, McpMutationRequest, McpServerResource, McpValueBinding, ModelCapability, ModelProfileCreateInput, ModelProfileUpdateInput, OperationsTaskControlInput, PluginMarketplaceSourceSpec, RuntimeCommand, SendMessageInput, SessionMutationRequest, SetupApplyRequest, SlashCommandRequest, UserLoginRequest } from "../../app/src/types";
 
 function record(value: unknown, label: string): Record<string, unknown> {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
@@ -265,6 +265,18 @@ export function validateHeartbeatConfiguration(value: unknown): HeartbeatConfigu
       end,
       timezone: string(activeHours.timezone, "Heartbeat timezone", 128),
     },
+  };
+}
+
+/** Validate the human-facing automatic context compaction policy. */
+export function validateContextCompactionConfiguration(value: unknown): ContextCompactionConfiguration {
+  const input = record(value, "Context compaction configuration");
+  if (typeof input.enabled !== "boolean") {
+    throw new TypeError("Context compaction enabled must be a boolean.");
+  }
+  return {
+    enabled: input.enabled,
+    thresholdPercent: integer(input.thresholdPercent, "Context compaction threshold", 10, 90),
   };
 }
 
@@ -767,6 +779,10 @@ export function validateSetupApplyRequest(value: unknown): SetupApplyRequest {
   const nodeMetadata = record(node.metadata, "Setup Node metadata");
   const nodeSpec = record(node.spec, "Setup Node spec");
   const clientApi = record(nodeSpec.clientApi, "Setup Client API");
+  const runtime = nodeSpec.runtime === undefined ? null : record(nodeSpec.runtime, "Setup Node runtime");
+  const contextCompaction = runtime === null
+    ? null
+    : validateContextCompactionConfiguration(record(runtime.contextCompaction, "Setup context compaction"));
   const agent = record(input.agent, "Setup Agent");
   const agentMetadata = record(agent.metadata, "Setup Agent metadata");
   const agentSpec = record(agent.spec, "Setup Agent spec");
@@ -813,6 +829,7 @@ export function validateSetupApplyRequest(value: unknown): SetupApplyRequest {
           port: Number(port),
           authentication: clientApi.authentication,
         },
+        ...(contextCompaction ? { runtime: { contextCompaction } } : {}),
       },
     },
     agent: {
@@ -840,6 +857,9 @@ export function validateSetupApplyRequest(value: unknown): SetupApplyRequest {
           : {}),
         executionLocation: profileSpec.executionLocation,
         capabilities: profileSpec.capabilities.map((item) => string(item, "Model capability", 63)),
+        ...(profileSpec.contextWindowTokens === undefined
+          ? {}
+          : { contextWindowTokens: profileSpec.contextWindowTokens === null ? null : integer(profileSpec.contextWindowTokens, "Model context window", 1, Number.MAX_SAFE_INTEGER) }),
       },
     },
     secret: secret && secretRef

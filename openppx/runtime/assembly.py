@@ -25,7 +25,7 @@ from openppx.extensions import (
     merge_mcp_snapshots,
     merge_skill_snapshots,
 )
-from openppx.modeling import ModelResolution
+from openppx.modeling import ModelCatalog, ModelResolution
 from openppx.core.mcp_registry import ManagedMcpToolset, summarize_mcp_toolsets
 from openppx.permissions import (
     PermissionAuditStore,
@@ -39,6 +39,7 @@ from .authorization_plugin import OpenPpxAuthorizationPlugin
 from .sandbox.egress_policy import write_egress_proxy_policy
 from .artifact_service import ArtifactConfig, create_artifact_service
 from .context_engine import LongTaskContextStore
+from .context_compaction import resolve_context_compaction_plan
 from .goal_store import GoalStore
 from .historical_session_service import HistoricalSessionService
 from .history_access import sync_history_agent_catalog
@@ -283,6 +284,7 @@ class RuntimeAssembler:
         mcp_adapter: McpRuntimeAdapter | None = None,
         permission_snapshot_provider: CurrentPermissionProvider | None = None,
         historical_session_service: HistoricalSessionService | None = None,
+        model_catalog: ModelCatalog | None = None,
     ) -> None:
         self.node_root = node_root.expanduser().resolve(strict=False)
         self.secret_store = secret_store
@@ -291,6 +293,7 @@ class RuntimeAssembler:
         self._model_factory = model_factory or adapter_factory.build
         self._agent_factory = agent_factory
         self._runner_factory = runner_factory
+        self._model_catalog = model_catalog or ModelCatalog()
         self._skill_manager = skill_manager
         self._mcp_manager = mcp_manager
         self._app_manager = app_manager
@@ -415,6 +418,14 @@ class RuntimeAssembler:
             from .subagent_agent import build_restricted_subagent
 
             agent = build_restricted_subagent(agent)
+        compaction_plan = resolve_context_compaction_plan(
+            snapshot.node.spec.runtime.context_compaction,
+            profile_context_window_tokens=snapshot.model.profile.spec.context_window_tokens,
+            catalog_context_window_tokens=self._model_catalog.context_window_tokens(
+                snapshot.model.provider,
+                snapshot.model.model,
+            ),
+        )
         runner, session_service = self._runner_factory(
             agent=agent,
             app_name=agent.name,
@@ -425,6 +436,7 @@ class RuntimeAssembler:
             task_store=self.services.task_store,
             context_store=self.services.context_store,
             goal_store=self.services.goal_store,
+            context_compaction_plan=compaction_plan,
             extra_plugins=(
                 OpenPpxAuthorizationPlugin(
                     snapshot.permissions,

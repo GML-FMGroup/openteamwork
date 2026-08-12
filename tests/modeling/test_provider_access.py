@@ -102,6 +102,7 @@ def test_codex_model_catalog_projects_only_safe_supported_models(tmp_path: Path)
                         "description": "Current model",
                         "visibility": "list",
                         "supported_in_api": True,
+                        "context_window": 272000,
                         "default_reasoning_level": "medium",
                         "supported_reasoning_levels": [{"effort": "low"}, {"effort": "medium"}],
                         "model_messages": {"instructions_template": "must-never-be-projected"},
@@ -120,7 +121,19 @@ def test_codex_model_catalog_projects_only_safe_supported_models(tmp_path: Path)
     assert snapshot.source == "codex_cli"
     assert [item.model_id for item in snapshot.models] == ["openai-codex/gpt-current"]
     assert snapshot.models[0].reasoning_efforts == ("low", "medium")
+    assert snapshot.models[0].context_window_tokens == 272000
+    assert ModelCatalog(codex_home=codex_home).context_window_tokens(
+        "openai_codex", "openai-codex/gpt-current"
+    ) == 272000
     assert "must-never-be-projected" not in repr(snapshot)
+
+
+def test_provider_default_catalog_projects_bundled_context_window() -> None:
+    snapshot = ModelCatalog().list_models("google")
+
+    assert snapshot.models[0].model_id == "gemini-3-flash-preview"
+    assert snapshot.models[0].context_window_tokens == 1_048_576
+    assert ModelCatalog().context_window_tokens("deepseek", "deepseek-chat") == 65_536
 
 
 class _CompletedProcess:

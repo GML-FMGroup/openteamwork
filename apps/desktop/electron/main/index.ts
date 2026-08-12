@@ -42,6 +42,7 @@ import {
   validateOperationsCronCreateInput,
   validateOperationsCronUpdateInput,
   validateHeartbeatConfiguration,
+  validateContextCompactionConfiguration,
   validateOperationsTaskControlInput,
   validatePluginMarketplaceSaveRequest,
   validateSendMessageInput,
@@ -304,6 +305,9 @@ app.whenReady().then(() => {
   ipcMain.handle("ppx-client:configure-operations-heartbeat", async (_event, input: unknown) =>
     adapter!.configureOperationsHeartbeat(validateHeartbeatConfiguration(input)),
   );
+  ipcMain.handle("ppx-client:configure-operations-context-compaction", async (_event, input: unknown) =>
+    adapter!.configureOperationsContextCompaction(validateContextCompactionConfiguration(input)),
+  );
   ipcMain.handle("ppx-client:list-sessions", async (_event, agentId: unknown) =>
     adapter!.listSessions(validateIdentifier(agentId, "Agent id")),
   );
@@ -399,7 +403,13 @@ app.whenReady().then(() => {
   ipcMain.handle("ppx-client:cancel-run", async (_event, runId: unknown) =>
     adapter!.cancelRun(validateIdentifier(runId, "Run id")),
   );
-  ipcMain.handle("ppx-client:list-slash-commands", async () => adapter!.listSlashCommands());
+  ipcMain.handle("ppx-client:list-slash-commands", async (_event, agentId: unknown) =>
+    adapter!.listSlashCommands(
+      agentId === null || agentId === undefined || agentId === ""
+        ? null
+        : validateIdentifier(agentId, "Agent id"),
+    ),
+  );
   ipcMain.handle("ppx-client:invoke-slash-command", async (_event, input: unknown) =>
     adapter!.invokeSlashCommand(validateSlashCommandRequest(input)),
   );

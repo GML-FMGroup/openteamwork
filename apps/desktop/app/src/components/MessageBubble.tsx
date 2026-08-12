@@ -4,6 +4,7 @@ import remarkGfm from "remark-gfm";
 import type { ChatMessage, MessagePart } from "../types";
 import { projectActivityGroups, type ActivityGroup } from "../lib/activity-presentation";
 import { ActivityDisclosure, type ActivityNarrativeItem } from "./ActivityDisclosure";
+import { CommandResult } from "./CommandResult";
 import { productProfile } from "../../../product";
 
 const FILE_TYPE_BY_EXTENSION: Record<string, string> = {
@@ -294,12 +295,14 @@ export function MessageBubble({
   const statusLabel = messageStatusLabel(message.status);
   const isAssistant = message.role === "assistant";
   const isUser = message.role === "user";
+  const commandResult = message.commandResult;
   const activityGroups = activityGroupsOverride ?? projectActivityGroups([message]);
   const hasActivity = activityGroups.length > 0;
   const contentParts = message.parts.filter((part) => (
     part.type !== "step_ref"
     && part.type !== "tool_result"
     && (!hasActivity || part.type !== "commentary")
+    && (!commandResult || part.type !== "markdown")
   ));
   const hasCommentary = message.parts.some((part) => part.type === "commentary");
   const narrative = hasActivity && hasCommentary ? activityNarrative(message) : undefined;
@@ -328,15 +331,24 @@ export function MessageBubble({
       id={`message-${message.id}`}
       className={`message-bubble ${message.role} ${message.status} ${
         isAssistant ? "agent-thread plain-assistant" : ""
-      }`}
+      } ${commandResult ? "command-thread" : ""}`}
     >
       {showIdentity && !isUser ? (
-        <div className={`message-meta ${isAssistant ? "agent-meta" : ""}`}>
-          <span className={isAssistant ? "agent-name" : ""}>{roleLabel(message.role, agentName)}</span>
+        <div className={`message-meta ${isAssistant ? "agent-meta" : ""} ${commandResult ? "command-meta" : ""}`}>
+          <span className={`${isAssistant ? "agent-name" : ""} ${commandResult ? "command-name" : ""}`}>
+            {commandResult?.command ?? roleLabel(message.role, agentName)}
+          </span>
           <span>{timestamp}</span>
         </div>
       ) : null}
       <div className="message-body">
+        {commandResult ? (
+          <CommandResult
+            agentName={agentName}
+            fallbackText={copyableMessageText(message)}
+            presentation={commandResult}
+          />
+        ) : null}
         {activityGroups.length ? (
           <ActivityDisclosure
             groups={activityGroups}

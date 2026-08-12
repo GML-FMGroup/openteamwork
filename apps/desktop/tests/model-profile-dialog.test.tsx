@@ -60,6 +60,7 @@ describe("ModelProfileDialog", () => {
             description: "Fast model",
             defaultReasoningEffort: null,
             reasoningEfforts: [],
+            contextWindowTokens: 1048576,
           }],
         }))}
         onGetAuth={vi.fn()}
@@ -83,6 +84,7 @@ describe("ModelProfileDialog", () => {
       displayName: "Gemini Fast",
       providerId: "google",
       model: "gemini-3-flash-preview",
+      contextWindowTokens: 1048576,
       apiKey: "super-secret",
     }));
     expect(onCreate.mock.calls[0][0]).not.toHaveProperty("profileId");
@@ -124,6 +126,7 @@ describe("ModelProfileDialog", () => {
             description: "Fast model",
             defaultReasoningEffort: null,
             reasoningEfforts: [],
+            contextWindowTokens: 1048576,
           }],
         }))}
         onGetAuth={vi.fn()}

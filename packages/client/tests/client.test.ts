@@ -747,7 +747,7 @@ describe("OpenPPX Client public contract", () => {
       idFactory: () => actionInvokeCommand.requestId,
     });
 
-    await expect(client.commands.list()).resolves.toMatchObject([
+    await expect(client.commands.list({ agentId: "writer" })).resolves.toMatchObject([
       { command: "/status", actionId: "system.status", available: true },
     ]);
     await expect(
@@ -759,7 +759,7 @@ describe("OpenPPX Client public contract", () => {
     ).resolves.toEqual(commandStatusSuccess);
 
     const [catalogUrl] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
-    expect(catalogUrl).toBe("http://127.0.0.1:8765/api/v1/actions?projection=slash");
+    expect(catalogUrl).toBe("http://127.0.0.1:8765/api/v1/actions?projection=slash&agent_id=writer");
     const [invokeUrl, invokeInit] = fetchMock.mock.calls[1] as unknown as [string, RequestInit];
     expect(invokeUrl).toBe("http://127.0.0.1:8765/api/v1/actions/invoke");
     expect(JSON.parse(String(invokeInit.body))).toEqual(actionInvokeCommand);

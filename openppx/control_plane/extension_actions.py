@@ -5,13 +5,13 @@ from __future__ import annotations
 import asyncio
 from copy import deepcopy
 from datetime import UTC, datetime
-import shlex
 from time import perf_counter
-from typing import cast
+from typing import Callable, cast
 
 from openppx.actions import (
     ActionError,
     ActionFailure,
+    ActionContext,
     ActionRegistry,
     ActionSpec,
     SlashCommandArgumentSpec,
@@ -27,6 +27,7 @@ from openppx.extensions import (
     McpManager,
     PluginManager,
     SkillManager,
+    SkillSnapshotEntry,
 )
 from openppx.extensions.app_models import AppDefinition
 
@@ -73,6 +74,7 @@ def register_extension_actions(
     starters: ExtensionStarterCatalog,
     mcp_oauth,
     health_store: ExtensionHealthStore,
+    agent_access: Callable[[ActionContext, str], bool],
 ) -> None:
     """Register common inventory plus domain-owned lifecycle operations."""
     actions.register(
@@ -90,32 +92,25 @@ def register_extension_actions(
             scope="extension",
             required_capabilities=frozenset({"extension.read"}),
             permission="extension.read",
-            projections=("cli", "slash", "desktop", "mobile"),
-            slash_commands=(
-                SlashCommandSpec(
-                    command="/skill",
-                    title="Use a skill",
-                    description="List available Skills or use one for the next request.",
-                    icon="sparkles",
-                    arguments=(
-                        SlashCommandArgumentSpec(
-                            name="skill_name",
-                            value_type="resource_id",
-                            description="Installed Skill identity.",
-                        ),
-                        SlashCommandArgumentSpec(
-                            name="instruction",
-                            value_type="text",
-                            description="Task to complete with the selected Skill.",
-                        ),
-                    ),
-                    lifecycle="agent_turn",
-                    order=79,
-                ),
-            ),
+            projections=("cli", "desktop", "mobile"),
         ),
-        lambda _context, value: _call(
-            lambda: _skill_command(skills, plugins, cast(SkillCommandInput, value))
+        lambda context, value: _call(
+            lambda: _skill_command(
+                skills,
+                plugins,
+                cast(SkillCommandInput, value),
+                context=context,
+                agent_access=agent_access,
+            )
+        ),
+    )
+    actions.register_dynamic_slash(
+        "extension.skill.command",
+        lambda context: _skill_slash_commands(
+            skills,
+            plugins,
+            context,
+            agent_access=agent_access,
         ),
         slash_input=_skill_command_slash_input,
     )
@@ -493,17 +488,55 @@ def _extension_list_slash_input(
 
 
 def _skill_command_slash_input(
-    _command: SlashCommandSpec,
+    command: SlashCommandSpec,
     args: str,
     context: SlashInvocationContext,
 ) -> dict[str, object]:
-    """Project `/skill [name] [instruction]` into one typed command input."""
-    tokens = shlex.split(args) if args else []
+    """Project one Agent-visible Skill alias into a typed command input."""
     return {
         "agentId": context.agent_id,
-        "skillName": tokens[0] if tokens else None,
-        "instruction": " ".join(tokens[1:]) if len(tokens) > 1 else "",
+        "skillName": command.command.removeprefix("/"),
+        "instruction": args,
     }
+
+
+def _skill_slash_commands(
+    skills: SkillManager,
+    plugins: PluginManager,
+    context: ActionContext,
+    *,
+    agent_access: Callable[[ActionContext, str], bool],
+) -> tuple[SlashCommandSpec, ...]:
+    """Project the selected Agent's current Skill snapshot as direct aliases."""
+    if context.agent_id is None or not agent_access(context, context.agent_id):
+        return ()
+    commands: list[SlashCommandSpec] = []
+    for item in _agent_skill_entries(skills, plugins, context.agent_id):
+        if not item.name or not item.name[0].isalpha():
+            # Skill resource IDs may begin with a digit, while slash commands
+            # intentionally require a leading lowercase letter.
+            continue
+        commands.append(
+            SlashCommandSpec(
+                command=f"/{item.name}",
+                title=item.name,
+                description=item.description,
+                icon="sparkles",
+                arg_hint="<instruction>",
+                arguments=(
+                    SlashCommandArgumentSpec(
+                        name="instruction",
+                        value_type="text",
+                        description="Task to complete with this Skill.",
+                        required=True,
+                    ),
+                ),
+                no_args_behavior="show_usage",
+                lifecycle="agent_turn",
+                order=80,
+            )
+        )
+    return tuple(commands)
 
 
 def _domain_spec(action_id, title, description, input_model, permission, *, risk="low", confirmation="never") -> ActionSpec:
@@ -560,13 +593,19 @@ def _skill_command(
     skills: SkillManager,
     plugins: PluginManager,
     value: SkillCommandInput,
+    *,
+    context: ActionContext,
+    agent_access: Callable[[ActionContext, str], bool],
 ) -> dict[str, object]:
     """Resolve only Skills frozen into the selected Agent's next Runtime."""
     if value.agent_id is None:
         raise ExtensionError("invalid_operation", "Select an Agent before using a Skill.")
-    direct = skills.snapshot_for_agent(value.agent_id)
-    plugin = plugins.snapshot_for_agent(value.agent_id).skills
-    entries = tuple(sorted((*direct.skills, *plugin.skills), key=lambda item: item.name))
+    if not agent_access(context, value.agent_id):
+        raise ExtensionError(
+            "extension_not_found",
+            "The selected Skill is not available to this Agent.",
+        )
+    entries = _agent_skill_entries(skills, plugins, value.agent_id)
     if value.skill_name is None:
         return {
             "items": [
@@ -592,6 +631,17 @@ def _skill_command(
             "skillName": selected.name,
         },
     }
+
+
+def _agent_skill_entries(
+    skills: SkillManager,
+    plugins: PluginManager,
+    agent_id: str,
+) -> tuple[SkillSnapshotEntry, ...]:
+    """Return one deterministic combined direct-and-Plugin Skill snapshot."""
+    direct = skills.snapshot_for_agent(agent_id)
+    plugin = plugins.snapshot_for_agent(agent_id).skills
+    return tuple(sorted((*direct.skills, *plugin.skills), key=lambda item: item.name))
 
 
 def _list_starters(

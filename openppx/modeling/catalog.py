@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Literal
 
 from openppx.core.codex_auth import default_codex_home
+from openppx.core.provider import normalize_model_name
 from openppx.core.provider_registry import ProviderSpec, find_provider_spec
 
 
@@ -35,6 +36,7 @@ class CatalogModel:
     description: str
     default_reasoning_effort: str | None = None
     reasoning_efforts: tuple[str, ...] = ()
+    context_window_tokens: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -84,9 +86,23 @@ class ModelCatalog:
                     model_id=provider.default_model,
                     display_name=provider.default_model.split("/", 1)[-1],
                     description=f"Default model for {provider.display_name}.",
+                    context_window_tokens=_litellm_context_window_tokens(
+                        provider_id,
+                        provider.default_model,
+                    ),
                 ),
             ),
         )
+
+    def context_window_tokens(self, provider_id: str, model_id: str) -> int | None:
+        """Return a catalog context window when the selected model is known."""
+        normalized = model_id.strip()
+        for model in self.list_models(provider_id).models:
+            if model.model_id == normalized:
+                if model.context_window_tokens is not None:
+                    return model.context_window_tokens
+                break
+        return _litellm_context_window_tokens(provider_id, normalized)
 
     def _read_codex_models(self) -> tuple[CatalogModel, ...]:
         path = self.codex_home / "models_cache.json"
@@ -122,6 +138,7 @@ class ModelCatalog:
                     description=str(item.get("description") or "")[:500],
                     default_reasoning_effort=str(item.get("default_reasoning_level") or "") or None,
                     reasoning_efforts=efforts,
+                    context_window_tokens=_positive_int(item.get("context_window")),
                 )
             )
         return tuple(models)
@@ -143,3 +160,26 @@ class ModelCatalog:
             credential_required=credential_mode == "api_key",
             default_model=spec.default_model,
         )
+
+
+def _positive_int(value: object) -> int | None:
+    """Project one positive integer without accepting booleans or coercion."""
+    if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+        return None
+    return value
+
+
+def _litellm_context_window_tokens(provider_id: str, model_id: str) -> int | None:
+    """Read bundled LiteLLM metadata without making a provider request."""
+    try:
+        from litellm import model_cost
+    except ImportError:
+        return None
+    normalized = normalize_model_name(provider_id, model_id)
+    for candidate in dict.fromkeys((normalized, model_id)):
+        info = model_cost.get(candidate)
+        if isinstance(info, dict):
+            value = _positive_int(info.get("max_input_tokens"))
+            if value is not None:
+                return value
+    return None
