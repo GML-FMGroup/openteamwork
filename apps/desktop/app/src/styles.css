@@ -35,6 +35,9 @@
   --amber: #a76516;
   --danger: #b44949;
   --brand-red: #e6534e;
+  --activity-shimmer-text-peak: #d9433e;
+  --activity-shimmer-band-edge: rgba(230, 83, 78, 0.06);
+  --activity-shimmer-band-core: rgba(230, 83, 78, 0.22);
 
   --surface-strong: var(--paper-warm);
   --surface-soft: #f7f8f9;
@@ -91,6 +94,9 @@
   --amber: #d2994e;
   --danger: #e37c7c;
   --brand-red: #e6534e;
+  --activity-shimmer-text-peak: #ffaaa5;
+  --activity-shimmer-band-edge: rgba(230, 83, 78, 0.08);
+  --activity-shimmer-band-core: rgba(230, 83, 78, 0.3);
   --surface-strong: var(--paper-warm);
   --surface-soft: #24272c;
   --surface-muted: var(--paper-deep);

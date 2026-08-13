@@ -1703,13 +1703,22 @@
 }
 
 .activity-phase-copy {
+  position: relative;
   display: flex;
   width: fit-content;
   max-width: 100%;
   min-width: 0;
   align-items: baseline;
+  overflow: hidden;
   gap: 7px;
+  border-radius: 5px;
+  isolation: isolate;
   justify-self: start;
+}
+
+.activity-phase-copy > * {
+  position: relative;
+  z-index: 1;
 }
 
 .activity-phase-copy strong {
@@ -1726,19 +1735,42 @@
   background: linear-gradient(
     100deg,
     var(--ink-soft) 0%,
-    var(--ink-soft) 25%,
-    var(--ink) 43%,
-    color-mix(in srgb, var(--ink) 88%, white) 50%,
-    var(--ink) 57%,
-    var(--ink-soft) 75%,
+    var(--ink-soft) 28%,
+    color-mix(in srgb, var(--activity-shimmer-text-peak) 58%, var(--ink)) 42%,
+    var(--activity-shimmer-text-peak) 50%,
+    color-mix(in srgb, var(--activity-shimmer-text-peak) 58%, var(--ink)) 58%,
+    var(--ink-soft) 72%,
     var(--ink-soft) 100%
   );
   background-clip: text;
-  background-size: 250% 100%;
+  background-size: 300% 100%;
   color: transparent;
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   animation: activity-line-shimmer 1.25s linear infinite;
+}
+
+.activity-phase.running > summary .activity-phase-copy::before {
+  position: absolute;
+  z-index: 0;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 42%;
+  border-radius: inherit;
+  background: linear-gradient(
+    100deg,
+    transparent 0%,
+    var(--activity-shimmer-band-edge) 22%,
+    var(--activity-shimmer-band-core) 50%,
+    var(--activity-shimmer-band-edge) 78%,
+    transparent 100%
+  );
+  content: "";
+  opacity: 0;
+  pointer-events: none;
+  transform: translate3d(-180%, 0, 0);
+  animation: activity-copy-sweep 1.25s linear infinite;
 }
 
 .activity-phase-copy small {
@@ -2883,8 +2915,20 @@
 }
 
 @keyframes activity-line-shimmer {
-  0% { background-position: 115% 50%; }
-  100% { background-position: -115% 50%; }
+  0% { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+
+@keyframes activity-copy-sweep {
+  0% {
+    opacity: 0;
+    transform: translate3d(-180%, 0, 0);
+  }
+  12%, 88% { opacity: 1; }
+  100% {
+    opacity: 0;
+    transform: translate3d(340%, 0, 0);
+  }
 }
 
 .activity-list::before {
@@ -7110,6 +7154,10 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .activity-phase.running > summary .activity-phase-copy::before {
+    content: none;
+  }
+
   .activity-phase.running > summary .activity-phase-copy > strong {
     background: none;
     color: var(--ink-soft);
