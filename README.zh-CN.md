@@ -52,7 +52,7 @@ OpenTeamwork 把这个决定放在模型和 Prompt 之外。模型提出行动�
 
 OpenTeamwork 是一个从零开始、面向组织工作独立研发的 Agent 平台。Agent 能力、身份、权限边界、知识共享、扩展治理与审计从一开始就是同一套系统的一部分。
 
-![多用户、多 Agent、一个受治理的 Node](./assets/diagrams/many-people-many-agents.png)
+![多用户、多 Agent、一个受治理的 Node](./assets/diagrams/many-people-many-agents.zh-CN.png)
 
 ## 把控制内置到每一层
 
@@ -129,7 +129,7 @@ OpenTeamwork 授权的是实际执行面，而不只是界面入口：
 
 知识按照权限策略共享，而不是被复制到一个所有 Agent 都可读取的全局 Memory 中。详见[历史 Session 访问](./docs/SESSION_HISTORY.md)。
 
-![权限感知的历史知识访问](./assets/diagrams/share-knowledge-not-authority.png)
+![权限感知的历史知识访问](./assets/diagrams/share-knowledge-not-authority.zh-CN.png)
 
 ### 扩展能力，不绕过治理
 
@@ -150,7 +150,7 @@ OpenTeamwork 支持四类扩展：
 
 OpenTeamwork 还可以通过 `/make-skill` 将一次有价值的对话生成可审查的 Skill 草稿。能力创作边界只捕获当前可见的 Session 证据，对常见 Secret 与本地路径进行脱敏，固定来源记录并校验生成的文档，同时支持批准、修改或取消。发布必须得到明确批准；新 Skill 会进入未来的不可变 Runtime 快照，而不会改写正在运行的 Run。
 
-![受治理的能力演化](./assets/diagrams/governed-capability-evolution.png)
+![受治理的能力演化](./assets/diagrams/governed-capability-evolution.zh-CN.png)
 
 详见[扩展与 MCP 安全](./docs/MCP_SECURITY.md)。
 
@@ -245,7 +245,7 @@ pnpm desktop:dev
 
 ## 架构
 
-![OpenTeamwork 整体系统框架](./assets/diagrams/openteamwork-system-framework.png)
+![OpenTeamwork 整体系统框架](./assets/diagrams/openteamwork-system-framework.zh-CN.png)
 
 Node 是系统事实来源。Desktop 与 CLI 使用相同的类型化应用边界；客户端不会直接读取或改写 Node 业务文件。因此，交互式客户端、斜杠命令、Automation 和未来集成都能共享一致的身份、策略、审计与生命周期行为。
 
