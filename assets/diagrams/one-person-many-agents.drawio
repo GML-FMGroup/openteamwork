@@ -1,0 +1,106 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mxfile host="Electron" agent="OpenTeamwork" version="28.2.8">
+  <diagram id="one-person-many-agents" name="Page-1">
+    <mxGraphModel dx="1440" dy="760" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1440" pageHeight="760" math="0" shadow="0" background="#F7F6F2">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+
+        <mxCell id="canvas-top-left" value="" style="ellipse;whiteSpace=wrap;html=1;fillColor=#F7F6F2;strokeColor=none;" vertex="1" parent="1">
+          <mxGeometry x="0" y="0" width="2" height="2" as="geometry" />
+        </mxCell>
+        <mxCell id="canvas-bottom-right" value="" style="ellipse;whiteSpace=wrap;html=1;fillColor=#F7F6F2;strokeColor=none;" vertex="1" parent="1">
+          <mxGeometry x="1438" y="758" width="2" height="2" as="geometry" />
+        </mxCell>
+
+        <mxCell id="accent" value="" style="rounded=1;arcSize=50;whiteSpace=wrap;html=1;fillColor=#E6534E;strokeColor=none;" vertex="1" parent="1">
+          <mxGeometry x="60" y="54" width="44" height="5" as="geometry" />
+        </mxCell>
+        <mxCell id="title" value="ONE PERSON. MANY AGENTS." style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontFamily=Helvetica;fontSize=32;fontStyle=1;fontColor=#17191C;" vertex="1" parent="1">
+          <mxGeometry x="60" y="68" width="760" height="48" as="geometry" />
+        </mxCell>
+        <mxCell id="subtitle" value="One trusted identity can operate a team of purpose-built Agents—without collapsing their boundaries." style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=top;whiteSpace=wrap;fontFamily=Helvetica;fontSize=16;fontColor=#69717A;" vertex="1" parent="1">
+          <mxGeometry x="60" y="122" width="850" height="44" as="geometry" />
+        </mxCell>
+        <mxCell id="figure-label" value="01 / MULTI-AGENT OWNERSHIP" style="text;html=1;strokeColor=none;fillColor=none;align=right;verticalAlign=middle;fontFamily=Helvetica;fontSize=11;fontStyle=1;fontColor=#8A9096;" vertex="1" parent="1">
+          <mxGeometry x="1120" y="72" width="260" height="28" as="geometry" />
+        </mxCell>
+
+        <mxCell id="user" value="&lt;div style=&quot;text-align:center;line-height:1.25;&quot;&gt;&lt;div style=&quot;font-size:11px;letter-spacing:1.4px;color:#C6CBD0;&quot;&gt;AUTHENTICATED USER&lt;/div&gt;&lt;div style=&quot;font-size:25px;font-weight:700;color:#FFFFFF;margin-top:10px;&quot;&gt;One identity&lt;/div&gt;&lt;div style=&quot;font-size:13px;color:#C6CBD0;margin-top:10px;&quot;&gt;Owns and directs&lt;br&gt;multiple Agents&lt;/div&gt;&lt;/div&gt;" style="ellipse;whiteSpace=wrap;html=1;fillColor=#17191C;strokeColor=#17191C;strokeWidth=2;align=center;verticalAlign=middle;fontFamily=Helvetica;" vertex="1" parent="1">
+          <mxGeometry x="60" y="326" width="188" height="188" as="geometry" />
+        </mxCell>
+        <mxCell id="ceiling" value="USER PRIVILEGE CEILING" style="rounded=1;arcSize=50;whiteSpace=wrap;html=1;fillColor=#FDE9E7;strokeColor=none;align=center;verticalAlign=middle;fontFamily=Helvetica;fontSize=10;fontStyle=1;fontColor=#B33E39;" vertex="1" parent="1">
+          <mxGeometry x="75" y="533" width="158" height="28" as="geometry" />
+        </mxCell>
+
+        <mxCell id="hub" value="" style="ellipse;whiteSpace=wrap;html=1;aspect=fixed;fillColor=#E6534E;strokeColor=#E6534E;" vertex="1" parent="1">
+          <mxGeometry x="291" y="412" width="16" height="16" as="geometry" />
+        </mxCell>
+        <mxCell id="ownership-label" value="CREATES + DIRECTS" style="text;html=1;strokeColor=none;fillColor=none;align=center;verticalAlign=middle;fontFamily=Helvetica;fontSize=10;fontStyle=1;fontColor=#B33E39;" vertex="1" parent="1">
+          <mxGeometry x="248" y="378" width="112" height="24" as="geometry" />
+        </mxCell>
+
+        <mxCell id="agent-research" value="&lt;div style=&quot;line-height:1.25;&quot;&gt;&lt;div style=&quot;font-size:11px;letter-spacing:1.5px;color:#6E7F8C;&quot;&gt;RESEARCH AGENT&lt;/div&gt;&lt;div style=&quot;font-size:20px;font-weight:700;color:#17191C;margin-top:7px;&quot;&gt;Find and synthesize trusted sources&lt;/div&gt;&lt;div style=&quot;font-size:13px;color:#69717A;margin-top:9px;&quot;&gt;Workspace A&#160;&#160;·&#160;&#160;bounded authority&#160;&#160;·&#160;&#160;retained history&lt;/div&gt;&lt;/div&gt;" style="rounded=1;arcSize=10;whiteSpace=wrap;html=1;fillColor=#E9EEF2;strokeColor=#96A8B7;strokeWidth=1.5;align=left;verticalAlign=middle;spacingLeft=22;fontFamily=Helvetica;" vertex="1" parent="1">
+          <mxGeometry x="360" y="210" width="500" height="126" as="geometry" />
+        </mxCell>
+        <mxCell id="agent-reporting" value="&lt;div style=&quot;line-height:1.25;&quot;&gt;&lt;div style=&quot;font-size:11px;letter-spacing:1.5px;color:#5F806B;&quot;&gt;REPORTING AGENT&lt;/div&gt;&lt;div style=&quot;font-size:20px;font-weight:700;color:#17191C;margin-top:7px;&quot;&gt;Turn findings into polished deliverables&lt;/div&gt;&lt;div style=&quot;font-size:13px;color:#69717A;margin-top:9px;&quot;&gt;Workspace B&#160;&#160;·&#160;&#160;bounded authority&#160;&#160;·&#160;&#160;retained history&lt;/div&gt;&lt;/div&gt;" style="rounded=1;arcSize=10;whiteSpace=wrap;html=1;fillColor=#E7F1EB;strokeColor=#78A087;strokeWidth=1.5;align=left;verticalAlign=middle;spacingLeft=22;fontFamily=Helvetica;" vertex="1" parent="1">
+          <mxGeometry x="360" y="357" width="500" height="126" as="geometry" />
+        </mxCell>
+        <mxCell id="agent-operations" value="&lt;div style=&quot;line-height:1.25;&quot;&gt;&lt;div style=&quot;font-size:11px;letter-spacing:1.5px;color:#8E7543;&quot;&gt;OPERATIONS AGENT&lt;/div&gt;&lt;div style=&quot;font-size:20px;font-weight:700;color:#17191C;margin-top:7px;&quot;&gt;Run approved operational workflows&lt;/div&gt;&lt;div style=&quot;font-size:13px;color:#69717A;margin-top:9px;&quot;&gt;Workspace C&#160;&#160;·&#160;&#160;bounded authority&#160;&#160;·&#160;&#160;retained history&lt;/div&gt;&lt;/div&gt;" style="rounded=1;arcSize=10;whiteSpace=wrap;html=1;fillColor=#F3EDDF;strokeColor=#B89C65;strokeWidth=1.5;align=left;verticalAlign=middle;spacingLeft=22;fontFamily=Helvetica;" vertex="1" parent="1">
+          <mxGeometry x="360" y="504" width="500" height="126" as="geometry" />
+        </mxCell>
+
+        <mxCell id="node" value="" style="rounded=1;arcSize=8;whiteSpace=wrap;html=1;fillColor=#17191C;strokeColor=#17191C;container=1;collapsible=0;" vertex="1" parent="1">
+          <mxGeometry x="970" y="210" width="410" height="420" as="geometry" />
+        </mxCell>
+        <mxCell id="node-label" value="OPEN TEAMWORK NODE" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontFamily=Helvetica;fontSize=12;fontStyle=1;fontColor=#E6534E;" vertex="1" parent="node">
+          <mxGeometry x="30" y="26" width="250" height="26" as="geometry" />
+        </mxCell>
+        <mxCell id="node-title" value="Shared infrastructure.&lt;br&gt;Independent boundaries." style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=top;whiteSpace=wrap;fontFamily=Helvetica;fontSize=25;fontStyle=1;fontColor=#FFFFFF;" vertex="1" parent="node">
+          <mxGeometry x="30" y="66" width="340" height="72" as="geometry" />
+        </mxCell>
+        <mxCell id="node-model" value="&lt;div style=&quot;font-size:11px;letter-spacing:1.2px;color:#AEB5BB;&quot;&gt;MODEL ACCESS&lt;/div&gt;&lt;div style=&quot;font-size:15px;font-weight:700;color:#FFFFFF;margin-top:5px;&quot;&gt;Central profiles + credentials&lt;/div&gt;" style="rounded=1;arcSize=8;whiteSpace=wrap;html=1;fillColor=#25282C;strokeColor=#3B3F44;align=left;verticalAlign=middle;spacingLeft=16;fontFamily=Helvetica;" vertex="1" parent="node">
+          <mxGeometry x="30" y="164" width="350" height="62" as="geometry" />
+        </mxCell>
+        <mxCell id="node-extensions" value="&lt;div style=&quot;font-size:11px;letter-spacing:1.2px;color:#AEB5BB;&quot;&gt;EXTENSIONS&lt;/div&gt;&lt;div style=&quot;font-size:15px;font-weight:700;color:#FFFFFF;margin-top:5px;&quot;&gt;Tools + Skills + Apps&lt;/div&gt;" style="rounded=1;arcSize=8;whiteSpace=wrap;html=1;fillColor=#25282C;strokeColor=#3B3F44;align=left;verticalAlign=middle;spacingLeft=16;fontFamily=Helvetica;" vertex="1" parent="node">
+          <mxGeometry x="30" y="242" width="350" height="62" as="geometry" />
+        </mxCell>
+        <mxCell id="node-policy" value="&lt;div style=&quot;font-size:11px;letter-spacing:1.2px;color:#FF9C97;&quot;&gt;POLICY + AUDIT&lt;/div&gt;&lt;div style=&quot;font-size:15px;font-weight:700;color:#FFFFFF;margin-top:5px;&quot;&gt;Decisions outside the model&lt;/div&gt;" style="rounded=1;arcSize=8;whiteSpace=wrap;html=1;fillColor=#3A2425;strokeColor=#7B3C3A;align=left;verticalAlign=middle;spacingLeft=16;fontFamily=Helvetica;" vertex="1" parent="node">
+          <mxGeometry x="30" y="320" width="350" height="62" as="geometry" />
+        </mxCell>
+
+        <mxCell id="edge-user-hub" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#E6534E;strokeWidth=2.5;endArrow=none;startArrow=none;" edge="1" parent="1" source="user" target="hub">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="edge-hub-research" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#E6534E;strokeWidth=2;endArrow=blockThin;endFill=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="hub" target="agent-research">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="edge-hub-reporting" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#E6534E;strokeWidth=2;endArrow=blockThin;endFill=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="hub" target="agent-reporting">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="edge-hub-operations" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#E6534E;strokeWidth=2;endArrow=blockThin;endFill=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" edge="1" parent="1" source="hub" target="agent-operations">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="edge-research-node" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#8C9298;strokeWidth=1.5;dashed=1;dashPattern=4 4;endArrow=none;" edge="1" parent="1" source="agent-research" target="node">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="edge-reporting-node" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#8C9298;strokeWidth=1.5;dashed=1;dashPattern=4 4;endArrow=none;" edge="1" parent="1" source="agent-reporting" target="node">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="edge-operations-node" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#8C9298;strokeWidth=1.5;dashed=1;dashPattern=4 4;endArrow=none;" edge="1" parent="1" source="agent-operations" target="node">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <mxCell id="footer-rule" value="" style="shape=line;strokeColor=#D8D6D0;strokeWidth=1;" vertex="1" parent="1">
+          <mxGeometry x="60" y="681" width="1320" height="1" as="geometry" />
+        </mxCell>
+        <mxCell id="footer" value="DIFFERENT ROLES&#160;&#160;&#160;·&#160;&#160;&#160;SEPARATE WORKSPACES&#160;&#160;&#160;·&#160;&#160;&#160;INDEPENDENTLY BOUNDED AUTHORITY" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontFamily=Helvetica;fontSize=12;fontStyle=1;fontColor=#4F555B;" vertex="1" parent="1">
+          <mxGeometry x="60" y="696" width="900" height="28" as="geometry" />
+        </mxCell>
+        <mxCell id="footer-brand" value="OPENTEAMWORK" style="text;html=1;strokeColor=none;fillColor=none;align=right;verticalAlign=middle;fontFamily=Helvetica;fontSize=11;fontStyle=1;fontColor=#E6534E;" vertex="1" parent="1">
+          <mxGeometry x="1190" y="696" width="190" height="28" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
