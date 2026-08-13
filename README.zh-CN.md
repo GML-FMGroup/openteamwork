@@ -52,6 +52,8 @@ OpenTeamwork 把这个决定放在模型和 Prompt 之外。模型提出行动�
 
 OpenTeamwork 是一个从零开始、面向组织工作独立研发的 Agent 平台。Agent 能力、身份、权限边界、知识共享、扩展治理与审计从一开始就是同一套系统的一部分。
 
+![多用户、多 Agent、一个受治理的 Node](./assets/diagrams/many-people-many-agents.png)
+
 ## 把控制内置到每一层
 
 ### 模型访问、Token 用量与审计统一管理
@@ -72,6 +74,7 @@ OpenTeamwork 是一个从零开始、面向组织工作独立研发的 Agent 平
 - 客户端不能通过修改请求字段来冒用其他用户身份。
 - 普通用户只能看到自己有权访问的资源；root 管理边界保持独立。
 - 用户只能创建不高于自身 `low < medium < high < root` 权限上限的 Agent。
+- 每位用户都可以创建多个不同权限级别的 Agent；每个 Agent 拥有独立的 Workspace、Session 与可信 Runtime 身份。
 
 ### 每个 Agent 只获得所需权限
 
@@ -86,7 +89,7 @@ OpenTeamwork 是一个从零开始、面向组织工作独立研发的 Agent 平
       = 本次操作的有效权限
 ```
 
-权限决定会被编译为内容寻址的快照。模型不能选择自己的权限级别，修改 Prompt 也不会改变可信的执行身份。
+权限决定会被编译为内容寻址的快照。模型不能选择自己的权限级别，修改 Prompt 也不会改变可信的执行身份。Agent 的所有者、Workspace、权限级别、控制项和 Agent 专属权限在创建后保持固定；名称、指令和模型选择可以继续调整，却不能借此悄悄扩大权限。
 
 ### 在操作发生的地方校验权限
 
@@ -126,6 +129,8 @@ OpenTeamwork 授权的是实际执行面，而不只是界面入口：
 
 知识按照权限策略共享，而不是被复制到一个所有 Agent 都可读取的全局 Memory 中。详见[历史 Session 访问](./docs/SESSION_HISTORY.md)。
 
+![权限感知的历史知识访问](./assets/diagrams/share-knowledge-not-authority.png)
+
 ### 扩展能力，不绕过治理
 
 OpenTeamwork 支持四类扩展：
@@ -143,7 +148,9 @@ OpenTeamwork 支持四类扩展：
 
 在 Runtime 组装前，系统会校验来源、路径、归档、摘要、依赖、SecretRef、Tool 前缀、风险和 Agent 启用范围。正在运行的 Run 会固定不可变的扩展快照；更新只影响未来组装的 Runtime，不会悄悄改变进行中的工作。
 
-OpenTeamwork 还可以通过 `/make-skill` 将一次有价值的对话生成可审查的 Skill 草稿，并且只有在明确批准后才会发布。
+OpenTeamwork 还可以通过 `/make-skill` 将一次有价值的对话生成可审查的 Skill 草稿。能力创作边界只捕获当前可见的 Session 证据，对常见 Secret 与本地路径进行脱敏，固定来源记录并校验生成的文档，同时支持批准、修改或取消。发布必须得到明确批准；新 Skill 会进入未来的不可变 Runtime 快照，而不会改写正在运行的 Run。
+
+![受治理的能力演化](./assets/diagrams/governed-capability-evolution.png)
 
 详见[扩展与 MCP 安全](./docs/MCP_SECURITY.md)。
 
@@ -238,22 +245,7 @@ pnpm desktop:dev
 
 ## 架构
 
-```text
-CLI          OpenTeamwork Desktop          未来客户端
- |                  |                           |
- +------------------+---------------------------+
-                    |
-          共享 Client Contract
-       身份 · 认证 · HTTP/SSE · Action
-                    |
-             OpenTeamwork Node
- 配置 · 模型 · 扩展 · 运维 · 审计
-                    |
-       Runtime Supervisor + 不可变快照
-                    |
-               Google ADK
- Agent · Runner · Session · Artifact · Memory · MCP
-```
+![OpenTeamwork 整体系统框架](./assets/diagrams/openteamwork-system-framework.png)
 
 Node 是系统事实来源。Desktop 与 CLI 使用相同的类型化应用边界；客户端不会直接读取或改写 Node 业务文件。因此，交互式客户端、斜杠命令、Automation 和未来集成都能共享一致的身份、策略、审计与生命周期行为。
 

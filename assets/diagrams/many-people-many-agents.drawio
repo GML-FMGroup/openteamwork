@@ -1,0 +1,88 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mxfile host="Electron" agent="OpenTeamwork" version="28.2.8">
+  <diagram id="many-people-many-agents" name="Page-1">
+    <mxGraphModel dx="1440" dy="760" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1440" pageHeight="760" math="0" shadow="0" background="#F7F6F2">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="canvas-top-left" value="" style="ellipse;whiteSpace=wrap;html=1;fillColor=#F7F6F2;strokeColor=none;" vertex="1" parent="1">
+          <mxGeometry x="0" y="0" width="2" height="2" as="geometry" />
+        </mxCell>
+        <mxCell id="canvas-bottom-right" value="" style="ellipse;whiteSpace=wrap;html=1;fillColor=#F7F6F2;strokeColor=none;" vertex="1" parent="1">
+          <mxGeometry x="1438" y="758" width="2" height="2" as="geometry" />
+        </mxCell>
+        <mxCell id="accent" value="" style="rounded=1;arcSize=50;whiteSpace=wrap;html=1;fillColor=#E6534E;strokeColor=none;" vertex="1" parent="1">
+          <mxGeometry x="60" y="54" width="44" height="5" as="geometry" />
+        </mxCell>
+        <mxCell id="title" value="MANY PEOPLE. MANY AGENTS. ONE GOVERNED NODE." style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontFamily=Helvetica;fontSize=30;fontStyle=1;fontColor=#17191C;" vertex="1" parent="1">
+          <mxGeometry x="60" y="68" width="1060" height="48" as="geometry" />
+        </mxCell>
+        <mxCell id="subtitle" value="Central identity and policy keep every Agent inside its owner's privilege ceiling." style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=top;whiteSpace=wrap;fontFamily=Helvetica;fontSize=16;fontColor=#69717A;" vertex="1" parent="1">
+          <mxGeometry x="60" y="122" width="900" height="44" as="geometry" />
+        </mxCell>
+        <mxCell id="figure-label" value="01 / ORGANIZATIONAL TRUST" style="text;html=1;strokeColor=none;fillColor=none;align=right;verticalAlign=middle;fontFamily=Helvetica;fontSize=11;fontStyle=1;fontColor=#8A9096;" vertex="1" parent="1">
+          <mxGeometry x="1120" y="72" width="260" height="28" as="geometry" />
+        </mxCell>
+
+        <mxCell id="users-label" value="AUTHENTICATED PEOPLE" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontFamily=Helvetica;fontSize=11;fontStyle=1;fontColor=#69717A;" vertex="1" parent="1">
+          <mxGeometry x="60" y="184" width="280" height="24" as="geometry" />
+        </mxCell>
+        <mxCell id="user-root" value="&lt;div style=&quot;line-height:1.25;&quot;&gt;&lt;div style=&quot;font-size:11px;letter-spacing:1.3px;color:#B33E39;&quot;&gt;NODE ADMINISTRATOR&lt;/div&gt;&lt;div style=&quot;font-size:21px;font-weight:700;color:#17191C;margin-top:6px;&quot;&gt;Root user&lt;/div&gt;&lt;div style=&quot;font-size:13px;color:#69717A;margin-top:8px;&quot;&gt;Privilege ceiling: &lt;b style=&quot;color:#B33E39;&quot;&gt;ROOT&lt;/b&gt;&lt;/div&gt;&lt;/div&gt;" style="rounded=1;arcSize=10;whiteSpace=wrap;html=1;fillColor=#FDE9E7;strokeColor=#E8AAA6;strokeWidth=1.5;align=left;verticalAlign=middle;spacingLeft=20;fontFamily=Helvetica;" vertex="1" parent="1">
+          <mxGeometry x="60" y="220" width="300" height="128" as="geometry" />
+        </mxCell>
+        <mxCell id="user-high" value="&lt;div style=&quot;line-height:1.25;&quot;&gt;&lt;div style=&quot;font-size:11px;letter-spacing:1.3px;color:#5F806B;&quot;&gt;TEAM MEMBER A&lt;/div&gt;&lt;div style=&quot;font-size:21px;font-weight:700;color:#17191C;margin-top:6px;&quot;&gt;High user&lt;/div&gt;&lt;div style=&quot;font-size:13px;color:#69717A;margin-top:8px;&quot;&gt;Privilege ceiling: &lt;b style=&quot;color:#5F806B;&quot;&gt;HIGH&lt;/b&gt;&lt;/div&gt;&lt;/div&gt;" style="rounded=1;arcSize=10;whiteSpace=wrap;html=1;fillColor=#E7F1EB;strokeColor=#78A087;strokeWidth=1.5;align=left;verticalAlign=middle;spacingLeft=20;fontFamily=Helvetica;" vertex="1" parent="1">
+          <mxGeometry x="60" y="382" width="300" height="128" as="geometry" />
+        </mxCell>
+        <mxCell id="user-medium" value="&lt;div style=&quot;line-height:1.25;&quot;&gt;&lt;div style=&quot;font-size:11px;letter-spacing:1.3px;color:#6E7F8C;&quot;&gt;TEAM MEMBER B&lt;/div&gt;&lt;div style=&quot;font-size:21px;font-weight:700;color:#17191C;margin-top:6px;&quot;&gt;Medium user&lt;/div&gt;&lt;div style=&quot;font-size:13px;color:#69717A;margin-top:8px;&quot;&gt;Privilege ceiling: &lt;b style=&quot;color:#6E7F8C;&quot;&gt;MEDIUM&lt;/b&gt;&lt;/div&gt;&lt;/div&gt;" style="rounded=1;arcSize=10;whiteSpace=wrap;html=1;fillColor=#E9EEF2;strokeColor=#96A8B7;strokeWidth=1.5;align=left;verticalAlign=middle;spacingLeft=20;fontFamily=Helvetica;" vertex="1" parent="1">
+          <mxGeometry x="60" y="544" width="300" height="128" as="geometry" />
+        </mxCell>
+
+        <mxCell id="node" value="&lt;div style=&quot;line-height:1.24;&quot;&gt;&lt;div style=&quot;font-size:11px;letter-spacing:1.5px;color:#FF9C97;&quot;&gt;OPEN TEAMWORK NODE&lt;/div&gt;&lt;div style=&quot;font-size:25px;font-weight:700;color:#FFFFFF;margin-top:8px;&quot;&gt;One control plane&lt;/div&gt;&lt;div style=&quot;font-size:13px;color:#C6CBD0;margin-top:7px;&quot;&gt;All App access crosses one trusted boundary.&lt;/div&gt;&lt;div style=&quot;font-size:14px;font-weight:700;color:#FFFFFF;background:#25282C;border:1px solid #3B3F44;border-radius:7px;padding:12px 14px;margin-top:23px;&quot;&gt;Identity + authentication&lt;/div&gt;&lt;div style=&quot;font-size:14px;font-weight:700;color:#FFFFFF;background:#25282C;border:1px solid #3B3F44;border-radius:7px;padding:12px 14px;margin-top:10px;&quot;&gt;User privilege ceilings&lt;/div&gt;&lt;div style=&quot;font-size:14px;font-weight:700;color:#FFFFFF;background:#25282C;border:1px solid #3B3F44;border-radius:7px;padding:12px 14px;margin-top:10px;&quot;&gt;Agent registry + fixed authority&lt;/div&gt;&lt;div style=&quot;font-size:14px;font-weight:700;color:#FFFFFF;background:#3A2425;border:1px solid #7B3C3A;border-radius:7px;padding:12px 14px;margin-top:10px;&quot;&gt;Central policy + audit&lt;/div&gt;&lt;div style=&quot;font-size:12px;color:#AEB5BB;margin-top:22px;&quot;&gt;The model cannot choose identity or privilege.&lt;/div&gt;&lt;/div&gt;" style="rounded=1;arcSize=8;whiteSpace=wrap;html=1;fillColor=#17191C;strokeColor=#17191C;strokeWidth=1.5;align=left;verticalAlign=top;spacingTop=26;spacingLeft=25;spacingRight=25;fontFamily=Helvetica;" vertex="1" parent="1">
+          <mxGeometry x="500" y="200" width="400" height="486" as="geometry" />
+        </mxCell>
+
+        <mxCell id="agents-label" value="INDEPENDENTLY BOUNDED AGENTS" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontFamily=Helvetica;fontSize=11;fontStyle=1;fontColor=#69717A;" vertex="1" parent="1">
+          <mxGeometry x="1040" y="184" width="340" height="24" as="geometry" />
+        </mxCell>
+        <mxCell id="agents-root" value="&lt;div style=&quot;line-height:1.2;&quot;&gt;&lt;div style=&quot;font-size:11px;letter-spacing:1.2px;color:#69717A;&quot;&gt;OWNED BY ROOT USER&lt;/div&gt;&lt;div style=&quot;margin-top:13px;&quot;&gt;&lt;span style=&quot;font-size:13px;font-weight:700;color:#FFFFFF;background:#B33E39;border-radius:12px;padding:7px 12px;&quot;&gt;AGENT / ROOT&lt;/span&gt;&#160;&#160;&lt;span style=&quot;font-size:13px;font-weight:700;color:#355A43;background:#DDECE2;border-radius:12px;padding:7px 12px;&quot;&gt;HIGH&lt;/span&gt;&#160;&#160;&lt;span style=&quot;font-size:13px;font-weight:700;color:#586A77;background:#E2E9EE;border-radius:12px;padding:7px 12px;&quot;&gt;MEDIUM&lt;/span&gt;&lt;/div&gt;&lt;/div&gt;" style="rounded=1;arcSize=10;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#D8D6D0;strokeWidth=1.5;align=left;verticalAlign=middle;spacingLeft=20;fontFamily=Helvetica;" vertex="1" parent="1">
+          <mxGeometry x="1040" y="220" width="340" height="128" as="geometry" />
+        </mxCell>
+        <mxCell id="agents-high" value="&lt;div style=&quot;line-height:1.2;&quot;&gt;&lt;div style=&quot;font-size:11px;letter-spacing:1.2px;color:#69717A;&quot;&gt;OWNED BY HIGH USER&lt;/div&gt;&lt;div style=&quot;margin-top:13px;&quot;&gt;&lt;span style=&quot;font-size:13px;font-weight:700;color:#355A43;background:#DDECE2;border-radius:12px;padding:7px 12px;&quot;&gt;AGENT / HIGH&lt;/span&gt;&#160;&#160;&lt;span style=&quot;font-size:13px;font-weight:700;color:#586A77;background:#E2E9EE;border-radius:12px;padding:7px 12px;&quot;&gt;MEDIUM&lt;/span&gt;&#160;&#160;&lt;span style=&quot;font-size:13px;font-weight:700;color:#6C6557;background:#EFE9DB;border-radius:12px;padding:7px 12px;&quot;&gt;LOW&lt;/span&gt;&lt;/div&gt;&lt;/div&gt;" style="rounded=1;arcSize=10;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#78A087;strokeWidth=1.5;align=left;verticalAlign=middle;spacingLeft=20;fontFamily=Helvetica;" vertex="1" parent="1">
+          <mxGeometry x="1040" y="382" width="340" height="128" as="geometry" />
+        </mxCell>
+        <mxCell id="agents-medium" value="&lt;div style=&quot;line-height:1.2;&quot;&gt;&lt;div style=&quot;font-size:11px;letter-spacing:1.2px;color:#69717A;&quot;&gt;OWNED BY MEDIUM USER&lt;/div&gt;&lt;div style=&quot;margin-top:13px;&quot;&gt;&lt;span style=&quot;font-size:13px;font-weight:700;color:#586A77;background:#E2E9EE;border-radius:12px;padding:7px 12px;&quot;&gt;AGENT / MEDIUM&lt;/span&gt;&#160;&#160;&lt;span style=&quot;font-size:13px;font-weight:700;color:#6C6557;background:#EFE9DB;border-radius:12px;padding:7px 12px;&quot;&gt;LOW&lt;/span&gt;&lt;/div&gt;&lt;/div&gt;" style="rounded=1;arcSize=10;whiteSpace=wrap;html=1;fillColor=#FFFFFF;strokeColor=#96A8B7;strokeWidth=1.5;align=left;verticalAlign=middle;spacingLeft=20;fontFamily=Helvetica;" vertex="1" parent="1">
+          <mxGeometry x="1040" y="544" width="340" height="128" as="geometry" />
+        </mxCell>
+
+        <mxCell id="edge-root-node" value="AUTHENTICATE" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#E6534E;strokeWidth=2;endArrow=blockThin;endFill=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.18;entryDx=0;entryDy=0;fontFamily=Helvetica;fontSize=10;fontStyle=1;fontColor=#B33E39;labelBackgroundColor=#F7F6F2;" edge="1" parent="1" source="user-root" target="node">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="edge-high-node" value="AUTHENTICATE" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#78A087;strokeWidth=2;endArrow=blockThin;endFill=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;fontFamily=Helvetica;fontSize=10;fontStyle=1;fontColor=#446B53;labelBackgroundColor=#F7F6F2;" edge="1" parent="1" source="user-high" target="node">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="edge-medium-node" value="AUTHENTICATE" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#96A8B7;strokeWidth=2;endArrow=blockThin;endFill=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.82;entryDx=0;entryDy=0;fontFamily=Helvetica;fontSize=10;fontStyle=1;fontColor=#586A77;labelBackgroundColor=#F7F6F2;" edge="1" parent="1" source="user-medium" target="node">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="edge-node-root" value="GOVERNED ACCESS" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#E6534E;strokeWidth=2;endArrow=blockThin;endFill=1;exitX=1;exitY=0.18;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;fontFamily=Helvetica;fontSize=10;fontStyle=1;fontColor=#B33E39;labelBackgroundColor=#F7F6F2;" edge="1" parent="1" source="node" target="agents-root">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="edge-node-high" value="GOVERNED ACCESS" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#78A087;strokeWidth=2;endArrow=blockThin;endFill=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;fontFamily=Helvetica;fontSize=10;fontStyle=1;fontColor=#446B53;labelBackgroundColor=#F7F6F2;" edge="1" parent="1" source="node" target="agents-high">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="edge-node-medium" value="GOVERNED ACCESS" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#96A8B7;strokeWidth=2;endArrow=blockThin;endFill=1;exitX=1;exitY=0.82;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;fontFamily=Helvetica;fontSize=10;fontStyle=1;fontColor=#586A77;labelBackgroundColor=#F7F6F2;" edge="1" parent="1" source="node" target="agents-medium">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+
+        <mxCell id="footer-rule" value="" style="shape=line;strokeColor=#D8D6D0;strokeWidth=1;" vertex="1" parent="1">
+          <mxGeometry x="60" y="704" width="1320" height="1" as="geometry" />
+        </mxCell>
+        <mxCell id="footer" value="USER CEILING ≥ AGENT PRIVILEGE&#160;&#160;&#160;·&#160;&#160;&#160;AGENT AUTHORITY IS FIXED AT CREATION" style="text;html=1;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;fontFamily=Helvetica;fontSize=12;fontStyle=1;fontColor=#4F555B;" vertex="1" parent="1">
+          <mxGeometry x="60" y="716" width="900" height="28" as="geometry" />
+        </mxCell>
+        <mxCell id="footer-brand" value="OPENTEAMWORK" style="text;html=1;strokeColor=none;fillColor=none;align=right;verticalAlign=middle;fontFamily=Helvetica;fontSize=11;fontStyle=1;fontColor=#E6534E;" vertex="1" parent="1">
+          <mxGeometry x="1190" y="716" width="190" height="28" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

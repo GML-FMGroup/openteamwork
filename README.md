@@ -52,6 +52,8 @@ Trusted identity  →  bounded authority  →  governed action  →  durable evi
 
 OpenTeamwork is an independently developed Agent platform, built from the ground up for organizational work. Agent capability, identity, permission boundaries, knowledge sharing, extension governance, and audit have been designed as one system from the beginning.
 
+![Many people, many Agents, one governed Node](./assets/diagrams/many-people-many-agents.png)
+
 ## Control built into every layer
 
 ### Manage model access, Token usage, and audit in one place
@@ -72,6 +74,7 @@ This provides centralized access and operational visibility—not a claim of per
 - A client cannot choose another user's identity by changing a request field.
 - Ordinary users see only their authorized resources; root administration remains a separate boundary.
 - Users can create Agents only at or below their own `low < medium < high < root` privilege ceiling.
+- Each user may create multiple Agents with different privilege levels; each Agent keeps its own Workspace, Sessions, and trusted Runtime identity.
 
 ### Each Agent gets only the authority it needs
 
@@ -86,7 +89,7 @@ Authenticated user
       = effective authority for this action
 ```
 
-Permission decisions are compiled into content-addressed snapshots. The model cannot select its own privilege level, and changing a prompt does not change the trusted execution identity.
+Permission decisions are compiled into content-addressed snapshots. The model cannot select its own privilege level, and changing a prompt does not change the trusted execution identity. An Agent's owner, Workspace, privilege, controls, and Agent-specific permissions are fixed after creation; presentation, instruction, and model selection can evolve without silently widening authority.
 
 ### Enforce permissions where actions happen
 
@@ -126,6 +129,8 @@ Authorized Agents can list, search, and read retained work across permitted Agen
 
 Knowledge is shared according to policy; it is not copied into a global memory that every Agent can read. See [Historical Session Access](./docs/SESSION_HISTORY.md).
 
+![Permission-aware retained knowledge](./assets/diagrams/share-knowledge-not-authority.png)
+
 ### Extend capabilities without bypassing governance
 
 OpenTeamwork supports four extension types:
@@ -143,7 +148,9 @@ discover → stage → validate → preview → confirm → install → enable �
 
 Sources, paths, archives, digests, dependencies, SecretRefs, Tool prefixes, risk, and Agent enablement are validated before Runtime assembly. Active Runs keep an immutable extension snapshot; updates affect future Runtime instances instead of silently changing work in progress.
 
-OpenTeamwork can also turn a useful conversation into a reviewable Skill draft with `/make-skill`, then publish it only after explicit approval.
+OpenTeamwork can also turn a useful conversation into a reviewable Skill draft with `/make-skill`. The authoring boundary captures only visible Session evidence, redacts common secrets and local paths, pins source provenance, validates the generated document, and supports approve, revise, or cancel. Publication requires explicit approval; a published Skill enters a future immutable Runtime snapshot instead of rewriting an active Run.
+
+![Governed capability evolution](./assets/diagrams/governed-capability-evolution.png)
 
 See [Extension and MCP Security](./docs/MCP_SECURITY.md).
 
@@ -236,22 +243,7 @@ The default local endpoint is `http://127.0.0.1:18765`. See [OpenTeamwork Deskto
 
 ## Architecture
 
-```text
-CLI          OpenTeamwork Desktop          Future clients
- |                  |                           |
- +------------------+---------------------------+
-                    |
-          Shared Client Contract
-       identity · auth · HTTP/SSE · Actions
-                    |
-             OpenTeamwork Node
- Config · Models · Extensions · Operations · Audit
-                    |
-       Runtime Supervisor + immutable snapshots
-                    |
-               Google ADK
- Agent · Runner · Session · Artifact · Memory · MCP
-```
+![OpenTeamwork system framework](./assets/diagrams/openteamwork-system-framework.png)
 
 The Node is the source of truth. Desktop and CLI use the same typed application boundary; clients do not read or rewrite Node business files. This keeps identity, policy, audit, and lifecycle behavior consistent across interactive clients, slash commands, automation, and future integrations.
 
