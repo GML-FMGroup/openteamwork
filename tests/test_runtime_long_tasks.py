@@ -150,6 +150,31 @@ class LongTaskRuntimeTests(unittest.TestCase):
             self.assertEqual(payload["skill_name"], "demo")
             self.assertEqual(payload["api_name"], "quick")
 
+    def test_skill_api_runtime_prefers_injected_snapshot_root(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            ambient = root / "ambient" / "skills" / "demo"
+            injected = root / "injected" / "demo"
+            for skill_root, marker in ((ambient, "ambient"), (injected, "injected")):
+                skill_root.joinpath("scripts").mkdir(parents=True)
+                skill_root.joinpath("SKILL.md").write_text(
+                    f"---\nname: demo\ndescription: {marker}\n---\n",
+                    encoding="utf-8",
+                )
+                skill_root.joinpath("scripts", "origin.py").write_text(
+                    f'print("{marker}")\n',
+                    encoding="utf-8",
+                )
+            os.environ["OPENPPX_AGENT_HOME"] = str(root / "ambient")
+
+            recipe = SkillApiRuntime(skill_roots={"demo": injected}).resolve(
+                skill_name="demo",
+                api_name="origin",
+            )
+
+            self.assertEqual(recipe.cwd, injected.resolve())
+            self.assertEqual(recipe.argv[-1], str((injected / "scripts" / "origin.py").resolve()))
+
     def test_skill_api_runtime_resolves_http_recipe_without_length_hint(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             self._prepare_http_skill(

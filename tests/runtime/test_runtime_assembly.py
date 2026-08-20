@@ -795,6 +795,11 @@ def test_supervisor_rebuilds_runtime_for_a_new_immutable_skill_snapshot(
 ) -> None:
     config_service, secrets = _configured(tmp_path)
     source = _skill(tmp_path / "source", description="First runtime skill.", body="# First")
+    source.joinpath("references").mkdir()
+    source.joinpath("references", "workflows.md").write_text(
+        "platform workflow\n",
+        encoding="utf-8",
+    )
     manager = SkillManager(tmp_path)
     installed = manager.install(
         manager.stage(ExtensionSourceRef(type="local_directory", locator=str(source))),
@@ -816,12 +821,21 @@ def test_supervisor_rebuilds_runtime_for_a_new_immutable_skill_snapshot(
     first = supervisor.runtime_for("low-main")
     listed = json.loads(_tool_function(first.agent, "list_skills")())
     read_first = _tool_function(first.agent, "read_skill")("runtime-skill")
+    effective = manager.snapshot_for_agent("low-main").skills[0]
 
     assert first.metadata.extension_revision == assembler.extension_snapshot_for_agent("low-main").revision
     assert "First runtime skill." in first.agent.instruction
-    assert listed[0]["name"] == "runtime-skill"
-    assert "location" not in listed[0]
+    assert listed == [
+        {
+            "name": "runtime-skill",
+            "location": str((effective.content_root / "SKILL.md").resolve()),
+            "root": str(effective.content_root.resolve()),
+        }
+    ]
     assert "# First" in read_first
+    assert _tool_function(first.agent, "read_file")(
+        str(effective.content_root / "references" / "workflows.md")
+    ) == "platform workflow\n"
 
     _skill(tmp_path / "source", description="Second runtime skill.", body="# Second")
     updated = manager.install(
@@ -836,6 +850,96 @@ def test_supervisor_rebuilds_runtime_for_a_new_immutable_skill_snapshot(
     assert second.metadata.extension_revision != first.metadata.extension_revision
     assert "# First" in _tool_function(first.agent, "read_skill")("runtime-skill")
     assert "# Second" in _tool_function(second.agent, "read_skill")("runtime-skill")
+
+
+def test_workspace_skill_overrides_platform_skill_as_one_runtime_root(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("OPENPPX_TASK_DB_PATH", str(tmp_path / "database" / "skill-tasks.db"))
+    config_service, secrets = _configured(tmp_path, privilege_level="root")
+    platform_source = _skill(
+        tmp_path / "platform-source",
+        description="Platform version.",
+        body="# Platform",
+    )
+    platform_source.joinpath("references").mkdir()
+    platform_source.joinpath("references", "workflows.md").write_text(
+        "platform workflow\n",
+        encoding="utf-8",
+    )
+    manager = SkillManager(tmp_path)
+    installed = manager.install(
+        manager.stage(ExtensionSourceRef(type="local_directory", locator=str(platform_source))),
+        expected_revision=None,
+    )
+    manager.enable("runtime-skill", "low-main", expected_revision=installed.revision)
+
+    workspace = Path(config_service.snapshot("low-main").agent.spec.workspace)
+    workspace_skill = _skill(
+        workspace / "skills" / "runtime-skill",
+        description="Workspace version.",
+        body="# Workspace",
+    )
+    workspace_skill.joinpath("references").mkdir()
+    workspace_skill.joinpath("references", "workflows.md").write_text(
+        "workspace workflow\n",
+        encoding="utf-8",
+    )
+    workspace_skill.joinpath("scripts").mkdir()
+    workspace_skill.joinpath("scripts", "origin.py").write_text(
+        'print("workspace script")\n',
+        encoding="utf-8",
+    )
+
+    assembler = RuntimeAssembler(
+        node_root=tmp_path,
+        secret_store=secrets,
+        model_factory=lambda _resolution: _HelloLlm(model="hello-model"),
+        skill_manager=manager,
+    )
+    supervisor = NodeRuntimeSupervisor(config_service=config_service, assembler=assembler)
+    runtime = supervisor.runtime_for("low-main")
+
+    listed = json.loads(_tool_function(runtime.agent, "list_skills")())
+    read = _tool_function(runtime.agent, "read_skill")("runtime-skill")
+    reference = _tool_function(runtime.agent, "read_file")(
+        str(workspace_skill / "references" / "workflows.md")
+    )
+    invoked = json.loads(
+        _tool_function(runtime.agent, "invoke_skill_api")(
+            "runtime-skill",
+            "origin",
+            inline_budget_ms=2_000,
+        )
+    )
+
+    assert listed == [
+        {
+            "name": "runtime-skill",
+            "location": str((workspace_skill / "SKILL.md").resolve()),
+            "root": str(workspace_skill.resolve()),
+        }
+    ]
+    assert "# Workspace" in read
+    assert "# Platform" not in read
+    assert reference == "workspace workflow\n"
+    assert invoked["ok"] is True, invoked.get("error")
+    assert invoked["status"] == "completed"
+    assert "workspace script" in invoked["output"]
+
+    workspace_skill.joinpath("SKILL.md").write_text(
+        "---\nname: runtime-skill\ndescription: Updated Workspace version.\n---\n\n"
+        "# Updated Workspace\n",
+        encoding="utf-8",
+    )
+    refreshed = supervisor.runtime_for("low-main")
+
+    assert refreshed is not runtime
+    assert refreshed.metadata.extension_revision != runtime.metadata.extension_revision
+    assert "# Updated Workspace" in _tool_function(refreshed.agent, "read_skill")(
+        "runtime-skill"
+    )
 
 
 def test_supervisor_attaches_direct_mcp_and_rebuilds_for_resource_change(tmp_path: Path) -> None:
@@ -1624,7 +1728,7 @@ def test_supervisor_configures_ordinary_runs_for_client_identity_and_streaming(
         services = SimpleNamespace(goal_store=goal_store)
 
         @staticmethod
-        def extension_snapshot_for_agent(_agent_id):
+        def extension_snapshot_for_agent(_agent_id, **_kwargs):
             return SimpleNamespace(revision="extensions-r1")
 
         @staticmethod
@@ -1715,7 +1819,7 @@ def test_goal_run_continues_in_fresh_adk_invocation_after_slice_limit(tmp_path: 
         services = SimpleNamespace(goal_store=goal_store)
 
         @staticmethod
-        def extension_snapshot_for_agent(_agent_id):
+        def extension_snapshot_for_agent(_agent_id, **_kwargs):
             return SimpleNamespace(revision="extensions-r1")
 
         @staticmethod
@@ -1800,7 +1904,7 @@ def test_active_goal_auto_continues_until_it_enters_waiting_state(tmp_path: Path
         services = SimpleNamespace(goal_store=goal_store)
 
         @staticmethod
-        def extension_snapshot_for_agent(_agent_id):
+        def extension_snapshot_for_agent(_agent_id, **_kwargs):
             return SimpleNamespace(revision="extensions-r1")
 
         @staticmethod
@@ -1867,7 +1971,7 @@ def test_active_goal_enters_waiting_when_continuation_budget_is_exhausted(tmp_pa
         services = SimpleNamespace(goal_store=goal_store)
 
         @staticmethod
-        def extension_snapshot_for_agent(_agent_id):
+        def extension_snapshot_for_agent(_agent_id, **_kwargs):
             return SimpleNamespace(revision="extensions-r1")
 
         @staticmethod
@@ -1965,7 +2069,7 @@ def test_active_goal_blocks_repeated_adk_actions_before_budget_exhaustion(tmp_pa
         services = SimpleNamespace(goal_store=goal_store)
 
         @staticmethod
-        def extension_snapshot_for_agent(_agent_id):
+        def extension_snapshot_for_agent(_agent_id, **_kwargs):
             return SimpleNamespace(revision="extensions-r1")
 
         @staticmethod
@@ -2057,7 +2161,7 @@ def test_goal_loop_block_without_model_text_finishes_as_retryable_pause(tmp_path
         services = SimpleNamespace(goal_store=goal_store)
 
         @staticmethod
-        def extension_snapshot_for_agent(_agent_id):
+        def extension_snapshot_for_agent(_agent_id, **_kwargs):
             return SimpleNamespace(revision="extensions-r1")
 
         @staticmethod
@@ -2143,7 +2247,7 @@ def test_node_runtime_reconciles_explicit_goal_completion_by_adk_invocation(tmp_
         services = SimpleNamespace(goal_store=goal_store)
 
         @staticmethod
-        def extension_snapshot_for_agent(_agent_id):
+        def extension_snapshot_for_agent(_agent_id, **_kwargs):
             return SimpleNamespace(revision="extensions-r1")
 
         @staticmethod

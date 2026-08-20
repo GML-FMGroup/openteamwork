@@ -76,6 +76,7 @@ from .skills import (
     StagedSkill,
     VersionedSkill,
     merge_skill_snapshots,
+    overlay_skill_snapshots,
     parse_skill_manifest,
 )
 
@@ -143,6 +144,7 @@ __all__ = [
     "VersionedAppDefinition",
     "merge_mcp_snapshots",
     "merge_skill_snapshots",
+    "overlay_skill_snapshots",
     "parse_plugin_manifest",
     "parse_skill_manifest",
 ]

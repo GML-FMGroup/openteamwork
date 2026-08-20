@@ -175,7 +175,11 @@ class NodeRuntimeSupervisor:
             role=role,
             run_override=run_override,
         )
-        extension_snapshot = self.assembler.extension_snapshot_for_agent(agent_id)
+        agent_spec = getattr(getattr(snapshot, "agent", None), "spec", None)
+        extension_snapshot = self.assembler.extension_snapshot_for_agent(
+            agent_id,
+            workspace_root=getattr(agent_spec, "workspace", None),
+        )
         key = (agent_id, snapshot.revision, extension_snapshot.revision)
         with self._lock:
             current = self._runtimes.get(key)
@@ -1220,7 +1224,10 @@ class NodeRuntimeSupervisor:
         effective: dict[str, object] | None = None
         if agent_id is not None:
             snapshot = self.config_service.snapshot(agent_id)
-            extensions = self.assembler.extension_snapshot_for_agent(agent_id)
+            extensions = self.assembler.extension_snapshot_for_agent(
+                agent_id,
+                workspace_root=snapshot.agent.spec.workspace,
+            )
             effective = {
                 "agentId": agent_id,
                 "configSnapshotRevision": snapshot.revision,

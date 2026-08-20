@@ -39,7 +39,7 @@ class SkillRegistryTests(unittest.TestCase):
             names = {item["name"] for item in skills}
             self.assertIn("workspace-demo", names)
 
-    def test_builtin_skill_wins_when_workspace_name_collides(self) -> None:
+    def test_workspace_skill_wins_when_builtin_name_collides(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             workspace = Path(tmp)
             skill_dir = workspace / "skills" / "general"
@@ -55,9 +55,9 @@ class SkillRegistryTests(unittest.TestCase):
 
             registry = SkillRegistry(workspace=workspace)
             skills = {item.name: item for item in registry.list_skills()}
-            self.assertEqual(skills["general"].source, "builtin")
-            self.assertIn("# General Skill", registry.read_skill("general"))
-            self.assertNotIn("# Custom General", registry.read_skill("general"))
+            self.assertEqual(skills["general"].source, "workspace")
+            self.assertIn("# Custom General", registry.read_skill("general"))
+            self.assertNotIn("# General Skill", registry.read_skill("general"))
 
     def test_read_skill_raises_for_missing(self) -> None:
         registry = SkillRegistry(workspace=Path("/tmp/nonexistent-openppx-workspace"))

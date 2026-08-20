@@ -54,7 +54,7 @@ class SkillRegistry:
             self.builtin_skills_dirs = dirs
 
     def list_skills(self) -> list[SkillInfo]:
-        """List workspace + bundled skills, builtin taking precedence on name collisions."""
+        """List workspace + bundled Skills with Workspace entries taking precedence."""
         discovered: dict[str, SkillInfo] = {}
 
         for builtin_dir in self.builtin_skills_dirs:
@@ -62,15 +62,6 @@ class SkillRegistry:
                 discovered[info.name] = info
 
         for info in self._scan(self.workspace_skills_dir, source="workspace"):
-            if info.name in discovered:
-                # Workspace skills are not allowed to shadow bundled skills.
-                # Keep bundled behavior deterministic and ignore conflicting local copies.
-                logger.warning(
-                    "Ignoring workspace skill '{}' at {} because a builtin skill with the same name exists.",
-                    info.name,
-                    info.path,
-                )
-                continue
             discovered[info.name] = info
 
         items = sorted(discovered.values(), key=lambda item: item.name.lower())
@@ -184,9 +175,8 @@ def list_skills() -> str:
     payload = [
         {
             "name": info.name,
-            "description": info.description,
-            "source": info.source,
             "location": str(info.path),
+            "root": str(info.path.parent),
         }
         for info in registry.list_skills()
     ]

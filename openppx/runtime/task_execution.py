@@ -10,7 +10,7 @@ import shlex
 import sys
 import time
 import uuid
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
@@ -212,8 +212,28 @@ class ApiRecipeRunnerSpec:
         }
 
 
+@dataclass(frozen=True, slots=True)
+class _RuntimeSkillInfo:
+    """Minimal Skill identity consumed by snapshot-bound API resolution."""
+
+    name: str
+    path: Path
+
+
 class SkillApiRuntime:
     """Resolve dynamic skill API names into supervised execution recipes."""
+
+    def __init__(self, *, skill_roots: Mapping[str, Path] | None = None) -> None:
+        """Bind an optional logical-name to Runtime content-root projection."""
+
+        self._skill_roots = (
+            None
+            if skill_roots is None
+            else {
+                str(name).strip(): Path(root).expanduser().resolve(strict=False)
+                for name, root in skill_roots.items()
+            }
+        )
 
     def resolve(
         self,
@@ -256,11 +276,18 @@ class SkillApiRuntime:
             use_pty=False,
         )
 
-    @staticmethod
-    def _find_skill(skill_name: str) -> Any:
+    def _find_skill(self, skill_name: str) -> Any:
         normalized = str(skill_name or "").strip()
         if not normalized:
             raise ValueError("skill_name is required")
+        if self._skill_roots is not None:
+            root = self._skill_roots.get(normalized)
+            if root is None:
+                raise ValueError(f"skill {normalized!r} not found")
+            skill_file = root / "SKILL.md"
+            if not root.is_dir() or not skill_file.is_file():
+                raise ValueError(f"skill {normalized!r} is unavailable")
+            return _RuntimeSkillInfo(name=normalized, path=skill_file)
         for info in get_registry().list_skills():
             if info.name == normalized:
                 return info

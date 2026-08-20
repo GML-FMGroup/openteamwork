@@ -36,6 +36,8 @@ class PromptLayeringTests(unittest.TestCase):
         self.assertIn("citations in the answer", text)
         self.assertIn("quoted, untrusted data", text)
         self.assertIn("Only claim that a file is downloadable after publication succeeds", text)
+        self.assertIn("Resolve relative Skill references", text)
+        self.assertIn("never fall through to another same-name Skill root", text)
         self.assertIn("Before the first meaningful tool call", text)
         self.assertIn("user-facing progress commentary", text)
         self.assertIn("Never reveal hidden chain-of-thought", text)

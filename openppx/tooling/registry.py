@@ -167,9 +167,21 @@ def _resolve_path_with_authorization(
             action=permission_action,  # type: ignore[arg-type]
             base_dir=base_dir,
             protected_roots=(runtime_context.node_root,) if runtime_context.node_root is not None else (),
+            trusted_read_roots=runtime_context.skill_read_roots,
             audit=runtime_context.permission_audit,
         )
         resolved_input = authorized.path
+    trusted_skill_read = (
+        authorized is not None
+        and permission_action in {"read", "list", "search"}
+        and runtime_context is not None
+        and any(
+            authorized.path == root or authorized.path.is_relative_to(root)
+            for root in runtime_context.skill_read_roots
+        )
+    )
+    if trusted_skill_read:
+        return authorized.path, authorized
     guard = PathGuard(active)
     resolved = guard.resolve_path(str(resolved_input), base_dir=base_dir)
     if authorized is not None and resolved != authorized.path:
@@ -2311,9 +2323,34 @@ def invoke_skill_api(
     return inline output. Calls that exceed ``inline_budget_ms`` are published
     as durable `TaskRun` records and return a `task_id`.
     """
+    return _invoke_skill_api_with_runtime(
+        skill_name=skill_name,
+        api_name=api_name,
+        args=args,
+        inline_budget_ms=inline_budget_ms,
+        scope=scope,
+        restartable=restartable,
+        tool_context=tool_context,
+        skill_runtime=None,
+    )
+
+
+def _invoke_skill_api_with_runtime(
+    *,
+    skill_name: str,
+    api_name: str,
+    args: Any,
+    inline_budget_ms: int | None,
+    scope: str | None,
+    restartable: bool,
+    tool_context: Any | None,
+    skill_runtime: SkillApiRuntime | None,
+) -> str:
+    """Invoke one Skill API through an optional Runtime-pinned resolver."""
+
     try:
         effective_scope = _resolve_process_scope(scope)
-        supervisor = ProcessExecutionSupervisor()
+        supervisor = ProcessExecutionSupervisor(skill_runtime=skill_runtime)
         result = supervisor.invoke_skill_api(
             skill_name=skill_name,
             api_name=api_name,

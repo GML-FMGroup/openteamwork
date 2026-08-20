@@ -68,6 +68,45 @@ def test_low_can_read_but_cannot_write_its_workspace(tmp_path: Path) -> None:
         authorize_path(snapshot, workspace_root=workspace, raw_path=target, action="write")
 
 
+def test_effective_platform_skill_root_is_read_only_for_non_root_agent(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    skill_root = tmp_path / "node" / "extensions" / "skills" / "demo"
+    skill_root.mkdir(parents=True)
+    reference = skill_root / "workflows.md"
+    reference.write_text("workflow", encoding="utf-8")
+    snapshot = _snapshot("low", workspace)
+
+    allowed = authorize_path(
+        snapshot,
+        workspace_root=workspace,
+        raw_path=reference,
+        action="read",
+        protected_roots=(tmp_path / "node",),
+        trusted_read_roots=(skill_root,),
+    )
+
+    assert allowed.path == reference
+    with pytest.raises(PermissionError, match="Node data"):
+        authorize_path(
+            snapshot,
+            workspace_root=workspace,
+            raw_path=skill_root.parent / "private.txt",
+            action="read",
+            protected_roots=(tmp_path / "node",),
+            trusted_read_roots=(skill_root,),
+        )
+    with pytest.raises(PermissionError):
+        authorize_path(
+            snapshot,
+            workspace_root=workspace,
+            raw_path=reference,
+            action="write",
+            protected_roots=(tmp_path / "node",),
+            trusted_read_roots=(skill_root,),
+        )
+
+
 def test_medium_safe_root_never_overrides_high_workspace_deny(tmp_path: Path) -> None:
     workspace = tmp_path / "medium"
     high_workspace = tmp_path / "shared" / "high"

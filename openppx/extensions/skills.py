@@ -149,7 +149,7 @@ class SkillSnapshot:
     @classmethod
     def empty(cls) -> "SkillSnapshot":
         """Return the stable empty Extension snapshot."""
-        return cls(revision="sha256:" + hashlib.sha256(b"[]").hexdigest(), skills=())
+        return cls(revision=_skill_snapshot_revision(()), skills=())
 
 
 def merge_skill_snapshots(*snapshots: SkillSnapshot) -> SkillSnapshot:
@@ -166,15 +166,49 @@ def merge_skill_snapshots(*snapshots: SkillSnapshot) -> SkillSnapshot:
             "extension_conflict",
             "Skill projections contain a duplicate identity.",
         )
+    return SkillSnapshot(
+        revision=_skill_snapshot_revision(skills),
+        skills=skills,
+    )
+
+
+def overlay_skill_snapshots(
+    platform: SkillSnapshot,
+    workspace: SkillSnapshot,
+) -> SkillSnapshot:
+    """Overlay one Agent Workspace Skill set over platform-provided Skills.
+
+    A logical Skill is selected as one whole content root. Workspace entries
+    replace same-name platform entries; resources never fall through between
+    the two roots.
+    """
+
+    selected = {skill.name: skill for skill in platform.skills}
+    selected.update({skill.name: skill for skill in workspace.skills})
+    skills = tuple(sorted(selected.values(), key=lambda skill: skill.name))
+    return SkillSnapshot(
+        revision=_skill_snapshot_revision(skills),
+        skills=skills,
+    )
+
+
+def _skill_snapshot_revision(skills: tuple[SkillSnapshotEntry, ...]) -> str:
+    """Hash every Runtime-relevant Skill identity and selected content root."""
+
     canonical = json.dumps(
-        [(skill.name, skill.digest) for skill in skills],
+        [
+            (
+                skill.name,
+                skill.source,
+                skill.digest,
+                str(skill.content_root.expanduser().resolve(strict=False)),
+            )
+            for skill in skills
+        ],
         ensure_ascii=False,
         separators=(",", ":"),
     ).encode("utf-8")
-    return SkillSnapshot(
-        revision=f"sha256:{hashlib.sha256(canonical).hexdigest()}",
-        skills=skills,
-    )
+    return f"sha256:{hashlib.sha256(canonical).hexdigest()}"
 
 
 class SkillManager:
@@ -436,14 +470,52 @@ class SkillManager:
                     content_root=item.content_root,
                 )
             )
-        canonical = json.dumps(
-            [(item.name, item.digest) for item in entries],
-            ensure_ascii=False,
-            separators=(",", ":"),
-        ).encode("utf-8")
+        frozen_entries = tuple(entries)
         return SkillSnapshot(
-            revision=f"sha256:{hashlib.sha256(canonical).hexdigest()}",
-            skills=tuple(entries),
+            revision=_skill_snapshot_revision(frozen_entries),
+            skills=frozen_entries,
+        )
+
+    def snapshot_for_workspace(self, workspace: Path) -> SkillSnapshot:
+        """Capture valid Skills installed below one authoritative Agent Workspace.
+
+        Workspace packages remain user-owned and mutable. Discovery is bounded
+        by the same source limits as staged installations and rejects links,
+        hard links, malformed manifests, and folder/manifest identity drift.
+        """
+
+        workspace_root = workspace.expanduser().resolve(strict=False)
+        skills_root = workspace_root / "skills"
+        if not skills_root.exists():
+            return SkillSnapshot.empty()
+        if skills_root.is_symlink() or not skills_root.is_dir():
+            raise ExtensionError("unsafe_path", "Workspace Skills root is unavailable or unsafe.")
+
+        entries: list[SkillSnapshotEntry] = []
+        for candidate in sorted(skills_root.iterdir(), key=lambda item: item.name):
+            if candidate.name.startswith(".") or not candidate.is_dir():
+                continue
+            _validate_resource_name(candidate.name)
+            digest = content_digest(candidate, limits=self.staging.limits)
+            manifest = parse_skill_manifest(candidate / "SKILL.md")
+            if manifest.name != candidate.name:
+                raise ExtensionError(
+                    "invalid_manifest",
+                    "Workspace Skill folder name does not match its manifest identity.",
+                )
+            entries.append(
+                SkillSnapshotEntry(
+                    name=manifest.name,
+                    description=manifest.description,
+                    source="workspace",
+                    digest=digest,
+                    content_root=candidate.resolve(strict=True),
+                )
+            )
+        frozen_entries = tuple(entries)
+        return SkillSnapshot(
+            revision=_skill_snapshot_revision(frozen_entries),
+            skills=frozen_entries,
         )
 
     def _load_builtins(self) -> dict[str, VersionedSkill]:
@@ -660,5 +732,6 @@ __all__ = [
     "StagedSkill",
     "VersionedSkill",
     "merge_skill_snapshots",
+    "overlay_skill_snapshots",
     "parse_skill_manifest",
 ]

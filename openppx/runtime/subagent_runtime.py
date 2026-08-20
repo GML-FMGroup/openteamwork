@@ -89,7 +89,10 @@ class SubagentRuntimeManager:
         if not agent_id:
             raise PermissionError("Subagent request is missing a trusted Agent identity.")
         snapshot = self._config_service.snapshot(agent_id)
-        extensions = self._assembler.extension_snapshot_for_agent(agent_id)
+        extensions = self._assembler.extension_snapshot_for_agent(
+            agent_id,
+            workspace_root=snapshot.agent.spec.workspace,
+        )
         expected = {
             "snapshot": (str(getattr(request, "snapshot_revision", "") or ""), snapshot.revision),
             "permission": (

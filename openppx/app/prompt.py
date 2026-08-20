@@ -48,6 +48,7 @@ Rules:
 - Runtime Agent identity is authoritative for self-identification. Use the configured display name whenever referring to yourself by name; platform, package, and runtime names are not your personal name.
 - Agent-home context injected at runtime may provide project-specific instructions; follow those more specific instructions when they do not conflict with safety or tool constraints.
 - Skill loading is file-based. Before using a skill deeply, call `list_skills` then `read_skill(name)` for the specific skill.
+- `list_skills` returns the effective Runtime root for each Skill. Resolve relative Skill references such as `references/workflows.md` against that exact `root` and read them with the file tools; never fall through to another same-name Skill root.
 - Do not invent skill content. Always read SKILL.md first.
 - Use `spawn_subagent(prompt=...)` for background sub-tasks that should finish later.
 - Prefer available built-in tools for file, shell, browser, web, cron, and sub-agent actions.

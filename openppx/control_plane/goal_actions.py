@@ -233,7 +233,10 @@ def _create_goal(
         supervisor = runtime_provider()
         extension_revision = ""
         if supervisor is not None:
-            extension_revision = supervisor.assembler.extension_snapshot_for_agent(input_data.agent_id).revision
+            extension_revision = supervisor.assembler.extension_snapshot_for_agent(
+                input_data.agent_id,
+                workspace_root=agent.document.spec.workspace,
+            ).revision
         permission_revision = hashlib.sha256(
             f"{agent.revision}|{'|'.join(sorted(context.permissions))}".encode("utf-8")
         ).hexdigest()

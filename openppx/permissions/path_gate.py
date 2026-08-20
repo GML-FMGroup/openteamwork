@@ -113,6 +113,7 @@ def authorize_path(
     action: PermissionAction,
     base_dir: Path | None = None,
     protected_roots: tuple[Path, ...] = (),
+    trusted_read_roots: tuple[Path, ...] = (),
     audit: PermissionAuditSink | None = None,
 ) -> AuthorizedPath:
     """Canonicalize, classify, authorize, and audit one filesystem target.
@@ -138,13 +139,28 @@ def authorize_path(
             "resource": resource,
         }
     )
-    floor_reason = _mandatory_floor_reason(
-        snapshot,
-        workspace=workspace,
-        path=canonical,
-        protected_roots=protected_roots,
+    canonical_trusted_roots = tuple(
+        root.expanduser().resolve(strict=False) for root in trusted_read_roots
     )
-    if floor_reason is None:
+    trusted_runtime_read = action in {"read", "list", "search"} and any(
+        canonical == root or canonical.is_relative_to(root)
+        for root in canonical_trusted_roots
+    )
+    floor_reason = None
+    if not trusted_runtime_read:
+        floor_reason = _mandatory_floor_reason(
+            snapshot,
+            workspace=workspace,
+            path=canonical,
+            protected_roots=protected_roots,
+        )
+    if trusted_runtime_read:
+        decision = PermissionDecision(
+            outcome="allow",
+            reason_code="runtime_skill_read",
+            permission_revision=snapshot.revision,
+        )
+    elif floor_reason is None:
         snapshot.assert_enforce_ready(object_kind)  # type: ignore[arg-type]
         decision = evaluate_permission(snapshot, request)
     else:

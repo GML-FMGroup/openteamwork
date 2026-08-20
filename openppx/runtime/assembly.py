@@ -12,7 +12,7 @@ from google.genai import types
 from google.adk.agents.run_config import RunConfig
 
 from openppx.app.agent import build_root_agent
-from openppx.config import ConfigSnapshot, FilesystemConfigRepository, SecretStore
+from openppx.config import ConfigLoadError, ConfigSnapshot, FilesystemConfigRepository, SecretStore
 from openppx.extensions import (
     AppManager,
     AppSnapshot,
@@ -24,6 +24,7 @@ from openppx.extensions import (
     SkillSnapshot,
     merge_mcp_snapshots,
     merge_skill_snapshots,
+    overlay_skill_snapshots,
 )
 from openppx.modeling import ModelCatalog, ModelResolution
 from openppx.core.mcp_registry import ManagedMcpToolset, summarize_mcp_toolsets
@@ -305,6 +306,7 @@ class RuntimeAssembler:
         identity_store = IdentityStore(db_path=identity_db_path)
         agent_access_store = AgentAccessStore(db_path=identity_db_path)
         config_repository = FilesystemConfigRepository(self.node_root)
+        self._config_repository = config_repository
         self.historical_session_service = historical_session_service or HistoricalSessionService(
             session_service=self.services.session_service,
             identity_store=identity_store,
@@ -327,7 +329,12 @@ class RuntimeAssembler:
             return SkillSnapshot.empty()
         return self._skill_manager.snapshot_for_agent(agent_id)
 
-    def extension_snapshot_for_agent(self, agent_id: str) -> RuntimeExtensionSnapshot:
+    def extension_snapshot_for_agent(
+        self,
+        agent_id: str,
+        *,
+        workspace_root: str | Path | None = None,
+    ) -> RuntimeExtensionSnapshot:
         """Capture all extension resources that key a newly assembled Runtime."""
         direct_skills = self.skill_snapshot_for_agent(agent_id)
         plugins = (
@@ -335,7 +342,12 @@ class RuntimeAssembler:
             if self._plugin_manager is None
             else self._plugin_manager.snapshot_for_agent(agent_id)
         )
-        skills = merge_skill_snapshots(direct_skills, plugins.skills)
+        platform_skills = merge_skill_snapshots(direct_skills, plugins.skills)
+        workspace_skills = self._workspace_skill_snapshot(
+            agent_id,
+            workspace_root=workspace_root,
+        )
+        skills = overlay_skill_snapshots(platform_skills, workspace_skills)
         direct_mcp = (
             McpSnapshot.empty()
             if self._mcp_manager is None
@@ -349,6 +361,27 @@ class RuntimeAssembler:
         mcp = merge_mcp_snapshots(direct_mcp, apps.mcp, plugins.mcp)
         return RuntimeExtensionSnapshot.create(skills, mcp, apps, plugins)
 
+    def _workspace_skill_snapshot(
+        self,
+        agent_id: str,
+        *,
+        workspace_root: str | Path | None,
+    ) -> SkillSnapshot:
+        """Discover Skills only from the authoritative Workspace of one Agent."""
+
+        if self._skill_manager is None:
+            return SkillSnapshot.empty()
+        resolved_workspace = workspace_root
+        if resolved_workspace is None:
+            try:
+                agent = self._config_repository.read_agent(agent_id)
+                resolved_workspace = agent.document.spec.workspace
+            except ConfigLoadError as exc:
+                if exc.kind == "not_found":
+                    return SkillSnapshot.empty()
+                raise
+        return self._skill_manager.snapshot_for_workspace(Path(resolved_workspace))
+
     def assemble(
         self,
         snapshot: ConfigSnapshot,
@@ -360,7 +393,8 @@ class RuntimeAssembler:
     ) -> AssembledRuntime:
         """Build a snapshot-native Agent and Runner with explicit dependencies."""
         resolved_extensions = extension_snapshot or self.extension_snapshot_for_agent(
-            snapshot.agent.metadata.name
+            snapshot.agent.metadata.name,
+            workspace_root=snapshot.agent.spec.workspace,
         )
         permission_provider = (
             None

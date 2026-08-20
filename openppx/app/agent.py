@@ -19,6 +19,7 @@ from ..permissions import PermissionSnapshotAuthority
 from ..permissions.tooling import filter_authorized_tools
 from ..runtime.adk_identity import adk_app_name_for_agent_id
 from ..runtime.goal_store import GoalStore
+from ..runtime.task_execution import SkillApiRuntime
 from ..runtime.tool_execution_context import ToolExecutionContext, bind_tool_callable
 from ..tooling.artifact_tools import publish_artifact
 from ..tooling.goal_tools import GoalToolRuntimeSnapshot, build_goal_tools
@@ -43,6 +44,7 @@ from ..tooling.registry import (
     grep,
     high_risk_action_requires_confirmation,
     interrupt_task,
+    _invoke_skill_api_with_runtime,
     invoke_skill_api,
     list_skill_api_runners,
     list_browser_remote_jobs,
@@ -160,12 +162,14 @@ def _build_tools(
     include_gui_tools: bool | None = None,
     extension_tools: tuple[Any, ...] | None = None,
     skill_tools: tuple[Any, ...] | None = None,
+    skill_api_tool: Any | None = None,
     goal_tools: tuple[Any, ...] = (),
     history_tools: tuple[Any, ...] = (),
     tool_execution_context: ToolExecutionContext | None = None,
 ) -> list[Any]:
     """Assemble tools from explicit snapshot policy and extension resources."""
     resolved_skill_tools = (list_skills, read_skill) if skill_tools is None else skill_tools
+    resolved_skill_api_tool = invoke_skill_api if skill_api_tool is None else skill_api_tool
     base_tools: list[Any] = [
         PreloadMemoryTool(),
         load_artifacts,
@@ -178,7 +182,7 @@ def _build_tools(
         list_dir,
         glob,
         grep,
-        invoke_skill_api,
+        resolved_skill_api_tool,
         *goal_tools,
         *history_tools,
         write_context_summary,
@@ -302,6 +306,7 @@ def build_root_agent(
     so it never discovers Provider credentials or MCP configuration itself.
     """
     agent_config = snapshot.agent
+    resolved_skill_snapshot = skill_snapshot or SkillSnapshot.empty()
     tool_execution_context = ToolExecutionContext.for_agent(
         agent_id=agent_config.metadata.name,
         workspace_root=agent_config.spec.workspace,
@@ -312,8 +317,11 @@ def build_root_agent(
         runtime_snapshot_revision=snapshot.revision,
         extension_revision=extension_snapshot_digest,
         task_controller=task_controller,
+        skill_read_roots=tuple(
+            skill.content_root.expanduser().resolve(strict=False)
+            for skill in resolved_skill_snapshot.skills
+        ),
     )
-    resolved_skill_snapshot = skill_snapshot or SkillSnapshot.empty()
     delegation_override = agent_config.spec.controls.can_delegate
     if delegation_override is None:
         delegation_override = agent_config.spec.privilege_level in {"medium", "high", "root"}
@@ -348,6 +356,7 @@ def build_root_agent(
             include_gui_tools=include_gui_tools,
             extension_tools=extension_tools,
             skill_tools=_snapshot_skill_tools(resolved_skill_snapshot),
+            skill_api_tool=_snapshot_skill_api_tool(resolved_skill_snapshot),
             goal_tools=resolved_goal_tools,
             history_tools=history_tools,
             tool_execution_context=tool_execution_context,
@@ -363,9 +372,8 @@ def _snapshot_skill_tools(snapshot: SkillSnapshot) -> tuple[Any, Any]:
         payload = [
             {
                 "name": skill.name,
-                "description": skill.description,
-                "source": skill.source,
-                "digest": skill.digest,
+                "location": str(skill.content_root / "SKILL.md"),
+                "root": str(skill.content_root),
             }
             for skill in snapshot.skills
         ]
@@ -391,6 +399,39 @@ def _snapshot_skill_tools(snapshot: SkillSnapshot) -> tuple[Any, Any]:
     list_runtime_skills.__name__ = "list_skills"
     read_runtime_skill.__name__ = "read_skill"
     return list_runtime_skills, read_runtime_skill
+
+
+def _snapshot_skill_api_tool(snapshot: SkillSnapshot) -> Any:
+    """Build one Skill API tool pinned to the same roots as list/read tools."""
+
+    skill_runtime = SkillApiRuntime(
+        skill_roots={skill.name: skill.content_root for skill in snapshot.skills}
+    )
+
+    def invoke_runtime_skill_api(
+        skill_name: str,
+        api_name: str,
+        args: Any = None,
+        inline_budget_ms: int | None = None,
+        scope: str | None = None,
+        restartable: bool = False,
+        tool_context: Any | None = None,
+    ) -> str:
+        """Invoke an API from a Skill pinned to this Agent Runtime."""
+
+        return _invoke_skill_api_with_runtime(
+            skill_name=skill_name,
+            api_name=api_name,
+            args=args,
+            inline_budget_ms=inline_budget_ms,
+            scope=scope,
+            restartable=restartable,
+            tool_context=tool_context,
+            skill_runtime=skill_runtime,
+        )
+
+    invoke_runtime_skill_api.__name__ = "invoke_skill_api"
+    return invoke_runtime_skill_api
 
 
 __all__ = ["build_root_agent"]

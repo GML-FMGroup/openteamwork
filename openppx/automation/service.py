@@ -280,7 +280,10 @@ class AutomationService:
             profile_id = definition.model_profile_ref or agent.document.spec.model_policy.default_profile
             if profile_id:
                 self.profile_repository.read_profile(profile_id)
-            self.supervisor.assembler.extension_snapshot_for_agent(definition.agent_id)
+            self.supervisor.assembler.extension_snapshot_for_agent(
+                definition.agent_id,
+                workspace_root=agent.document.spec.workspace,
+            )
         except ConfigError:
             reasons.append({"code": "configuration_not_ready", "message": "Agent or model configuration is not ready."})
         except Exception:

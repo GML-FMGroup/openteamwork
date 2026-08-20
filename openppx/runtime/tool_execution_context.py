@@ -40,6 +40,7 @@ class ToolExecutionContext:
     permission_audit: PermissionAuditSink | None = None
     runtime_snapshot_revision: str = ""
     extension_revision: str = ""
+    skill_read_roots: tuple[Path, ...] = ()
     task_controller: Any | None = field(default=None, repr=False, compare=False)
 
     @classmethod
@@ -54,6 +55,7 @@ class ToolExecutionContext:
         permission_audit: PermissionAuditSink | None = None,
         runtime_snapshot_revision: str = "",
         extension_revision: str = "",
+        skill_read_roots: tuple[str | Path, ...] = (),
         task_controller: Any | None = None,
     ) -> "ToolExecutionContext":
         """Build a context using an explicit Agent Workspace and ambient Node limits."""
@@ -79,6 +81,10 @@ class ToolExecutionContext:
             permission_audit=permission_audit,
             runtime_snapshot_revision=str(runtime_snapshot_revision or ""),
             extension_revision=str(extension_revision or ""),
+            skill_read_roots=tuple(
+                Path(root).expanduser().resolve(strict=False)
+                for root in skill_read_roots
+            ),
             task_controller=task_controller,
         )
 

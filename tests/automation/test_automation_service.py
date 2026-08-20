@@ -37,7 +37,9 @@ class _Supervisor:
         self.sessions: dict[tuple[str, str, str], object] = {}
         self.prompts: list[str] = []
         self.assembler = SimpleNamespace(
-            extension_snapshot_for_agent=lambda _agent_id: SimpleNamespace(revision="extensions-r1")
+            extension_snapshot_for_agent=lambda _agent_id, **_kwargs: SimpleNamespace(
+                revision="extensions-r1"
+            )
         )
 
     def runtime_for(self, _agent_id: str):
