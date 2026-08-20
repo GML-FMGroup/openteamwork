@@ -1,4 +1,4 @@
-import type { AgentCreateRequest, AgentUpdateInput, AppConnectionEnablementRequest, AppConnectionRemoveRequest, AppConnectionSaveRequest, ArtifactSummary, ArtifactUploadInput, AutomationCreateInput, AutomationStatus, AutomationUpdateRequest, ConnectionSettings, ContextCompactionConfiguration, CronCreateInput, CronUpdateInput, ExtensionEnablementRequest, ExtensionInstallRequest, ExtensionPreviewRequest, ExtensionRemoveRequest, GoalTransitionOperation, GoalUpdateRequest, HeartbeatConfiguration, McpMutationRequest, McpServerResource, McpValueBinding, ModelCapability, ModelProfileCreateInput, ModelProfileUpdateInput, OperationsTaskControlInput, PluginMarketplaceSourceSpec, RuntimeCommand, SendMessageInput, SessionMutationRequest, SetupApplyRequest, SlashCommandRequest, UserLoginRequest } from "../../app/src/types";
+import type { AgentCreateRequest, AgentUpdateInput, AppConnectionEnablementRequest, AppConnectionRemoveRequest, AppConnectionSaveRequest, ArtifactSummary, ArtifactUploadInput, AutomationCreateInput, AutomationStatus, AutomationUpdateRequest, ConnectionSettings, ContextCompactionConfiguration, CronCreateInput, CronUpdateInput, ExtensionEnablementRequest, ExtensionInstallRequest, ExtensionPreviewRequest, ExtensionRemoveRequest, GoalTransitionOperation, GoalUpdateRequest, HeartbeatConfiguration, McpMutationRequest, McpServerResource, McpValueBinding, ModelCapability, ModelProfileCreateInput, ModelProfileUpdateInput, OperationsTaskControlInput, PluginMarketplaceSourceSpec, ResponseFeedbackInput, RuntimeCommand, SendMessageInput, SessionMutationRequest, SetupApplyRequest, SlashCommandRequest, UserLoginRequest } from "../../app/src/types";
 
 function record(value: unknown, label: string): Record<string, unknown> {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
@@ -80,6 +80,23 @@ export function validateRuntimeCommand(value: unknown): RuntimeCommand {
 /** Validate one session or Run identifier crossing the IPC trust boundary. */
 export function validateIdentifier(value: unknown, label: string): string {
   return string(value, label, 512);
+}
+
+/** Validate one response-rating mutation crossing the isolated Renderer boundary. */
+export function validateResponseFeedbackInput(value: unknown): ResponseFeedbackInput {
+  const input = record(value, "Response feedback");
+  if (input.rating !== null && input.rating !== "up" && input.rating !== "down") {
+    throw new TypeError("Response feedback rating must be up, down, or null.");
+  }
+  return {
+    sessionId: validateIdentifier(input.sessionId, "Session id"),
+    responseId: validateIdentifier(input.responseId, "Response id"),
+    messageId: validateIdentifier(input.messageId, "Message id"),
+    runId: input.runId === null || input.runId === undefined || input.runId === ""
+      ? null
+      : validateIdentifier(input.runId, "Run id"),
+    rating: input.rating,
+  };
 }
 
 /** Validate a bounded JSON object without allowing functions or cyclic values through IPC. */

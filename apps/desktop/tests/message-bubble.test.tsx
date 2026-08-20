@@ -84,6 +84,61 @@ describe("MessageBubble", () => {
     await waitFor(() => expect(writeText).toHaveBeenCalledWith("Review the latest run"));
   });
 
+  it("copies completed assistant content as Markdown without internal activity details", async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText },
+    });
+    render(
+      <MessageBubble
+        message={buildMessage({
+          status: "completed",
+          parts: [
+            { type: "step_ref", stepId: "step-1", title: "exec", status: "completed", detail: "secret internal detail" },
+            { type: "markdown", text: "## Result\n\nUse the API." },
+            { type: "code", language: "python", text: "print('done')" },
+            { type: "image", text: "Chart", url: "https://example.com/chart.png", mimeType: "image/png" },
+          ],
+        })}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Copy response as Markdown" }));
+
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith(
+      "## Result\n\nUse the API.\n\n```python\nprint('done')\n```\n\n![Chart](https://example.com/chart.png)",
+    ));
+    expect(writeText.mock.calls[0]?.[0]).not.toContain("secret internal detail");
+  });
+
+  it("submits mutually exclusive response feedback and exposes persistent state", () => {
+    const onFeedback = vi.fn();
+    const message = buildMessage({
+      status: "completed",
+      feedback: "up",
+      parts: [{ type: "markdown", text: "Completed response" }],
+    });
+    render(<MessageBubble message={message} onFeedback={onFeedback} />);
+
+    const up = screen.getByRole("button", { name: "Good response" });
+    const down = screen.getByRole("button", { name: "Bad response" });
+    expect(up).toHaveAttribute("aria-pressed", "true");
+    expect(down).toHaveAttribute("aria-pressed", "false");
+
+    fireEvent.click(up);
+    expect(onFeedback).toHaveBeenLastCalledWith(message, null);
+    fireEvent.click(down);
+    expect(onFeedback).toHaveBeenLastCalledWith(message, "down");
+  });
+
+  it("waits for a terminal assistant response before showing feedback actions", () => {
+    render(<MessageBubble message={buildMessage()} onFeedback={vi.fn()} />);
+
+    expect(screen.queryByRole("button", { name: "Good response" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Bad response" })).not.toBeInTheDocument();
+  });
+
   it("renders a compact semantic activity disclosure while streaming", () => {
     const { container } = render(<MessageBubble message={buildMessage()} />);
 

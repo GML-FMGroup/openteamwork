@@ -85,6 +85,7 @@ import type {
   ContextCompactionConfiguration,
   ModelCatalogResult,
   ProviderAuthStatus,
+  ResponseFeedbackInput,
   MessagePart,
   PpxClientApi,
   RunEvent,
@@ -687,13 +688,15 @@ export class OpenPpxLocalAdapter implements Omit<
   }
 
   public async getUserProfile(): Promise<UserProfile> {
-    const user = await this.connection.getAuthenticatedUser();
+    const session = await this.connection.getAuthenticatedSession();
+    const user = session.user;
     const profile: UserProfile = {
       id: user.userId,
       displayName: user.email,
       accountKind: "product",
       email: user.email,
       privilegeLevel: user.privilegeLevel,
+      sessionExpiresAtMs: session.expiresAtMs,
     };
     this.authenticatedUser = profile;
     return profile;
@@ -716,6 +719,7 @@ export class OpenPpxLocalAdapter implements Omit<
       accountKind: "product",
       email: login.user.email,
       privilegeLevel: login.user.privilegeLevel,
+      sessionExpiresAtMs: login.expiresAtMs,
     };
     this.authenticatedUser = profile;
     return profile;
@@ -744,6 +748,10 @@ export class OpenPpxLocalAdapter implements Omit<
       this.abortActiveRunStreams();
       this.sessionCache.clear();
     }
+  }
+
+  public async recordUserActivity(): Promise<{ expiresAtMs: number }> {
+    return this.connection.recordUserActivity();
   }
 
   public async getDiagnostics(): Promise<ClientDiagnostics> {
@@ -1607,6 +1615,31 @@ export class OpenPpxLocalAdapter implements Omit<
       }
     }
     throw this.clientApiUnavailableError("Loading session messages");
+  }
+
+  public async setResponseFeedback(
+    input: ResponseFeedbackInput,
+  ): Promise<{ responseId: string; rating: "up" | "down" | null }> {
+    await this.ensureClientApiAvailable();
+    const payload = await this.fetchClientApiJson(
+      `/api/v1/sessions/${encodeURIComponent(input.sessionId)}/responses/${encodeURIComponent(input.responseId)}/feedback`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          messageId: input.messageId,
+          runId: input.runId ?? null,
+          rating: input.rating,
+        }),
+      },
+    );
+    const data = payload.data && typeof payload.data === "object" && !Array.isArray(payload.data)
+      ? payload.data as Record<string, unknown>
+      : {};
+    const responseId = String(data.response_id ?? data.responseId ?? "").trim();
+    const rating = data.rating === "up" || data.rating === "down" ? data.rating : null;
+    if (!responseId) throw new Error("Node returned an invalid response feedback result.");
+    this.sessionCache.invalidate("", input.sessionId);
+    return { responseId, rating };
   }
 
   public async uploadArtifact(input: ArtifactUploadInput): Promise<ArtifactSummary> {

@@ -10,6 +10,7 @@ import {
   validateIdentifier,
   validateRuntimeCommand,
   validateProviderId,
+  validateResponseFeedbackInput,
   validateModelProfileId,
   validateModelProfileCreateInput,
   validateModelProfileUpdateInput,
@@ -365,6 +366,28 @@ describe("Electron IPC validation", () => {
     })).toThrow();
     expect(() => validateGoalTransitionOperation("complete")).toThrow("Goal transition is not supported");
     expect(() => validateGoalRevision("latest")).toThrow();
+  });
+
+  it("accepts only bounded mutually exclusive response feedback", () => {
+    expect(validateResponseFeedbackInput({
+      sessionId: "session-1",
+      responseId: "run-1",
+      messageId: "message-1",
+      runId: "run-1",
+      rating: "up",
+    })).toEqual({
+      sessionId: "session-1",
+      responseId: "run-1",
+      messageId: "message-1",
+      runId: "run-1",
+      rating: "up",
+    });
+    expect(() => validateResponseFeedbackInput({
+      sessionId: "session-1",
+      responseId: "run-1",
+      messageId: "message-1",
+      rating: "like",
+    })).toThrow("up, down, or null");
   });
 
   it("rejects malformed renderer requests before they reach services", () => {

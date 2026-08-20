@@ -186,6 +186,7 @@ function installClient(overrides: Partial<PpxClientApi> = {}): { client: PpxClie
     }),
     login: async () => ({ id: "user-test", displayName: "user@example.com", accountKind: "product", privilegeLevel: "high" }),
     logout: async () => undefined,
+    recordUserActivity: async () => ({ expiresAtMs: Date.now() + 60 * 60 * 1000 }),
     getDiagnostics: async () => buildDiagnostics(),
     setDesktopHostPreferences: async () => undefined,
     testConnectionSettings: async () => buildDiagnostics(),
@@ -410,6 +411,7 @@ function installClient(overrides: Partial<PpxClientApi> = {}): { client: PpxClie
     exportSession: async ({ sessionId }) => ({ sessionId, items: [] }),
     deleteSession: async ({ sessionId }) => ({ sessionId, deleted: true }),
     loadSession: async () => ({ messages: [] }),
+    setResponseFeedback: async (input) => ({ responseId: input.responseId, rating: input.rating }),
     getCurrentGoal: async () => ({ goal: null }),
     updateGoal: async () => {
       throw new Error("No fixture Goal configured.");

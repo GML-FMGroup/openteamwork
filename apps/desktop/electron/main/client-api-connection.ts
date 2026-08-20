@@ -104,6 +104,11 @@ export interface ClientApiLoginResult {
   user: ClientApiAuthenticatedUser;
 }
 
+export interface ClientApiAuthenticatedSession {
+  user: ClientApiAuthenticatedUser;
+  expiresAtMs: number;
+}
+
 function record(value: unknown): Record<string, unknown> | null {
   return value && typeof value === "object" && !Array.isArray(value)
     ? value as Record<string, unknown>
@@ -132,6 +137,18 @@ function authenticatedUser(value: unknown): ClientApiAuthenticatedUser {
   };
 }
 
+function authenticatedSession(value: unknown): ClientApiAuthenticatedSession {
+  const data = record(value);
+  const expiresAtMs = Number(data?.expiresAtMs);
+  if (!Number.isSafeInteger(expiresAtMs) || expiresAtMs <= 0) {
+    throw new Error("Node returned an invalid user session deadline.");
+  }
+  return {
+    user: authenticatedUser(data?.user),
+    expiresAtMs,
+  };
+}
+
 /**
  * Owns the mutable HTTP/protocol health state for one product Client API endpoint.
  *
@@ -143,6 +160,8 @@ export class ClientApiConnection {
   private baseUrlValue: string;
 
   private accessTokenValue: string;
+
+  private sessionExpiresAtMsValue = 0;
 
   private readonly fetcher: typeof globalThis.fetch;
 
@@ -192,9 +211,17 @@ export class ClientApiConnection {
     return this.accessTokenValue;
   }
 
+  public get sessionExpiresAtMs(): number {
+    return this.sessionExpiresAtMsValue;
+  }
+
   public configure(options: { baseUrl: string; accessToken?: string }): void {
+    const nextAccessToken = options.accessToken?.trim() ?? "";
+    if (nextAccessToken !== this.accessTokenValue) {
+      this.sessionExpiresAtMsValue = 0;
+    }
     this.baseUrlValue = options.baseUrl.trim();
-    this.accessTokenValue = options.accessToken?.trim() ?? "";
+    this.accessTokenValue = nextAccessToken;
     this.configurationGeneration += 1;
     this.healthyUntil = 0;
     this.inflightHealthCheck = null;
@@ -271,13 +298,35 @@ export class ClientApiConnection {
       user: authenticatedUser(data?.user),
     };
     this.configure({ baseUrl: this.baseUrlValue, accessToken });
+    this.sessionExpiresAtMsValue = expiresAtMs;
     return result;
   }
 
   /** Resolve the current opaque session to its server-authenticated user. */
   public async getAuthenticatedUser(): Promise<ClientApiAuthenticatedUser> {
+    return (await this.getAuthenticatedSession()).user;
+  }
+
+  /** Resolve the current user and authoritative idle deadline. */
+  public async getAuthenticatedSession(): Promise<ClientApiAuthenticatedSession> {
     const payload = await this.requestJson("/api/v1/auth/me");
-    return authenticatedUser(record(payload.data)?.user);
+    const session = authenticatedSession(payload.data);
+    this.sessionExpiresAtMsValue = session.expiresAtMs;
+    return session;
+  }
+
+  /** Record throttled, explicit Desktop input and return the new idle deadline. */
+  public async recordUserActivity(): Promise<{ expiresAtMs: number }> {
+    const payload = await this.requestJson("/api/v1/auth/activity", {
+      method: "POST",
+      body: "{}",
+    });
+    const expiresAtMs = Number(record(payload.data)?.expiresAtMs);
+    if (!Number.isSafeInteger(expiresAtMs) || expiresAtMs <= 0) {
+      throw new Error("Node returned an invalid user session deadline.");
+    }
+    this.sessionExpiresAtMsValue = expiresAtMs;
+    return { expiresAtMs };
   }
 
   /** Revoke the current user session and clear it from this connection. */

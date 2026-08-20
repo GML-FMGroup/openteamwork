@@ -29,6 +29,7 @@ from openppx.runtime.identity_store import IdentityStore
 from openppx.runtime.memory_query_service import MemoryQueryService
 from openppx.runtime.session_service import SessionConfig, create_session_service
 from openppx.runtime.sqlite_memory_service import SQLiteMemoryService
+from openppx.runtime.user_accounts import UserAccountService
 from openppx.control_plane import build_control_plane
 from openppx.runtime.node_runtime import ManagedRunSnapshot, RunNotActiveError, RunNotFoundError
 
@@ -813,6 +814,127 @@ def test_run_status_is_owned_by_the_outer_client_run(tmp_path: Path) -> None:
     completed = coordinator.get_run(handle.run_id)
     assert completed["ok"] is True
     assert completed["data"]["run"]["status"] == "completed"
+
+
+def test_run_completion_restarts_the_owning_product_session_idle_window(tmp_path: Path) -> None:
+    now = [1_700_000_000_000]
+    accounts = UserAccountService(
+        db_path=tmp_path / "database" / "identity.db",
+        clock_ms=lambda: now[0],
+    )
+    account = accounts.add_user(
+        email="owner@example.com",
+        secret="owner secret value",
+        privilege_level="medium",
+    )
+    login = accounts.authenticate("owner@example.com", "owner secret value")
+    user_session_id = accounts.session_reference(login.access_token)
+    assert user_session_id is not None
+    coordinator, _runtime = _coordinator_with_runtime(tmp_path, user_accounts=accounts)
+    handle = RunHandle(
+        run_id="run_idle_keepalive",
+        agent_id="writer",
+        session_id="session-idle",
+        user_id=account.user_id,
+        user_session_id=user_session_id,
+    )
+    coordinator._runs[handle.run_id] = handle
+    now[0] += 2 * 60 * 60 * 1000
+
+    coordinator._finish_node_run(handle, status="completed")
+
+    assert accounts.session_expires_at_ms(login.access_token) == now[0] + 60 * 60 * 1000
+
+
+def test_response_feedback_is_authorized_persisted_and_projected(tmp_path: Path) -> None:
+    assistant_event = Event(
+        invocation_id="invocation-feedback",
+        author="assistant",
+        content=types.Content(role="model", parts=[types.Part.from_text(text="Use **Markdown**.")]),
+    )
+    runtime = _FakeRuntimeSupervisor()
+    runtime.sessions[("writer", "owner")] = [
+        SimpleNamespace(
+            id="session-feedback",
+            last_update_time=1_700_000_000,
+            events=[assistant_event],
+        )
+    ]
+    coordinator, _runtime = _coordinator_with_runtime(tmp_path, supervisor=runtime)
+    before = coordinator.get_session_messages("session-feedback", user_id="owner")
+    response = before["data"]["items"][0]
+
+    saved = coordinator.set_response_feedback(
+        session_id="session-feedback",
+        response_id="invocation-feedback",
+        message_id=response["id"],
+        run_id="invocation-feedback",
+        rating="up",
+        user_id="owner",
+    )
+
+    assert saved == {
+        "ok": True,
+        "data": {
+            "session_id": "session-feedback",
+            "response_id": "invocation-feedback",
+            "rating": "up",
+        },
+    }
+    projected = coordinator.get_session_messages("session-feedback", user_id="owner")
+    assert projected["data"]["items"][0]["feedback"] == "up"
+
+    cleared = coordinator.set_response_feedback(
+        session_id="session-feedback",
+        response_id="invocation-feedback",
+        message_id=response["id"],
+        run_id="invocation-feedback",
+        rating=None,
+        user_id="owner",
+    )
+    assert cleared["data"]["rating"] is None
+    assert "feedback" not in coordinator.get_session_messages(
+        "session-feedback",
+        user_id="owner",
+    )["data"]["items"][0]
+
+
+def test_response_feedback_rejects_unknown_or_cross_user_responses(tmp_path: Path) -> None:
+    assistant_event = Event(
+        invocation_id="invocation-feedback",
+        author="assistant",
+        content=types.Content(role="model", parts=[types.Part.from_text(text="Visible reply")]),
+    )
+    runtime = _FakeRuntimeSupervisor()
+    runtime.sessions[("writer", "owner")] = [
+        SimpleNamespace(
+            id="session-feedback",
+            last_update_time=1_700_000_000,
+            events=[assistant_event],
+        )
+    ]
+    coordinator, _runtime = _coordinator_with_runtime(tmp_path, supervisor=runtime)
+    response = coordinator.get_session_messages("session-feedback", user_id="owner")["data"]["items"][0]
+
+    unknown = coordinator.set_response_feedback(
+        session_id="session-feedback",
+        response_id="invented-run",
+        message_id="invented-message",
+        run_id="invented-run",
+        rating="down",
+        user_id="owner",
+    )
+    cross_user = coordinator.set_response_feedback(
+        session_id="session-feedback",
+        response_id="invocation-feedback",
+        message_id=response["id"],
+        run_id="invocation-feedback",
+        rating="down",
+        user_id="another-user",
+    )
+
+    assert unknown["error"]["code"] == "RESPONSE_NOT_FOUND"
+    assert cross_user["error"]["code"] == "ACCESS_DENIED"
 
 
 def test_run_status_returns_not_found_for_unknown_run(tmp_path: Path) -> None:

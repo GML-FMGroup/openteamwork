@@ -155,6 +155,14 @@ export type ChatMessage = ClientChatMessage & {
   commandResult?: CommandResultPresentation;
 };
 
+export interface ResponseFeedbackInput {
+  sessionId: string;
+  responseId: string;
+  messageId: string;
+  runId?: string | null;
+  rating: "up" | "down" | null;
+}
+
 export type RuntimeState =
   | "stopped"
   | "starting"
@@ -173,6 +181,7 @@ export interface UserProfile {
   accountKind: "local" | "remote" | "product";
   email?: string;
   privilegeLevel?: "low" | "medium" | "high" | "root";
+  sessionExpiresAtMs?: number;
   avatarUrl?: string;
 }
 
@@ -417,6 +426,7 @@ export interface PpxClientApi {
   getUserProfile(): Promise<UserProfile>;
   login(request: UserLoginRequest): Promise<UserProfile>;
   logout(): Promise<void>;
+  recordUserActivity(): Promise<{ expiresAtMs: number }>;
   getDiagnostics(): Promise<ClientDiagnostics>;
   setDesktopHostPreferences(preferences: DesktopHostPreferences): Promise<void>;
   testConnectionSettings(settings: ConnectionSettings): Promise<ClientDiagnostics>;
@@ -438,6 +448,7 @@ export interface PpxClientApi {
   exportSession(input: SessionMutationRequest): Promise<Record<string, unknown>>;
   deleteSession(input: SessionMutationRequest): Promise<Record<string, unknown>>;
   loadSession(sessionId: string): Promise<{ messages: ChatMessage[] }>;
+  setResponseFeedback(input: ResponseFeedbackInput): Promise<{ responseId: string; rating: "up" | "down" | null }>;
   getCurrentGoal(sessionId: string): Promise<{ goal: GoalDetail | null }>;
   updateGoal(input: GoalUpdateRequest): Promise<GoalDetail>;
   transitionGoal(operation: GoalTransitionOperation, goalId: string, expectedRevision: number): Promise<GoalDetail>;

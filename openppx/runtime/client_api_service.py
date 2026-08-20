@@ -53,6 +53,7 @@ from .identity_store import IdentityStore
 from .memory_query_service import MemoryQueryService
 from .memory_shared import memory_entry_text
 from .paths import default_node_root
+from .response_feedback_store import ResponseFeedbackStore
 from .sqlite_memory_service import SQLiteMemoryService
 from .session_metadata_store import SessionMetadataStore
 from .user_accounts import (
@@ -285,6 +286,14 @@ def _message_payload(
         "created_at": _iso_now(),
         "metadata": {},
     }
+
+
+def _response_identity(message: dict[str, Any]) -> str:
+    """Return the stable Run/invocation identity for one assistant response."""
+
+    if str(message.get("role") or "") != "assistant":
+        return ""
+    return str(message.get("run_id") or message.get("runId") or message.get("id") or "").strip()
 
 
 def _error_part_payload(*, code: str, text: str) -> dict[str, Any]:
@@ -666,11 +675,13 @@ class RunHandle:
         agent_id: str,
         session_id: str,
         user_id: str = "",
+        user_session_id: str = "",
     ) -> None:
         self.run_id = run_id
         self.agent_id = agent_id
         self.session_id = session_id
         self.user_id = user_id
+        self.user_session_id = user_session_id
         self.assistant_message_id = f"msg_{run_id}_assistant"
         self._history: list[RunEnvelope] = []
         self._subscribers: list[queue.Queue[RunEnvelope | None]] = []
@@ -769,6 +780,7 @@ class ClientApiCoordinator:
         runtime_supervisor: Any | None = None,
         session_metadata: SessionMetadataStore | None = None,
         user_accounts: UserAccountService | None = None,
+        response_feedback: ResponseFeedbackStore | None = None,
     ) -> None:
         self.data_dir = data_dir or default_node_root()
         default_identity_db_path = self.data_dir / "database" / "identity.db"
@@ -802,6 +814,9 @@ class ClientApiCoordinator:
         self.user_accounts = user_accounts or UserAccountService(
             db_path=default_identity_db_path,
             identity_store=self._identity_store,
+        )
+        self._response_feedback = response_feedback or ResponseFeedbackStore(
+            self.data_dir / "database" / "sessions.db"
         )
         self.login_rate_limiter = LoginRateLimiter()
         if runtime_supervisor is not None:
@@ -1613,11 +1628,88 @@ class ClientApiCoordinator:
             for message in [project_session_event(event, session_id)]
             if message is not None
         ]
+        feedback_by_response = self._response_feedback.list_for_session(
+            requester.principal_id,
+            session_id,
+        )
         for message in messages:
             metadata = message.setdefault("metadata", {})
             metadata["subject_principal_id"] = subject_principal_id
+            response_id = _response_identity(message)
+            if response_id and response_id in feedback_by_response:
+                message["feedback"] = feedback_by_response[response_id]
         self._write_cache(self._messages_cache, cache_key, messages)
         return _ok({"items": messages})
+
+    def set_response_feedback(
+        self,
+        *,
+        session_id: str,
+        response_id: str,
+        message_id: str,
+        run_id: str | None,
+        rating: str | None,
+        user_id: str,
+    ) -> dict[str, Any]:
+        """Persist one authorized user's current rating for a visible response."""
+
+        requester = self._ensure_requester_principal(user_id)
+        location = self._find_session_owner(
+            session_id=session_id,
+            requester_principal_id=requester.principal_id,
+        )
+        if isinstance(location, dict):
+            return location
+        agent_id, _subject_principal_id = location
+        normalized_response_id = str(response_id or "").strip()
+        normalized_message_id = str(message_id or "").strip()
+        normalized_run_id = str(run_id or "").strip() or None
+        if not normalized_response_id or not normalized_message_id or rating not in {None, "up", "down"}:
+            return _error(
+                "INVALID_REQUEST",
+                "Response ID, message ID, and an up, down, or null rating are required.",
+            )
+        projected = self.get_session_messages(session_id, user_id=requester.principal_id)
+        if not projected.get("ok"):
+            return projected
+        messages = projected.get("data", {}).get("items", [])
+        matched = next(
+            (
+                item
+                for item in messages
+                if isinstance(item, dict)
+                and _response_identity(item) == normalized_response_id
+            ),
+            None,
+        )
+        if matched is None:
+            return _error(
+                "RESPONSE_NOT_FOUND",
+                "The assistant response was not found in this Session.",
+            )
+        matched_run_id = str(matched.get("run_id") or matched.get("runId") or "").strip() or None
+        if normalized_run_id is not None and matched_run_id not in {None, normalized_run_id}:
+            return _error(
+                "RESPONSE_NOT_FOUND",
+                "The assistant response identity does not match this Session.",
+            )
+        self._response_feedback.set(
+            principal_id=requester.principal_id,
+            agent_id=agent_id,
+            session_id=session_id,
+            response_id=normalized_response_id,
+            run_id=matched_run_id or normalized_run_id,
+            message_id=normalized_message_id,
+            rating=rating,
+        )
+        self._invalidate_session_cache(session_id, user_id=requester.principal_id)
+        return _ok(
+            {
+                "session_id": session_id,
+                "response_id": normalized_response_id,
+                "rating": rating,
+            }
+        )
 
     def get_agent_access(self, agent_id: str, *, user_id: str = "ppx-client-user") -> dict[str, Any]:
         """Return the requester's visible access snapshot for one agent."""
@@ -2401,6 +2493,7 @@ class ClientApiCoordinator:
         *,
         artifact_refs: list[dict[str, Any]] | None = None,
         user_id: str = "ppx-client-user",
+        user_session_id: str = "",
     ) -> dict[str, Any]:
         """Create one streaming Run inside the shared Node Runtime Supervisor."""
 
@@ -2454,6 +2547,7 @@ class ClientApiCoordinator:
             agent_id=agent_id,
             session_id=session_id,
             user_id=requester.principal_id,
+            user_session_id=str(user_session_id or "").strip(),
         )
         with self._lock:
             self._runs[run_id] = handle
@@ -2920,7 +3014,30 @@ class ClientApiCoordinator:
                 "status": status,
             },
         )
+        if handle.user_id and handle.user_session_id:
+            self.user_accounts.record_run_activity(
+                handle.user_session_id,
+                user_id=handle.user_id,
+            )
+        # Advance the owning login before marking the Run inactive so an auth
+        # request can never observe a gap between Run keepalive and the new hour.
         handle.finish(status=status)
+
+    def has_active_run_for_user_session(self, user_id: str, user_session_id: str) -> bool:
+        """Return whether the exact authenticated product session owns an active Run."""
+
+        normalized_user_id = str(user_id or "").strip()
+        normalized_session_id = str(user_session_id or "").strip()
+        if not normalized_user_id or not normalized_session_id:
+            return False
+        with self._lock:
+            handles = tuple(self._runs.values())
+        return any(
+            handle.user_id == normalized_user_id
+            and handle.user_session_id == normalized_session_id
+            and not handle.done.is_set()
+            for handle in handles
+        )
 
     def get_run(self, run_id: str, *, user_id: str | None = None) -> dict[str, Any]:
         """Return the Node-owned lifecycle state for one outer client Run."""
@@ -3086,7 +3203,21 @@ class _ClientApiHandler(BaseHTTPRequestHandler):
         token = self._bearer_token(
             authorization_header if authorization_header is not None else self.headers.get("Authorization")
         )
-        return service.resolve_session(token) if token else None
+        if not token:
+            return None
+        user_session_id = service.session_reference(token)
+        keepalive = getattr(coordinator, "has_active_run_for_user_session", None)
+        return service.resolve_session(
+            token,
+            keepalive_if=(
+                lambda user_id, resolved_session_id: bool(
+                    user_session_id
+                    and resolved_session_id == user_session_id
+                    and callable(keepalive)
+                    and keepalive(user_id, resolved_session_id)
+                )
+            ),
+        )
 
     def _require_user_session(self) -> UserAccount | None:
         """Require an authenticated product user rather than a deployment token."""
@@ -3233,7 +3364,24 @@ class _ClientApiHandler(BaseHTTPRequestHandler):
         if path == "/api/v1/auth/me":
             account = self._require_user_session()
             if account is not None:
-                self._send_json(200, _ok({"user": self._project_user(account)}))
+                token = self._bearer_token(self.headers.get("Authorization"))
+                expires_at_ms = self.coordinator.user_accounts.session_expires_at_ms(token)
+                if expires_at_ms is None:
+                    self._send_json(
+                        401,
+                        _error("UNAUTHORIZED", "The user session has expired."),
+                        extra_headers={"WWW-Authenticate": 'Bearer realm="openteamwork-user"'},
+                    )
+                    return
+                self._send_json(
+                    200,
+                    _ok(
+                        {
+                            "user": self._project_user(account),
+                            "expiresAtMs": expires_at_ms,
+                        }
+                    ),
+                )
             return
         if not self._require_authorization():
             return
@@ -3439,18 +3587,68 @@ class _ClientApiHandler(BaseHTTPRequestHandler):
             )
             return
         if path == "/api/v1/auth/logout":
-            account = self._require_user_session()
-            if account is None:
+            if not self._loopback_client():
+                self._send_json(
+                    401,
+                    _error("UNAUTHORIZED", "User logout is only available to the local App."),
+                )
                 return
             token = self._bearer_token(self.headers.get("Authorization"))
             self._send_json(200, _ok({"loggedOut": self.coordinator.user_accounts.logout(token)}))
             return
+        if path == "/api/v1/auth/activity":
+            account = self._require_user_session()
+            if account is None:
+                return
+            token = self._bearer_token(self.headers.get("Authorization"))
+            expires_at_ms = self.coordinator.user_accounts.record_activity(token)
+            if expires_at_ms is None:
+                self._send_json(
+                    401,
+                    _error("UNAUTHORIZED", "The user session has expired."),
+                    extra_headers={"WWW-Authenticate": 'Bearer realm="openteamwork-user"'},
+                )
+                return
+            self._send_json(200, _ok({"expiresAtMs": expires_at_ms}))
+            return
         if not self._require_authorization():
+            return
+        is_response_feedback = (
+            len(segments) == 7
+            and segments[:3] == ["api", "v1", "sessions"]
+            and segments[4] == "responses"
+            and segments[6] == "feedback"
+        )
+        feedback_account = self._require_user_session() if is_response_feedback else None
+        if is_response_feedback and feedback_account is None:
             return
         try:
             body = self._read_json_body()
         except (ValueError, json.JSONDecodeError, UnicodeDecodeError) as exc:
             self._send_json(413 if "exceeds" in str(exc) else 400, _error("INVALID_REQUEST", str(exc)))
+            return
+        if is_response_feedback:
+            assert feedback_account is not None
+            raw_rating = body.get("rating")
+            if raw_rating is not None and not isinstance(raw_rating, str):
+                self._send_json(400, _error("INVALID_REQUEST", "Field 'rating' must be up, down, or null."))
+                return
+            payload = self.coordinator.set_response_feedback(
+                session_id=segments[3],
+                response_id=segments[5],
+                message_id=str(body.get("message_id") or body.get("messageId") or ""),
+                run_id=str(body.get("run_id") or body.get("runId") or "") or None,
+                rating=raw_rating,
+                user_id=feedback_account.user_id,
+            )
+            error_code = str(payload.get("error", {}).get("code") or "")
+            status = 200 if payload.get("ok") else {
+                "INVALID_REQUEST": 400,
+                "RESPONSE_NOT_FOUND": 404,
+                "SESSION_NOT_FOUND": 404,
+                "ACCESS_DENIED": 403,
+            }.get(error_code, 500)
+            self._send_json(status, payload)
             return
         if path == "/api/v1/actions/invoke":
             try:
@@ -3623,6 +3821,13 @@ class _ClientApiHandler(BaseHTTPRequestHandler):
                 text or "Use the attached files to complete the task.",
                 artifact_refs=raw_artifact_refs,
                 user_id=user_id,
+                user_session_id=(
+                    self.coordinator.user_accounts.session_reference(
+                        self._bearer_token(self.headers.get("Authorization"))
+                    )
+                    if self._resolve_user_session() is not None
+                    else ""
+                ),
             )
             error_code = str(payload.get("error", {}).get("code") or "")
             status = 200 if payload.get("ok") else (409 if error_code in {"SESSION_ARCHIVED", "SESSION_REMOVED"} else 404)

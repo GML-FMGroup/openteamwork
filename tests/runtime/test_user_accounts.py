@@ -92,7 +92,7 @@ def test_authentication_returns_opaque_expiring_token_and_resolves_account(tmp_p
     assert login.access_token not in stored
 
 
-def test_authentication_default_session_lasts_one_hour(tmp_path: Path) -> None:
+def test_authentication_default_idle_deadline_starts_one_hour_after_login(tmp_path: Path) -> None:
     service = _service(tmp_path)
     service.add_user(
         email="jiang@example.com",
@@ -105,7 +105,51 @@ def test_authentication_default_session_lasts_one_hour(tmp_path: Path) -> None:
     assert login.expires_at_ms == 1_700_003_600_000
 
 
-def test_session_resolution_caps_tokens_issued_by_older_builds_to_one_hour(tmp_path: Path) -> None:
+def test_background_session_resolution_does_not_advance_the_idle_deadline(tmp_path: Path) -> None:
+    now = [1_700_000_000_000]
+    service = UserAccountService(
+        db_path=tmp_path / "identity.db",
+        clock_ms=lambda: now[0],
+    )
+    account = service.add_user(
+        email="jiang@example.com",
+        secret="correct horse battery staple",
+        privilege_level="medium",
+    )
+    login = service.authenticate("jiang@example.com", "correct horse battery staple")
+
+    now[0] += 30 * 60 * 1000
+    assert service.resolve_session(login.access_token) == account
+    assert service.session_expires_at_ms(login.access_token) == login.expires_at_ms
+
+    now[0] += 30 * 60 * 1000 + 1
+    assert service.resolve_session(login.access_token) is None
+
+
+def test_explicit_activity_slides_the_idle_deadline_by_one_hour(tmp_path: Path) -> None:
+    now = [1_700_000_000_000]
+    service = UserAccountService(
+        db_path=tmp_path / "identity.db",
+        clock_ms=lambda: now[0],
+    )
+    account = service.add_user(
+        email="jiang@example.com",
+        secret="correct horse battery staple",
+        privilege_level="medium",
+    )
+    login = service.authenticate("jiang@example.com", "correct horse battery staple")
+
+    now[0] += 45 * 60 * 1000
+    advanced_deadline = service.record_activity(login.access_token)
+
+    assert advanced_deadline == now[0] + 60 * 60 * 1000
+    now[0] += 45 * 60 * 1000
+    assert service.resolve_session(login.access_token) == account
+    now[0] += 15 * 60 * 1000 + 1
+    assert service.resolve_session(login.access_token) is None
+
+
+def test_session_resolution_caps_legacy_deadlines_to_one_hour_after_last_activity(tmp_path: Path) -> None:
     now = [1_700_000_000_000]
     service = UserAccountService(
         db_path=tmp_path / "identity.db",
@@ -126,6 +170,78 @@ def test_session_resolution_caps_tokens_issued_by_older_builds_to_one_hour(tmp_p
     now[0] += 3_600_001
 
     assert service.resolve_session(login.access_token) is None
+
+
+def test_expired_session_cannot_be_revived_by_client_activity(tmp_path: Path) -> None:
+    now = [1_700_000_000_000]
+    service = UserAccountService(
+        db_path=tmp_path / "identity.db",
+        clock_ms=lambda: now[0],
+    )
+    service.add_user(
+        email="jiang@example.com",
+        secret="correct horse battery staple",
+        privilege_level="medium",
+    )
+    login = service.authenticate("jiang@example.com", "correct horse battery staple")
+
+    now[0] += 60 * 60 * 1000 + 1
+
+    assert service.record_activity(login.access_token) is None
+    assert service.resolve_session(login.access_token) is None
+
+
+def test_owned_active_run_can_keep_a_non_revoked_session_alive(tmp_path: Path) -> None:
+    now = [1_700_000_000_000]
+    service = UserAccountService(
+        db_path=tmp_path / "identity.db",
+        clock_ms=lambda: now[0],
+    )
+    account = service.add_user(
+        email="jiang@example.com",
+        secret="correct horse battery staple",
+        privilege_level="medium",
+    )
+    login = service.authenticate("jiang@example.com", "correct horse battery staple")
+    now[0] += 60 * 60 * 1000 + 1
+    session_id = service.session_reference(login.access_token)
+    assert session_id is not None
+
+    resolved = service.resolve_session(
+        login.access_token,
+        keepalive_if=lambda user_id, active_session_id: (
+            user_id == account.user_id and active_session_id == session_id
+        ),
+    )
+
+    assert resolved == account
+    assert service.session_expires_at_ms(login.access_token) == now[0] + 60 * 60 * 1000
+
+
+def test_run_completion_does_not_revive_logged_out_or_disabled_sessions(tmp_path: Path) -> None:
+    now = [1_700_000_000_000]
+    service = UserAccountService(
+        db_path=tmp_path / "identity.db",
+        clock_ms=lambda: now[0],
+    )
+    account = service.add_user(
+        email="jiang@example.com",
+        secret="correct horse battery staple",
+        privilege_level="medium",
+    )
+    logged_out = service.authenticate("jiang@example.com", "correct horse battery staple")
+    logged_out_session_id = service.session_reference(logged_out.access_token)
+    assert logged_out_session_id is not None
+    now[0] += 60 * 60 * 1000 + 1
+    assert service.logout(logged_out.access_token) is True
+    assert service.record_run_activity(logged_out_session_id, user_id=account.user_id) is False
+
+    disabled = service.authenticate("jiang@example.com", "correct horse battery staple")
+    disabled_session_id = service.session_reference(disabled.access_token)
+    assert disabled_session_id is not None
+    service.disable_user("jiang@example.com")
+    assert service.record_run_activity(disabled_session_id, user_id=account.user_id) is False
+    assert service.resolve_session(disabled.access_token) is None
 
 
 def test_bad_secret_and_unknown_email_have_same_public_failure(tmp_path: Path) -> None:

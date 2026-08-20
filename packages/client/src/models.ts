@@ -46,6 +46,8 @@ export interface ChatMessage {
   runId?: string | null;
   role: MessageRole;
   status: MessageStatus;
+  /** Current authenticated user's durable rating for this assistant response. */
+  feedback?: "up" | "down" | null;
   createdAt: string;
   parts: MessagePart[];
 }

@@ -26,6 +26,7 @@ _PRIVILEGE_RANK = {level: index for index, level in enumerate(USER_PRIVILEGE_LEV
 _EMAIL_PATTERN = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 _SESSION_TOKEN_PREFIX = "otw_session_"
 _DEFAULT_SESSION_TTL_SECONDS = 60 * 60
+_DEFAULT_SESSION_IDLE_MS = _DEFAULT_SESSION_TTL_SECONDS * 1000
 _ARGON2_MEMORY_KIB = 19 * 1024
 _ARGON2_ITERATIONS = 2
 _ARGON2_LANES = 1
@@ -266,6 +267,15 @@ class UserAccountService:
             updated_at_ms=int(row["updated_at_ms"]),
         )
 
+    @staticmethod
+    def _effective_idle_deadline(row: sqlite3.Row) -> int:
+        """Return the bounded deadline for current and legacy session rows."""
+
+        return min(
+            int(row["expires_at_ms"]),
+            int(row["last_seen_at_ms"]) + _DEFAULT_SESSION_IDLE_MS,
+        )
+
     def _audit(self, *, user_id: str | None, action: str, outcome: str) -> None:
         """Persist a credential-free authentication fact."""
 
@@ -436,8 +446,18 @@ class UserAccountService:
         self._audit(user_id=account.user_id, action="auth.login", outcome="succeeded")
         return UserLogin(account=account, access_token=access_token, expires_at_ms=expires_at_ms)
 
-    def resolve_session(self, access_token: str) -> UserAccount | None:
-        """Resolve one active token to its account without accepting caller identity input."""
+    def resolve_session(
+        self,
+        access_token: str,
+        *,
+        keepalive_if: Callable[[str, str], bool] | None = None,
+    ) -> UserAccount | None:
+        """Resolve one active token without treating background requests as activity.
+
+        ``keepalive_if`` is reserved for a server-owned Run that was started by
+        the same product session. It may advance an otherwise elapsed deadline;
+        ordinary callers cannot revive an idle session.
+        """
 
         token = str(access_token or "")
         if not token.startswith(_SESSION_TOKEN_PREFIX):
@@ -448,7 +468,7 @@ class UserAccountService:
                 """
                 SELECT a.user_id, a.email_normalized, a.privilege_level, a.status,
                        a.created_at_ms, a.updated_at_ms, s.session_id, s.issued_at_ms,
-                       s.expires_at_ms, s.revoked_at_ms
+                       s.expires_at_ms, s.revoked_at_ms, s.last_seen_at_ms
                 FROM user_sessions AS s
                 JOIN user_accounts AS a ON a.user_id = s.user_id
                 WHERE s.token_hash = ?
@@ -457,21 +477,123 @@ class UserAccountService:
             ).fetchone()
             if row is None or row["revoked_at_ms"] is not None or str(row["status"]) != "active":
                 return None
-            policy_expires_at_ms = int(row["issued_at_ms"]) + _DEFAULT_SESSION_TTL_SECONDS * 1000
-            if min(int(row["expires_at_ms"]), policy_expires_at_ms) <= now_ms:
+            session_id = str(row["session_id"])
+            if self._effective_idle_deadline(row) <= now_ms:
+                if keepalive_if is None or not keepalive_if(str(row["user_id"]), session_id):
+                    return None
+                deadline_ms = now_ms + _DEFAULT_SESSION_IDLE_MS
                 conn.execute(
-                    "UPDATE user_sessions SET revoked_at_ms = ? WHERE session_id = ?",
-                    (now_ms, str(row["session_id"])),
+                    "UPDATE user_sessions SET last_seen_at_ms = ?, expires_at_ms = ? "
+                    "WHERE session_id = ? AND revoked_at_ms IS NULL",
+                    (now_ms, deadline_ms, session_id),
                 )
-                return None
-            conn.execute(
-                "UPDATE user_sessions SET last_seen_at_ms = ? WHERE session_id = ?",
-                (now_ms, str(row["session_id"])),
-            )
         return self._account_from_row(row)
 
+    def session_reference(self, access_token: str) -> str | None:
+        """Return the opaque database session ID for one non-revoked token."""
+
+        token = str(access_token or "")
+        if not token.startswith(_SESSION_TOKEN_PREFIX):
+            return None
+        with self._lock, _connect(self._db_path) as conn:
+            row = conn.execute(
+                """
+                SELECT s.session_id
+                FROM user_sessions AS s
+                JOIN user_accounts AS a ON a.user_id = s.user_id
+                WHERE s.token_hash = ? AND s.revoked_at_ms IS NULL AND a.status = 'active'
+                """,
+                (_token_hash(token),),
+            ).fetchone()
+        return str(row["session_id"]) if row is not None else None
+
+    def session_expires_at_ms(self, access_token: str) -> int | None:
+        """Return the effective deadline for one currently usable session."""
+
+        token = str(access_token or "")
+        if not token.startswith(_SESSION_TOKEN_PREFIX):
+            return None
+        now_ms = self._clock_ms()
+        with self._lock, _connect(self._db_path) as conn:
+            row = conn.execute(
+                """
+                SELECT s.expires_at_ms, s.last_seen_at_ms, s.revoked_at_ms, a.status
+                FROM user_sessions AS s
+                JOIN user_accounts AS a ON a.user_id = s.user_id
+                WHERE s.token_hash = ?
+                """,
+                (_token_hash(token),),
+            ).fetchone()
+        if (
+            row is None
+            or row["revoked_at_ms"] is not None
+            or str(row["status"]) != "active"
+        ):
+            return None
+        deadline_ms = self._effective_idle_deadline(row)
+        return deadline_ms if deadline_ms > now_ms else None
+
+    def record_activity(self, access_token: str) -> int | None:
+        """Advance one usable session after explicit, trusted user input."""
+
+        token = str(access_token or "")
+        if not token.startswith(_SESSION_TOKEN_PREFIX):
+            return None
+        now_ms = self._clock_ms()
+        with self._lock, _connect(self._db_path) as conn:
+            row = conn.execute(
+                """
+                SELECT s.session_id, s.expires_at_ms, s.last_seen_at_ms,
+                       s.revoked_at_ms, a.status
+                FROM user_sessions AS s
+                JOIN user_accounts AS a ON a.user_id = s.user_id
+                WHERE s.token_hash = ?
+                """,
+                (_token_hash(token),),
+            ).fetchone()
+            if (
+                row is None
+                or row["revoked_at_ms"] is not None
+                or str(row["status"]) != "active"
+                or self._effective_idle_deadline(row) <= now_ms
+            ):
+                return None
+            deadline_ms = now_ms + _DEFAULT_SESSION_IDLE_MS
+            conn.execute(
+                "UPDATE user_sessions SET last_seen_at_ms = ?, expires_at_ms = ? "
+                "WHERE session_id = ? AND revoked_at_ms IS NULL",
+                (now_ms, deadline_ms, str(row["session_id"])),
+            )
+        return deadline_ms
+
+    def record_run_activity(self, session_id: str, *, user_id: str) -> bool:
+        """Advance exactly the product session that owns a server-side Run."""
+
+        normalized_session_id = str(session_id or "").strip()
+        normalized_user_id = str(user_id or "").strip()
+        if not normalized_session_id or not normalized_user_id:
+            return False
+        now_ms = self._clock_ms()
+        deadline_ms = now_ms + _DEFAULT_SESSION_IDLE_MS
+        with self._lock, _connect(self._db_path) as conn:
+            account = conn.execute(
+                "SELECT status FROM user_accounts WHERE user_id = ?",
+                (normalized_user_id,),
+            ).fetchone()
+            if account is None or str(account["status"]) != "active":
+                return False
+            cursor = conn.execute(
+                """
+                UPDATE user_sessions
+                SET last_seen_at_ms = ?, expires_at_ms = ?
+                WHERE session_id = ? AND user_id = ? AND revoked_at_ms IS NULL
+                """,
+                (now_ms, deadline_ms, normalized_session_id, normalized_user_id),
+            )
+        return cursor.rowcount == 1
+
     def logout(self, access_token: str) -> bool:
-        """Revoke one current App session token idempotently."""
+        """Revoke one App session token, including an already elapsed session."""
 
         token = str(access_token or "")
         if not token.startswith(_SESSION_TOKEN_PREFIX):
@@ -481,9 +603,9 @@ class UserAccountService:
             cursor = conn.execute(
                 """
                 UPDATE user_sessions SET revoked_at_ms = ?
-                WHERE token_hash = ? AND revoked_at_ms IS NULL AND expires_at_ms > ?
+                WHERE token_hash = ? AND revoked_at_ms IS NULL
                 """,
-                (now_ms, _token_hash(token), now_ms),
+                (now_ms, _token_hash(token)),
             )
         revoked = cursor.rowcount == 1
         if revoked:

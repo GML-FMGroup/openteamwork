@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from "electron";
-import type { AgentCreateRequest, AgentUpdateInput, AppConnectionEnablementRequest, AppConnectionRemoveRequest, AppConnectionSaveRequest, ArtifactSummary, ArtifactUploadInput, AutomationCreateInput, AutomationStatus, AutomationUpdateRequest, ConnectionSettings, ContextCompactionConfiguration, CronCreateInput, CronUpdateInput, DesktopHostPreferences, DesktopPlatform, ExtensionEnablementRequest, ExtensionInstallRequest, ExtensionPreviewRequest, ExtensionRemoveRequest, GoalTransitionOperation, GoalUpdateRequest, HeartbeatConfiguration, McpMutationRequest, ModelProfileCreateInput, ModelProfileUpdateInput, OperationsTaskControlInput, PluginMarketplaceSourceSpec, PpxClientApi, RunEvent, RuntimeCommand, SendMessageInput, SessionMutationRequest, SetupApplyRequest, SlashCommandRequest, UserLoginRequest } from "../../app/src/types";
+import type { AgentCreateRequest, AgentUpdateInput, AppConnectionEnablementRequest, AppConnectionRemoveRequest, AppConnectionSaveRequest, ArtifactSummary, ArtifactUploadInput, AutomationCreateInput, AutomationStatus, AutomationUpdateRequest, ConnectionSettings, ContextCompactionConfiguration, CronCreateInput, CronUpdateInput, DesktopHostPreferences, DesktopPlatform, ExtensionEnablementRequest, ExtensionInstallRequest, ExtensionPreviewRequest, ExtensionRemoveRequest, GoalTransitionOperation, GoalUpdateRequest, HeartbeatConfiguration, McpMutationRequest, ModelProfileCreateInput, ModelProfileUpdateInput, OperationsTaskControlInput, PluginMarketplaceSourceSpec, PpxClientApi, ResponseFeedbackInput, RunEvent, RuntimeCommand, SendMessageInput, SessionMutationRequest, SetupApplyRequest, SlashCommandRequest, UserLoginRequest } from "../../app/src/types";
 
 function desktopPlatform(): DesktopPlatform {
   if (process.platform === "darwin") {
@@ -20,6 +20,7 @@ const api: PpxClientApi = {
   getUserProfile: () => ipcRenderer.invoke("ppx-client:get-user-profile"),
   login: (request: UserLoginRequest) => ipcRenderer.invoke("ppx-client:login", request),
   logout: () => ipcRenderer.invoke("ppx-client:logout"),
+  recordUserActivity: () => ipcRenderer.invoke("ppx-client:record-user-activity"),
   getDiagnostics: () => ipcRenderer.invoke("ppx-client:get-diagnostics"),
   setDesktopHostPreferences: (preferences: DesktopHostPreferences) => ipcRenderer.invoke("ppx-client:set-desktop-host-preferences", preferences),
   testConnectionSettings: (settings: ConnectionSettings) => ipcRenderer.invoke("ppx-client:test-connection-settings", settings),
@@ -69,6 +70,7 @@ const api: PpxClientApi = {
   exportSession: (input: SessionMutationRequest) => ipcRenderer.invoke("ppx-client:export-session", input),
   deleteSession: (input: SessionMutationRequest) => ipcRenderer.invoke("ppx-client:delete-session", input),
   loadSession: (sessionId: string) => ipcRenderer.invoke("ppx-client:load-session", sessionId),
+  setResponseFeedback: (input: ResponseFeedbackInput) => ipcRenderer.invoke("ppx-client:set-response-feedback", input),
   getCurrentGoal: (sessionId: string) => ipcRenderer.invoke("ppx-client:get-current-goal", sessionId),
   updateGoal: (input: GoalUpdateRequest) => ipcRenderer.invoke("ppx-client:update-goal", input),
   transitionGoal: (operation: GoalTransitionOperation, goalId: string, expectedRevision: number) =>

@@ -43,6 +43,7 @@ import { isWorkspaceConfigurationComplete, setupReadinessFromStatus } from "../l
 import { LOCAL_USER_ID } from "../types";
 import { useActiveRuns } from "./use-active-runs";
 import { useConnectionRecovery } from "./use-connection-recovery";
+import { useIdleSession } from "./use-idle-session";
 import { productProfile } from "../../../product";
 
 export const ARCHIVED_SESSION_GUIDANCE = "Restore this session to continue.";
@@ -458,6 +459,8 @@ export function useDesktopWorkspace() {
   const [composer, setComposer] = useState("");
   const [attachments, setAttachments] = useState<PendingAttachment[]>([]);
   const [sendError, setSendError] = useState<string | null>(null);
+  const [feedbackMutationId, setFeedbackMutationId] = useState<string | null>(null);
+  const [feedbackError, setFeedbackError] = useState<{ responseId: string; message: string } | null>(null);
   const [cancellingRunId, setCancellingRunId] = useState<string | null>(null);
   const [connectionForm, setConnectionForm] = useState<ConnectionSettings>(buildConnectionSettings(null));
   const [savingConnection, setSavingConnection] = useState(false);
@@ -491,6 +494,17 @@ export function useDesktopWorkspace() {
   const connectionCandidateVersionRef = useRef(0);
   const setupFormInitializedRef = useRef(false);
   const activeRuns = useActiveRuns();
+
+  useIdleSession({
+    enabled: ready
+      && !authenticationRequired
+      && userProfile.accountKind === "product"
+      && Number.isSafeInteger(userProfile.sessionExpiresAtMs),
+    initialExpiresAtMs: userProfile.sessionExpiresAtMs,
+    hasActiveRuns: activeRuns.sessionIds.length > 0,
+    recordActivity: () => window.ppxClient.recordUserActivity(),
+    onExpire: () => logout("You were signed out after 1 hour without user activity or running tasks."),
+  });
 
   const updateConnectionForm: Dispatch<SetStateAction<ConnectionSettings>> = (next) => {
     connectionCandidateVersionRef.current += 1;
@@ -1079,21 +1093,59 @@ export function useDesktopWorkspace() {
     }
   }
 
-  async function logout(): Promise<void> {
-    await window.ppxClient.logout();
-    setAuthenticationRequired(true);
-    setAuthenticationError(null);
-    setUserProfile({ id: "", displayName: "Signed out", accountKind: "product" });
-    setRuntime(null);
-    setDiagnostics(null);
-    setSetupReadiness(null);
-    setSetupStatus(null);
-    setAgents([]);
-    setSessions([]);
-    replaceMessages([]);
-    setExtensions([]);
-    setModelProfiles([]);
-    setSlashCommands([]);
+  async function logout(reason?: string): Promise<void> {
+    try {
+      await window.ppxClient.logout();
+    } catch {
+      // Local state and encrypted credentials are cleared even after server expiry.
+    } finally {
+      setAuthenticationRequired(true);
+      setAuthenticationError(reason ?? null);
+      setUserProfile({ id: "", displayName: "Signed out", accountKind: "product" });
+      setRuntime(null);
+      setDiagnostics(null);
+      setSetupReadiness(null);
+      setSetupStatus(null);
+      setAgents([]);
+      setSessions([]);
+      replaceMessages([]);
+      setExtensions([]);
+      setModelProfiles([]);
+      setSlashCommands([]);
+      activeRuns.reset();
+      setFeedbackMutationId(null);
+      setFeedbackError(null);
+    }
+  }
+
+  async function setResponseFeedback(
+    message: ChatMessage,
+    rating: "up" | "down" | null,
+  ): Promise<void> {
+    const responseId = message.runId?.trim() || message.id;
+    setFeedbackMutationId(responseId);
+    setFeedbackError(null);
+    try {
+      const result = await window.ppxClient.setResponseFeedback({
+        sessionId: message.sessionId,
+        responseId,
+        messageId: message.id,
+        runId: message.runId ?? null,
+        rating,
+      });
+      setMessages((current) => current.map((item) => (
+        item.role === "assistant" && (item.runId?.trim() || item.id) === result.responseId
+          ? { ...item, feedback: result.rating }
+          : item
+      )));
+    } catch (error) {
+      setFeedbackError({
+        responseId,
+        message: clientErrorMessage(error),
+      });
+    } finally {
+      setFeedbackMutationId(null);
+    }
   }
 
   async function switchSession(session: SessionSummary): Promise<void> {
@@ -1724,6 +1776,9 @@ export function useDesktopWorkspace() {
     removeAttachment: (attachmentId: string) => setAttachments((current) => current.filter((item) => item.id !== attachmentId)),
     loadArtifactData,
     sendError,
+    feedbackMutationId,
+    feedbackError,
+    setResponseFeedback,
     activeSessionIds: activeRuns.sessionIds,
     currentSessionRunning,
     selectedAgentBusy,

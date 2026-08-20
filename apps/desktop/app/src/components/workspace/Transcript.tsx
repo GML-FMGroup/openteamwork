@@ -11,6 +11,9 @@ interface TranscriptProps {
   onScroll: () => void;
   onJumpToLatest: () => void;
   onUseSuggestion: (value: string) => void;
+  onResponseFeedback?: (message: ChatMessage, rating: "up" | "down" | null) => void | Promise<void>;
+  feedbackMutationId?: string | null;
+  feedbackError?: { responseId: string; message: string } | null;
 }
 
 const suggestions = [
@@ -128,6 +131,9 @@ export function Transcript({
   onScroll,
   onJumpToLatest,
   onUseSuggestion,
+  onResponseFeedback,
+  feedbackMutationId,
+  feedbackError,
 }: TranscriptProps) {
   const rows = projectTranscriptRows(messages, activeRunId);
   return (
@@ -157,6 +163,7 @@ export function Transcript({
               const message = row.message;
               const previousMessage = index > 0 ? rows[index - 1]?.message : null;
               const showIdentity = !(message.role === "assistant" && previousMessage?.role === "assistant");
+              const responseId = message.runId?.trim() || message.id;
               return (
                 <MessageBubble
                   key={message.id}
@@ -166,6 +173,9 @@ export function Transcript({
                   activityStreaming={message.status === "streaming"}
                   activityStartedAt={row.startedAt}
                   activityEndedAt={row.endedAt}
+                  onFeedback={onResponseFeedback}
+                  feedbackPending={feedbackMutationId === responseId}
+                  feedbackError={feedbackError?.responseId === responseId ? feedbackError.message : null}
                 />
               );
             })}

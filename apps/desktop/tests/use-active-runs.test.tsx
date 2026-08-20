@@ -15,5 +15,9 @@ describe("useActiveRuns", () => {
     act(() => result.current.finish("session-1"));
     act(() => result.current.attachRunId("session-1", "late-run-id"));
     expect(result.current.sessionIds).toEqual([]);
+
+    act(() => result.current.begin("session-2"));
+    act(() => result.current.reset());
+    expect(result.current.sessionIds).toEqual([]);
   });
 });

@@ -139,9 +139,16 @@ describe("OpenPPX Client public contract", () => {
         run_id: "run_1",
         role: "assistant",
         status: "completed",
+        feedback: "up",
         parts: [{ type: "markdown", text: "Hello" }],
       }),
-    ).toMatchObject({ id: "message_1", sessionId: "session_1", runId: "run_1", role: "assistant" });
+    ).toMatchObject({
+      id: "message_1",
+      sessionId: "session_1",
+      runId: "run_1",
+      role: "assistant",
+      feedback: "up",
+    });
   });
 
   it("prefers the stable Client Run id over an ADK invocation id", () => {

@@ -99,6 +99,9 @@ export function normalizeClientApiMessage(payload: unknown): ChatMessage | null 
   }
   const metadata = asRecord(message.metadata);
   const rawParts = Array.isArray(message.parts) ? message.parts : [];
+  const feedback = message.feedback === "up" || message.feedback === "down"
+    ? message.feedback
+    : null;
   return {
     id: asString(message.id),
     sessionId: asString(message.session_id ?? message.sessionId),
@@ -116,6 +119,7 @@ export function normalizeClientApiMessage(payload: unknown): ChatMessage | null 
     ) || null,
     role: normalizeRole(message.role),
     status: normalizeStatus(message.status, "completed"),
+    feedback,
     createdAt: asString(message.created_at ?? message.createdAt, new Date().toISOString()),
     parts: rawParts
       .map((part) => normalizeClientApiPart(part))

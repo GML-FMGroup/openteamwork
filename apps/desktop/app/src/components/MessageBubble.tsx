@@ -112,19 +112,58 @@ function roleLabel(role: ChatMessage["role"], agentName?: string): string {
   return "System";
 }
 
+function markdownCodeFence(text: string): string {
+  const longest = Math.max(0, ...Array.from(text.matchAll(/`+/g), (match) => match[0].length));
+  return "`".repeat(Math.max(3, longest + 1));
+}
+
+/** Serialize authored visible content without copying internal Tool activity. */
 function copyableMessageText(message: ChatMessage): string {
   return message.parts
     .map((part) => {
-      if (part.type === "tool_result") {
-        return part.summary;
+      if (part.type === "markdown" || part.type === "commentary") {
+        return part.text.trim();
       }
-      if (part.type === "step_ref") {
-        return part.detail;
+      if (part.type === "code") {
+        const fence = markdownCodeFence(part.text);
+        const language = (part.language ?? "").trim().replace(/[^a-z0-9_+#.-]/gi, "");
+        return `${fence}${language}\n${part.text}\n${fence}`;
       }
-      return part.text;
+      if (part.type === "image") {
+        return `![${part.text.replace(/]/g, "\\]")}](${part.url})`;
+      }
+      if (part.type === "file") {
+        const description = part.text.trim();
+        return `- **${part.fileName}**${description ? ` — ${description}` : ""}`;
+      }
+      if (part.type === "error") {
+        return part.text.split("\n").map((line) => `> ${line}`).join("\n");
+      }
+      return "";
     })
     .filter(Boolean)
     .join("\n\n");
+}
+
+function ResponseActionIcon({ name }: { name: "copy" | "up" | "down" }) {
+  if (name === "copy") {
+    return (
+      <svg aria-hidden="true" viewBox="0 0 20 20">
+        <rect x="6.5" y="6.5" width="9" height="9" rx="2" />
+        <path d="M13.5 6.5v-1A2 2 0 0 0 11.5 3.5h-7a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h2" />
+      </svg>
+    );
+  }
+  return (
+    <svg
+      aria-hidden="true"
+      className={name === "down" ? "is-down" : ""}
+      viewBox="0 0 20 20"
+    >
+      <path d="M6.5 8.5 9.2 3c.4-.8 1.4-1.2 2.2-.8.7.3 1.1 1 .9 1.8l-.5 2.2h3.3c1.2 0 2.1 1.1 1.8 2.3l-1.2 5.2c-.2.9-1 1.5-1.9 1.5H6.5" />
+      <path d="M3 7.2h3.5v8.3H3z" />
+    </svg>
+  );
 }
 
 function messageStatusLabel(status: ChatMessage["status"]): string | null {
@@ -282,6 +321,9 @@ export function MessageBubble({
   activityStreaming,
   activityStartedAt,
   activityEndedAt,
+  onFeedback,
+  feedbackPending = false,
+  feedbackError,
 }: {
   message: ChatMessage;
   agentName?: string;
@@ -290,6 +332,9 @@ export function MessageBubble({
   activityStreaming?: boolean;
   activityStartedAt?: string;
   activityEndedAt?: string;
+  onFeedback?: (message: ChatMessage, rating: "up" | "down" | null) => void | Promise<void>;
+  feedbackPending?: boolean;
+  feedbackError?: string | null;
 }) {
   const [copied, setCopied] = useState(false);
   const statusLabel = messageStatusLabel(message.status);
@@ -312,13 +357,14 @@ export function MessageBubble({
       ? "completed"
       : message.status;
   const timestamp = new Date(message.createdAt).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" });
+  const markdownText = copyableMessageText(message);
 
   async function copyMessage(): Promise<void> {
     if (!navigator.clipboard) {
       return;
     }
     try {
-      await navigator.clipboard.writeText(copyableMessageText(message));
+      await navigator.clipboard.writeText(markdownText);
       setCopied(true);
       window.setTimeout(() => setCopied(false), 1200);
     } catch {
@@ -370,6 +416,47 @@ export function MessageBubble({
             {copied ? "Copied" : "Copy"}
           </button>
           <time dateTime={message.createdAt}>{timestamp}</time>
+        </div>
+      ) : null}
+      {isAssistant && message.status !== "streaming" && markdownText ? (
+        <div className="assistant-response-actions" aria-label="Response actions">
+          <button
+            type="button"
+            onClick={copyMessage}
+            aria-label="Copy response as Markdown"
+            title={copied ? "Copied as Markdown" : "Copy as Markdown"}
+          >
+            <ResponseActionIcon name="copy" />
+          </button>
+          {onFeedback ? (
+            <>
+              <button
+                type="button"
+                className={message.feedback === "up" ? "is-selected" : ""}
+                onClick={() => void onFeedback(message, message.feedback === "up" ? null : "up")}
+                aria-label="Good response"
+                aria-pressed={message.feedback === "up"}
+                disabled={feedbackPending}
+                title="Good response"
+              >
+                <ResponseActionIcon name="up" />
+              </button>
+              <button
+                type="button"
+                className={message.feedback === "down" ? "is-selected" : ""}
+                onClick={() => void onFeedback(message, message.feedback === "down" ? null : "down")}
+                aria-label="Bad response"
+                aria-pressed={message.feedback === "down"}
+                disabled={feedbackPending}
+                title="Bad response"
+              >
+                <ResponseActionIcon name="down" />
+              </button>
+            </>
+          ) : null}
+          <span className="response-action-status" aria-live="polite">
+            {copied ? "Copied" : feedbackError ? `Feedback not saved: ${feedbackError}` : ""}
+          </span>
         </div>
       ) : null}
     </article>

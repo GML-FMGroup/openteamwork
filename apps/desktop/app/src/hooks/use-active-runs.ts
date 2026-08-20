@@ -34,6 +34,10 @@ export function useActiveRuns() {
     });
   }, []);
 
+  const reset = useCallback(() => {
+    setRunsBySession({});
+  }, []);
+
   const sessionIds = useMemo(() => Object.keys(runsBySession), [runsBySession]);
   const isSessionRunning = useCallback(
     (sessionId: string) => Object.hasOwn(runsBySession, sessionId),
@@ -53,6 +57,7 @@ export function useActiveRuns() {
     begin,
     attachRunId,
     finish,
+    reset,
     sessionIds,
     isSessionRunning,
     isAgentRunning,

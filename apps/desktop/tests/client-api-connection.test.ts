@@ -81,9 +81,13 @@ describe("ClientApiConnection", () => {
         });
       }
       expect(new Headers(init?.headers).get("Authorization")).toBe("Bearer otw_session_token");
+      if (url.endsWith("/api/v1/auth/activity")) {
+        return jsonResponse({ ok: true, data: { expiresAtMs: 1_800_000_900_000 } });
+      }
       return jsonResponse({
         ok: true,
         data: {
+          expiresAtMs: 1_800_000_000_000,
           user: {
             userId: "user_jiang",
             email: "jiang@example.com",
@@ -101,10 +105,13 @@ describe("ClientApiConnection", () => {
 
     const login = await connection.login("jiang@example.com", "secret value");
     const current = await connection.getAuthenticatedUser();
+    const activity = await connection.recordUserActivity();
 
     expect(login.accessToken).toBe("otw_session_token");
     expect(login.user).toMatchObject({ userId: "user_jiang", privilegeLevel: "high" });
     expect(current).toEqual(login.user);
+    expect(activity).toEqual({ expiresAtMs: 1_800_000_900_000 });
+    expect(connection.sessionExpiresAtMs).toBe(1_800_000_900_000);
     expect(connection.accessToken).toBe("otw_session_token");
   });
 

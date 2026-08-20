@@ -372,6 +372,9 @@ export function App() {
                   onScroll={transcript.handleScroll}
                   onJumpToLatest={transcript.jumpToLatest}
                   onUseSuggestion={workspace.setComposer}
+                  onResponseFeedback={workspace.setResponseFeedback}
+                  feedbackMutationId={workspace.feedbackMutationId}
+                  feedbackError={workspace.feedbackError}
                 />
                 <Composer
                   value={workspace.composer}

@@ -36,6 +36,7 @@ import {
   validateRuntimeCommand,
   validateSearchQuery,
   validateProviderId,
+  validateResponseFeedbackInput,
   validateModelProfileCreateInput,
   validateModelProfileUpdateInput,
   validateModelProfileId,
@@ -174,9 +175,13 @@ app.whenReady().then(() => {
     return profile;
   });
   ipcMain.handle("ppx-client:logout", async () => {
-    await adapter!.logout();
-    clearActiveSecureConnectionCredential();
+    try {
+      await adapter!.logout();
+    } finally {
+      clearActiveSecureConnectionCredential();
+    }
   });
+  ipcMain.handle("ppx-client:record-user-activity", async () => adapter!.recordUserActivity());
   ipcMain.handle("ppx-client:get-diagnostics", async () => withDesktopVersion(await adapter!.getDiagnostics()));
   ipcMain.handle("ppx-client:set-desktop-host-preferences", (_event, preferences: DesktopHostPreferences) => {
     if (
@@ -331,6 +336,9 @@ app.whenReady().then(() => {
   );
   ipcMain.handle("ppx-client:load-session", async (_event, sessionId: unknown) =>
     adapter!.loadSession(validateIdentifier(sessionId, "Session id")),
+  );
+  ipcMain.handle("ppx-client:set-response-feedback", async (_event, input: unknown) =>
+    adapter!.setResponseFeedback(validateResponseFeedbackInput(input)),
   );
   ipcMain.handle("ppx-client:get-current-goal", async (_event, sessionId: unknown) =>
     adapter!.getCurrentGoal(validateIdentifier(sessionId, "Session id")),

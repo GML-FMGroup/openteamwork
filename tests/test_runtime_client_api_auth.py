@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, Callable
 from pathlib import Path
 
 import pytest
@@ -126,8 +126,12 @@ def test_handler_returns_full_health_to_an_authenticated_client() -> None:
     assert responses == [(200, {"ok": True, "data": {"public": False}})]
 
 
-def _account_service(tmp_path: Path) -> UserAccountService:
-    service = UserAccountService(db_path=tmp_path / "identity.db")
+def _account_service(
+    tmp_path: Path,
+    *,
+    clock_ms: Callable[[], int] | None = None,
+) -> UserAccountService:
+    service = UserAccountService(db_path=tmp_path / "identity.db", clock_ms=clock_ms)
     service.add_user(
         email="jiang@example.com",
         secret="correct horse battery staple",
@@ -217,12 +221,100 @@ def test_current_user_requires_and_resolves_user_session_token(tmp_path: Path) -
                         "email": "jiang@example.com",
                         "privilegeLevel": "high",
                         "status": "active",
-                    }
+                    },
+                    "expiresAtMs": login.expires_at_ms,
                 },
             },
             {},
         )
     ]
+
+
+def test_explicit_activity_endpoint_advances_and_returns_the_idle_deadline(tmp_path: Path) -> None:
+    now = [1_700_000_000_000]
+    service = UserAccountService(
+        db_path=tmp_path / "identity.db",
+        clock_ms=lambda: now[0],
+    )
+    service.add_user(
+        email="jiang@example.com",
+        secret="correct horse battery staple",
+        privilege_level="high",
+    )
+    login = service.authenticate("jiang@example.com", "correct horse battery staple")
+    now[0] += 45 * 60 * 1000
+    handler, responses = _handler(path="/api/v1/auth/activity", service=service)
+    handler.headers = {"Authorization": f"Bearer {login.access_token}"}
+    handler._read_json_body = lambda: {}
+
+    handler.do_POST()
+
+    assert responses == [
+        (
+            200,
+            {"ok": True, "data": {"expiresAtMs": now[0] + 60 * 60 * 1000}},
+            {},
+        )
+    ]
+
+
+def test_response_feedback_route_binds_the_authenticated_user(tmp_path: Path) -> None:
+    service = _account_service(tmp_path)
+    login = service.authenticate("jiang@example.com", "correct horse battery staple")
+    calls: list[dict[str, object]] = []
+    coordinator = SimpleNamespace(
+        user_accounts=service,
+        login_rate_limiter=LoginRateLimiter(),
+        set_response_feedback=lambda **kwargs: (
+            calls.append(kwargs)
+            or {
+                "ok": True,
+                "data": {
+                    "session_id": kwargs["session_id"],
+                    "response_id": kwargs["response_id"],
+                    "rating": kwargs["rating"],
+                },
+            }
+        ),
+    )
+    handler, responses = _handler(
+        path="/api/v1/sessions/session-1/responses/run-1/feedback",
+        service=service,
+        coordinator=coordinator,
+    )
+    handler.headers = {"Authorization": f"Bearer {login.access_token}"}
+    handler._read_json_body = lambda: {
+        "messageId": "message-1",
+        "runId": "run-1",
+        "rating": "down",
+    }
+
+    handler.do_POST()
+
+    assert responses[0][0] == 200
+    assert calls == [{
+        "session_id": "session-1",
+        "response_id": "run-1",
+        "message_id": "message-1",
+        "run_id": "run-1",
+        "rating": "down",
+        "user_id": login.account.user_id,
+    }]
+
+
+def test_response_feedback_route_rejects_a_deployment_token(tmp_path: Path) -> None:
+    service = _account_service(tmp_path)
+    handler, responses = _handler(
+        path="/api/v1/sessions/session-1/responses/run-1/feedback",
+        service=service,
+    )
+    handler.headers = {"Authorization": "Bearer deployment-token"}
+    handler._read_json_body = lambda: pytest.fail("unauthenticated feedback body must not be used")
+
+    handler.do_POST()
+
+    assert responses[0][0] == 401
+    assert responses[0][1]["error"]["code"] == "UNAUTHORIZED"
 
 
 def test_logout_revokes_only_the_presented_user_session(tmp_path: Path) -> None:
@@ -236,6 +328,21 @@ def test_logout_revokes_only_the_presented_user_session(tmp_path: Path) -> None:
 
     assert responses[0][:2] == (200, {"ok": True, "data": {"loggedOut": True}})
     assert service.resolve_session(login.access_token) is None
+
+
+def test_logout_is_idempotent_for_an_expired_user_session(tmp_path: Path) -> None:
+    now = [1_700_000_000_000]
+    service = _account_service(tmp_path, clock_ms=lambda: now[0])
+    login = service.authenticate("jiang@example.com", "correct horse battery staple")
+    now[0] = login.expires_at_ms + 1
+    handler, responses = _handler(path="/api/v1/auth/logout", service=service)
+    handler.headers = {"Authorization": f"Bearer {login.access_token}"}
+    handler._read_json_body = lambda: {}
+
+    handler.do_POST()
+
+    assert responses[0][:2] == (200, {"ok": True, "data": {"loggedOut": True}})
+    assert service.logout(login.access_token) is False
 
 
 def test_login_rate_limit_is_generic_and_success_clears_failures(tmp_path: Path) -> None:
