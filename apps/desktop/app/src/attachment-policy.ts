@@ -4,20 +4,20 @@ export const MAX_ATTACHMENT_BYTES = 20 * MEBIBYTE;
 export const MAX_MESSAGE_ATTACHMENT_BYTES = 50 * MEBIBYTE;
 export const MAX_MESSAGE_ATTACHMENTS = 10;
 
-const MODERN_DOCUMENT_EXTENSIONS = [".docx", ".xlsx", ".csv", ".pdf", ".pptx"];
+const DOCUMENT_EXTENSIONS = [".doc", ".docx", ".xls", ".xlsx", ".csv", ".pdf", ".pptx"];
 const IMAGE_EXTENSIONS = [".png", ".jpg", ".jpeg", ".webp"];
 const TEXT_EXTENSIONS = [
   ".css", ".html", ".ini", ".js", ".json", ".jsx", ".log", ".md", ".py",
   ".toml", ".ts", ".tsx", ".txt", ".xml", ".yaml", ".yml",
 ];
 const SUPPORTED_EXTENSIONS = new Set([
-  ...MODERN_DOCUMENT_EXTENSIONS,
+  ...DOCUMENT_EXTENSIONS,
   ...IMAGE_EXTENSIONS,
   ...TEXT_EXTENSIONS,
 ]);
-const LEGACY_OFFICE_EXTENSIONS = new Set([".doc", ".xls", ".ppt"]);
+const LEGACY_OFFICE_EXTENSIONS = new Set([".ppt"]);
 
-export const ATTACHMENT_ACCEPT = [...MODERN_DOCUMENT_EXTENSIONS, ...IMAGE_EXTENSIONS, ...TEXT_EXTENSIONS].join(",");
+export const ATTACHMENT_ACCEPT = [...DOCUMENT_EXTENSIONS, ...IMAGE_EXTENSIONS, ...TEXT_EXTENSIONS].join(",");
 
 function fileExtension(fileName: string): string {
   const index = fileName.lastIndexOf(".");
@@ -28,7 +28,7 @@ function fileExtension(fileName: string): string {
 export function attachmentPreflightError(file: Pick<File, "name" | "size">): string | null {
   const extension = fileExtension(file.name);
   if (LEGACY_OFFICE_EXTENSIONS.has(extension)) {
-    return `${file.name} uses a legacy Office format. Convert it to DOCX, XLSX, or PPTX first.`;
+    return `${file.name} uses a legacy Office format. Convert it to PPTX first.`;
   }
   if (!SUPPORTED_EXTENSIONS.has(extension)) {
     return `${file.name} is not a supported attachment type.`;

@@ -53,8 +53,14 @@ class _AttachmentSpec:
 _WORD_MIME = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
 _EXCEL_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 _POWERPOINT_MIME = "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+_LEGACY_WORD_MIME = "application/msword"
+_LEGACY_EXCEL_MIME = "application/vnd.ms-excel"
 
-_LEGACY_OFFICE_EXTENSIONS = {".doc", ".xls", ".ppt"}
+_UNSUPPORTED_LEGACY_OFFICE_EXTENSIONS = {".ppt"}
+_OLE_COMPOUND_FILE_MAGIC = b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1"
+_BIFF_BOF_RECORD_TYPES = {0x0009, 0x0209, 0x0409, 0x0809}
+_BIFF_FILEPASS_RECORD_TYPE = 0x002F
+_MAX_BIFF_RECORDS = 500_000
 _TEXT_EXTENSIONS = {
     ".css",
     ".html",
@@ -172,6 +178,183 @@ def _bounded_text(file_name: str, kind: str, text: str) -> str:
             f"{file_name} contains more than {MAX_EXTRACTED_TEXT_CHARS:,} readable characters."
         )
     return f"[Attachment: {file_name}]\nFormat: {kind}\n\n{normalized}\n[End attachment]"
+
+
+def _read_legacy_office_stream(
+    file_name: str,
+    data: bytes,
+    *,
+    expected_stream_names: tuple[str, ...],
+    prohibited_stream_names: tuple[str, ...],
+) -> bytes:
+    """Validate an OLE container and return the expected legacy Office stream."""
+
+    extension = _extension(file_name)
+    if not data.startswith(_OLE_COMPOUND_FILE_MAGIC):
+        raise AttachmentValidationError(f"Attachment content does not match its {extension} extension.")
+    try:
+        import olefile
+        from olefile.olefile import OleFileError
+    except ImportError as exc:  # pragma: no cover - packaging gate covers the dependency
+        raise AttachmentValidationError("Legacy Office support is unavailable in this Node installation.") from exc
+
+    try:
+        compound = olefile.OleFileIO(io.BytesIO(data), raise_defects=olefile.DEFECT_INCORRECT)
+        try:
+            if any(compound.exists(name) for name in prohibited_stream_names):
+                raise AttachmentValidationError(
+                    f"Attachment content does not match its {extension} extension."
+                )
+            stream_name = next((name for name in expected_stream_names if compound.exists(name)), None)
+            if stream_name is None:
+                raise AttachmentValidationError(
+                    f"Attachment content does not match its {extension} extension."
+                )
+            stream = compound.openstream(stream_name).read()
+        finally:
+            compound.close()
+    except AttachmentValidationError:
+        raise
+    except (OSError, ValueError, IndexError, OleFileError) as exc:
+        raise AttachmentValidationError("The legacy Office document is damaged or cannot be read safely.") from exc
+    if not stream:
+        raise AttachmentValidationError("The legacy Office document contains an empty content stream.")
+    return stream
+
+
+def _legacy_doc_metadata(document_ir: dict[str, Any]) -> dict[str, int]:
+    sections = document_ir.get("sections")
+    return {"section_count": len(sections) if isinstance(sections, list) else 0}
+
+
+def _parse_legacy_office(
+    data: bytes,
+    *,
+    document_format: str,
+    metadata_from_ir: Callable[[dict[str, Any]], dict[str, int]],
+) -> tuple[str, dict[str, int]]:
+    """Parse a prevalidated legacy Office file without executing active content."""
+
+    try:
+        from office_oxide import Document, OfficeOxideError
+    except ImportError as exc:  # pragma: no cover - packaging gate covers the dependency
+        raise AttachmentValidationError("Legacy Office support is unavailable in this Node installation.") from exc
+    try:
+        with Document.from_bytes(data, document_format) as document:
+            document_ir = document.to_ir()
+            if not isinstance(document_ir, dict):
+                raise AttachmentValidationError("The legacy Office document could not be projected safely.")
+            metadata = metadata_from_ir(document_ir)
+            plain_text = document.plain_text()
+    except AttachmentValidationError:
+        raise
+    except (OfficeOxideError, OSError, RuntimeError, TypeError, ValueError) as exc:
+        raise AttachmentValidationError("The legacy Office document is damaged or cannot be read safely.") from exc
+    return plain_text, metadata
+
+
+def _extract_doc(file_name: str, data: bytes) -> tuple[str, dict[str, Any]]:
+    word_document = _read_legacy_office_stream(
+        file_name,
+        data,
+        expected_stream_names=("WordDocument",),
+        prohibited_stream_names=("Workbook", "Book"),
+    )
+    if len(word_document) < 12 or int.from_bytes(word_document[:2], "little") != 0xA5EC:
+        raise AttachmentValidationError("Attachment content does not match its .doc extension.")
+    fib_flags = int.from_bytes(word_document[10:12], "little")
+    if fib_flags & 0x8100:
+        raise AttachmentValidationError("Encrypted Word documents are not supported.")
+
+    plain_text, metadata = _parse_legacy_office(
+        data,
+        document_format="doc",
+        metadata_from_ir=_legacy_doc_metadata,
+    )
+    projected = _bounded_text(file_name, "Word document", plain_text)
+    return projected, {
+        **metadata,
+        "text_char_count": len(projected),
+    }
+
+
+def _validate_biff_records(file_name: str, workbook: bytes) -> None:
+    """Reject encrypted or malformed BIFF workbook streams before native parsing."""
+
+    position = 0
+    record_count = 0
+    first_record_type: int | None = None
+    while position + 4 <= len(workbook):
+        record_type = int.from_bytes(workbook[position : position + 2], "little")
+        record_size = int.from_bytes(workbook[position + 2 : position + 4], "little")
+        if record_type == 0 and record_size == 0:
+            break
+        if first_record_type is None:
+            first_record_type = record_type
+        record_count += 1
+        if record_count > _MAX_BIFF_RECORDS:
+            raise AttachmentValidationError(f"{file_name} contains too many workbook records.")
+        record_end = position + 4 + record_size
+        if record_end > len(workbook):
+            raise AttachmentValidationError("The Excel workbook contains a malformed BIFF record.")
+        if record_type == _BIFF_FILEPASS_RECORD_TYPE:
+            raise AttachmentValidationError("Encrypted Excel workbooks are not supported.")
+        position = record_end
+    if any(workbook[position:]):
+        raise AttachmentValidationError("The Excel workbook contains a malformed BIFF record.")
+    if first_record_type not in _BIFF_BOF_RECORD_TYPES:
+        raise AttachmentValidationError("Attachment content does not match its .xls extension.")
+
+
+def _legacy_xls_metadata(file_name: str, document_ir: dict[str, Any]) -> dict[str, int]:
+    """Return bounded sheet and cell metadata from office-oxide's XLS IR."""
+
+    sections = document_ir.get("sections")
+    if not isinstance(sections, list):
+        raise AttachmentValidationError("The Excel workbook could not be projected safely.")
+    total_cells = 0
+    for section in sections:
+        if not isinstance(section, dict):
+            raise AttachmentValidationError("The Excel workbook could not be projected safely.")
+        elements = section.get("elements", [])
+        if not isinstance(elements, list):
+            raise AttachmentValidationError("The Excel workbook could not be projected safely.")
+        for element in elements:
+            if not isinstance(element, dict) or element.get("type") != "table":
+                continue
+            rows = element.get("rows", [])
+            if not isinstance(rows, list):
+                raise AttachmentValidationError("The Excel workbook could not be projected safely.")
+            for row in rows:
+                cells = row.get("cells", []) if isinstance(row, dict) else None
+                if not isinstance(cells, list):
+                    raise AttachmentValidationError("The Excel workbook could not be projected safely.")
+                total_cells += len(cells)
+                if total_cells > MAX_SPREADSHEET_CELLS:
+                    raise AttachmentValidationError(
+                        f"{file_name} contains more than {MAX_SPREADSHEET_CELLS:,} cells."
+                    )
+    return {"sheet_count": len(sections), "cell_count": total_cells}
+
+
+def _extract_xls(file_name: str, data: bytes) -> tuple[str, dict[str, Any]]:
+    workbook = _read_legacy_office_stream(
+        file_name,
+        data,
+        expected_stream_names=("Workbook", "Book"),
+        prohibited_stream_names=("WordDocument",),
+    )
+    _validate_biff_records(file_name, workbook)
+    plain_text, metadata = _parse_legacy_office(
+        data,
+        document_format="xls",
+        metadata_from_ir=lambda document_ir: _legacy_xls_metadata(file_name, document_ir),
+    )
+    projected = _bounded_text(file_name, "Excel workbook", plain_text)
+    return projected, {
+        **metadata,
+        "text_char_count": len(projected),
+    }
 
 
 def _extract_docx(file_name: str, data: bytes) -> tuple[str, dict[str, Any]]:
@@ -400,12 +583,14 @@ def _extract_image(file_name: str, data: bytes) -> tuple[None, dict[str, Any]]:
 
 def _spec_for(file_name: str) -> _AttachmentSpec:
     extension = _extension(file_name)
-    if extension in _LEGACY_OFFICE_EXTENSIONS:
+    if extension in _UNSUPPORTED_LEGACY_OFFICE_EXTENSIONS:
         raise AttachmentValidationError(
             f"{extension} files are not supported. Convert the file to a modern Office format first."
         )
     specs = {
+        ".doc": _AttachmentSpec(_LEGACY_WORD_MIME, frozenset({_LEGACY_WORD_MIME}), "document", _extract_doc),
         ".docx": _AttachmentSpec(_WORD_MIME, frozenset({_WORD_MIME}), "document", _extract_docx),
+        ".xls": _AttachmentSpec(_LEGACY_EXCEL_MIME, frozenset({_LEGACY_EXCEL_MIME}), "spreadsheet", _extract_xls),
         ".xlsx": _AttachmentSpec(_EXCEL_MIME, frozenset({_EXCEL_MIME}), "spreadsheet", _extract_xlsx),
         ".csv": _AttachmentSpec("text/csv", frozenset({"text/csv", "application/csv", "application/vnd.ms-excel"}), "spreadsheet", _extract_csv),
         ".pdf": _AttachmentSpec("application/pdf", frozenset({"application/pdf"}), "document", _extract_pdf),
